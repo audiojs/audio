@@ -199,7 +199,7 @@ const scaleNames = { log: 'Octaves', mel: 'Mel', erb: 'ERB', lin: 'Hertz' }
 // it; out, the other way
 const curveIcon = (name, out = false) => 'M' + Array.from({ length: 13 }, (_, i) => `${out ? 20 - 16 * i / 12 : 4 + 16 * i / 12} ${+(20 - 16 * CURVES[name](i / 12)).toFixed(2)}`).join('L')
 const curves = [['linear', 'Linear'], ['exp', 'Exponential'], ['log', 'Logarithmic'], ['cos', 'S-curve']].map(([name, label]) => ({ name, label, icon: curveIcon(name) }))
-// The context menu's own: up and down a level, a marker's flag, all of it, zoom to it, find
+// The context menu's own: up and down a level, a marker's place, all of it, zoom to it, find
 const glyphs = { up: 'M12 19V5m-6 6 6-6 6 6', down: 'M12 5v14m-6-6 6 6 6-6', marker: 'M6 21V4h11l-2.5 4 2.5 4H6', all: 'M4 8V4h4m8 0h4v4m0 8v4h-4M8 20H4v-4', zoom: 'M4 9V4h5m6 0h5v5m0 6v5h-5m-6 0H4v-5', find: 'M11 17a6 6 0 1 0 0-12 6 6 0 0 0 0 12Zm4.5-1.5L20 20' }
 // What the grip past a selection's end does to its length, chosen from a click on it: cuts it back or adds silence
 // (remove, insert), stretches it, the pitch kept (fn/stretch.js), or speeds it, the pitch following, as a tape
@@ -779,7 +779,7 @@ v = view(root.querySelector('.plot'), {
     const next = (list, now) => list[(list.findIndex(m => m.name === now) + 1) % list.length].name
     ;({ curve: () => setCurve(next(curves, state.fadeCurve)), grip: () => setGrip(next(gripModes, state.gripMode)), pitch: () => setPitch(!state.pitch) })[kind]()
   },
-  // a flag's own menu: its name, its going; else the edits for what is under the pointer
+  // a marker's own menu: its name, its going; else the edits for what is under the pointer
   oncontext({ x, y, marker, room, track }) { bar.at(room ? roomMenu() : track != null ? trackMenu(track) : marker ? [{ label: 'Name…', hint: marker.label || '', run: marker.rename, icon: glyphs.marker }, { label: 'Delete the marker', run: () => unmark(marker), icon: opIcons.remove }] : contextMenu(), x, y) },
   onscrub,
   // a pitch, an intonation or formants dragged, heard as they will sound: the first 2 s of what they move, through the
@@ -2723,7 +2723,7 @@ function crossfade({ at, duration }) { const d = number(duration, v.unit); retur
 // A selection's level moved up or down by the pointer, onto the gain curve as a level change is
 const lift = ({ range, db, drawn }) => level(db, range, !drawn)
 // A marker at the caret, at each when there are several, or where it plays while it plays; over what is selected, a
-// range marked: mark() at the chain's end (M). One made, not playing, its name is asked for over its flag
+// range marked: mark() at the chain's end (M). One made, not playing, its name is asked for where it is written
 function addMarker() {
   if (!state.whole) return
   const s = t => number(t, v.unit), playing = pl.playing
@@ -2746,8 +2746,8 @@ function markCall({ time, duration = 0, track }) {
   return calls.reduce((a, k) => !a || far(k) <= far(a) ? k : a, null)
 }
 const unmarked = () => note('This marker comes from the file; no mark() in the script sets it.')
-// A marker taken away (from its flag's menu), or moved (a drag of it): its mark() call gone, or its time moved
-// as much, the edits after it being what they were
+// A marker taken away (from its menu), or moved (a drag of its triangle): its mark() call gone, or its time moved
+// as much (a range's end dragged, its length too: `d`), the edits after it being what they were
 function unmark(marker) {
   const call = markCall(marker)
   if (!call) return unmarked()
@@ -2762,10 +2762,11 @@ function relabel({ label, ...marker }) {
   if (label || named) ed.change({ from: at.to, to: named?.to ?? at.to, insert: label ? `, ${quote(label)}` : '' })
   return true
 }
-function remark({ to, ...marker }) {
-  const arg = markCall(marker)?.args[0], at = arg?.kind === 'object' ? arg.props.find(p => p.name === 'at') : arg
+function remark({ to, d, ...marker }) {
+  const arg = markCall(marker)?.args[0], [at, length] = arg?.kind === 'object' ? ['at', 'duration'].map(name => arg.props.find(p => p.name === name)) : [arg]
   if (typeof at?.value !== 'number') return unmarked()
-  ed.change({ from: at.valueFrom ?? at.from, to: at.valueTo ?? at.to, insert: number(Math.max(0, at.value + to - marker.time), v.unit) })
+  const set = (p, t) => ({ from: p.valueFrom ?? p.from, to: p.valueTo ?? p.to, insert: number(Math.max(0, t), v.unit) })
+  ed.change([set(at, at.value + to - marker.time), d != null && typeof length?.value === 'number' && set(length, length.value + d - marker.duration)].filter(Boolean))
   return true
 }
 // A fade in or out over [from, to], from a selection's corner: from its edge inward, or centred on its edge; on its

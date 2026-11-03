@@ -619,19 +619,17 @@ svg { flex: none; }
 @media (prefers-reduced-motion: reduce) { .plot .veil::after { animation: none; transform: none; width: 100%; background: color-mix(in oklch, var(--color-screen-bright) 5%, transparent); } }
 :is(.lane-look, .layer button):focus-visible { outline: 1px solid var(--color-screen-accent); outline-offset: 1px; }
 
-/* the takes of a place (view.js placeTakes): its numbers in its corner, flush with it, square as a selection's tools
-   are (view.js paintGrips: 16 px, the screen under them at .9), side by side, the one heard lit, … lit while its menu
-   is open; + adds an empty take there, off while one is */
-.plot .takes { position: absolute; z-index: 1; display: flex; background: color-mix(in oklch, var(--color-screen) 90%, transparent); }
+/* the takes of a place (view.js placeTakes): its numbers in its strip, written as a range's name is (view.js NAMEH,
+   label()), side by side, the one heard lit, … lit while its menu is open; + adds an empty take there, off while one is */
+.plot .takes { position: absolute; z-index: 1; display: flex; }
 .plot .takes[hidden] { display: none; }
-.plot .takes button { min-width: 16px; height: 16px; padding: 0 3px; border: 0; border-radius: 0; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); cursor: pointer; }
-.plot .takes button:hover:not([aria-disabled="true"]) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
-.plot .takes button:is([aria-pressed="true"], [aria-expanded="true"]) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.plot .takes button { height: 14px; padding: 0 2px; border: 0; border-radius: 0; background: none; color: var(--color-screen-muted); font: var(--font-size-label)/14px var(--font-mono); cursor: pointer; }
+.plot .takes button:hover:not([aria-disabled="true"]) { color: var(--color-screen-bright); }
+.plot .takes button:is([aria-pressed="true"], [aria-expanded="true"]) { color: var(--color-screen-bright); }
 .plot .takes button:focus-visible { outline: 1px solid var(--color-screen-accent); outline-offset: -1px; }
 .plot .takes .takes-add { color: var(--color-screen-soft); }
 .plot .takes .takes-add[aria-disabled="true"] { color: var(--color-screen-muted); cursor: default; }
 
-/* a marker's name, written over its flag */
 /* a name written on where it is drawn (view.js named): its text in place, as wide as it, no box round it */
 .marker-name { position: absolute; z-index: 2; min-width: 2ch; padding: 0; border: 0; background: none; color: var(--color-screen-bright); caret-color: var(--color-screen-bright); font: 11px var(--font-mono); line-height: 18px; outline: none; }
 
