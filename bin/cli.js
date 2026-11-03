@@ -873,9 +873,9 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
       decoding = `   ${SPIN[spinIdx++ % 10]} ${editLabel || 'processing'}`
     }
 
-    // Rolling dBFS — peak of stats.max blocks over last 3s; real-time, seek-safe
+    // Rolling dBFS — the peak of the blocks' min and max over the last 3s; real-time, seek-safe
     let localDbStr = ''
-    if (a?.stats?.max?.[0]?.length) {
+    if (a?.stats?.min?.[0]?.length && a.stats.max?.[0]?.length) {
       let bs = a.stats.blockSize, sr = a.sampleRate
       let toB = Math.min(Math.floor(t * sr / bs) + 1, a.stats.max[0].length)
       let fromB = Math.max(0, toB - Math.ceil(3 * sr / bs))
