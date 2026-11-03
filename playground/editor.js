@@ -994,7 +994,7 @@ function menus() {
       { label: state.whole ? 'Record at the caret' : 'Record', keys: 'R', run: startRecording, disabled: !!state.recording },
       { label: 'Record a new track', hint: 'The others playing', keys: '⇧R', run: () => startRecording(true), disabled: !!state.recording || none },
       { label: 'Record another take', hint: 'Of the recording at the caret', keys: '⌥R', run: retakeHere, disabled: !!state.recording || none },
-      here ? { label: 'Takes', hint: `${here.list.length} here`, items: [...takeList(here), '-', { label: 'Next take', keys: 'T', run: () => nextTake(1) }, { label: 'Take before', keys: '⇧T', run: () => nextTake(-1) }, '-', deletion(here)] }
+      here ? { label: 'Takes', hint: `${here.list.length} here`, items: [...takeList(here), '-', deletion(here)] }
         : { label: 'Takes', hint: 'Record again where a take went in, or with the loop on', disabled: true }
     ] },
     { name: 'Help', items: [
@@ -2747,7 +2747,8 @@ function markCall({ time, duration = 0, track }) {
 }
 const unmarked = () => note('This marker comes from the file; no mark() in the script sets it.')
 // A marker taken away (from its menu), or moved (a drag of its triangle): its mark() call gone, or its time moved
-// as much (a range's end dragged, its length too: `d`), the edits after it being what they were
+// as much (a range's end dragged, its length too: `d`; a moment pulled apart, a range from then on, its time an options
+// object), the edits after it being what they were
 function unmark(marker) {
   const call = markCall(marker)
   if (!call) return unmarked()
@@ -2765,8 +2766,9 @@ function relabel({ label, ...marker }) {
 function remark({ to, d, ...marker }) {
   const arg = markCall(marker)?.args[0], [at, length] = arg?.kind === 'object' ? ['at', 'duration'].map(name => arg.props.find(p => p.name === name)) : [arg]
   if (typeof at?.value !== 'number') return unmarked()
-  const set = (p, t) => ({ from: p.valueFrom ?? p.from, to: p.valueTo ?? p.to, insert: number(Math.max(0, t), v.unit) })
-  ed.change([set(at, at.value + to - marker.time), d != null && typeof length?.value === 'number' && set(length, length.value + d - marker.duration)].filter(Boolean))
+  const s = t => number(Math.max(0, t), v.unit), set = (p, t) => ({ from: p.valueFrom ?? p.from, to: p.valueTo ?? p.to, insert: s(t) })
+  if (arg.kind !== 'object' && d) ed.change({ from: arg.from, to: arg.to, insert: `{ at: ${s(at.value + to - marker.time)}, d: ${s(d)} }` })
+  else ed.change([set(at, at.value + to - marker.time), d != null && typeof length?.value === 'number' && set(length, length.value + d - marker.duration)].filter(Boolean))
   return true
 }
 // A fade in or out over [from, to], from a selection's corner: from its edge inward, or centred on its edge; on its
@@ -3367,7 +3369,7 @@ async function stopRecording() {
   if (!write(...names.map(name => `write(audio(${quote(name)}), { at: ${number(from, 1e-6)} })`))) return v.take(null)
   v.setCursor(end)
   const here = takes(ed.code).findLast(r => Math.abs(r.at - from) < 1e-6)?.list.length ?? 1
-  note(`Recorded ${names.length > 1 ? `${names.length} takes of ` : ''}${clock(end - from)}${here > names.length ? `, ${here} takes here` : ''}${here > 1 ? ', the last heard: T and ⇧T switch them' : ': ⌥R records another take of it'}${cut ? '. The last pass, cut short, is left out' : ''}`)
+  note(`Recorded ${names.length > 1 ? `${names.length} takes of ` : ''}${clock(end - from)}${here > names.length ? `, ${here} takes here` : ''}${here > 1 ? ', the last heard: their numbers under the lanes switch them' : ': ⌥R records another take of it'}${cut ? '. The last pass, cut short, is left out' : ''}`)
 }
 // The others, as their speakers have them, the track it goes into muted (worker.js voice), from where it starts to the
 // selection's end; once they play, where they are as the microphone's clock goes is read each frame (flush), both clocks
@@ -3443,14 +3445,8 @@ function takesHere(alone = false) {
   const many = all.filter(r => r.list.length > 1)
   return within.findLast(r => alone || r.list.length > 1) ?? (alone ? null : many.findLast(r => span(r)[0] <= t + 1e-6) ?? many[0] ?? null)
 }
-// The next take there heard (T), or the one before (⇧T), the others turned off, as a take folder's are switched
-// (Logic's) or an item's (REAPER's T): playing, it takes over where it plays. One step, which Undo takes back
-function nextTake(by = 1) {
-  const run = takesHere()
-  if (!run) return note('No takes here. Record again where a take went in, or over a selection with the loop on.')
-  const n = run.list.length, on = run.list.findLastIndex(x => x.on)
-  useTakeOf(run, ((on < 0 ? (by > 0 ? -1 : 0) : on) + by + n) % n)
-}
+// A take there heard, the others turned off, as a take folder's are switched (Logic's): playing, it takes over where it
+// plays. One step, which Undo takes back
 function useTakeOf(run, k) {
   const change = onTop(run, useTake(ed.code, run.list[k].from))
   if (change) ed.change(change)
@@ -4241,7 +4237,6 @@ document.addEventListener('keydown', event => {
   else if (!typing && !mod && !event.altKey && event.key.toLowerCase() === 'm' && state.whole) { event.preventDefault(); addMarker() }
   else if (!typing && !mod && !event.altKey && event.key.toLowerCase() === 'k' && state.selection && !state.band) { event.preventDefault(); editSelection('crop') }
   else if (!typing && !mod && !event.altKey && event.key.toLowerCase() === 'l' && state.whole) { event.preventDefault(); toggleLoop() }
-  else if (!typing && !mod && !event.altKey && event.key.toLowerCase() === 't' && state.hasOutput && !state.recording) { event.preventDefault(); nextTake(event.shiftKey ? -1 : 1) }
   else if (!typing && !mod && event.code === 'KeyR' && !state.playing && state.shuttle == null && !state.halting && !event.repeat) { event.preventDefault(); state.recording ? stopRecording() : event.altKey ? retakeHere() : startRecording(event.shiftKey && state.whole) }
   else if (event.key === ' ' && !typing && !event.target.closest('button, a')) { event.preventDefault(); state.recording ? stopRecording() : togglePlay() }
   else if (mod && event.shiftKey && event.key.toLowerCase() === 't') { event.preventDefault(); reopenTab() }
