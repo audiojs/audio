@@ -2,11 +2,12 @@ import { append, number, between, steps as stepsOf, turnOff, tracks as tracksOf,
 import { builtins, sample, microphone, hold as holdInput, unique } from '../sources.js'
 import opIcons from '../icons.js'
 import { tape } from '../keep.js'
-import { lengths, lengthOf, docs, shelf, sway, restoring, lend, follower, togglePlay, saving, taken, place, closeMenus } from '../editor.js'
+import { lengths, lengthOf, docs, shelf, restoring, lend, saving, taken, place, closeMenus } from '../editor.js'
 import { root, DESKTOP, keep } from './config.js'
 import { state, eng, v, ed, pl, output } from './context.js'
 import { write, applied, changed } from './edits.js'
 import { clock, stamp, quote, note } from './format.js'
+import { sway, follower, togglePlay } from './play.js'
 import { meter } from './readouts.js'
 import { focusOn, laneIndex, fetches, lanesOf, newTrack } from './tracks.js'
 

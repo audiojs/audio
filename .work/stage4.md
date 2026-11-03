@@ -227,3 +227,15 @@ and code; in scope.js each suite gets its feature modules, page.js and the fixtu
    marks, meters, scrollbar, overlay, runway, forkButton, lookButton.
 10. **Key scope in the command list.** View's ⌘Z, ⌘X and ⌫ in the page dispatcher keep `scope: 'view'`, or they fire
     while the code editor has focus.
+
+## 7. As built (stage 4, part one)
+
+Where the moves part from the map above, and why:
+- `timer` lives in context.js, not run.js: stage 1's switchTab writes it too (`timer = 0`), so two modules do (commit 2).
+- `KEY` (271) goes to config.js with `stored`, which reads it as config loads: config stays a leaf.
+- look.js loads a theme from `../themes/`: `import.meta.url` is the module's own, one folder down.
+- switchTab's `;({ steps = [], depthWas = 0 } = next)` is `assign({ steps: next.steps ?? [], depthWas: next.depthWas ?? 0 })`:
+  a tab's `steps` is an array or absent, never null.
+- 375 split by owner: `recorder` to recording.js, `ticker` and `original` to play.js, `previewAudio` to files.js, `checks`
+  to run.js. `logoMark` is play.js's `let`, drawn in its wire(); `heard = trace()` stays a const beside it.
+- The section comment over `hertz` (the status bar's right) stays with the readouts it heads.
