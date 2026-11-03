@@ -125,14 +125,14 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
   - [x] (cc611f4: `held()` in batch.js) `toBatch` and `audio.use` feed one plugin different values: core clamps to [min, max] and resets a bad enum, batch doesn't
         (`core.js:545`, `batch.js:10-46`)
 - [ ] duplicates inside the library (audit 11-02; the ones marked † checked against the code):
-  - [ ] prepare-once-then-play-by-offset written 18 times in `fn/*` († `deepfilter.js:119`, `rebalance.js:59`): one `prepared()` and
-        `inputOf()` in `plan.js` (~195 lines)
+  - [x] (6995b46) the input an edit reads, written 18 times: `inputOf()` in `plan.js`; (2263b84) the stamp, `stampOf()`
+  - [ ] the rest of prepare-once-then-play-by-offset (the arrived wait, the fingerprint key, the restamp): one `prepared()`
   - [ ] the playback session twice, `fn/play.js:172-332` and `worker.js:223-398`: one engine-free session in `deck.js` (~100)
   - [ ] `{ at, duration }` → samples resolved by hand in ~30 places, `opRange` and `rangeOf` in two modules: one `span()` in core (~60)
   - [ ] the contract plugin host twice, `core.js:498-669` and `batch.js`: batch.js owns it (~35)
   - [x] (4484f6e) delivery targets in `normalize.js`, `check.js`, `audio.d.ts`, `cli.js`, `SKILL.md`: one table, fn/specs.js
         (mcp.js's prose names them as text)
-  - [ ] the CLI's own time grammar (`cli.js:78-91`) beside core's `parseTime`: one grammar, the CLI's unit gate kept
+  - [x] (f56da53) the CLI's own time grammar (`cli.js:78-91`) beside core's `parseTime`: one grammar, the CLI's unit gate kept
   - [ ] op help, completions, types and MCP lists kept by hand (`cli.js:153-235`, `:1100-1113`, `mcp.js:73-94`, and the test's own
         `expected` list in `test/cli.js` 'op help'): read from the registry, a test holding `audio.d.ts` to each op's `params`.
         Stage 0 met this drift twice: `restore()` landed with no CLI help, README row or `expected` entry, and three new ops pushed
@@ -140,7 +140,11 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
   - [ ] the block-stat pass twice (`stats.js:26` copied to `meter.js:11`); peak and dB from block stats in five places
   - [ ] structural ops known by name in `plan.js` `adjustLimit` (633-684): a `limit` hook on each op; splices on `spliceSegs`
   - [ ] DSP primitives (I0, sinc, Kaiser, Hann, pow2, downmix, FNV) copied across `fn/*`: `fn/dsp.js`, importing nothing
-  - [ ] shared helpers living in feature plugins (`fingerprint` in `vocals.js`: importing `align.js` registers `vocals`): moved out
+  - [x] (739b1ce) shared helpers living in feature plugins: `fingerprint` to core, `playback` and `xfadeLen` to plan, the silence
+        threshold to stats; importing `fn/align.js` alone no longer registers `vocals`. Left as domain reuse: pitch on stretch's
+        shifter, derustle and auto on deepfilter's model run, analyses on spectrum's mel bands
+  - [ ] (with an agent, in a worktree) the playback session twice, `fn/play.js` and `worker.js`: one in `deck.js`; the facade
+        gains `preservesPitch` and the paused clock
   - [ ] not to merge (different on purpose): the deck worklet's own sinc and WSOLA (its source becomes the worklet), the
         interpolation kernels, periodic vs symmetric Hann, the crossfade laws, exact vs streaming loudness gating
 - Done: `playground/worker.js` is the script runner and the page protocol only; full suite green; `docs/architecture.md` updated
@@ -192,5 +196,6 @@ Work sessions have asked for, held until the stage that frees its files lands (t
         selection (`focused()`); the playhead bright while it plays
   - [ ] the spectrogram's top on `auto` fitted to the sound's content (its highest band above a floor, rounded up, never past
         Nyquist), a number for a fixed top, settable in the ui config
-  - [ ] a scrollbar mode shown only while the view moves or the pointer is on its row, fading about 1 s after, in `scrolls`
-        and the ui config
+  - [ ] the time scrollbar invisible unless the pointer is over the picture, or it is dragged or scrolled (user, 11-02): the canvas
+        bar `paintBar` painted only then (one source of truth, alike in every browser), or a native overflow element kept in
+        step; pick with the user
