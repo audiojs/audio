@@ -14,7 +14,7 @@ const shrinkResolve = (ctx) => {
   let { stats, sampleRate: sr, totalDuration, threshold, at, duration } = ctx
   if (!stats?.min || !stats?.energy) return null
   let ch = stats.min.length, blocks = stats.min[0].length
-  let bs = audio.BLOCK_SIZE
+  let bs = stats.blockSize  // the stats' own block size, whatever BLOCK_SIZE is set to since
   let total = Math.round(totalDuration * sr)
   let thresh = resolveThreshold(stats, ch, 0, stats.energy[0].length, threshold)
   let gapSamples = Math.round(Math.max(0, ctx.gap ?? 0.3) * sr)

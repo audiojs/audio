@@ -2712,6 +2712,21 @@ test('stream — trim + normalize chained on live source', async t => {
   t.ok(Math.abs(peak - 1) < 0.05, `normalized peak ~1 (got ${peak.toFixed(3)})`)
 })
 
+// Blocks are counted at the size a sound's stats were made at: BLOCK_SIZE set since (for sounds made after) moves
+// neither trim's cut nor shrink's
+test('trim, shrink — by the block size of the sound\'s stats, not one set since', async t => {
+  let sr = 8000, x = new Float32Array(6 * sr)
+  x.fill(.5, sr, 2 * sr); x.fill(.5, 4 * sr, 5 * sr)  // silence 1 s, sound 1 s, silence 2 s, sound 1 s, silence 1 s
+  let make = () => audio.from([x], { sampleRate: sr }), was = audio.BLOCK_SIZE
+  let a = make(), b = make()
+  let [trim, shrink] = [(await a.clone().trim().read())[0].length, (await a.clone().shrink(.5).read())[0].length]
+  try {
+    audio.BLOCK_SIZE = was / 4
+    t.is((await b.clone().trim().read())[0].length, trim, `trim: ${trim} samples`)
+    t.is((await b.clone().shrink(.5).read())[0].length, shrink, `shrink: ${shrink} samples`)
+  } finally { audio.BLOCK_SIZE = was }
+})
+
 // A delivery spec by any of its names, the same for normalize() as for check(): Apple's is the podcast target, EBU's the
 // broadcast one, streaming Spotify's (its former name)
 test('normalize — a spec by any name check() takes, the same target', async t => {

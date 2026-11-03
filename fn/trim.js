@@ -38,7 +38,8 @@ const trim = (input, output, ctx) => {
 const trimResolve = (ctx) => {
   let { stats, sampleRate, totalDuration, threshold } = ctx
   if (!stats?.min || !stats?.energy) return null
-  let ch = stats.min.length, blocks = stats.min[0].length
+  // blocks of the size the stats were made at, whatever BLOCK_SIZE is set to since
+  let ch = stats.min.length, blocks = stats.min[0].length, bs = stats.blockSize
   let total = Math.round(totalDuration * sampleRate)
   let thresh = resolveThreshold(stats, ch, 0, stats.energy[0].length, threshold)
 
@@ -49,7 +50,7 @@ const trimResolve = (ctx) => {
     for (; s < blocks; s++) if (isLoud(stats, s, ch, thresh)) break
     if (s >= blocks) return ['crop', { at: 0, duration: 0 }]  // all silence so far
     for (; e > s; e--) if (isLoud(stats, e, ch, thresh)) break
-    return ['crop', { at: s * audio.BLOCK_SIZE / sampleRate, duration: (e + 1 - s) * audio.BLOCK_SIZE / sampleRate }]
+    return ['crop', { at: s * bs / sampleRate, duration: (e + 1 - s) * bs / sampleRate }]
   }
 
   let s = 0, e = blocks - 1
@@ -59,8 +60,8 @@ const trimResolve = (ctx) => {
 
   if (s === 0 && e === blocks) return false
   if (s >= e) return ['crop', { at: 0, duration: 0 }]
-  let startSample = s * audio.BLOCK_SIZE
-  let endSample = Math.min(e * audio.BLOCK_SIZE, total)
+  let startSample = s * bs
+  let endSample = Math.min(e * bs, total)
   return ['crop', { at: startSample / sampleRate, duration: (endSample - startSample) / sampleRate }]
 }
 
