@@ -2448,7 +2448,7 @@ test('editor: no object literal in the page names a key twice', async () => {
   assert.deepEqual(warnings.filter(w => w.id === 'duplicate-object-key').map(w => `${w.location.file}:${w.location.line} ${w.text}`), [])
 })
 
-// The sound's end, two thirds across the view zoomed out as far as it goes: where its centre line stops, its silence
+// The sound's end, three quarters across the view zoomed out as far as it goes: where its centre line stops, its silence
 // drawn up to it as the level it is, and the grid with it; no rule over it, nothing past it
 test('editor: the sound\'s end is where its centre line stops: no rule over it, nothing past it, no grid either', async () => {
   await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
@@ -2456,13 +2456,13 @@ test('editor: the sound\'s end is where its centre line stops: no rule over it, 
   await noCues()
   await write(`audio.from(t => t < 1 ? .5 * Math.sin(2 * Math.PI * 220 * t) : 0, { duration: 2 })`)
   await lengthIs('0:02.000')
-  await page.evaluate(() => { __view.frame = { range: [0, 3] } })
+  await page.evaluate(() => { __view.frame = { range: [0, 8 / 3] } })
   await page.mouse.move(2, 2)
   await page.waitForTimeout(300)
-  assert.deepEqual(await page.evaluate(() => __view.range), [0, 3])
-  // the plot's CSS px: the end two thirds across; a column bright anywhere down the lane, in the screenshot (the
-  // centre line, 78% grey, over a near-black screen)
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), end = w * 2 / 3
+  assert.deepEqual(await page.evaluate(() => __view.range), [0, 8 / 3])
+  // the plot's CSS px: the end three quarters across; a column bright anywhere down the lane, in the screenshot (the
+  // centre line, 78% grey, over a near-black screen); past it, to 0.9 of the way, short of the meters
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), end = w * 3 / 4, far = w * .9
   const { k, lit } = await pixels(`const k = w / arg.width, lane = h - 22 * k, lit = []
     for (let x = 0; x < Math.round(arg.to * k); x++) for (let y = 0; y < lane; y++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) { lit.push(x / k); break } }
     return { k, lit }`, { width: box.width, to: w * .9 })
@@ -2472,12 +2472,12 @@ test('editor: the sound\'s end is where its centre line stops: no rule over it, 
   // the overlay, the grid: nothing at the end column or past it in the overlay; the grid where the sound is, not past it
   await settings('Grid', 'Lines')
   await gridShown('Lines')
-  const { rule, inside, beyond } = await page.evaluate(end => {
+  const { rule, inside, beyond } = await page.evaluate(([end, far]) => {
     const sum = (canvas, from, to) => { const k = canvas.width / canvas.clientWidth, { data, width, height } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height - Math.round(22 * k)); let s = 0; for (let x = Math.round(from * k); x < Math.round(to * k); x++) for (let y = 0; y < height; y++) s += data[(y * width + x) * 4 + 3]; return s }
     // what shows of it: a level apart or more (a canvas composited a fraction of a pixel over is a level off here and there)
     const shown = (from, to) => { const { k, w, h, d } = window.__shown; let s = 0; for (let x = Math.round(from * k); x < Math.round(to * k); x++) for (let y = 0; y < h - Math.round(22 * k); y++) s += d[y * w + x] > 1 ? d[y * w + x] : 0; return s }
-    return { rule: sum(document.querySelector('canvas.overlay'), end - 1, end * 1.35), inside: shown(0, end - 1), beyond: shown(end + 1, end * 1.35) }
-  }, end)
+    return { rule: sum(document.querySelector('canvas.overlay'), end - 1, far), inside: shown(0, end - 1), beyond: shown(end + 1, far) }
+  }, [end, far])
   assert.equal(rule, 0, 'no rule over the end, nothing past it')
   assert.ok(inside > 0, 'the grid where the sound is')
   assert.equal(beyond, 0, 'none past its end')
@@ -9163,7 +9163,8 @@ test('editor: markers on a file opened come back where they were after a reload'
   assert.notEqual(await at(1.8), 'pointer', 'none past it')
 })
 
-// Zoomed out as far as it goes, the lanes show the sound and half of it again: two presses of −, the second held there
+// Zoomed out as far as it goes, the lanes show the sound and a third of it again (zoom.out 4/3, a quarter of the view
+// room after it): two presses of −, the second held there
 test('editor: zoomed out past the whole, the sound starts at the left and the room is on its right', async () => {
   await open()
   await page.locator('.plot').focus()
@@ -9172,8 +9173,9 @@ test('editor: zoomed out past the whole, the sound starts at the left and the ro
   // lit columns of the picture, the labels at its right left out
   const [first, last] = await pixels(`let a = -1, b = -1; for (let x = 0; x < w - 60; x++) { let lit = 0; for (let y = 0; y < h * .8; y += 2) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) lit++ } if (lit > 3) { if (a < 0) a = x; b = x } } return [a / w, b / w]`)
   const box = await page.locator('.plot').boundingBox(), lanes = await spans(box) / box.width
-  // its end, its tail faint, short of two thirds of the lanes and past half of them (zoomed out to twice it, it would end there)
-  assert.ok(first < .03 && last < lanes * 2 / 3 && last > lanes / 2, `lit from ${first} to ${last}, the lanes to ${lanes}`)
+  // its end, its tail faint, short of three quarters of the lanes and past half of them (zoomed out to twice it, it would
+  // end there)
+  assert.ok(first < .03 && last < lanes * 3 / 4 && last > lanes / 2, `lit from ${first} to ${last}, the lanes to ${lanes}`)
 })
 
 // A fade drags from a selection's dot and shows on the waveform as it goes, before its output comes
@@ -9480,34 +9482,61 @@ test('editor: the record button records over the sound from the caret, into the 
 })
 
 // The strip under the lanes, as Photoshop's split slider marks a range under its bar: a named range ◢ its name ◣ there,
-// nothing of it over the sound; its name still in sight once it is selected; the selection a line along the strip's
-// top, its ends ticked; plain hovered over the lanes, the cues either side of the pointer ticked in it
-test('editor: the strip under the lanes marks a range ◢ named ◣ and the selection, nothing over the sound', async () => {
+// its stretch filled as a selection is, nothing of it over the sound; its name still in sight once it is selected, no
+// line of the selection in the strip. Plain hovered over the lanes, as a scrub shows them: the cues either side of the
+// pointer, a line each down the lanes in the cues' colour
+test('editor: the strip under the lanes marks a range ◢ named ◣, filled, nothing over the sound; hovered, the cues either side', async () => {
   await open()
   await write(`audio('chime.wav').mark({ at: 2, d: 2 }, 'Chorus')`)
   await lengthIs('0:08.000')
   const { box, x } = await axis(8), lane = Math.round(tall(box)), px = t => Math.round(x(t) - box.x)
-  // in a strip of columns [a, b) and rows [y0, y1), the pixels unlike the ground there (its column at 7 s, where nothing is)
-  const marked = ([a, b], [y0, y1]) => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) { const g = (y * w + arg.g) * 4; for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (Math.abs(d[i] - d[g]) + Math.abs(d[i + 1] - d[g + 1]) + Math.abs(d[i + 2] - d[g + 2]) > 45) n++ } } return n`, { a, b, y0, y1, g: px(7) })
+  // in a strip of columns [a, b) and rows [y0, y1), the pixels unlike the ground there (its column at 7 s, where nothing
+  // is) by more than `by`
+  const marked = ([a, b], [y0, y1], by = 45) => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) { const g = (y * w + arg.g) * 4; for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (Math.abs(d[i] - d[g]) + Math.abs(d[i + 1] - d[g + 1]) + Math.abs(d[i + 2] - d[g + 2]) > arg.by) n++ } } return n`, { a, b, y0, y1, by, g: px(7) })
   const row = [lane + 1, lane + FOOT - 1]
   await page.mouse.move(box.x + 5, box.y + box.height - 8)
   await page.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
   assert.ok(await marked([px(2) - 6, px(2) + 1], row) > 10 && await marked([px(4), px(4) + 7], row) > 10, 'its edges in the strip, its start and its end')
-  assert.ok(await marked([px(2) + 3, px(2) + 50], row) > 30, 'its name between them')
+  // its stretch filled, faint as a selection is: away from its name, nearly every pixel of its middle rows
+  const filled = await marked([px(3.2), px(3.8)], [lane + 6, lane + FOOT - 6], 30)
+  assert.ok(filled >= (px(3.8) - px(3.2)) * (FOOT - 12) * .9, `its stretch filled: ${filled}`)
+  // its name between its edges, brighter than the fill
+  assert.ok(await marked([px(2) + 3, px(2) + 50], row, 240) > 15, 'its name between them')
   // nothing of it over the sound: the lanes' top row, over it and past it, alike
   const top = [2, 6]
   assert.equal(await marked([px(2.5), px(3.5)], top), 0, 'no wash over the sound')
-  // pressed there: selected, its name still in sight, the selection a line along the strip's top
+  // pressed there: selected, its name still in sight, no line of the selection over the strip's top
   await page.mouse.click(x(3), box.y + lane + FOOT / 2)
   assert.equal(await selected(), '0:02.000–0:04.000')
   await page.mouse.move(box.x + 5, box.y + box.height - 8)
-  assert.ok(await marked([px(2) + 3, px(2) + 50], [lane + 5, lane + FOOT - 1]) > 30, 'its name, selected')
-  assert.ok(await marked([px(2.5), px(3.5)], [lane, lane + 4]) > px(3.5) - px(2.5) - 4, 'the selection along the strip\'s top')
-  // plain hovered over the lanes between two strikes: the cue either side ticked in the strip, in the cues' colour
-  const ticks = () => pixels(`const out = []; for (let x = 0; x < arg.w; x++) { const i = ((arg.y) * w + x) * 4; if (d[i] - d[i + 2] > 30 && (!out.length || x - out.at(-1) > 2)) out.push(x) } return out`, { y: lane + 3, w: px(7.9) })
+  assert.ok(await marked([px(2) + 3, px(2) + 50], row, 240) > 15, 'its name, selected')
+  assert.ok(await marked([px(2.5), px(3.5)], [lane + 1, lane + 3]) < 3, 'no line of the selection in the strip')
+  // plain hovered over the lanes between two strikes: a line at the cue either side, in the cues' colour, down the lanes
+  // (their top rows, over the sound's quiet edge)
+  const lines = () => pixels(`const out = []; for (let x = 0; x < arg.w; x++) { const i = (arg.y * w + x) * 4; if (d[i] - d[i + 2] > 30 && (!out.length || x - out.at(-1) > 2)) out.push(x) } return out`, { y: 3, w: px(7.9) })
   let near = []
-  for (const until = Date.now() + 8000; near.length < 2 && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.move(x(5.3), box.y + lane / 3); near = await ticks() }
-  assert.ok(near.length === 2 && near[0] < px(5.3) && near[1] > px(5.3), `a tick either side of 5.3 s: ${near}`)
+  for (const until = Date.now() + 8000; near.length < 2 && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.move(x(5.3), box.y + lane / 3); near = await lines() }
+  assert.ok(near.length === 2 && near[0] < px(5.3) && near[1] > px(5.3), `a line either side of 5.3 s: ${near}`)
+  // each line's wash on the side its sound is on (after a strike), gone within WASH (24) px, none before it
+  const tint = dx => pixels(`return arg.xs.map(x => { const i = (arg.y * w + x + arg.dx) * 4; return d[i] - d[i + 2] })`, { xs: near, y: 3, dx })
+  const [after, before, past] = [await tint(4), await tint(-3), await tint(30)]
+  assert.ok(after.every(v => v > 6) && before.every(v => v < 4) && past.every(v => v < 4), `washed after each line: ${after}; before: ${before}; 30 px on: ${past}`)
+  // held Alt, every cue's line and no washes
+  await page.keyboard.down('Alt')
+  let all = []
+  for (const until = Date.now() + 3000; all.length <= 2 && Date.now() < until; await page.waitForTimeout(100)) all = await lines()
+  const washed = await tint(4)
+  await page.keyboard.up('Alt')
+  assert.ok(all.length > 2 && washed.every(v => v < 4), `held Alt, ${all.length} lines, washes ${washed}`)
+  // snapping off: none, a press going where it is
+  await menu('View', 'Snap to cues and markers')
+  await page.mouse.move(x(5.3), box.y + lane / 3)
+  for (const until = Date.now() + 3000; near.length && Date.now() < until; await page.waitForTimeout(100)) near = await lines()
+  assert.deepEqual(near, [], 'none with snapping off')
+  // the pointer gone from the lanes: none
+  await page.mouse.move(box.x + 5, box.y + box.height - 8)
+  for (const until = Date.now() + 3000; near.length && Date.now() < until; await page.waitForTimeout(100)) near = await lines()
+  assert.deepEqual(near, [], 'none with the pointer off the lanes')
 })
 
 // Takes are marked in the strip under the lanes, from where they go in to where the longest of them ends (each measured,
@@ -11881,9 +11910,9 @@ test('editor: a view zoomed out past the end stays so after a reload', async () 
   await page.locator('.plot').focus()
   for (let i = 0; i < 2; i++) await page.keyboard.press('-')
   await page.waitForTimeout(700)
-  // the time at `t` s on a view `across` s wide: zoomed out as far as it goes, the sound and half of it again, 12 s, a
-  // third of the way across is 4 s in, where fitted to the sound it would be 2.67 s
-  const at = async (t = 4, across = 12) => {
+  // the time at `t` s on a view `across` s wide: zoomed out as far as it goes, the sound and a third of it again, 10.67 s,
+  // 3/8 of the way across is 4 s in, where fitted to the sound it would be 3 s
+  const at = async (t = 4, across = 32 / 3) => {
     const { box, x } = await axis(across)
     await page.mouse.click(x(t), box.y + tall(box) * .3)
     return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0)
@@ -11897,8 +11926,8 @@ test('editor: a view zoomed out past the end stays so after a reload', async () 
   await write(`audio('chime.wav').crop({ at: 0, duration: 4 })`)
   await lengthIs('0:04.000')
   await page.waitForTimeout(300)
-  // 6 s wide: a third of the way across is 2 s in, where fitted it would be 1.33 s
-  assert.ok(Math.abs(await at(2, 6) - 2) < .1, 'shortened: as far out as it goes')
+  // 5.33 s wide: 3/8 of the way across is 2 s in, where fitted it would be 1.5 s
+  assert.ok(Math.abs(await at(2, 16 / 3) - 2) < .1, 'shortened: as far out as it goes')
   await write(`audio('chime.wav').speed(0.2)`)
   await lengthIs('0:40.000')
   await page.waitForTimeout(300)

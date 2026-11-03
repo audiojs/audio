@@ -134,7 +134,7 @@ const GAIN = [-36, 12]                        // the gain line's scale, dB: the 
                                               // three quarters of the way out, so a boost shows above it
 const GLIDE = .3                               // a playhead past the view's middle is drawn to it in this time constant, s
 
-export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onghost = () => {}, onlayout = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, zoom: { in: closest = 32, out: farthest = 1.5 } = {}, overshoot = .5 } = {}) {
+export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onghost = () => {}, onlayout = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5 } = {}) {
   const element = (tag, className, parent) => parent.appendChild(Object.assign(document.createElement(tag), { className }))
   const layer = (name, parent = root) => element('canvas', name, parent)
   // the selection under the pictures, as a selection is behind text: the sound drawn over it, a quiet spectrogram's
@@ -1201,7 +1201,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     ].map(m => ends.has(m.t) ? { ...m, fill: gauge(), keep: true } : m), measure?.spans))
     if (show.hits || aiming) paintCues(mine, measure ? [...lit, measure.t] : lit, aiming)
     paintMarkers(all, lit)
-    paintStrips(L, pointedAt, at)
+    paintStrips(L, pointedAt)
     paintOvers(L)
     // what is edited over the sound: its level (the gain line) or, editing pitch, its pitch (the pitch line on the
     // waveform, the pitch curve on the spectrogram)
@@ -1241,14 +1241,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       const rects = (allLanes ? L : T).all, px = X(onto), { text, side } = snappedTo(stuckTo.t)
       c.fillStyle = accent()
       for (const [, y, , lh] of rects) { triangleAt(px + .5, y, 1); triangleAt(px + .5, y + lh, -1) }
-      if (side) {
-        // a pixel clear of the line either side, so the line is its own colour whole
-        const from = px + (side > 0 ? 2 : -1), to = from + side * WASH, g = c.createLinearGradient(from, 0, to, 0)
-        const [r, gr, b] = rgba(accent()).map(v => Math.round(v * 255)), tint = a => `rgb(${r} ${gr} ${b} / ${a})`
-        g.addColorStop(0, tint(.18)); g.addColorStop(1, tint(0))
-        c.fillStyle = g
-        for (const [, y, , lh] of rects) c.fillRect(Math.min(from, to), y, WASH, lh)
-      }
+      washFrom(px, side, rects, WASHED)
       if (text && rects.length) say(text, px + 8, rects[0][1] + 12)
     }
   }
@@ -1258,7 +1251,25 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     c.moveTo(px - 3.5, py); c.lineTo(px + 3.5, py); c.lineTo(px, py + dir * 5)
     c.fill()
   }
-  const WASH = 40
+  // to the side the sound is of a line at `px` (`side`: 1 after it, -1 before, none: no wash), a wash of the accent
+  // fading from `a` to nothing WASH px off, a pixel clear of the line, so the line is its own colour whole. Each
+  // gradient kept by where it is and how strong: a frame drawn as the last is then the same list (kept.js), the marks
+  // not laid again as the reel follows the playhead under a pointer at rest
+  const WASH = 24, WASHED = .18, washes = new Map()
+  function washFrom(px, side, rects, a) {
+    if (!side) return
+    const from = px + (side > 0 ? 2 : -1), to = from + side * WASH, fill = accent(), key = `${from} ${to} ${a} ${fill}`
+    let g = washes.get(key)
+    if (!g) {
+      if (washes.size > 64) washes.clear()
+      const [r, gr, b] = rgba(fill).map(v => Math.round(v * 255)), tint = a => `rgb(${r} ${gr} ${b} / ${a})`
+      g = c.createLinearGradient(from, 0, to, 0)
+      g.addColorStop(0, tint(a)); g.addColorStop(1, tint(0))
+      washes.set(key, g)
+    }
+    c.fillStyle = g
+    for (const [, y, , lh] of rects) c.fillRect(Math.min(from, to), y, WASH, lh)
+  }
   // a small cross, 5 px across, in the stroke's colour
   function crossAt(px, py) {
     c.beginPath()
@@ -2460,31 +2471,39 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // a time as the whole page writes it, in the units chosen (time.js): 0:05, 5.0s, 240000
   const stamp = (t, d = digits()) => clock(t, units, { digits: d, rate })
   // Cues: shown only where they matter, never as a forest over the sound: the one dragged, bright where it will land;
-  // those a dragged edge or caret sits on (`lit`), and faint the ones either side of it (beside); held ⌘ (Ctrl), the one
-  // under the pointer a press would take; held Alt (`all`), every one, faint, as Figma shows what there is to snap to
+  // those a dragged edge or caret sits on (`lit`), and faint the ones either side of it (beside), as they are either side
+  // of the pointer plain over the edited track's lanes, the one a press would snap to brighter; held ⌘ (Ctrl), the one
+  // under the pointer a press would take; held Alt (`all`), every one, faint, as Figma shows what there is to snap to.
+  // Each a sound's start, a hit or its end with a faint wash on the side the sound is on (washFrom); held Alt, lines alone
   const on = (lit, px) => lit.some(t => Math.abs(x(t) - px) < .5)
   // The time a drag moves, as the caret or a range's end: the caret held, an edge, a range dragged out (Shift held before
   // the press or after it), else null
   const dragged = () => drag?.caret ? cursor : drag?.resizing || drag?.anchor != null && drag.moved && !drag.box ? drag.hear : null
-  // dragged: the cues this scale shows either side of where it is, faint, where it would go next, as the one it is on
-  // lights
+  // the time dragged, or the pointer's plain over the edited track's lanes, snapping on (not held ⌘, which aims finely,
+  // nothing snapping), where a press there would put the caret
+  const aimedAt = () => dragged() ?? (!drag && hovered && snapping && !editing() && laneAt(own(lanes()), hovered[1]) >= 0 ? time(hovered[0]) : null)
+  // the cues this scale shows either side of it, faint, where it would go next, as the one it is on lights
   function beside() {
-    const t = dragged(), list = t == null ? [] : seen()
+    const t = aimedAt(), list = t == null ? [] : seen()
     const p = X(t), before = list.findLast(i => X(cues[i]) < p - .5), after = list.find(i => X(cues[i]) > p + .5)
     return [before, after].filter(i => i != null)
   }
   const editing = (keys = held) => !!(mac ? keys.metaKey : keys.ctrlKey)
   function paintCues(rects, lit, all = false) {
+    const hover = drag ? null : aimedAt(), onto = hover == null ? -1 : cues?.indexOf(stick(hover)?.t) ?? -1
     const near = !drag && hovered ? nearCue(...hovered, held) : -1, shown = new Set(all ? seen() : beside())
-    c.fillStyle = accent()
     for (const [i, t] of (cues ?? []).entries()) {
       const moving = drag?.cue === i, at = moving ? drag.to : moved(t), px = X(at)
-      // a dragged line on it is that line alone, white, the crosses saying it snapped; held Alt, the time measured to lit
-      if (at == null || px < 0 || px > plot().w || drag && on(lit, px) || !(moving || i === near || on(lit, px) || shown.has(i))) continue
-      c.globalAlpha = moving || on(lit, px) ? 1 : i === near ? .7 : .4
+      // a dragged line on it is that line alone, white, the triangles saying it snapped; held Alt, the time measured to lit
+      if (at == null || px < 0 || px > plot().w || drag && on(lit, px) || !(moving || i === near || i === onto || on(lit, px) || shown.has(i))) continue
+      const a = moving || on(lit, px) ? 1 : i === near || i === onto ? .7 : .4
+      // its wash; held Alt, every cue's line alone, no forest of washes
+      if (!moving && (!all || a > .4)) washFrom(px, snappedTo(t).side, rects, a * WASHED)
+      c.fillStyle = accent()
+      c.globalAlpha = a
       for (const [, ly, , lh] of rects) c.fillRect(px, ly, 1, lh)
+      c.globalAlpha = 1
     }
-    c.globalAlpha = 1
   }
   // Markers: a moment a dashed line down each lane, as Audition draws them, apart from the caret's solid one, none under a
   // dragged edge that went onto it (that edge alone, the crosses saying it snapped); its flag at the lanes' top, as a
@@ -2547,14 +2566,13 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     for (const t of ownMarks().map(t => moved(t) ?? t)) if (Math.abs(x(t) - px) <= EDGE && (best == null || Math.abs(x(t) - px) < Math.abs(x(best) - px))) best = t
     return best
   }
-  // ── The marks strip: each band's foot row, under its lanes, a map of what is marked on its time and what is selected,
-  // as Photoshop's split slider marks a range under its bar: a range ◢ its name ◣, its half-triangles' upright edges
-  // at its start and its end, its name between them, cut short where it has no room, never under a handle; the takes'
-  // place the same, their numbers between (placeTakes); the selection a line along the strip's top, its ends ticked, in
-  // the selection's colour; plain hovered, a tick at each cue either side of the pointer, where a press would snap.
-  // Pressed, a range's or the takes' place selected (down); a range's name double-clicked, named in place (clicked); a
-  // press elsewhere in it the band's height (footAt). Over the sound, nothing of them but one pointed at, its stretch
-  // as a press would select it (marksOf)
+  // ── The marks strip: each band's foot row, under its lanes, a map of what is marked on its time, as Photoshop's split
+  // slider marks a range under its bar: a range ◢ its name ◣, its half-triangles' upright edges at its start and its end,
+  // its stretch between them filled as a selection is, as what a press there selects, its name in it, cut short where it
+  // has no room, never under a handle; the takes' place the same, their numbers in it (placeTakes). Pressed, a range's
+  // or the takes' place selected (down); a range's name double-clicked, named in place (clicked); a press elsewhere in
+  // it the band's height (footAt). Over the sound, nothing of them but one pointed at, its stretch as a press would
+  // select it (marksOf)
   const TRI = 5
   // each band's strip: { y, i }, its top (its lanes' foot) and its track's index (null: a sound's)
   const strips = L => tracks ? L.all.map(([, y, , lh], i) => ({ y: y + lh, i })) : L.all.length ? [{ y: floor(L), i: null }] : []
@@ -2570,23 +2588,24 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   }
   // what a press in a strip takes: a range or the takes' place under it, or null
   const stripAt = (px, py, L = lanes()) => py > plot().h ? null : stripped(L).find(m => py >= m.y && py < m.y + FOOT && px >= m.x0 - TRI && px <= m.x1 + TRI) ?? null
-  // `m`'s bracket, standing on `y`, `h` px tall: ◢ at x0, ◣ at x1, a line along its foot between
+  // a bracket standing on `y`, `h` px tall: ◢ at x0, ◣ at x1, in the fill's colour
   function bracket(x0, x1, y, h) {
     c.beginPath()
     c.moveTo(x0, y); c.lineTo(x0, y - h); c.lineTo(x0 - TRI, y); c.closePath()
     c.moveTo(x1, y); c.lineTo(x1, y - h); c.lineTo(x1 + TRI, y); c.closePath()
     c.fill()
-    c.fillRect(x0, y - 1, Math.max(0, x1 - x0), 1)
   }
-  function paintStrips(L, pointedAt, at) {
+  function paintStrips(L, pointedAt) {
     // the edited band's (every band's through every lane), the others' faint
     const w = lanesEnd(L), edited = i => !tracks || allLanes || i === focus
     c.textAlign = 'left'
     for (const m of stripped(L)) {
       if (m.x1 + TRI < 0 || m.x0 - TRI > w) continue
       const lit = pointedAt?.kind === m.kind && pointedAt.i === m.i, mark = m.kind === 'range' && markers[m.i], mine = !mark || edited(markLane(mark))
-      c.fillStyle = color(lit ? '--color-screen-bright' : '--color-screen-mark')
       c.globalAlpha = mine ? 1 : .5
+      c.fillStyle = color(lit ? '--color-screen-hover' : '--color-screen-select')
+      c.fillRect(m.x0, m.y + 3, Math.max(0, m.x1 - m.x0), FOOT - 6)
+      c.fillStyle = color(lit ? '--color-screen-bright' : '--color-screen-mark')
       bracket(m.x0, m.x1, m.y + FOOT - 3, FOOT - 6)
       c.globalAlpha = 1
       // its name, between its edges, cut short where they leave it too little room; none while it is written in place
@@ -2595,24 +2614,10 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       if (room < 12) continue
       let text = mark.label
       while (text.length > 1 && c.measureText(text).width > room) text = text.slice(0, -2) + '…'
-      tag(text, Math.max(m.x0, 0) + 4, m.y + FOOT / 2 - 1, 'left', color(lit ? '--color-screen-bright' : mine ? '--color-screen-mark' : '--color-screen-muted'))
+      // on its fill, no patch of the screen under it
+      c.fillStyle = color(lit ? '--color-screen-bright' : mine ? '--color-screen-mark' : '--color-screen-muted')
+      c.fillText(text, Math.max(m.x0, 0) + 4, m.y + FOOT / 2 - 1)
     }
-    // the selection along the strips' top, its ends ticked
-    c.fillStyle = color('--color-screen-caret')
-    for (const s of strips(L)) if (edited(s.i)) for (const [a, b] of ranges()) {
-      const p = X(a), q = X(b)
-      if (q < 0 || p > w) continue
-      c.fillRect(p, s.y + 1, Math.max(1, q - p), 1)
-      c.fillRect(p, s.y + 1, 1, 4)
-      c.fillRect(q - 1, s.y + 1, 1, 4)
-    }
-    // plain hovered over the lanes, the cues either side of the pointer ticked in its band's strip, where a press would snap
-    if (drag || !at || !cues || !snapping || !show.hits || held.altKey || at[1] > floor(L)) return
-    const list = seen(), p = at[0], before = list.findLast(i => X(cues[i]) < p - .5), after = list.find(i => X(cues[i]) > p + .5)
-    c.fillStyle = accent()
-    c.globalAlpha = .7
-    for (const s of strips(L)) if (edited(s.i)) for (const i of [before, after]) if (i != null) c.fillRect(X(cues[i]), s.y + 1, 1, 5)
-    c.globalAlpha = 1
   }
   // A flag's name written where it is: a field over it, Enter or a click away keeps it, Escape leaves it as it was
   let naming = null
@@ -2813,8 +2818,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   const knots = () => { const pts = linePoints(); return (contour?.knots || []).filter(t => !pts.some(([p]) => Math.abs(x(p) - x(t)) < EDGE)) }
   const knotOn = (rect, px, py) => { const ks = knots(), i = nearestOn(rect, px, py, ks); return i < 0 ? null : ks[i] }
 
-  // From `zoom.in` samples across (32) to `zoom.out` times the whole across the lanes (1.5: it and half of it again): the
-  // sound starts at the left, the room is on its right. A view an edit left past the sound's end (it got shorter) stays
+  // From `zoom.in` samples across (32) to `zoom.out` times the whole across the lanes (4/3: it, and a quarter of the view
+  // room after it): the sound starts at the left, the room is on its right. A view an edit left past the sound's end (it got shorter) stays
   // there until it is moved back. Scrolled or zoomed by hand (`past`), the sound's end goes on as far as `overshoot` of
   // the view from its right (0.5, its middle): the tail comes out from under the meters and the labels to be edited, the
   // room past it plain, the grid and the centre line ending with it. Zoom out 1 and overshoot 0: never any room past it
