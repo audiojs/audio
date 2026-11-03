@@ -5,7 +5,7 @@
 // (CI builds them; a page that loads one of them from a path the deploy left out hangs at "Decoding…").
 import { chromium } from 'playwright'
 
-const local = process.argv[2] === '--local' && await (async () => {
+const local = process.argv[2] !== '--local' ? null : await (async () => {
   await import('../.site-build.js')
   const { createServer } = await import('node:http'), { serve } = await import('../.site-serve.js'), { fileURLToPath } = await import('node:url')
   const root = fileURLToPath(new URL('..', import.meta.url))
