@@ -4647,7 +4647,10 @@ test('editor: zoomed while it plays, about the playhead, still followed', async 
     if (key) await page.keyboard.press(key)
     assert.ok(Math.abs(await across() - was) < .05, `the playhead where it was: ${was.toFixed(2)} → ${(await across()).toFixed(2)} across`)
   }
-  await poll(across, at => assert.ok(Math.abs(at - .5) < .1, `followed on: ${at.toFixed(2)} across`))
+  // playing on a second after the zooms: still followed
+  await page.waitForTimeout(1000)
+  const at = await across()
+  assert.ok(Math.abs(at - .5) < .1, `followed on: ${at.toFixed(2)} across`)
   // scrolled away by hand, the view the hand's: a zoom there keeps the time under the pointer, the playhead not followed
   await page.mouse.move(box.x + w / 2, y)
   await page.mouse.wheel(0, w * 3)
@@ -4764,7 +4767,10 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at 
   await page.mouse.move(box.x + 6, foot)
   await page.waitForFunction(() => !document.querySelector('.hint').hidden && document.querySelector('.hint').textContent === 'To the playhead')
   await page.locator('.time').click()
-  await poll(clock, at => assert.ok(Math.abs(at - .45) < .15, `followed again: ${at.toFixed(2)} across`))
+  // brought back, then playing on a while: still followed, not only brought there
+  await page.waitForTimeout(800)
+  const at = await clock()
+  assert.ok(Math.abs(at - .45) < .15, `followed again: ${at.toFixed(2)} across`)
   await page.keyboard.press('Space')
 })
 
