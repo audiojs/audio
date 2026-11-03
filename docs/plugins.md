@@ -276,6 +276,30 @@ waited for only that far: `denoise({ noise: { at, duration } })` learns its nois
 range, then streams (its input `audio.from(a)`, which follows a source still arriving, with `a`'s
 edits before `index`).
 
+An op made once over its whole input and played back by offset takes both halves from `plan.js`:
+
+```js
+import { prepared, playback } from 'audio/plan'
+const MADE = Symbol('myop.made')
+audio.op('myop', {
+  params: ['amount'],
+  // own(o) checks the options and names what they change; make(pcm, sampleRate, o) gives the output's channels
+  prepare: prepared(MADE, o => `${o.amount ?? 1}`, (pcm, sampleRate, o) => pcm.map(x => x.map(v => v * (o.amount ?? 1)))),
+  process: playback('myop', MADE)
+})
+```
+
+It reads the input once, the channels the edit's `channel` picks, and makes it again only when the input changes: the
+instance's stamp first (`stampOf`), then the samples' fingerprint, so an edit before it that leaves the samples as they
+were runs nothing. `inputOf(a, index)` is that input, for a prepare of its own.
+
+### ranges
+
+An op that reads its own `at`/`duration` (`ranged: true`) takes them from `plan.js` too: `opRange(ctx, len)`, the
+range in this block's samples, for an op without state; `rangeOf(ctx)`, the range on the timeline, for one that keeps
+state across blocks (an STFT's frames); `spanOf(n, at, duration, sr)`, the range of a whole signal, for a whole-render
+op. A duration alone starts at 0, as the engine's own range scoping reads it.
+
 ### latency
 
 Declared lookahead in samples — a number, or `(opts, sampleRate) => samples` for

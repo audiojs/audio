@@ -102,7 +102,7 @@ Ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes tw
   - **Click-free patching** — when a streamed plan's values refine (progressive normalize, live edits), numeric changes ramp linearly across one block instead of stepping.
   - **Mid-stream edits** — `stream()` watches `a.version`; an edit pushed while streaming recompiles the plan: values patch in place (ramped), and a change of what renders here (segments, pipeline, latency, width) crossfades (~20 ms) from the old render into the new. `play()` splices edits in ahead of the head ([Playback](#playback)).
 - **Stages** — edits apply in order: a structural op works on the audio as processed so far. When one follows pipeline ops, the pending pipeline bakes into a stage (a nested plan the new segment map reads as its source) and a fresh pipeline starts. So `a.gain(-6).insert(b)` leaves `b` untouched, and a fade, range or automation issued before a splice keeps its time coordinates. A stage streams through a persistent cursor: contiguous reads continue its processor state exactly, a jump re-seeks with the same warm-up as seeking. Edited instances read as sources (insert, paste, mix) stream the same way.
-- **Limit** — the safe output boundary. During incremental streaming (`final=false`), `adjustLimit` tracks how far output is deterministic given partial source data.
+- **Limit** — the safe output boundary. During incremental streaming (`final=false`), each structural op's `limit` hook says how far output is deterministic given partial source data.
 
 `buildPlan(a)` is the cached wrapper for fully-decoded audio — calls `compilePlan(a, len, true)` once per version.
 
@@ -119,7 +119,7 @@ source pages ──→ segment map ──→ sample pipeline ──→ output bl
 
 ### Incremental streaming
 
-Structural ops (crop, repeat, pad, reverse, etc.) stream incrementally — output begins before decode completes. `adjustLimit(limit, type, ctx)` is a pure function that transforms the safe output boundary per op type during compilation:
+Structural ops (crop, repeat, pad, reverse, etc.) stream incrementally — output begins before decode completes. Each declares beside its `plan` a pure `limit(limit, ctx)` hook that transforms the safe output boundary during compilation (an op without one keeps it):
 
 - **crop**: limit clamps to cropped range
 - **insert**: limit extends by inserted length (when insertion point is reachable)
