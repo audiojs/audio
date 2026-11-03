@@ -34,7 +34,7 @@
  * whole first.
  */
 import audio, { resolveChannels } from '../core.js'
-import { render } from '../plan.js'
+import { render, spanOf } from '../plan.js'
 import { contour } from './pitch-detect.js'
 import { notes as noted } from '@audio/pitch/pyin'
 
@@ -168,8 +168,7 @@ function reshape(name) {
     for (let c = 0; c < input.length; c++) output[c].set(input[c])
     let k = +ctx.factor, sr = ctx.sampleRate, n = input[0].length
     if (!Number.isFinite(k) || k === 1 || !n) return
-    let at = ctx.at == null ? 0 : ctx.at < 0 ? n / sr + ctx.at : ctx.at
-    let a0 = Math.max(0, Math.round(at * sr)), a1 = Math.min(n, ctx.duration == null ? n : a0 + Math.round(ctx.duration * sr))
+    let [a0, a1] = spanOf(n, ctx.at, ctx.duration, sr)
     if (a1 <= a0) return
     // the voice: the channels' mean over the range and its context, and its pitch in semitones from A4 (NaN unvoiced)
     let p0 = Math.max(0, a0 - Math.round(CONTEXT * sr)), p1 = Math.min(n, a1 + Math.round(CONTEXT * sr))

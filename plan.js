@@ -201,7 +201,7 @@ function seamed(c, m, n, s0, s1, sr) {
 }
 
 /** A range of a whole signal `n` samples long, [a, b) in samples, as `at` (negative: from the end) and `duration` say */
-function spanOf(n, at, duration, sr) {
+export function spanOf(n, at, duration, sr) {
   let a = at == null ? 0 : Math.max(0, Math.min(n, Math.round((at < 0 ? n / sr + at : at) * sr)))
   return [a, duration == null ? n : Math.min(n, a + Math.round(duration * sr))]
 }
