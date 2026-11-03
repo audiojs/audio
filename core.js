@@ -977,7 +977,9 @@ fn.record = function(opts = {}) {
     // a read hands over one block; the next is asked for as each comes, so none is missed
     const take = (err, buf) => {
       if (self._.recording !== request) return
-      if (err || !buf) return
+      // the take ended under it (EOVERFLOW, EDEVICELOST): stopped where it ended, and said
+      if (err) { self.stop(); emit(self, 'error', err); return }
+      if (!buf) return
       self.push(new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2), 'int16')
       read(take)
     }
@@ -1253,7 +1255,9 @@ async function* iterateStream(stream, signal) {
  *  Used by decodeSource and audio() push instances. This IS the universal source adapter. */
 function pageAccumulator(opts = {}) {
   let { pages = [], notify, ondata } = opts
-  let sr = 0, ch = 0, totalLen = 0, pagePos = 0
+  let sr = 0, ch = 0, totalLen = 0, pagePos = 0, open = false
+  // the page being filled, made as samples come and let go once it is emitted, drained or done: none held at rest, so
+  // a sound decoded or pushed keeps its pages alone (a page is PAGE_SIZE samples a channel, 4 MB, whatever its length)
   let pageBuf = null, session, whole = null, wholeAt = -1
 
   function emit(page) {
@@ -1273,20 +1277,21 @@ function pageAccumulator(opts = {}) {
     // all of them, the last block short: worked out once for each length
     get whole() { let n = totalLen + pagePos; if (wholeAt !== n) { wholeAt = n; whole = session?.whole?.() ?? null } return whole },
     push(chData, sampleRate) {
-      if (!pageBuf) {
+      if (!open) {
+        open = true
         sr = sampleRate; ch = chData.length
-        pageBuf = Array.from({ length: ch }, () => new Float32Array(audio.PAGE_SIZE))
         session = audio.statSession?.(sr)
       }
       session?.page(chData)
       let srcPos = 0, chunkLen = chData[0].length
       while (srcPos < chunkLen) {
         let n = Math.min(chunkLen - srcPos, audio.PAGE_SIZE - pagePos)
+        pageBuf ??= Array.from({ length: ch }, () => new Float32Array(audio.PAGE_SIZE))
         for (let c = 0; c < ch; c++) pageBuf[c].set(chData[c].subarray(srcPos, srcPos + n), pagePos)
         srcPos += n; pagePos += n
         if (pagePos === audio.PAGE_SIZE) {
           emit(pageBuf)
-          pageBuf = Array.from({ length: ch }, () => new Float32Array(audio.PAGE_SIZE))
+          pageBuf = null
           pagePos = 0
         }
       }
@@ -1300,13 +1305,14 @@ function pageAccumulator(opts = {}) {
     drain() {
       if (pagePos > 0) {
         emit(pageBuf.map(c => c.slice(0, pagePos)))
-        pageBuf = Array.from({ length: ch }, () => new Float32Array(audio.PAGE_SIZE))
+        pageBuf = null
         pagePos = 0
       }
     },
     done() {
       // Emitted pages leave the partial buffer: past-the-end reads and `length` must not see them twice
       if (pagePos > 0) { emit(pageBuf.map(c => c.slice(0, pagePos))); pagePos = 0 }
+      pageBuf = null
       session?.flush()
       if (ondata && session) {
         let delta = session.delta()

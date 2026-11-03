@@ -4197,6 +4197,30 @@ test('dither — stream ≡ read statistically (independent TPDF draws)', async 
   t.ok(dev <= 2 * lsb + 1e-6, `pass within TPDF bound of source (${(dev / lsb).toFixed(2)} LSB)`)
 })
 
+// A sound decoded or pushed holds its pages alone: the page its samples were gathered in (PAGE_SIZE a channel, 4 MB
+// whatever the sound's length) let go once they are emitted, drained or done. 32 sounds of 1 s kept: the memory they
+// hold grows by about their samples, 5.6 MB as float32, not by a page each, 128 MB
+test('pages — a short sound decoded or pushed keeps no page it was gathered in', { skip: !isNode }, async t => {
+  let { setFlagsFromString } = await import('node:v8'), { runInNewContext } = await import('node:vm')
+  setFlagsFromString('--expose-gc')
+  let gc = runInNewContext('gc'), held = []
+  let tone = Float32Array.from({ length: 44100 }, (_, i) => .5 * Math.sin(i / 10))
+  let wav = await (await audio([tone], { sampleRate: 44100 })).encode('wav')
+  gc()
+  let before = process.memoryUsage().arrayBuffers
+  for (let k = 0; k < 16; k++) {
+    let p = audio(null, { sampleRate: 44100, channels: 1 })
+    p.push([tone])
+    p.stop()
+    held.push(p, await audio(wav))
+  }
+  gc()
+  let grown = process.memoryUsage().arrayBuffers - before
+  t.ok(grown < 16 * 2 ** 20, `${(grown / 2 ** 20).toFixed(1)} MB held by 32 sounds of 1 s`)
+  t.ok((await held[0].read())[0].every((v, i) => v === tone[i]) && (await held[1].read())[0].length === 44100, 'each reads as it was')
+  for (let s of held) s.dispose()
+})
+
 // ── push-source op coverage ────────────────────────────────────────────────
 
 test('push source — dither/pitch/stretch/mix apply over pushed audio', async t => {
