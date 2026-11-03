@@ -1,10 +1,19 @@
-// The website as deployed, in a browser: node test/live.js [URL] (default https://audio.js.org/audio/).
-// Its root leads to the playground; the playground opens on an empty tab, its ways in offered, and a link's
+// The website as deployed, in a browser: node test/live.js [URL] (default https://audio.js.org/audio/), or --local: this
+// checkout built and served as `npm run serve` serves it, before a deploy (CI's browser suites), so the checks keep up
+// with the page. Its root leads to the playground; the playground opens on an empty tab, its ways in offered, and a link's
 // script opens its sound, decoded and measured: what a visitor sees first, from the files the server actually serves
 // (CI builds them; a page that loads one of them from a path the deploy left out hangs at "Decoding…").
 import { chromium } from 'playwright'
 
-const base = (process.argv[2] || 'https://audio.js.org/audio/').replace(/\/?$/, '/')
+const local = process.argv[2] === '--local' && await (async () => {
+  await import('../.site-build.js')
+  const { createServer } = await import('node:http'), { serve } = await import('../.site-serve.js'), { fileURLToPath } = await import('node:url')
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const server = createServer((req, res) => { const { pathname, search } = new URL(req.url, 'http://localhost'); serve(root, pathname, search, res) })
+  await new Promise(r => server.listen(0, '127.0.0.1', r))
+  return server
+})()
+const base = (local ? `http://127.0.0.1:${local.address().port}/` : process.argv[2] || 'https://audio.js.org/audio/').replace(/\/?$/, '/')
 const browser = await chromium.launch()
 let failed = 0
 const check = async (name, fn) => {
@@ -38,4 +47,5 @@ await check('playground cross-origin isolated', async page => {
 })
 
 await browser.close()
+local?.close()
 process.exitCode = failed ? 1 : 0
