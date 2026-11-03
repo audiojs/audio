@@ -1,7 +1,8 @@
 import { append, chain, number, between, tracks as tracksOf, focus, written, addTrack } from '../code.js'
-import { docOf, anew, relane, mastering, write, applied, spreading, audible, openFiles } from '../editor.js'
+import { docOf, anew, relane, mastering, audible, openFiles } from '../editor.js'
 import { writtenDepth } from './config.js'
 import { state, eng, v, ed, rk, output } from './context.js'
+import { write, applied, spreading } from './edits.js'
 import { splice, seam } from './writers.js'
 
 // Copy and paste: the editor's clipboard, shared by its tabs and windows, and the system's

@@ -1,6 +1,7 @@
 import { chain, number, setArg, focus } from '../code.js'
-import { lane, lastEdit, amend, write, closeMenus } from '../editor.js'
+import { lane, closeMenus } from '../editor.js'
 import { state, v, ed, rk, pl, output } from './context.js'
+import { lastEdit, amend, write } from './edits.js'
 import { quote, note } from './format.js'
 import { shows, showAs } from './look.js'
 import { store } from './persist.js'
