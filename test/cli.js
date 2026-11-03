@@ -1119,16 +1119,19 @@ test('parseArgs — per-sink help: save --help', t => {
   t.is(r.helpOp, 'save', 'helpOp for save sink')
 })
 
-test('op help — all built-in ops have help', t => {
-  let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'clip', 'remove',
-    'insert', 'copy', 'cut', 'paste', 'move', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
-    'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch', 'warp',
-    'pitch', 'intonation', 'modulation', 'drift', 'center', 'formant', 'vocals', 'dither', 'crossfeed', 'convolve', 'plugin', 'resample', 'write', 'transform', 'split', 'shrink', 'crossover',
-    'match', 'master', 'align', 'roomtone', 'spectral', 'repair', 'deepfilter', 'dereverb', 'vocos', 'restore', 'recover', 'derustle', 'denoise', 'declick', 'phase', 'azimuth', 'deconstruct', 'rebalance', 'scene', 'codec',
-    // sinks + sources
-    'play', 'stat', 'check', 'save', 'record']
-  for (let op of expected) t.ok(HELP[op], `${op} has help`)
-  for (let name in HELP) t.ok(expected.includes(name), `${name} in expected list`)
+test('op help — every op the library registers has help, and help names nothing else', t => {
+  let ops = Object.keys(audio.op()).filter(k => !audio.op(k).hidden)
+  t.is(ops.filter(k => !audio.op(k).help && !audio.op(k).plugin), [], 'a built-in op without help')
+  t.is(Object.keys(HELP).filter(k => !ops.includes(k) && !isOpName(k) && !isVerb(k)), [], 'help for no op')
+})
+
+test('CLI — completions offer every op and stat the registry holds', async t => {
+  let ops = (await runCliCapture(['--completions-list', '', ''])).split('\n')
+  t.ok(ops.includes('compressor'), 'a plugin op')
+  t.ok(['gain', 'split', 'master', 'save', 'record'].every(k => ops.includes(k)), 'built-in ops, methods, sinks and sources')
+  t.ok(!ops.some(k => audio.op(k)?.hidden), 'no hidden op')
+  let stats = (await runCliCapture(['--completions-list', 'stat', ''])).split('\n')
+  t.is(Object.keys(audio.stat()).filter(k => !stats.includes(k)), [], 'every stat after stat')
 })
 
 test('CLI — per-op help output', async t => {

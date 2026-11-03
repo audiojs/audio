@@ -242,11 +242,16 @@ function pluginHelp(name, desc) {
   return { usage: `${name} [${args}]`, desc: `Plugin${typeof desc.tail === 'number' && desc.tail ? ` (tail ${desc.tail}s)` : desc.tail ? ' (tail: param-dependent)' : ''}`, examples: [], params }
 }
 
-/** The parameter of op `name` whose enumerated values include `word` (vocals: mode isolate|remove): a plugin's
- *  enum params from its manifest, a built-in's from its help's `values`. */
-function enumParam(name, word) {
+/** Op `name`'s enumerated params, { param: values } (vocals: mode isolate|remove): a plugin's from its manifest, a
+ *  built-in's from its help's `values`. */
+function enums(name) {
   let d = audio.op(name), specs = d?.plugin?.params
-  let values = specs ? Object.fromEntries(Object.entries(specs).filter(([, sp]) => sp.type === 'enum').map(([k, sp]) => [k, sp.values])) : (d?.help ?? HELP[name])?.values
+  return specs ? Object.fromEntries(Object.entries(specs).filter(([, sp]) => sp.type === 'enum').map(([k, sp]) => [k, sp.values])) : (d?.help ?? HELP[name])?.values
+}
+
+/** The parameter of op `name` whose enumerated values include `word` */
+function enumParam(name, word) {
+  let values = enums(name)
   for (let k in values) if (values[k].includes(word)) return k
 }
 
@@ -1090,7 +1095,8 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
   if (args[0] === '--completions-list') {
     await discoverPlugins()
     let prev = args[1] || '', cur = args[2] || ''
-    let ops = Object.keys(HELP)
+    // the ops registered, the plugins that register more when named (as main() loads them), methods and verbs
+    let ops = [...new Set([...Object.keys(audio.op()).filter(isOpName), ...Object.keys(audio.plugins ?? {}), ...METHOD_OPS, ...SOURCE_VERBS, ...SINK_VERBS])]
     let flags = ['--force', '--verbose', '--format', '--macro', '--cue', '--device', '--devices', '--help', '--version', '-f']
 
     // Context-aware completions
@@ -1099,7 +1105,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       // Need filename — return empty, shell falls back to file completion
       process.exit(0)
     } else if (prev === 'stat') {
-      out = ['db', 'rms', 'loudness', 'clipping', 'dc', 'silence', 'spectrum', 'cepstrum', 'bpm', 'beats', 'onsets', 'key', 'notes', 'chords']
+      out = [...Object.keys(audio.stat()), ...STAT_AGG]
     } else if (prev === 'normalize') {
       out = [...Object.keys(LOUDNESS), '-1', '-3', '-6']
     } else if (prev === 'fade') {
@@ -1134,14 +1140,14 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       out = ['0.2s', '0.3s', '0.5s', '1s']
     } else if (prev === 'allpass') {
       out = ['100hz', '440hz', '1khz', '4khz']
-    } else if (prev === 'vocals') {
-      out = ['isolate', 'remove']
     } else if (prev === 'dither') {
       out = ['8', '16', '24']
     } else if (prev === 'crossfeed') {
       out = ['500hz', '700hz', '1khz']
     } else if (prev === '--format') {
       out = ['wav', 'mp3', 'flac', 'ogg', 'opus', 'aiff']
+    } else if (enums(prev)) {
+      out = Object.values(enums(prev)).flat()
     } else if (cur.startsWith('-')) {
       out = flags
     } else {

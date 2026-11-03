@@ -8,7 +8,7 @@ import { homedir, tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import audio from '../audio.js'
-import { lines, split } from '../bin/mcp.js'
+import { lines, split, EDITOR } from '../bin/mcp.js'
 import { PassThrough } from 'stream'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -127,6 +127,15 @@ test('mcp: batches, invalid messages and stray responses', E2E, async t => {
     t.is((await c.request('ping')).result, {}, 'alive after all of it')
     t.ok(!c.seen.some(m => m.id === 99 || Array.isArray(m)), 'no answer to a response or to notifications')
   } finally { await c.close() }
+})
+
+// the script tool lists ops by hand, a short line a kind, within what a client reads: every name one the library runs
+test('mcp: the editor\'s op lists name only ops the library knows', t => {
+  let script = EDITOR.find(d => d.name === 'script').description
+  let names = script.split('\n').filter(l => /^(Edit|Level|Filter|Dynamics|Repair|Time, pitch|Effect): /.test(l))
+    .flatMap(l => l.replace(/^[^:]+: /, '').replace(/\([^)]*\)/g, '').split(/\s+/)).filter(w => /^[a-z]/.test(w) && w !== 'more')
+  t.ok(names.length > 60, `${names.length} names`)
+  t.is(names.filter(w => !audio.op(w) && !audio.plugins[w] && !['split', 'clip', 'master'].includes(w)), [], 'each one an op or a plugin')
 })
 
 test('mcp: one tool, described by the skill, within the 2048-char client limit', E2E, async t => {
