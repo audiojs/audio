@@ -23,6 +23,7 @@ import doing, { measures, noted } from './doing.js'
 import { THEMES, load, parse, skin, fonts, wear, webview, webviewFonts } from './theme.js'
 import { temperature, rgb, MAPS } from './tint.js'
 import { root, params, EMBED, DESKTOP, UI, SHOWN, quickOf, QUICK, GIVEN, APART, keep, generators, formats, ENCODING, writtenDepth, DEPTH_USE, mime, cutFormats, frameRates, KEEPS, icons, overlays, cueTimes, rulers, scrolls, grids, LOOK, looks, specMethods, mapNames, WAVE, waveLooks, levelList, scaleNames, curves, glyphs, gripModes, SETTINGS_ICON, AGENT_ICON, RECIPES_ICON, displays, SPEEDS, SHUTTLE, times, tenths, scrubs, rates, layouts, specs, KEY, stored, oneOf, docsOf, sideOf } from './editor/config.js'
+import { ed, rk, pl, output, incoming, timer, hush, steps, depthWas, rechoose, viewing, shown, carded, notesFor, queued, assign } from './editor/context.js'
 
 // The editor: its output, and at its right a panel that opens and closes, as Luminar's: the tools, every method by kind,
 // one click adding it; the edits, the chain that makes the output as a stack of steps; the same chain as code; and the
@@ -133,6 +134,7 @@ const label = name => /^(https?|blob|data):|^\/(?!\/)/.test(name) ? decodeURICom
 const quote = s => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
 
 const eng = engine()
+assign({ eng })
 // The channel samples the page holds of an output, 30 channel-minutes at 48 kHz: a longer one comes as its peaks, drawn
 // from them, its samples fetched where the view zooms in (view.js summary), played by the engine (player.js)
 eng.peaks = 30 * 60 * 48000
@@ -157,21 +159,18 @@ function hear(a, m, what) {
   pl.arrive(m.sampleRate, o => eng.voice({ ...o, held: { key: a.heard } }), parts.reduce((n, p) => n + p.channels[0].length, 0))
   state.arriving = true
 }
-let ed, v, rk
+let v
 // Each tab plays on its own, as a browser's tabs do: one left as it plays plays on, heard with the one shown, its speaker
 // on its tab muting it (toggleTabMute). `pl`, the shown tab's player (switchTab), each tab's made as it is first shown
 const playerOf = doc => doc.player ??= Object.assign(player({ onend: () => ended(doc) }), { scrubMode: state.scrub })
-let pl = null
 // the caret is where playback ends, as it is where it pauses; a tab not shown, its speaker goes
 function ended(doc) {
   if (doc.player !== pl) return sway()
   state.playing = false; state.speed = pl.rate = 1; v.playhead = null; v.setCursor(pl.time); state.time = stamp(v.cursor); sway()
 }
-// the whole output the page has; the newest run's output as it arrives; the run whose output the view shows
-let output = null, incoming = null, showing = 0
 // the view holds the tab's sound as it was left (its lanes, its length, where it was looked at) until the sound comes
 let holding = false
-let timer = 0, ticker = 0, recorder = null, previewAudio = null, original = null, checks = 0
+let ticker = 0, recorder = null, previewAudio = null, original = null, checks = 0
 // the files' lengths, s, and the places of takes the picture shows (places)
 const lengths = new Map(), lengthOf = name => lengths.get(name)
 let placed = []
@@ -180,11 +179,6 @@ let placed = []
 // (`hush`: the next run is one); working, while any other is, or what one made still comes
 const asking = new Map(), hushed = new Map(), waiting = () => asking.get(state.tab) ?? 0
 const working = () => waiting() > (hushed.get(state.tab) ?? 0) || !!incoming && !incoming.quiet
-let hush = false
-// the script after each step of its history (remember), and how many steps back it was last
-let steps = [], depthWas = 0
-// the card of the edits an undo or a redo brings back to, once the edits have seen the script it brings back (remember)
-let rechoose
 // the open documents, a tab each: [{ id, code, steps, depthWas }], the code of the one shown in the editor (switchTab);
 // each with its last output, and the one on its way (`coming`), made on with the tab left, `ready` till it is seen
 let docs = [], docIds = 0
@@ -231,9 +225,6 @@ const copies = () => !!chain(ed.code)?.calls.some(k => k.name === 'copy' || k.na
 const foreign = () => { const c = clipped(); return c && (c.stamp !== docOf(state.tab)?.copied || !copies()) ? c : null }
 const pastable = () => !!chain(ed.code) && (!!foreign() || copies())
 addEventListener('storage', e => { if (e.key === CLIP && ed) state.canPaste = pastable() })
-// what the output shows when not the whole chain (the stack): what live step `delta` takes out, or the chain rolled
-// back to its first `back` steps
-let viewing = { delta: null, back: null }
 
 // The mark in the bar, drawn live (logo/mark.js): at rest it holds the logo's pose. Playing or recording, the logo's own
 // wave runs through its window 2.5 times a second, a loop the compositor steps through (motion.js loop), so the page's
@@ -406,6 +397,7 @@ const state = sprae(root, {
   switchTab, tabPress, tabRenamed, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
   openSearch, closeSearch, runSearch, typeSearch, preview, useResult
 })
+assign({ state })
 
 // The page's hints (hint.js): what a number in the code sets, what a drag on the picture does
 const hints = hint(document.body)
@@ -414,10 +406,10 @@ const hints = hint(document.body)
 import('../assets/popoff.js').then(({ default: popoff }) => popoff()).catch(() => {})
 // The script editor, on the document shown, the files its tabs open kept from before
 const first = await initialDocs()
-pl = playerOf(first)
+assign({ pl: playerOf(first) })
 // the kept files are listed as the page comes up, not before it: the first run waits for them (evaluate)
 const restoring = APART ? Promise.resolve() : kept().then(files => { shelf = files })
-ed = codeEditor(root.querySelector('.script-editor'), {
+assign({ ed: codeEditor(root.querySelector('.script-editor'), {
   hint: hints,
   wrap: EMBED,
   doc: first.code,
@@ -437,13 +429,13 @@ ed = codeEditor(root.querySelector('.script-editor'), {
     schedule(typed ? 250 : 0)
     later()
   },
-  oncaret: update => { rk?.refresh(update); if (rechoose !== undefined) { rk.choose(rechoose); rechoose = undefined } },
+  oncaret: update => { rk?.refresh(update); if (rechoose !== undefined) { rk.choose(rechoose); assign({ rechoose: undefined }) } },
   // CodeMirror come, after the page shows (script.js): the edits made before it are its history now
   onready() { state.canUndo = ed.canUndo; state.canRedo = ed.canRedo; if (QUICK.length) state.made = stepsOf(ed.code).filter(s => s.on).length },
   files: () => [...taken()],
   describe: name => eng.describe(name),
   keys: { 'Mod-Enter': togglePlay, 'Mod-s': () => exportFiles() }
-})
+}) })
 ed.open(first.id)
 state.tab = eng.tab = first.id
 state.track = first.track
@@ -599,6 +591,7 @@ v = view(root.querySelector('.plot'), {
   },
   hint: hints
 })
+assign({ v })
 v.heights = first.heights ?? {}
 v.display = state.display
 v.kinds = state.kinds = first.kinds ?? {}
@@ -636,19 +629,17 @@ function guidesOf(call, spec, values = valuesOf(spec, call)) {
   for (const arg of call.args) if (arg.kind === 'object') for (const p of arg.props) named[p.name] ??= p.value
   return guides(call.name, named, v.duration)
 }
-// The agent's last edit, drawn over the output while the script is as it left it (showEdit): { code, guides }
-let shown = null, carded = false
 // The edits, the stack of the chain's steps; the card under the pointer draws what it sets over the output (ops.js
 // guides), and none pointed at, what the agent's last edit sets. What the output shows when it is not the whole chain
 // (the chain up to the step chosen, what a step takes out) runs in place of the script.
-rk = stack(root.querySelector('.steps'), {
+assign({ rk: stack(root.querySelector('.steps'), {
   ed,
   describe: name => eng.describe(name),
   duration: () => v.duration,
   // the sound the chain starts from; with tracks, the track's name before it
   source: () => { const s = source(ed.code), files = s?.strings.length ? s.strings.map(x => label(x.name)).join(' + ') : null; return files && state.track ? `${state.track} · ${files}` : files },
-  oncall(call, spec, values) { carded = !!(call && spec); v.guides = carded ? guidesOf(call, spec, values) : shown?.guides ?? [] },
-  onview(next) { viewing = next; schedule(0) },
+  oncall(call, spec, values) { assign({ carded: !!(call && spec) }); v.guides = carded ? guidesOf(call, spec, values) : shown?.guides ?? [] },
+  onview(next) { assign({ viewing: next }); schedule(0) },
   // a gain() curve chosen, its line on the picture, to edit; none else (envelopeShown)
   onchoose: () => { v.envelope = envelopeShown() },
   // a slider's move shows on the picture at once, where a level says it (ops.js previews), until its output comes
@@ -660,7 +651,7 @@ rk = stack(root.querySelector('.steps'), {
   track: () => state.track,
   onuntrack: untrack,
   keys
-})
+}) })
 // the track edited one the script has (a link's script, opened anew, has none chosen): set before the page's state is
 // all made, so nothing it shows is asked for yet
 state.track = trackOf(state.track)
@@ -1105,10 +1096,10 @@ function resetView() {
 
 
 // Runs the script a moment after the last change; a slider runs it at once. Newer runs replace waiting ones.
-function schedule(delay) { clearTimeout(timer); timer = setTimeout(() => { timer = 0; evaluate() }, delay) }
+function schedule(delay) { clearTimeout(timer); assign({ timer: setTimeout(() => { assign({ timer: 0 }); evaluate() }, delay) }) }
 async function evaluate() {
   const code = ed.code, quiet = hush
-  hush = false
+  assign({ hush: false })
   places()
   const syntax = error(code)
   if (syntax) {
@@ -1194,8 +1185,8 @@ function show(result, syntax = false, names = [], coming = null) {
   state.saves = result.saves || []
   entitle(names, !!result.output || state.hasOutput)
   // what it said goes with its output, for its tab shown again (switchTab)
-  if (result.output) { coming.id = result.id; coming.said = { lines, saves: state.saves, names }; incoming = docOf(coming.tab).coming = coming; state.loading = !state.hasOutput; return }
-  incoming = null
+  if (result.output) { coming.id = result.id; coming.said = { lines, saves: state.saves, names }; assign({ incoming: docOf(coming.tab).coming = coming }); state.loading = !state.hasOutput; return }
+  assign({ incoming: null })
   state.loading = false
   settle(null)
   finished({ ok: true, duration: 0 })
@@ -1251,7 +1242,7 @@ function arrival(names) {
     if (!a.preview) {
       const m = a.early.at(-1)
       a.preview = true
-      showing = 0
+      assign({ showing: 0 })
       v.stream({ sampleRate: m.sampleRate, channels: (m.channels ?? m.peaks).length, total: m.estimate ? Math.round(m.estimate * m.sampleRate) : null, dim: true, keep: holding })
       aim(false, true)
       lend(null)
@@ -1320,7 +1311,7 @@ function arrival(names) {
     // its tab left: the tab's own, to show when it is
     if (away()) { Object.assign(docOf(a.tab), { output: assemble(m), coming: null, ready: true }); return badges() }
     if (!current()) return
-    incoming = null
+    assign({ incoming: null })
     unclaim()
     // an older script's output, while the picture holds an edit drawn ahead of a newer one: not the output it waits for,
     // which is on its way (the script changed since this one ran); taken for it, it would end the wait, and the newer
@@ -1366,7 +1357,7 @@ function arrival(names) {
   a.skip = gone
   a.error = m => {
     if (!current()) return gone()
-    incoming = null
+    assign({ incoming: null })
     unclaim()
     state.problem = m.error.message
     finished({ ok: false, problem: m.error.message })
@@ -1386,7 +1377,7 @@ const alike = a => !!output?.channels && !output.tracks && a.total != null && a.
 function begin(a) {
   a.on = true
   a.preview = false
-  showing = a.id
+  assign({ showing: a.id })
   v.stream({ sampleRate: a.sampleRate, channels: a.channels, total: a.total })
   aim(false, true)
   for (const p of a.parts) piece(p)
@@ -1420,13 +1411,13 @@ function aim(held = false, coming = false) {
   doc.view = null
 }
 function settle(out, draw = true, behind = false) {
-  output = out
+  assign({ output: out })
   holding = false
   // the tab's own, to show at once when it is shown again
   const doc = docs.find(d => d.id === state.tab)
   if (doc) doc.output = out
   const has = !!out?.duration
-  showing = has ? out.id : 0
+  assign({ showing: has ? out.id : 0 })
   state.hasOutput = has
   state.whole = has
   state.arriving = false
@@ -1484,7 +1475,7 @@ function toggleMute(i, solo = false) {
   pl.out = null
   pl.set(out.channels, out.sampleRate, o => eng.voice({ ...o, output: out.id, muted }), out.length, fetches(out), lanesOf(out))
   store()
-  hush = true
+  assign({ hush: true })
   schedule(0)
 }
 // The track edited (code.js focus), by its name: its chain is the one the edits show, the picture's handles draw on and
@@ -1611,7 +1602,7 @@ async function toggleAB() {
 async function marks() {
   notesShown()
   v.show = state.show
-  if (shown && shown.code !== ed.code) { shown = null; if (!carded) v.guides = [] }
+  if (shown && shown.code !== ed.code) { assign({ shown: null }); if (!carded) v.guides = [] }
   if (!state.whole) return
   // the cues whether they show or not: a double-click selects between them, ⌥ and the arrows step by them, an edge goes
   // onto them. They are the output's shown, read against the code that made it; once the code has moved on (a cue
@@ -1623,16 +1614,13 @@ async function marks() {
   // said over the range
   if (state.pitch) { const f0 = await eng.contour(out.id, i); if (out === output && laneIndex() === i) v.contour = { ...f0, shift: shiftOf(out.code) } }
 }
-// The notes each lane showing them holds (view.js notes), a voice's, found once its output is whole (worker.js notes); set
-// again only as the output or the lanes showing them change
-let notesFor = ''
 async function notesShown() {
   const out = output
   if (!state.whole || !out?.duration) return
   const names = out.tracks?.map(t => t.name), lanes = names ? names.flatMap((n, i) => shows(n) === 'notes' ? [i] : []) : state.display === 'notes' ? [0] : []
   const key = `${out.id} ${lanes}`
   if (key === notesFor) return
-  notesFor = key
+  assign({ notesFor: key })
   const found = await Promise.all(lanes.map(i => eng.notes(out.id, names ? i : undefined)))
   if (out === output && notesFor === key) v.notes = Object.fromEntries(lanes.map((i, k) => [i, found[k]]))
 }
@@ -1909,8 +1897,8 @@ function resizePanel(event) {
 function remember(code, sliding) {
   const [back, ahead] = ed.depth, was = depthWas, now = v?.state && { ...v.state, chosen: rk?.shown().id ?? null }
   if (sliding && back === was) return
-  depthWas = back
-  const restore = s => { v.state = s; rechoose = s.chosen ?? null }
+  assign({ depthWas: back })
+  const restore = s => { v.state = s; assign({ rechoose: s.chosen ?? null }) }
   // undone, an edit drawn ahead of its output is not coming: the picture goes back to the output there is
   if (back < was) { v.expect(null); if (steps[was]) steps[was].after = now; if (steps[back + 1]?.before) restore(steps[back + 1].before) }
   else if (back > was && steps[back]?.code === code && steps[back].after) restore(steps[back].after)
@@ -2070,7 +2058,6 @@ function playPress(event) {
 function setSpeed(r) { state.speed = pl.rate = SPEEDS.range(r) }
 function playClick(event) { if (!event.detail) togglePlay() }
 // Playing and recording are one or the other: while it records, Play is off (Space stops the recording)
-let queued = []
 async function togglePlay() {
   if (!(state.whole || state.arriving) || state.recording) return
   // paused, the caret where the playhead line is, what was last heard: the line becomes it, nothing jumps
@@ -2770,7 +2757,7 @@ function write(...calls) {
     if (after != null) after = change.from + change.insert.length
   }
   // its card chosen once the edits have it (oncaret)
-  if (at) rechoose = chain(code)?.calls.findLast(k => k.dot < after && k.list)?.list.from ?? null
+  if (at) assign({ rechoose: chain(code)?.calls.findLast(k => k.dot < after && k.list)?.list.from ?? null })
   ed.change(calls.length > 1 ? between(ed.code, code) : change)
   return change
 }
@@ -2787,12 +2774,12 @@ function spread(edit) {
   if (spreading || !v.across || names.length < 2 || mastering()) return edit()
   const real = ed, edits = rk, was = state.track
   let code = real.code, done = false
-  ed = Object.create(real, { code: { get: () => code }, change: { value: c => { code = changed(code, c) } }, select: { value: () => {} } })
-  rk = Object.create(edits, { at: { value: () => null }, choose: { value: () => {} } })
+  assign({ ed: Object.create(real, { code: { get: () => code }, change: { value: c => { code = changed(code, c) } }, select: { value: () => {} } }) })
+  assign({ rk: Object.create(edits, { at: { value: () => null }, choose: { value: () => {} } }) })
   spreading = true
   // (a locked track's left as it is)
   try { for (const name of names.filter(n => !state.locked.includes(n))) { focus(name); done = !!edit() || done } }
-  finally { spreading = false; ed = real; rk = edits; focus(was) }
+  finally { spreading = false; assign({ ed: real, rk: edits }); focus(was) }
   if (code !== real.code) real.change(between(real.code, code))
   return done
 }
@@ -3625,7 +3612,7 @@ async function showEdit(text, was, before) {
   }
   if (ed.code !== code) return
   if (list.some(g => g.pitch) && shows(state.track) !== 'spec') showAs('spec')
-  shown = { code, guides: list }
+  assign({ shown: { code, guides: list } })
   if (!carded) v.guides = list
   const range = list.find(g => g.range)?.range
   if (range) v.reveal(...range)
@@ -3853,14 +3840,14 @@ function switchTab(id) {
   if (id === state.tab || !docs.some(d => d.id === id)) return
   const was = docs.find(d => d.id === state.tab), next = docs.find(d => d.id === id)
   if (was) Object.assign(was, { code: ed.code, name: nameOf(ed.code), steps, depthWas, frame: was.frame ?? v.frame, view: was.view ?? v.state, track: state.track, muted: state.muted, locked: state.locked })
-  ;({ steps = [], depthWas = 0 } = next)
+  assign({ steps: next.steps ?? [], depthWas: next.depthWas ?? 0 })
   state.tab = eng.tab = id
   // the edits the tab left waited to make go with it
-  queued = []
+  assign({ queued: [] })
   // the tab left plays on, if it plays, its player its own; the one shown plays as it was left, its playhead running
   cancelAnimationFrame(ticker)
   v.playhead = null
-  pl = playerOf(next)
+  assign({ pl: playerOf(next) })
   state.playing = pl.playing
   state.speed = pl.rate
   // its track edited, as it was left (its script, opened, keeps it valid: focusOn)
@@ -3870,15 +3857,15 @@ function switchTab(id) {
   v.heights = next.heights ?? {}
   v.kinds = state.kinds = next.kinds ?? {}
   v.notes = {}
-  notesFor = ''
+  assign({ notesFor: '' })
   focus(state.track)
-  viewing = { delta: null, back: null }
+  assign({ viewing: { delta: null, back: null } })
   v.select(0, 0)
   v.setCursor(0)
   // its sound at once, as it was last shown (none for a new one); while that is what its script makes as it reads now,
   // with what its run said, nothing runs again, else its script runs. One still on its way, as its script reads now,
   // is taken up where it has come to (takeUp)
-  incoming = null
+  assign({ incoming: null })
   settle(next.output ?? null)
   if (!next.output) standIn(next)
   if (pl.playing) chase()
@@ -3886,8 +3873,8 @@ function switchTab(id) {
   // its takes' places, as its script has them: a run, which would place them, may not come
   places()
   const out = next.output, a = next.coming
-  if (a?.said && a.code === a.editor && a.editor === ed.code) { clearTimeout(timer); timer = 0; state.viewing = ''; retell(a.said); takeUp(a) }
-  else if (out?.said && out.code === out.editor && out.editor === ed.code) { clearTimeout(timer); timer = 0; state.viewing = ''; retell(out.said) }
+  if (a?.said && a.code === a.editor && a.editor === ed.code) { clearTimeout(timer); assign({ timer: 0 }); state.viewing = ''; retell(a.said); takeUp(a) }
+  else if (out?.said && out.code === out.editor && out.editor === ed.code) { clearTimeout(timer); assign({ timer: 0 }); state.viewing = ''; retell(out.said) }
   next.ready = false
   status()
   rk?.refresh()
@@ -3899,7 +3886,7 @@ function switchTab(id) {
 // where it is as long as that (alike), else in its place; the file it decodes not drawn from part of the way in, and
 // heard from its next piece
 function takeUp(a) {
-  incoming = a
+  assign({ incoming: a })
   a.early = null
   a.preview = false
   a.hearing = null

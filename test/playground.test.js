@@ -4076,7 +4076,7 @@ test('editor: blips of the ground between two sounds make no cues; the sounds\' 
 test('editor: dragging a cue moves it, the audio on either side stretching to fit, the cues either side holding', async () => {
   // the cues each output brings, counted as the view takes them (__cued)
   await page.route('**/playground/view.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('    set cues(list) {\n', '    set cues(list) {\n      if (list) globalThis.__cued = (globalThis.__cued ?? 0) + 1\n') }) })
-  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('let output = null, incoming', 'globalThis.__output = () => output\nlet output = null, incoming') }) })
+  await page.route('**/playground/editor/context.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('let output = null, incoming', 'globalThis.__output = () => output\nlet output = null, incoming') }) })
   await open()
   await write(hits)
   await lengthIs('0:02.000')
@@ -4990,7 +4990,8 @@ test('editor: playing, the bar\'s mark is a loop the compositor runs', async () 
 // and forth. The playhead runs on by the frames' own time instead, its speed trimmed toward the clock: frame to frame it
 // moves as far as the frame's time at the speed, within 50 µs, and stays within a few ms of the clock
 test('editor: the playhead runs on by the frames\' own time, not by the device clock\'s steps', async () => {
-  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(').replace('let pl = null', 'let pl = null; Object.defineProperty(globalThis, "__pl", { get: () => pl })') }) })
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await page.route('**/playground/editor/context.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('let pl = null', 'let pl = null; Object.defineProperty(globalThis, "__pl", { get: () => pl })') }) })
   await open()
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
@@ -5016,7 +5017,8 @@ test('editor: the playhead runs on by the frames\' own time, not by the device c
 // The playhead takes no step for a change of speed: frame to frame it moves as far as the frame's time, within 3% (it
 // was a tenth and more), and stays within a few ms of the clock
 test('editor: the playhead keeps its speed on a clock that moves by the audio callbacks', async () => {
-  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(').replace('let pl = null', 'let pl = null; Object.defineProperty(globalThis, "__pl", { get: () => pl })') }) })
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await page.route('**/playground/editor/context.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('let pl = null', 'let pl = null; Object.defineProperty(globalThis, "__pl", { get: () => pl })') }) })
   await open()
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
@@ -10879,7 +10881,8 @@ test('editor: the layers over each lane name and lock the tracks; a foot dragged
 // between the two contexts, which holds it some tens of ms more (Chromium's: 20 to 30). Not lined up, it would land as
 // late as the device took to start playing, 0.2 to 0.5 s here
 test('editor: ⇧R records a new track as the others play, lined up with what played', async () => {
-  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('const eng = engine()', 'const eng = globalThis.__eng = engine()').replace('let output = null, incoming', 'globalThis.__output = () => output\nlet output = null, incoming') }) })
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('const eng = engine()', 'const eng = globalThis.__eng = engine()') }) })
+  await page.route('**/playground/editor/context.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('let output = null, incoming', 'globalThis.__output = () => output\nlet output = null, incoming') }) })
   // the microphone: what the page plays, tapped where it goes out
   await page.addInitScript(() => {
     const connect = AudioNode.prototype.connect, taps = new Map()
@@ -10925,7 +10928,8 @@ test('editor: ⇧R records a new track as the others play, lined up with what pl
 // same strike in the same column as it records and once it is done, no shift as it stops (it once jumped left by the
 // output's latency, the samples heard before its start left out only once it was written)
 test('editor: a take recorded as the others play is drawn where it will be, no shift once it is done', async () => {
-  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('const state = sprae(root, {', 'const state = globalThis.__state = sprae(root, {').replace('let output = null, incoming', 'globalThis.__output = () => output\nlet output = null, incoming') }) })
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('const state = sprae(root, {', 'const state = globalThis.__state = sprae(root, {') }) })
+  await page.route('**/playground/editor/context.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('let output = null, incoming', 'globalThis.__output = () => output\nlet output = null, incoming') }) })
   // the microphone: what the page plays, tapped where it goes out
   await page.addInitScript(() => {
     const connect = AudioNode.prototype.connect, taps = new Map()
