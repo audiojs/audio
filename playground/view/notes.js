@@ -1,8 +1,9 @@
 import { CURVES, CROSSFADES } from '../ops.js'
 import { lightness } from '../tint.js'
-import { drag, plot, x, X, time, pitchLine, ly, fy, rowOf, keyY, keyRows, ay, fold, ampLanes, moved, rgba } from '../view.js'
+import { drag, plot, x, X, time, pitchLine, ly, fy, rowOf, keyY, keyRows, ay, fold, ampLanes } from '../view.js'
 import { EDGE, NOTES, midiOf, noteOf, VOICE, onaudition, color, c, rate, duration, units, pieces, start, end, envelope, shift, contour, landed, clips, data, tracks, focus, noted } from './model.js'
 import { lanesEnd } from './overlay.js'
+import { moved, rgba } from './render.js'
 import { tag, accent, label } from './strips.js'
 
 // Pitch and notes: a frequency's place, the notes lane and its keys, a voice's notes and guides, the gain and pitch

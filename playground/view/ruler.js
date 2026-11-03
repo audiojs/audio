@@ -1,8 +1,9 @@
 import measure, { coloured } from '../tint.js'
-import { H, dpr, drag, LINGER, plot, lanes, extent, own, tickTop, row, rowBand, MAP, bar, onBar, x, X, fy, shade, invalidate, tints, paletted, tone, wash, caretColour, ranges, hues, rgba } from '../view.js'
+import { drag, LINGER, plot, lanes, extent, own, tickTop, row, rowBand, MAP, bar, onBar, x, X, fy, ranges } from '../view.js'
 import { TICK, timeRow, color, barStrip, runway, head, headLines, headTick, headTime, oc, c, rate, duration, hovered, start, end, selection, band, cursor, playhead, ruler, waveLook, data, tracks, focus, scroll, reached, moving, leavesOf, map, assign } from './model.js'
 import { labelled } from './notes.js'
 import { say, lanesEnd, seenTo, fitTo, away } from './overlay.js'
+import { H, dpr, shade, invalidate, tints, paletted, tone, wash, caretColour, hues, rgba } from './render.js'
 import { tag, gauge, size, label, stamp } from './strips.js'
 
 // The time row and what moves along it: the ticks and times, the playhead followed and steered, the scrollbar and the
