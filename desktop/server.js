@@ -1,30 +1,23 @@
 /** Serve the playground and local media files for Audio.app on 127.0.0.1. */
 import { createServer } from 'node:http'
 import { createReadStream, fstatSync } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, extname, isAbsolute, join, normalize } from 'node:path'
+import { basename, extname, isAbsolute, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { serve } from '../.site-serve.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const port = +(process.argv[process.argv.indexOf('--port') + 1] || process.env.AUDIO_PORT || 7781)
 const origin = `http://127.0.0.1:${port}`
 const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`])
 
-const TYPES = {
-  '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
-  '.map': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.gif': 'image/gif', '.woff2': 'font/woff2',
-  '.wasm': 'application/wasm', '.md': 'text/markdown', '.onnx': 'application/octet-stream'
-}
 // a file of this machine the pages may read by its path (GET /f/PATH): audio and video, nothing else
 const MEDIA = {
   '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.flac': 'audio/flac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/ogg',
   '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.aif': 'audio/aiff', '.aiff': 'audio/aiff', '.caf': 'audio/x-caf', '.webm': 'audio/webm',
   '.mka': 'audio/x-matroska', '.wma': 'audio/x-ms-wma', '.amr': 'audio/amr', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska'
 }
-// cross-origin isolated where the engine takes COEP credentialless (Chromium); WebKit ignores it and runs models on one thread
-const ISOLATED = { 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'credentialless' }
-
 const expand = p => normalize(String(p).replace(/^~(?=$|[\\/])/, homedir()))
 
 const reply = (res, code, data) => res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(data))
@@ -47,21 +40,6 @@ async function file(path, req, res) {
   createReadStream(path).pipe(res)
 }
 
-// the repo's own files, as `npm run serve` serves them: never cached, so a reload runs them as they are
-async function serve(pathname, search, res) {
-  let path = normalize(join(root, decodeURIComponent(pathname)))
-  // nothing hidden (.git, .work, a .env): a dot-name anywhere under the root
-  if (!path.startsWith(root) || /(^|[\\/])\.(?!well-known)/.test(path.slice(root.length))) return res.writeHead(403).end()
-  // a folder is its index.html, at its path with a slash, so the page's own links resolve inside it
-  if ((await stat(path).catch(() => null))?.isDirectory()) {
-    if (!pathname.endsWith('/')) return res.writeHead(301, { location: pathname + '/' + search }).end()
-    path = join(path, 'index.html')
-  }
-  const data = await readFile(path).catch(() => null)
-  if (!data) return res.writeHead(404, { 'content-type': 'text/plain' }).end(`Not found: ${pathname}`)
-  res.writeHead(200, { 'content-type': TYPES[extname(path)] || 'application/octet-stream', 'cache-control': 'no-store', ...ISOLATED }).end(data)
-}
-
 const server = createServer(async (req, res) => {
   if (!hosts.has(req.headers.host)) return res.writeHead(421).end()
   const { pathname, search } = new URL(req.url, origin)
@@ -76,7 +54,8 @@ const server = createServer(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return res.writeHead(405).end()
     // This server supplies the isolation headers; the service worker only claims the page.
     if (pathname === '/playground/sw.js') return res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }).end("self.addEventListener('install', () => self.skipWaiting())\nself.addEventListener('activate', e => e.waitUntil(self.clients.claim()))\n")
-    await serve(pathname, search, res)
+    // the repo's own files, as `npm run serve` serves them
+    await serve(root, pathname, search, res)
   } catch (e) { reply(res, e.status ?? 500, { error: e.message, code: e.code }) }
 })
 
