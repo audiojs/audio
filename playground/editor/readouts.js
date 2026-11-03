@@ -1,11 +1,12 @@
 import { NOTES, noteOf } from '../view.js'
 import { levels, spectra, ballistics } from '../meters.js'
-import { recorder, bar, laneIndex, cuesOf, shiftOf } from '../editor.js'
+import { recorder, bar, laneIndex, cuesOf } from '../editor.js'
 import { root, cueTimes, layouts } from './config.js'
 import { state, eng, v, ed, pl, output, shown, carded, notesFor, assign } from './context.js'
 import { dbfs, stamp, hertz, chordName } from './format.js'
 import { shows } from './look.js'
 import { store } from './persist.js'
+import { shiftOf } from './writers.js'
 
 // What the picture and the status bar read of the output: the marks over it (cues, notes, pitch), the meters, the
 // level readout, what is heard at the caret, the chord as it plays
