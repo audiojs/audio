@@ -1,6 +1,7 @@
 import clock from '../time.js'
-import { markLane, ownMarks, snappedTo, placed, ghost, CHUNK, W, drag, plot, spare, lanes, floor, inRoom, own, laneAt, x, X, time, digits, seen, stick, inside, fy, ay, roomLane, moved, invalidate, sampled, decibel, wash, clipMarks, fine, nearCue, hot } from '../view.js'
+import { markLane, ownMarks, snappedTo, placed, ghost, CHUNK, W, drag, plot, spare, lanes, floor, inRoom, own, laneAt, x, X, time, digits, seen, stick, inside, fy, ay, roomLane, moved, invalidate, sampled, decibel, wash, fine, nearCue, hot } from '../view.js'
 import { EDGE, FOOT, KINDS, mac, root, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, band, cursor, playhead, cues, snapping, clips, aview, levelUnits, data, tracks, focus, allLanes, sections, windows, lift, chosen, held, assign } from './model.js'
+import { clipMarks } from './notes.js'
 import { say, triangleAt, WASHED, washFrom, crossAt, lanesEnd, seenTo } from './overlay.js'
 
 // The strips under the lanes and across them: the measure, the fades at the view's edges, each band's look, the room
