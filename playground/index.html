@@ -9,9 +9,6 @@
   <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
   <link rel="preload" href="../assets/geist.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="editor.css">
-  <!-- what the page's own library loads when it is first asked for (a voice's pitch, intonation or formants heard as
-       they are dragged): the atoms .site-build.js builds beside it; before any module is fetched -->
-  <script type="importmap">{ "imports": { "@audio/tune-curve": "../assets/tune-curve.js", "@audio/stft": "../assets/stft.js" } }</script>
   <!-- what the page waits on to show, fetched at once, not each as the one before it is read and names it, a phone's
        round trip each: the stylesheets editor.css imports and the bar's mark, which hold up its first paint, then every
        module editor.js imports, four deep, after them (test/playground.test.js keeps the list whole) -->
@@ -50,7 +47,6 @@
   <link rel="modulepreload" href="../assets/gl-spectrogram.js" fetchpriority="low">
   <link rel="modulepreload" href="tint.js" fetchpriority="low">
   <link rel="modulepreload" href="kept.js" fetchpriority="low">
-  <link rel="modulepreload" href="heard.js" fetchpriority="low">
   <link rel="modulepreload" href="../assets/lezer.js" fetchpriority="low">
   <link rel="modulepreload" href="help.js" fetchpriority="low">
   <link rel="modulepreload" href="samples.js" fetchpriority="low">

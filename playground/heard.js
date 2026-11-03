@@ -1,7 +1,7 @@
 // What plays of a sound, as the page asks to hear it: all of it, a band of it [low, high] Hz, its boxes, or a moment of
 // it [from, to] s through an edit [type, ...args], a call of the library's (a pitch dragged, heard as it will sound).
-// Library calls only, so the page's library and the engine's make the same (player.js, worker.js voice). A sound heard
-// as it is comes back itself; any other is a copy
+// Library calls only, so the deck's worker and the engine's make the same (worker.js voice). A sound heard as it is
+// comes back itself; any other is a copy
 export function heard(a, { from, to, edit, band, boxes } = {}) {
   if (from != null || edit) {
     a = a.clone()

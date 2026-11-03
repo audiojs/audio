@@ -33,7 +33,7 @@ export function start() {
 }
 
 // The deck's worker, started when something first plays: voice(held, what), [its reply, the worker]; one that fails
-// answers null, and the player plays the page's samples itself
+// answers null, and the engine's worker plays it
 function decks(url) {
   let worker = null, ids = 0, kept = []
   const pending = new Map()
@@ -288,9 +288,10 @@ export default function engine(url = WORKER) {
     // What plays, made and rendered as it plays (worker.js voice): { voice }, a facade of the library's (audio/worker) the
     // page plays as an instance, or null when there is none (the output gone, the engine stopped). Boxed: a voice of a
     // sound still arriving is thenable, waiting for it to be whole, and a promise resolved with it would wait as long. Of
-    // a sound the page holds (`held`: { key, channels, sampleRate }), in the deck; else here
+    // a sound the page holds (`held`: { key, channels, sampleRate }), in the deck; else, or where the deck fails, here
     async voice({ held, ...what }) {
-      const [r, from] = held ? await deck.voice(held, what) : [await call({ type: 'voice', ...what }), worker]
+      let [r, from] = held ? await deck.voice(held, what) : [null]
+      if (!r?.inst) [r, from] = [await call({ type: 'voice', ...what }), worker]
       if (!r?.inst) return null
       const { default: audioWorker } = await import('../worker.js')
       return { voice: audioWorker.adopt(r.inst, { worker: from }) }

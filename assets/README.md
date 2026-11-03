@@ -3,7 +3,9 @@
 What the playground loads beside its own modules. `npm run serve` builds them and serves the repository; the playground
 is at `/playground/`.
 
-- `audio.js`, `wav.js`, `mp3.js`, `flac.js`, `aiff.js`, and `ogg.js` are generated from this checkout and its installed encoders.
+- `audio.js`, `wav.js`, `mp3.js`, `flac.js`, `aiff.js`, and `ogg.js` are generated from this checkout and its installed encoders:
+  the library whole, for a page that runs it itself (the memory suite's bare pages). The editor runs the library in its
+  workers only; its page plays through `deck.js`.
   Refresh them with `node .site-build.js` after changing the library.
 - Encoders load only when their format is exported. MP3 and Ogg include their WASM payloads; FLAC uses the bundled libflacjs encoder.
   Encoder licenses are in `LICENSE-encode-*.txt`, `LICENSE-libflacjs.txt`, and `LICENSE-wasm-media-encoders.txt`.

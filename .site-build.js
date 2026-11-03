@@ -7,8 +7,6 @@ import audio from './audio.js'
 
 // Node's own modules stay out of the browser bundles: the library imports them only on Node, when a path is a file
 const node = builtinModules.flatMap(name => [name, `node:${name}`])
-// atoms by their names, each to its module as Node finds it, one not installed (an optional one) left out
-const atoms = names => Object.fromEntries(names.flatMap(name => { try { return [[name.split('/')[1], fileURLToPath(import.meta.resolve(name))]] } catch { return [] } }))
 
 await build({
   entryPoints: {
@@ -17,9 +15,6 @@ await build({
     'window-function': 'node_modules/window-function/index.js',
     'periodic-function': 'node_modules/periodic-function/index.js',
     ...Object.fromEntries(['wav', 'mp3', 'flac', 'aiff', 'ogg'].map(format => [format, `node_modules/@audio/encode-${format}/${format}-encode.js`])),
-    // what the editor page's library loads on demand, by playground/index.html's import map: a voice's pitch, its formants, heard as
-    // they are dragged
-    ...atoms(['@audio/tune-curve', '@audio/stft'])
   },
   outdir: 'assets',
   bundle: true,

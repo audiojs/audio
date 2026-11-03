@@ -3315,6 +3315,24 @@ test('editor: export downloads the output, encoded', async () => {
   assert.ok(Math.abs(peakDb(pcm) + 1) < .05, `peak ${peakDb(pcm)}`)
 })
 
+// The page holds no library of its own: it plays through deck.js (its AudioContext, the library's playback on it), the
+// library running in the workers alone; a deck's worker that fails to load plays through the engine's
+test('editor: the page plays through deck.js alone, no library of its own; a deck that fails, through the engine', async () => {
+  const asked = []
+  page.on('request', r => asked.push(new URL(r.url()).pathname))
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await open()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
+  await lengthIs('0:20.000')
+  // the engine's worker is up: the next one asked for, the deck's, fails
+  await page.route('**/playground/dist/worker.js', route => route.abort())
+  await page.locator('.plot').focus()
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => __view.playhead > .5)
+  assert.ok(asked.includes('/deck.js'), 'deck.js')
+  assert.deepEqual(asked.filter(p => p === '/assets/audio.js' || p === '/audio.js' || p === '/core.js'), [], 'no library on the page')
+})
+
 // Play pressed while it plays pauses at its release (a press held still searches), the caret where the playhead line
 // got to, not back where the press was, as Space's pause leaves it
 test('editor: Play let go pauses with the caret where the playhead got to, as Space does', async () => {
