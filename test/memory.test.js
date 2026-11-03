@@ -397,3 +397,85 @@ test('memory: worker looping reuses its device and empty loops terminate', { tim
   assert.equal(result.openedForLoops, 1)
   assert.equal(result.decksLive, 0, 'every deck released')
 })
+
+// A store in the browser's own files (store.js): two pages of one origin, as two tabs, each a store over one folder.
+// Sounds round trip whole, their stats and the typed arrays of their meta with them; read again by another store (a
+// reload); past `max`, the oldest written goes, never one a sound still reads from. Two writers of one key at once:
+// one writes, the other lets it be, and what is read is one of them whole, never a mix; a sound open on a key keeps
+// reading it as it was while another page writes that key
+test('memory: a store in the browser\'s files keeps sounds whole; two writers of one key leave one of them whole', { timeout: 60000 }, async t => {
+  const context = await browser.newContext(), errors = []
+  t.after(async () => { await context.close(); assert.deepEqual(errors, []) })
+  const tab = async () => {
+    const page = await context.newPage()
+    page.on('pageerror', error => errors.push(error.message))
+    await page.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort())
+    await page.goto(origin + '/api.html')
+    await page.evaluate(async () => {
+      const { default: audio } = await import('/assets/audio.js')
+      // a sound of `n` samples a channel, each sample its channel and index (read back, it says where it came from)
+      window.audio = audio
+      window.made = (n, k, mark) => audio.from(Array.from({ length: k }, (_, c) => Float32Array.from({ length: n }, (_, i) => mark + c + i / n)), { sampleRate: 48000 })
+      window.whole = (chs, n, k, mark) => chs?.length === k && chs.every((x, c) => x.length === n && x.every((v, i) => v === Math.fround(mark + c + i / n)))
+    })
+    return page
+  }
+  const [a, b] = [await tab(), await tab()]
+  const name = `store-test-${Date.now()}`
+
+  const trip = await a.evaluate(async name => {
+    const kept = audio.store(name, { max: 64 * 2 ** 20 }), n = 3 * audio.PAGE_SIZE + 5
+    await kept.set('chs', await made(1000, 2, 1).read())
+    await kept.set('sound', made(n, 2, 2).gain(0), { label: 'two', picture: [Float32Array.of(1, 2, 3), Uint8Array.of(4, 5)], peak: -Infinity })
+    const chs = await kept.get('chs'), { sound, meta } = await kept.open('sound')
+    const again = audio.store(name)
+    return {
+      chs: whole(chs, 1000, 2, 1), shape: [sound.length, sound.channels, sound.sampleRate], held: sound.pages.filter(Boolean).length,
+      read: whole(await sound.read(), n, 2, 2), stats: !!sound.stats?.max && sound.stats.max[0].length === Math.ceil(n / audio.BLOCK_SIZE),
+      meta: [meta.label, [...meta.picture[0]], meta.picture[1] instanceof Uint8Array && [...meta.picture[1]], meta.peak],
+      again: whole(await again.get('sound'), n, 2, 2), keys: (await again.keys()).sort()
+    }
+  }, name)
+  assert.deepEqual(trip, { chs: true, shape: [3 * 1048576 + 5, 2, 48000], held: 0, read: true, stats: true, meta: ['two', [1, 2, 3], [4, 5], null], again: true, keys: ['chs', 'sound'] })
+
+  // past max: the oldest written goes, but the one a sound still reads from
+  const evicted = await a.evaluate(async name => {
+    // room for three and a half of them, by the size one takes
+    await audio.store(name + '-probe').set('probe', made(48000, 1, 3))
+    const root = await navigator.storage.getDirectory(), probe = await (await (await root.getDirectoryHandle(name + '-probe')).getFileHandle('probe')).getFile()
+    const kept = audio.store(name + '-max', { max: 3.5 * probe.size }), wait = () => new Promise(r => setTimeout(r, 20))
+    for (const key of ['one', 'two']) { await kept.set(key, made(48000, 1, 3)); await wait() }
+    const { sound } = await kept.open('one')
+    for (const key of ['three', 'four']) { await kept.set(key, made(48000, 1, 3)); await wait() }
+    return { keys: (await kept.keys()).sort(), reads: whole(await sound.read(), 48000, 1, 3) }
+  }, name)
+  assert.deepEqual(evicted, { keys: ['four', 'one', 'three'], reads: true }, 'two, the oldest not in use, gone')
+
+  // two writers of one key at once, one in each page; a page reading it meanwhile sees nothing or one of them whole
+  const n = 2 * 1048576 + 3
+  const write = (page, mark) => page.evaluate(async ({ name, n, mark }) => { await audio.store(name).set('both', made(n, 2, mark)); return true }, { name, n, mark })
+  const watch = a.evaluate(async ({ name, n }) => {
+    const seen = new Set(), kept = () => audio.store(name)
+    for (let i = 0; i < 40; i++) { const chs = await kept().get('both'); seen.add(!chs ? 'none' : whole(chs, n, 2, 10) ? 'a' : whole(chs, n, 2, 20) ? 'b' : 'torn'); await new Promise(r => setTimeout(r, 25)) }
+    return [...seen]
+  }, { name, n })
+  await Promise.all([write(a, 10), write(b, 20)])
+  const seen = await watch
+  t.diagnostic(`read while written: ${seen}`)
+  assert.ok(!seen.includes('torn'), `never a mix: ${seen}`)
+  const read = page => page.evaluate(async ({ name, n }) => { const chs = await audio.store(name).get('both'); return whole(chs, n, 2, 10) ? 'a' : whole(chs, n, 2, 20) ? 'b' : 'torn' }, { name, n })
+  const [ra, rb] = [await read(a), await read(b)]
+  assert.ok(ra === rb && ra !== 'torn', `both pages read one of them whole: ${ra}, ${rb}`)
+
+  // a sound open on the key in one page: another page's write lets it be, and the sound reads as it was
+  const open = await a.evaluate(async ({ name, n }) => { window.openSound = (await audio.store(name).open('both')).sound; return true }, { name, n })
+  assert.ok(open)
+  await write(b, 30)
+  const after = await a.evaluate(async ({ name, n }) => {
+    const [x] = await openSound.read(), chs = await audio.store(name).get('both')
+    return { sound: whole([x], n, 1, 10) || whole([x], n, 1, 20), stored: whole(chs, n, 2, 10) || whole(chs, n, 2, 20) }
+  }, { name, n })
+  assert.deepEqual(after, { sound: true, stored: true }, 'the key in use let be: the sound and the store read what was there')
+
+  await a.evaluate(async name => { const root = await navigator.storage.getDirectory(); for (const d of [name, name + '-max', name + '-probe']) await root.removeEntry(d, { recursive: true }).catch(() => {}) }, name)
+})

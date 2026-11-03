@@ -15,6 +15,7 @@ const SUITES = [
   'cuts',           // cut lists for video editors: the time map, CMX 3600, OpenTimelineIO, FCPXML read back
   'periodicity',    // voicing, hnr, harmonic against Praat, frame by frame
   'hits',           // cues: where each attack starts, where each sound stops (fn/hits.js, the editor's)
+  'store',          // sounds kept by a key (store.js)
   'rx',             // RX 12's modules we lacked: wow & flutter, azimuth, phase, codec preview, deconstruct, find similar
   'vocos',          // a voice made again by Vocos (optional @audio/neural-vocode), the input kept above the crossover
   'restore',        // a voice back to a studio take (optional @audio/neural-restore), the input mixed back by 1 − strength

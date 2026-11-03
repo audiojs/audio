@@ -234,6 +234,7 @@ for (let name of ['encode', 'save']) {
 
 // ── Infrastructure (self-register on import) ────────────────────────────
 
+import './store.js'
 import './cache.js'
 import './stats.js'
 import './plan.js'

@@ -13,6 +13,7 @@
     "./plan": "./plan.js",
     "./stats": "./stats.js",
     "./cache": "./cache.js",
+    "./store": "./store.js",
     "./batch": "./batch.js",
     "./stream": "./batch.js",
     "./worker": {
@@ -40,6 +41,7 @@
     "plan.js",
     "stats.js",
     "cache.js",
+    "store.js",
     "worker.js",
     "worker.d.ts",
     "parallel.js",
