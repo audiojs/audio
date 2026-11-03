@@ -187,10 +187,11 @@ Work sessions have asked for, held until the stage that frees its files lands (t
 - audio-f1, playground (after stage 4):
   - [ ] a bug, its own: recording over other tracks, the head runs ahead of the live take by `lead`/rate (editor.js flush puts
         it at t.at + (got − t.pass)/rate while view.align draws the take `lead` earlier); the head should subtract `lead`
-  - [ ] Alt's level measure read from the waveform's peak at the pointer's time, a clamped line with the true value when the
+  - [x] (90c5458) Alt's level measure read from the waveform's peak at the pointer's time, a clamped line with the true value when the
         peak is out of the view
   - [ ] `.layer-new` shown only while the room is pointed at or holds the caret
-  - [ ] more room between `.layer-name` and `.track-mute`; the rename field without the accent outline, as wide as its text
+  - [ ] more room between `.layer-name` and `.track-mute`
+  - [x] (90c5458) the rename field without the accent outline, as wide as its text
   - [ ] the layer menu's Track section: mute and solo, lock, rename, delete
 - audio-2b: its next work, on the split files (after stage 4)
 - playground/player.js says the speed plays "as a tape's: the pitch with it"; preservesPitch is true by default on both
