@@ -2,11 +2,12 @@ import { hold as holdInput } from '../sources.js'
 import scales from '../scale.js'
 import { load, parse, skin, fonts, wear, webview, webviewFonts } from '../theme.js'
 import { temperature, rgb, MAPS } from '../tint.js'
-import { docs, docOf, marks, notesShown, meter, describe } from '../editor.js'
+import { docs, docOf } from '../editor.js'
 import { root, DESKTOP, GIVEN, APART, rulers, scrolls, grids, LOOK, looks, specMethods, mapNames, WAVE, waveLooks, levelList, scaleNames, displays, scrubs } from './config.js'
 import { state, v, pl } from './context.js'
 import { stamp, note } from './format.js'
 import { store } from './persist.js'
+import { marks, notesShown, meter, describe } from './readouts.js'
 
 // How the page looks: the theme worn, the waveform's and spectrogram's looks and their swatches, the settings and the
 // options that set them, the display of each band
