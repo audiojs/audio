@@ -106,7 +106,8 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
       only where it makes threads (a dynamic import, its own chunk), a test holding the thread's entry to no core
 - [x] (c70d21e) dead import-map entry: `index.html` maps `@audio/tune-curve`, the library imports `@audio/tune/curve`; the map goes with the page bundle:
       gone with the page's library, and the two atom bundles only it read (`assets/tune-curve.js`, `assets/stft.js`)
-- [ ] `npm run serve` builds and watches (esbuild context), clears its output first; a reload always runs the source as it is
+- [x] (541e908) `npm run serve` builds and watches (esbuild context), clears its output first; a reload always runs the source as it is.
+      Only serve clears: a test's build leaves the folder, as another session's suite may be serving it
 - [ ] generated bundles out of git (`assets/audio.js`, `codemirror.js`, `lezer*.js`, copied `gl-*.js`), built by CI for Pages and by
       the Mac app's server on start: for the user (it changes what Pages deploys)
 - [ ] one serving module (types, COOP/COEP) for `.site-serve.js`, `desktop/server.js` and the tests; `sw.js` reads the same headers:
