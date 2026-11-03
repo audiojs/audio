@@ -40,15 +40,20 @@ const DESKTOP = params.has('desktop')
 // Embedded, all the page asks of the picture and its parts, as one JSON (?ui=, embed.js builds it): panel, display,
 // controls (the parts shown, index.html and editor.css name them; a level among them what the readout reads, and
 // without ruler, no time row), ops (the edits a press away, as `stretch(1.25)`), background (the page's ground, to
-// sit on and to fade into), zoom and overshoot (how far time zooms, and scrolls past the sound's end): README.md. A link
-// from before it, ?panel= and ?display=, reads the same.
+// sit on and to fade into), zoom and overshoot (how far time zooms, and scrolls past the sound's end), scroll (what
+// scrolls it: `scrolls`): README.md. A link from before it, ?panel= and ?display=, reads the same.
 const UI = !EMBED ? {} : (() => { try { return { panel: params.get('panel') ?? undefined, display: params.get('display') ?? undefined, ...JSON.parse(params.get('ui') || '{}') } } catch { return {} } })()
 const SHOWN = Array.isArray(UI.controls) ? UI.controls : []
 // each quick edit: its call, with its own arguments or, as the menus write it, the defaults the library can't do
-// without; its icon; its arguments as the edit's own settings read, each in its unit
-const QUICK = (Array.isArray(UI.ops) ? UI.ops : []).map(call => String(call).match(/^([\w-]+)(?:\(([^)]*)\))?$/)).filter(m => m && ops[m[1]])
-  .map(([, name, args]) => ({ name, args, icon: opIcons[name] ?? groupIcons[ops[name].group], label: labelOf(name), text: ops[name].text,
-    values: args ? args.split(',').map((a, i) => format(Number.isNaN(+a) ? a.trim().replace(/^['"]|['"]$/g, '') : +a, ops[name].params?.[i])).join(' · ') : '' }))
+// without; its icon; its arguments as the edit's own settings read, each in its unit (none where one is not a plain
+// value: a range, a curve); null for a call not of the edits (ops.js)
+const quickOf = call => {
+  const [, name, args] = String(call).match(/^([\w-]+)(?:\(([^)]*)\))?$/) ?? []
+  if (!ops[name]) return null
+  const values = args && !/[{[]/.test(args) ? args.split(',').map((a, i) => format(Number.isNaN(+a) ? a.trim().replace(/^['"]|['"]$/g, '') : +a, ops[name].params?.[i])).join(' · ') : ''
+  return { name, args, icon: opIcons[name] ?? groupIcons[ops[name].group], label: labelOf(name), text: ops[name].text, values }
+}
+const QUICK = (Array.isArray(UI.ops) ? UI.ops : []).map(quickOf).filter(Boolean)
 // A page given whole in its link, ?state=<what the page keeps, as JSON>: its tabs, what each selects, its panels, as a
 // page left them (playground/themes.html stages its specimens so); like an embedded one, nothing read from this
 // browser or kept in it, no other editor's tabs touched; dressed by the page around it (below)
@@ -112,8 +117,9 @@ function cueTimes(edges, hits) {
 // How the time row marks time: labels and their ticks, ticks alone, or nothing but the times that matter now (the caret's,
 // the pointer's, a selection's)
 const rulers = [['labels', 'Labels'], ['ticks', 'Ticks'], ['none', 'None']].map(([name, label]) => ({ name, label }))
-// what scrolls the view, zoomed in: a bar at the time row's foot, or the whole sound under it, as a minimap
-const scrolls = [['bar', 'Bar', 'A thin bar at the time row\'s foot, the part of the sound in view'], ['overview', 'Overview', 'The whole sound in a strip under the time row, the part in view lit: pressed, the view goes there; dragged, it moves']]
+// what scrolls the view, zoomed in: a bar at the time row's foot, always or only when reached for, or the whole sound
+// under it, as a minimap
+const scrolls = [['bar', 'Bar', 'A thin bar at the time row\'s foot, the part of the sound in view'], ['hover', 'Bar on hover', 'The bar shown only while the pointer is over the picture, and for a second after the view is scrolled or zoomed by keys or touch'], ['overview', 'Overview', 'The whole sound in a strip under the time row, the part in view lit: pressed, the view goes there; dragged, it moves']]
 // How the lanes are ruled (view.js paintGrid), behind the waveform and over the spectrogram, by the time row's ticks and
 // the axis' on the right: bare, or a faint line from each tick
 const grids = [
@@ -263,7 +269,7 @@ const owning = APART ? Promise.resolve() : own({
 // left; under the name the editor had before, 'audio-repl', so what a browser kept is found. What does not read is set
 // aside under another name, not written over; a value the page has no longer, its default.
 const KEY = 'audio-repl'
-const stored = EMBED ? { side: UI.panel === 'none' ? null : UI.panel || 'code', display: UI.display } : GIVEN ?? (() => {
+const stored = EMBED ? { side: UI.panel === 'none' ? null : UI.panel || 'code', display: UI.display, scroll: UI.scroll } : GIVEN ?? (() => {
   let raw = null
   try { raw = localStorage.getItem(KEY); const s = JSON.parse(raw); return s && typeof s === 'object' ? s : {} }
   catch { try { raw && localStorage.setItem(KEY + '-unread', raw) } catch {} return {} }
@@ -484,7 +490,7 @@ const state = sprae(root, {
   get shuttleAt() { return SHUTTLE.at(this.shuttle ?? this.speed) },
   display: oneOf(stored.display, displays.map(d => d.name), 'wave'), scale: scales[stored.scale] ? stored.scale : 'log', rates, layouts, sound: null, viewing: '',
   show: { hits: true, gain: true, meters: true, spectrum: stored.show?.meters ?? true, keys: true, guides: true, ...stored.show }, units: oneOf(stored.units, UNITS.map(u => u[0]), 'clock'),
-  embed: EMBED, quick: QUICK, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
+  embed: EMBED, quick: QUICK, made: 0, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
   tabs: [], marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, trackRows: null, ghost: false, renaming: null, renamingTab: null,
   progress: '', figure: '', arrived: null, working: false, loading: false, arriving: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
   time: '0:00.000', span: 0, readout: '', reading: { of: '', head: '', rows: [] }, heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
@@ -626,6 +632,7 @@ ed = codeEditor(root.querySelector('.script-editor'), {
     const typed = !!update?.transactions.some(tr => tr.isUserEvent('input.type') || tr.isUserEvent('delete'))
     state.canUndo = ed.canUndo
     state.canRedo = ed.canRedo
+    if (QUICK.length) state.made = stepsOf(code).filter(s => s.on).length
     focusOn(state.track)
     remember(code, slider)
     retitle()
@@ -636,7 +643,7 @@ ed = codeEditor(root.querySelector('.script-editor'), {
   },
   oncaret: update => { rk?.refresh(update); if (rechoose !== undefined) { rk.choose(rechoose); rechoose = undefined } },
   // CodeMirror come, after the page shows (script.js): the edits made before it are its history now
-  onready() { state.canUndo = ed.canUndo; state.canRedo = ed.canRedo },
+  onready() { state.canUndo = ed.canUndo; state.canRedo = ed.canRedo; if (QUICK.length) state.made = stepsOf(ed.code).filter(s => s.on).length },
   files: () => [...taken()],
   describe: name => eng.describe(name),
   keys: { 'Mod-Enter': togglePlay, 'Mod-s': () => exportFiles() }
@@ -3157,9 +3164,16 @@ function soundMenu(event) {
     ...Object.entries(builtins).map(([name, text]) => ({ label: name, hint: text, icon: SOUND, checked: name === state.name, run: () => useSample(name, 'replace') }))
   ], 0, 0, event.currentTarget)
 }
-// Embedded (?ops=), the page's quick edits under one button, each made as the menus make it
+// Embedded (?ops=), the page's quick edits under one button, each with a line on what it does: first the edits made, in
+// their order, checked, one pressed taken away (dropStep), as a switch turns a filter off; then those of the page's not
+// made, each made as the menus make it. The button counts the edits made (`made`)
 function opsMenu(event) {
-  bar.at(QUICK.map(q => ({ label: q.label, hint: q.values, tip: q.text, icon: q.icon, run: () => addOp(q.name, false, q.args) })), 0, 0, event.currentTarget)
+  const made = stepsOf(ed.code).map((s, i) => ({ ...s, i })).filter(s => s.on), rest = QUICK.filter(q => !made.some(s => s.name === q.name))
+  bar.at([
+    ...made.map(s => ({ label: labelOf(s.name), hint: quickOf(s.text.slice(1))?.values ?? '', about: ops[s.name]?.text, checked: true, run: () => ed.change(dropStep(ed.code, s.i)) })),
+    ...made.length && rest.length ? ['-'] : [],
+    ...rest.map(q => ({ label: q.label, hint: q.values, about: q.text, icon: q.icon, run: () => addOp(q.name, false, q.args) }))
+  ], 0, 0, event.currentTarget)
 }
 // Embedded (?controls= save), the result saved in the format picked, as Export as picks one
 function saveMenu(event) {

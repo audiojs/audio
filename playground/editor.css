@@ -72,6 +72,8 @@ svg { flex: none; }
 .menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu-keys { overflow: hidden; margin-left: 12px; color: var(--color-screen-muted); font: 11px var(--font-mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .menu-keys.menu-hint { font: 11.5px var(--font-body); }
+.menu-about { grid-column: 2 / -1; margin: -5px 0 0; padding-bottom: 6px; color: var(--color-screen-muted); font-size: 11.5px; line-height: 1.35; }
+.menu-row:focus .menu-about { color: inherit; opacity: .75; }
 .menu-row:is([aria-checked="true"], [aria-pressed="true"]) .menu-check::before { content: '✓'; display: block; text-align: center; font-size: 12px; color: var(--color-screen-bright); }
 .menu-check svg { display: block; width: 15px; height: 15px; color: var(--color-screen-muted); }
 /* lit, all of it in its selection's words, as VS Code's menus are */
@@ -898,6 +900,8 @@ html.embed .app .panes { --panel: clamp(320px, 46vw, 560px); margin: 0; border-r
 .status :is(.embed-ops, .embed-files) { position: relative; top: calc(var(--line) - 4.5px); }
 .embed-files { display: flex; gap: 1px; }
 .status .embed-ops { margin-left: 6px; }
+/* with edits made, how many by its plus */
+.status .embed-ops.made { display: inline-flex; gap: 1px; width: auto; padding: 0 7px 0 4px; font: 11px var(--font-mono); }
 /* the view's switch among the facts: the look's icon, the picture shown */
 .embed-view { display: inline-grid; place-items: center; }
 .embed-view svg { display: block; width: 14px; height: 14px; }

@@ -460,9 +460,12 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // `anchor`: where the selection was begun, the end Shift keeps (origin)
   let W = 0, H = 0, dpr = 1, frame = 0, leveled = false, drag = null, anchor = null
   const pointers = new Map()
-  // what scrolls the view (the settings): 'bar', a thin bar at the time row's top, or 'overview', the whole sound in a
-  // strip of its own under it (MAP)
+  // what scrolls the view (the settings): 'bar', a thin bar at the time row's top; 'hover', the same bar shown only while
+  // it is reached for (barLight); or 'overview', the whole sound in a strip of its own under it (MAP)
   let scroll = 'bar'
+  // on 'hover': how long it stays once let go (ms), when it was last reached for, whether it shows, the wait to hide it
+  const LINGER = 1000
+  let reached = -Infinity, barOn = null, barTimer = 0
 
   // Geometry, in CSS pixels; `gutter`, the axis' width at the right (fitAxis)
   let gutter = GUTTER
@@ -582,7 +585,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     const total = Math.max(duration, end), w = plot().w, k = w / total, x0 = Math.min(start * k, w - THUMB)
     return { x0, x1: Math.max(x0 + THUMB, end * k), total }
   }
-  const onBar = (px, py) => (scroll === 'overview' ? py >= H - MAP : py >= plot().h && py <= plot().h + BAR) && px >= 0 && px <= plot().w && !!bar()
+  const onBar = (px, py) => (scroll === 'overview' ? py >= H - MAP : py >= plot().h && py <= plot().h + BAR) && px >= 0 && px <= plot().w && !!barOn && !!bar()
   const x = t => (t - start) / (end - start || 1) * plot().w
   // a time's place on the device's own pixels, where the pictures put it: the marks over them move with them, a device pixel
   // at a time, as the view scrolls
@@ -809,7 +812,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     if (name === shade) return
     shade = name
     for (const canvas of [specCanvas, waveCanvas]) canvas.style.opacity = SHADES[name]
-    for (const canvas of [overlay, marksCanvas, selectCanvas, rowStrip.g.canvas, meterStrip.g.canvas, barStrip.g.canvas]) canvas.style.opacity = +(name !== 'none')
+    for (const canvas of [overlay, marksCanvas, selectCanvas, rowStrip.g.canvas, meterStrip.g.canvas]) canvas.style.opacity = +(name !== 'none')
   }
   // A frame: the pictures when they changed, the overlay always; the pointer's readout redraws only the overlay
   let pictures = false
@@ -1095,7 +1098,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       const row = rowStrip.g.canvas
       if (row.height) g.drawImage(row, 0, 0, overlay.width, row.height, 0, i * h + rowStrip.at * k, w, row.height * k)
       g.drawImage(marksCanvas, 0, 0, overlay.width, overlay.height, 0, i * h, w, h)
-      for (const { g: { canvas }, at: [x0, y0] = [] } of [meterStrip, barStrip]) if (canvas.width && canvas.height) g.drawImage(canvas, x0 * k, i * h + y0 * k, canvas.width * k, canvas.height * k)
+      for (const { g: { canvas }, at: [x0, y0] = [] } of barOn ? [meterStrip, barStrip] : [meterStrip]) if (canvas.width && canvas.height) g.drawImage(canvas, x0 * k, i * h + y0 * k, canvas.width * k, canvas.height * k)
       g.drawImage(overlay, 0, 0, overlay.width, overlay.height, 0, i * h, w, h)
     })
     ;({ start, end, display, hovered, kinds } = was)
@@ -1128,6 +1131,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     const { w } = plot()
     onStrip(meterStrip, meterAt(METER) - 2, 0, w, H, () => duration && metered(L) && (meters || show.keys && L.notes.length) && paintMeters(L))
     onStrip(barStrip, 0, scroll === 'overview' ? H - MAP : plot().h, W, scroll === 'overview' ? H : plot().h + THICK + 2, () => duration && paintBar())
+    barLight()
     if (!said) hint?.hide(self)
   }
   // A strip of what changes as it plays, a canvas of its own the strip's size (x0 to x1, y0 to y1, CSS px in the view),
@@ -1219,7 +1223,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     else if (drag?.span) paintGuide({ ramps: [[...drag.span, drag.fade, fadeCurve]] }, T)
     // the times on the row, each tick the colour of the line it runs on from: an edge lit (`hot`, or dragged) bright; the
     // caret's; an end measured from in the measuring red
-    const caret = color('--color-screen-caret'), bright = color('--color-screen-bright')
+    const caret = color('--color-screen-caret'), bright = color('--color-screen-bright'), here = caretColour()
     const litEdge = drag?.resizing && sel ? sel[sel[0] === drag.anchor ? 1 : 0] : !drag && hot ? hot.t : null
     const edges = sel && !drag?.span ? sel.map((t, edge) => ({ t, fill: t === litEdge ? bright : caret, edge, of: sel })) : []
     const apart = t => !edges.some(m => X(m.t) === X(t))
@@ -1228,7 +1232,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     onRow(() => paintRuler([
       ...(at && apart(pointed) ? [{ t: pointed, fill: caret }] : []),
       ...edges,
-      ...(playhead == null && apart(cursor) ? [{ t: cursor, fill: caret }] : []),
+      ...(playhead == null && apart(cursor) ? [{ t: cursor, fill: here }] : []),
       ...(dropped != null ? [{ t: dropped, fill: accent() }] : [])
     ].map(m => ends.has(m.t) ? { ...m, fill: gauge(), keep: true } : m), measure?.spans, true, clear))
     if (show.hits || aiming) paintCues(mine, measure ? [...lit, measure.t] : lit, aiming)
@@ -1258,11 +1262,11 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       if (b > a) for (const rect of L.wave) c.fillRect(a, Math.round(ay(rect, 0)), b - a, 1)
       c.globalAlpha = 1
     }
-    if (playhead == null) line(cursor, caret, band, ghost ? { all: [roomLane(L)].filter(Boolean), spec: [] } : T)
+    if (playhead == null) line(cursor, here, band, ghost ? { all: [roomLane(L)].filter(Boolean), spec: [] } : T)
     // in the room, the caret a new track's: a plus by its top
     const room = ghost && playhead == null && roomLane(L)
-    if (room) { c.fillStyle = caret; c.fillRect(X(cursor) + 4, room[1] + 5, 7, 1); c.fillRect(X(cursor) + 7, room[1] + 2, 1, 7) }
-    for (const r of more) if (r.length === 2 && r[0] === r[1]) line(r[0], caret)
+    if (room) { c.fillStyle = here; c.fillRect(X(cursor) + 4, room[1] + 5, 7, 1); c.fillRect(X(cursor) + 7, room[1] + 2, 1, 7) }
+    for (const r of more) if (r.length === 2 && r[0] === r[1]) line(r[0], here)
     if (!ghost) paintGrips(T, at)
     paintEdge(allLanes ? L : T, sel)
     // what is dragged gone onto a cue or a marker: a small cross where it went, the line itself its own colour, one snap
@@ -2220,7 +2224,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     const T = playhead != null ? L : own(L), px = side < 0 ? 0 : Math.floor(e) - 1, rects = T.all
     // its chevron at the foot of its line, in the lanes, as the line's own (it was on the time row, apart from it)
     const y = Math.min(plot().h, extent(rects)[1]) - 7
-    return { side, rects, px, y, x0: side < 0 ? px : px - CHEVRON + 1, x1: side < 0 ? px + CHEVRON : px + 1, fill: color(playhead != null ? '--color-screen-bright' : '--color-screen-caret') }
+    return { side, rects, px, y, x0: side < 0 ? px : px - CHEVRON + 1, x1: side < 0 ? px + CHEVRON : px + 1, fill: playhead != null ? color('--color-screen-bright') : caretColour() }
   }
   const onAway = (px, py) => !!away && Math.abs(py - away.y) <= 7 && px >= away.x0 - 2 && px <= away.x1 + 2
   function paintAway(lit) {
@@ -2270,19 +2274,31 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     if (k >= 1) moving = null
     fitTo(mid - w / 2, mid + w / 2)
   }
-  // The scrollbar's thumb, as the page's scrollbars draw theirs (editor.css): THICK px, a pixel under the lanes, the same
-  // under the pointer, only brighter there or dragged
-  const THICK = 6
+  // The scrollbar's thumb, a pixel under the lanes: THIN px, as a native overlay scrollbar's at rest; under the pointer or
+  // dragged, THICK and brighter, as the page's scrollbars draw theirs (editor.css)
+  const THIN = 4, THICK = 6
   function paintBar() {
     if (scroll === 'overview') return paintMap()
     const b = bar()
     if (!b) return
-    c.globalAlpha = drag?.scroll || !drag && hovered && onBar(...hovered) ? .6 : .3
+    const lit = drag?.scroll || !drag && hovered && onBar(...hovered), t = lit ? THICK : THIN
+    c.globalAlpha = lit ? .6 : .3
     c.fillStyle = color('--color-screen-soft')
     c.beginPath()
-    c.roundRect(Math.round(b.x0), plot().h + 1, Math.round(b.x1 - b.x0), THICK, THICK / 2)
+    c.roundRect(Math.round(b.x0), plot().h + 1, Math.round(b.x1 - b.x0), t, t / 2)
     c.fill()
     c.globalAlpha = 1
+  }
+  // On 'hover', the bar shown as an overlay scrollbar is: while the pointer is over the picture or drags the bar, gone as
+  // a mouse leaves it (leave); a LINGER after the view was scrolled or zoomed by hand with no mouse over it, by keys or a
+  // touch (setRange, `reached`); coming and going as the layers fade (editor.css). Hidden, a press where it was is the
+  // time row's
+  function barLight() {
+    const now = performance.now()
+    if (hovered || drag?.scroll) reached = now
+    const left = reached + LINGER - now, on = +(shade !== 'none' && (scroll !== 'hover' || left > 0))
+    if (on !== barOn) barStrip.g.canvas.style.opacity = barOn = on
+    if (on && scroll === 'hover' && !hovered && !drag?.scroll && !barTimer) barTimer = setTimeout(() => { barTimer = 0; invalidate(true) }, left + 1)
   }
   // The overview: the sound's peaks over all its channels, with tracks the edited one's, as far as the view goes past its
   // end, each device pixel's (mapImage); over them the view's part lit, what is selected, and the caret or the playhead
@@ -2296,7 +2312,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     if (img) c.drawImage(img, 0, y, duration * k, h)
     c.fillStyle = color('--color-screen-soft')
     if (b) { c.globalAlpha = drag?.scroll || !drag && hovered && onBar(...hovered) ? .3 : .18; c.fillRect(b.x0, y - 2, b.x1 - b.x0, h + 4); c.globalAlpha = 1 }
-    c.fillStyle = color(playhead != null ? '--color-screen-bright' : '--color-screen-caret')
+    c.fillStyle = playhead != null ? color('--color-screen-bright') : caretColour()
     c.fillRect(Math.round((playhead ?? cursor) * k * dpr) / dpr, y - 2, 1, h + 4)
   }
   // The overview's waveform, drawn once for a sound, a size, the track edited and the look, over the sound alone (a view
@@ -2505,6 +2521,10 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // spectrogram its own, its speckle hiding a lift the waveform's even ground shows
   const focused = () => document.hasFocus() && root.contains(document.activeElement)
   const wash = (spec = false) => color(focused() ? spec ? '--color-screen-select-spectrum' : '--color-screen-select' : spec ? '--color-screen-select-spectrum-inactive' : '--color-screen-select-inactive')
+  // The caret the same way: the skin's while the picture has focus; else faint, IDLE of its alpha, as an editor's caret
+  // goes out with its focus, kept in sight here as where play starts. An embed shows it faint till it is pressed
+  const IDLE = .35
+  const caretColour = () => { const css = color('--color-screen-caret'); if (focused()) return css; const [r, g, b, a] = rgba(css); return `rgb(${r * 255} ${g * 255} ${b * 255} / ${a * IDLE})` }
   function paintSelection(L, sel) {
     const { w } = plot(), all = L.all, boxes = []
     // [x, y, width, height, on the spectrogram], clipped to the lane, on whole pixels
@@ -2896,6 +2916,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     const last = duration - span * (past ? Math.min(k, 1 - overshoot) : k)
     a = span * k <= duration || past ? Math.max(0, Math.min(Math.max(last, start), a)) : 0
     start = a; end = a + span
+    if (past) reached = performance.now()
     // the pictures drawn again only where the tape has not the view (render)
     invalidate(true)
   }
@@ -3537,7 +3558,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     grabbing = other != null || !!hot || !!caret
     root.style.cursor = other ?? (keys.shiftKey && !keys.altKey ? EXTEND[time(px) < origin() ? 1 : 0] : grabbing ? 'ew-resize' : plain && markAt(px, py) != null ? 'pointer' : aim ? 'crosshair' : keys.altKey ? ADD : '')
   }
-  function leave() { hovered = null; hot = null; invalidate(true) }
+  // (a touch leaves as it lifts: the bar it scrolled by stays its LINGER)
+  function leave(event) { hovered = null; hot = null; if (event.pointerType !== 'touch') reached = -Infinity; invalidate(true) }
   function up(event) {
     pointers.delete(event.pointerId)
     const d = drag
@@ -4239,8 +4261,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     set units(name) { units = name; invalidate(true) },
     // how the time row marks time: 'labels', 'ticks', 'none'
     set ruler(mode) { ruler = mode; invalidate(true) },
-    // what scrolls the view: 'bar' or 'overview'
-    set scroll(mode) { scroll = mode === 'overview' ? 'overview' : 'bar'; invalidate() },
+    // what scrolls the view: 'bar', 'hover' or 'overview'
+    set scroll(mode) { scroll = ['hover', 'overview'].includes(mode) ? mode : 'bar'; invalidate() },
     // how the lanes are ruled: 'marks', 'crosses', 'dots', 'lines', 'none'
     set grid(name) { grid = name; invalidate(true) },
     // the steps, dB, a selection's level goes in as its pill is dragged

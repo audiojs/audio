@@ -117,6 +117,8 @@ export default function menubar(root, model) {
       // its keys, or a word on what it is
       row.children[2].textContent = it.items ? '' : it.keys || it.hint || ''
       if (!it.keys && it.hint) row.children[2].classList.add('menu-hint')
+      // a line under its words on what it does, where it has one
+      if (it.about) row.insertAdjacentHTML('beforeend', '<span class="menu-about"></span>'), row.lastChild.textContent = it.about
       if (it.items) {
         row.setAttribute('aria-haspopup', 'menu')
         row.setAttribute('aria-expanded', 'false')

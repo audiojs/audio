@@ -7316,9 +7316,22 @@ test('editor: embedded, the parts the page names, its edits a press away, its fi
   // each its values at the right, in the units its settings read in
   assert.deepEqual(await menu().locator('.menu-keys').allTextContents(), ['1.25×', '1s · 1s', ''])
   assert.equal(await menu().locator('.menu-check svg').count(), 3)
+  // a line under each on what it does
+  assert.deepEqual(await menu().locator('.menu-about').allTextContents(), ['Longer or shorter, same pitch', 'Fade in and out', 'Play backwards'])
   await menu().filter({ hasText: 'Stretch' }).click()
   await length('0:10.000')
   assert.equal(scriptOf(await page.evaluate(() => scriptText())), scriptOf(`audio('chime.wav').stretch(1.25)`))
+  // made: counted by the plus; in the menu first, checked, the others after it; pressed again, taken away
+  assert.deepEqual([await page.locator('.embed-ops').getAttribute('aria-label'), await page.locator('.embed-ops span').textContent()], ['Edits, 1 made', '1'])
+  await page.locator('.embed-ops').click()
+  assert.deepEqual(await menu().evaluateAll(rows => rows.map(r => [r.querySelector('.menu-label').textContent, r.getAttribute('aria-checked')])), [['Stretch', 'true'], ['Fade', null], ['Reverse', null]])
+  await menu().filter({ hasText: 'Stretch' }).click()
+  await length('0:08.000')
+  assert.equal(scriptOf(await page.evaluate(() => scriptText())), scriptOf(`audio('chime.wav')`))
+  assert.deepEqual([await page.locator('.embed-ops').getAttribute('aria-label'), await page.locator('.embed-ops span').count()], ['Add an edit', 0])
+  // taken away as any edit is, undone as one: back, then gone again
+  await page.locator('.history .undo').click()
+  await length('0:10.000')
   await page.locator('.history .undo').click()
   await length('0:08.000')
   assert.equal(scriptOf(await page.evaluate(() => scriptText())), scriptOf(`audio('chime.wav')`))
@@ -9188,17 +9201,17 @@ test('editor: zoomed in, the scrollbar at the time row\'s top moves the view, th
   assert.ok(before > .5 && before < 2, `zoomed in: the view from ${before}`)
   // the thumb's middle, where the view shows
   const thumb = t => box.x + (t + span / 2) / 8 * w
-  // drawn as the page's scrollbars draw theirs (editor.css): 6 px thick, a pixel under the lanes, the same under the
-  // pointer. The rows lit down the thumb's middle on its strip (view.js onStrip, the view's width, from the lanes' foot):
-  // [thick, off], CSS px
+  // a pixel under the lanes, 4 px thick at rest, as a native overlay scrollbar's; under the pointer 6 px, as the page's
+  // scrollbars draw theirs (editor.css). The rows lit down the thumb's middle on its strip (view.js onStrip, the view's
+  // width, from the lanes' foot): [thick, off], CSS px
   const drawn = () => page.evaluate(px => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {
     const cv = document.querySelector('.plot canvas.scrollbar'), k = cv.width / cv.getBoundingClientRect().width, { data } = cv.getContext('2d').getImageData(Math.round(px * k), 0, 1, cv.height), rows = []
     for (let y = 0; y < cv.height; y++) if (data[y * 4 + 3] > 0) rows.push(y)
     done([rows.length / k, rows[0] / k])
   }))), thumb(before) - box.x)
-  assert.deepEqual(await drawn(), [6, 1], 'the thumb, 6 px thick, a pixel under the lanes')
+  assert.deepEqual(await drawn(), [4, 1], 'the thumb, 4 px thick, a pixel under the lanes')
   await page.mouse.move(thumb(before), foot)
-  assert.deepEqual(await drawn(), [6, 1], 'the same under the pointer')
+  assert.deepEqual(await drawn(), [6, 1], 'under the pointer, 6 px')
   // the strip laid anew as the thumb moves, cleared as its canvas is resized (kept.js), never by reset(): WebKit's
   // clears the bitmap but leaves the thumbs laid before on screen, a trail of them along the row
   await page.evaluate(() => { const reset = CanvasRenderingContext2D.prototype.reset; window.__resets = 0; CanvasRenderingContext2D.prototype.reset = function () { window.__resets++; return reset.call(this) } })
@@ -9212,6 +9225,109 @@ test('editor: zoomed in, the scrollbar at the time row\'s top moves the view, th
   assert.ok(Math.abs(dragged - before - 2) < .1, `a quarter of the row, a quarter of the sound: from ${before} to ${dragged}`)
   await page.mouse.click(box.x + 4, foot)
   assert.ok(await left() < .05, 'pressed at its start, the view from the start')
+})
+// On hover (the settings' Scroll, or the ui config's `scroll`), the scrollbar as an overlay scrollbar is (view.js
+// barLight): shown while the pointer is over the picture, and for a second after the view is zoomed or scrolled; its
+// layer faded out otherwise. Bar, always shown
+test('editor: on hover, the scrollbar shows only while the pointer is over the picture or a second after a zoom', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  await settings('Scroll', 'Bar on hover')
+  const shows = on => page.waitForFunction(o => document.querySelector('.plot canvas.scrollbar').style.opacity === o, on ? '1' : '0')
+  const box = await page.locator('.plot').boundingBox()
+  await page.mouse.move(1, 1)
+  await shows(false)
+  // zoomed in by the keys, the pointer away: shown, then gone a second after
+  await page.locator('.plot').focus()
+  await page.keyboard.press('=')
+  await shows(true)
+  const zoomed = Date.now()
+  await shows(false)
+  assert.ok(Date.now() - zoomed > 700, `held after the zoom: ${Date.now() - zoomed} ms`)
+  // the pointer over the picture: shown, and kept while it stays
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await shows(true)
+  const at = await page.evaluate(() => performance.now())
+  await page.waitForFunction(t => performance.now() > t + 1500, at)
+  assert.equal(await page.evaluate(() => document.querySelector('.plot canvas.scrollbar').style.opacity), '1', 'kept while the pointer stays')
+  // the mouse gone, the bar with it, no second held
+  const left = Date.now()
+  await page.mouse.move(1, 1)
+  await shows(false)
+  assert.ok(Date.now() - left < 500, `held after the pointer left: ${Date.now() - left} ms`)
+  // Bar: shown with the pointer away
+  await settings('Scroll', 'Bar')
+  await shows(true)
+  // embedded, the ui config's scroll its start
+  const src = await page.evaluate(async () => {
+    await import('/playground/embed.js')
+    document.body.innerHTML = `<audio-repl panel="none" ui='{"scroll":"hover"}'><pre><code>audio('/test/fixture.wav')</code></pre></audio-repl>`
+    return new Promise(r => { const t = setInterval(() => { const f = document.querySelector('audio-repl iframe'); if (f) { clearInterval(t); r(f.getAttribute('src')) } }, 20) })
+  })
+  await page.goto(new URL(src, origin).href)
+  await page.mouse.move(1, 1)
+  // (the sound drawn, the layers over it lit)
+  await page.waitForFunction(() => document.querySelector('.plot canvas.overlay')?.style.opacity === '1')
+  await shows(false)
+  const framed = await page.locator('.plot').boundingBox()
+  await page.mouse.move(framed.x + framed.width / 2, framed.y + framed.height / 2)
+  await shows(true)
+})
+// The caret, as the selection, inactive while the picture is not focused: faint, still where play starts; whole again as
+// the picture is pressed
+test('editor: the caret faint while the picture is not focused', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  const box = await page.locator('.plot').boundingBox(), x = box.x + box.width * .3, y = box.y + box.height * .15
+  // the caret's alpha: the most along a row in the lanes, a few px either side of where the picture was pressed
+  const alpha = () => page.evaluate(([x, y]) => {
+    const cv = __overlay(), r = cv.getBoundingClientRect(), k = cv.width / r.width
+    const d = cv.getContext('2d').getImageData(Math.round((x - r.x) * k) - 4, Math.round((y - r.y) * k), 9, 1).data
+    return Math.max(...Array.from({ length: 9 }, (_, i) => d[4 * i + 3]))
+  }, [x, y])
+  const reads = async ok => { let a; for (let i = 0; i < 60 && !ok(a = await alpha()); i++) await page.waitForTimeout(50); return a }
+  const press = async () => { await page.mouse.click(x, box.y + box.height * .4); await page.mouse.move(1, 1) }
+  await press()
+  assert.equal(await reads(a => a === 255), 255, 'focused, the caret whole')
+  await page.evaluate(() => document.activeElement?.blur())
+  const faint = await reads(a => a < 255)
+  assert.ok(faint > 40 && faint < 140, `unfocused, the caret faint (.35 of its alpha): ${faint}`)
+  await press()
+  assert.equal(await reads(a => a === 255), 255, 'pressed again, whole')
+})
+// On a touch screen, nothing hovers: the bar on hover shows a second after a zoom, then hides, and a tap where it was
+// is the time row's, the caret going there, the view staying where it is
+test('editor: on hover, a tap where the hidden scrollbar was moves the caret, not the view', async () => {
+  const phone = await browser.newContext({ viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true })
+  const p = await phone.newPage()
+  p.on('pageerror', e => errors.push(e.message))
+  try {
+    await p.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+    await p.goto(origin + '/blank.html')
+    const src = await p.evaluate(async () => {
+      await import('/playground/embed.js')
+      document.body.innerHTML = `<audio-repl panel="none" ui='{"scroll":"hover"}'><pre><code>audio('/test/fixture.wav')</code></pre></audio-repl>`
+      return new Promise(r => { const t = setInterval(() => { const f = document.querySelector('audio-repl iframe'); if (f) { clearInterval(t); r(f.getAttribute('src')) } }, 20) })
+    })
+    await p.goto(new URL(src, origin).href)
+    await p.waitForFunction(() => document.querySelector('.plot canvas.overlay')?.style.opacity === '1')
+    const bar = o => p.waitForFunction(o => document.querySelector('.plot canvas.scrollbar').style.opacity === o, o)
+    await p.locator('.plot').focus()
+    for (let i = 0; i < 2; i++) await p.keyboard.press('=')
+    await bar('1')
+    await bar('0')
+    const range = () => p.evaluate(() => __view.range), time = () => p.locator('.time').innerText()
+    const [before, caret] = [await range(), await time()]
+    // the bar's row at the picture's foot, near its right end: beside the thumb, which shown would take the view there
+    const box = await p.locator('.plot').boundingBox(), w = box.width - parseFloat(await p.evaluate(() => getComputedStyle(document.querySelector('.panes')).getPropertyValue('--axis')))
+    await p.touchscreen.tap(box.x + w * .9, box.y + box.height - 22 + 4)
+    await p.waitForFunction(was => document.querySelector('.time').innerText !== was, caret)
+    assert.deepEqual(await range(), before, 'the view where it was')
+  } finally { await phone.close() }
 })
 // A view kept from before shows at once on a reload, the sound coming into it as it arrives, not all of it first
 test('editor: after a reload the view is where it was left while its sound still arrives', async () => {
@@ -12960,4 +13076,28 @@ test('desktop: the app is told the panels and the menus with the page\'s own ico
   })
   await page.evaluate(id => audioHost.run(id), id)
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').wave?.map === 'magma')
+})
+
+// The embed before its frame shows: a skeleton of the playground's parts where they will be, laid out from the
+// element's size and its panel, its text out of sight; gone once the frame's sound is in
+test('editor: embedded, a skeleton of its parts holds their places till its sound is in', async () => {
+  await page.goto(origin + '/blank.html')
+  // the frames held back till the skeletons are read
+  let release
+  const held = new Promise(r => release = r)
+  await page.route('**/playground/?embed*', async route => { await held; await route.continue() })
+  await page.evaluate(async () => {
+    await import('/playground/embed.js')
+    document.body.innerHTML = `<audio-repl panel="none" height="320" style="width: 742px"><pre><code>audio('chime.wav')</code></pre></audio-repl><audio-repl panel="code" height="420" style="width: 736px"><pre><code>audio('chime.wav')</code></pre></audio-repl>`
+  })
+  await page.waitForFunction(() => [...document.querySelectorAll('audio-repl .wait')].every(w => w.childElementCount))
+  // the picture alone, or with its panel beside it; every part inside the element; the text not shown
+  const look = await page.evaluate(() => [...document.querySelectorAll('audio-repl')].map(el => {
+    const box = el.getBoundingClientRect(), parts = [...el.querySelectorAll('.wait i')].map(i => i.getBoundingClientRect())
+    return { text: getComputedStyle(el.querySelector('pre')).display, parts: parts.length, areas: el.querySelectorAll('.wait i.area').length, inside: parts.every(b => b.width > 0 && b.height > 0 && b.left >= box.left && b.right <= box.right && b.top >= box.top && b.bottom <= box.bottom) }
+  }))
+  assert.deepEqual(look, [{ text: 'none', parts: 7, areas: 1, inside: true }, { text: 'none', parts: 8, areas: 2, inside: true }])
+  release()
+  await page.waitForFunction(() => [...document.querySelectorAll('audio-repl')].every(el => 'ready' in el.dataset && !el.querySelector('.wait')), null, { timeout: 30000 })
+  await page.unroute('**/playground/?embed*')
 })

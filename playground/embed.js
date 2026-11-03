@@ -5,8 +5,8 @@
 //   <pre><code>audio('chime.wav').trim().normalize(-1)</code></pre>
 //   </audio-repl>
 //
-// The text is for where scripts don't run, and for a search engine; where they run, a waveform's bars pulse in its place
-// till the frame's sound is in (a page hides the text till then with
+// The text is for where scripts don't run, and for a search engine; where they run, a skeleton of the playground's parts
+// holds their places, a light passing along it, till the frame's sound is in (a page hides the text till then with
 // `@media (scripting: enabled) { audio-repl:not(:defined) > pre { visibility: hidden } }`). Once the element is near
 // the screen a frame of the playground takes its place: the script runs, its sound drawn, played, edited, opened whole
 // in the playground. Nothing of the reader's is kept. A sound named by its path from the site's root,
@@ -57,15 +57,35 @@ const STYLE = `
   audio-repl > pre { display: none; }
   audio-repl > iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; color-scheme: normal; opacity: 0; transition: opacity .2s ease-out; }
   audio-repl[data-ready] > iframe { opacity: 1; }
-  /* till then, where the picture will be, a waveform's bars, a soft light passing along them */
-  audio-repl > .wait { position: absolute; inset: 56px 8px 76px; display: flex; align-items: center; justify-content: space-between; pointer-events: none; transition: opacity .3s ease-out; }
-  audio-repl > .wait i { width: 2px; height: calc(var(--h) * 100%); border-radius: 1px; background: currentColor; opacity: .16; animation: audio-repl-wait 1.8s ease-in-out calc(var(--i) * 16ms) infinite; }
-  @keyframes audio-repl-wait { 50% { opacity: .45; } }
+  /* till then, the skeleton: each part a block of the text's colour, faint, the picture's and the panel's fainter, one
+     light passing along them all at once (the gradient laid on the window, so one band crosses every block) */
+  audio-repl > .wait { position: absolute; inset: 0; pointer-events: none; transition: opacity .3s ease-out; --base: color-mix(in srgb, currentColor 7%, transparent); --light: color-mix(in srgb, currentColor 15%, transparent); }
+  audio-repl > .wait i { position: absolute; background: linear-gradient(90deg, var(--base) 0 42%, var(--light) 50%, var(--base) 58% 100%) fixed 0 0 / 200vw 100%; animation: audio-repl-wait 1.8s cubic-bezier(.4, 0, .6, 1) infinite; }
+  audio-repl > .wait i.area { --base: color-mix(in srgb, currentColor 4%, transparent); --light: color-mix(in srgb, currentColor 9%, transparent); }
+  @keyframes audio-repl-wait { from { background-position-x: 100vw; } to { background-position-x: -100vw; } }
   audio-repl[data-ready] > .wait { opacity: 0; }
   audio-repl[background] { background: none; border-radius: 0; color: inherit; }
   /* narrow, the panel goes under the picture: room for both */
   @media (max-width: 640px) { audio-repl:not([panel=none]) { height: max(var(--audio-repl-height, 320px), 440px); } }
-  @media (prefers-reduced-motion: reduce) { audio-repl > iframe { transition: none; } audio-repl > .wait i { animation: none; } }`
+  @media (prefers-reduced-motion: reduce) { audio-repl > iframe { transition: none; } audio-repl > .wait i { animation: none; background-position-x: 100vw; } }`
+
+// The skeleton of an element's playground, laid out as index.html lays out its parts at the element's size: the
+// sound's name and the way to the playground over the picture; a panel beside it, or under the bar at 640 px and
+// narrower (panel, code unless none); the bar: play, the time (large where the picture has the width), the history, and
+// past 670 px the facts. On the page's ground (background) the bar starts at the frame's edge
+function skeleton(el) {
+  const W = el.clientWidth, H = el.clientHeight, panel = el.getAttribute('panel') !== 'none', narrow = W <= 640
+  const under = panel && narrow ? Math.round(H * .45) : 0, bar = H - under - 60, side = panel && !narrow ? Math.round(W * .44) : W
+  const x = el.hasAttribute('background') ? 0 : 12, wide = !panel && !narrow
+  const block = (left, top, width, height, round = 4, area = false) => `<i${area ? ' class="area"' : ''} style="left:${left}px;top:${top}px;width:${Math.max(0, width)}px;height:${Math.max(0, height)}px;border-radius:${round}px"></i>`
+  return [
+    block(12, 13, 140, 12), block(side - 158, 14, 146, 10),
+    block(8, 46, side - 16, bar - 54, 8, true),
+    panel && (narrow ? block(8, H - under + 8, W - 16, under - 16, 8, true) : block(side + 8, 46, W - side - 16, bar - 54, 8, true)),
+    block(x + 10, bar + 18, 24, 24, 12), block(x + 50, bar + 17, wide ? 150 : 86, 26), block(x + (wide ? 214 : 150), bar + 24, 56, 12),
+    W > 670 && block(W - 136, bar + 25, 124, 10)
+  ].filter(Boolean).join('')
+}
 
 class AudioRepl extends HTMLElement {
   static observer = new IntersectionObserver(entries => {
@@ -76,11 +96,12 @@ class AudioRepl extends HTMLElement {
     if (!document.getElementById('audio-repl-style')) document.head.append(Object.assign(document.createElement('style'), { id: 'audio-repl-style', textContent: STYLE }))
     const height = parseFloat(this.getAttribute('height'))
     if (height > 0) this.style.setProperty('--audio-repl-height', `${height}px`)
-    // the bars, as a sound's are: bursts, each rising and falling, never quite silent between them
-    if (!this.frame && !this.querySelector(':scope > .wait')) {
-      const wait = Object.assign(document.createElement('div'), { className: 'wait', ariaHidden: 'true' })
-      wait.innerHTML = Array.from({ length: 96 }, (_, i) => `<i style="--i:${i};--h:${(.06 + .94 * Math.abs(Math.sin(i * .83) * Math.sin(i * .07 + .4))).toFixed(3)}"></i>`).join('')
-      this.append(wait)
+    // the skeleton, laid out again as the element's size changes, till the frame is shown
+    if (!this.frame && !this.wait) {
+      this.wait = Object.assign(document.createElement('div'), { className: 'wait', ariaHidden: 'true' })
+      this.append(this.wait)
+      this.sizes = new ResizeObserver(() => { this.wait.innerHTML = skeleton(this) })
+      this.sizes.observe(this)
     }
     if (!this.frame) AudioRepl.observer.observe(this)
   }
@@ -106,7 +127,7 @@ class AudioRepl extends HTMLElement {
     // the microphone, for a script that records; the clipboard, for the editor's copy
     frame.allow = 'microphone; autoplay; clipboard-write'
     // shown once its sound is in, its mark first at rest; or a while after it loads, whatever its script does
-    const ready = () => { if ('ready' in this.dataset) return; this.dataset.ready = ''; setTimeout(() => this.querySelector(':scope > .wait')?.remove(), 400) }
+    const ready = () => { if ('ready' in this.dataset) return; this.dataset.ready = ''; this.sizes?.disconnect(); setTimeout(() => this.wait?.remove(), 400) }
     frame.addEventListener('load', () => setTimeout(ready, 8000), { once: true })
     // how its mark moves (playground/editor.js), a `mark` event on the element: { mode: rest, work, play, record or
     // scrub } as it changes, { turn } for each turn a scrub gives it; a page's own mark moves with it (../logo/mark.js sways)
