@@ -1,7 +1,6 @@
 import { labelOf } from '../ops.js'
 import { prepare, error, bare, source, chain, rollback, residual } from '../code.js'
 import { builtins, sample } from '../sources.js'
-import { docs, docOf, soundName, badges } from '../editor.js'
 import { pastable } from './clipboard.js'
 import { state, eng, v, ed, pl, output, incoming, timer, hush, steps, viewing, assign } from './context.js'
 import { shelf, restoring } from './files.js'
@@ -9,6 +8,7 @@ import { clock, several, note } from './format.js'
 import { sway, togglePlay } from './play.js'
 import { marks, meter, describe } from './readouts.js'
 import { places } from './recording.js'
+import { docs, docOf, soundName, badges } from './tabs.js'
 import { lanesShown, showTracks, lane, hears, fetches, lanesOf } from './tracks.js'
 
 // Running the script: a change scheduled, evaluated and sent to the engine; its reply shown, its output arriving and

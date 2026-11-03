@@ -1,7 +1,6 @@
 import { valuesOf } from '../stack.js'
 import { ops, guides, fromManifest, reshapes } from '../ops.js'
 import { prepare, chain, number, setArg, unsetArg, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, useTake } from '../code.js'
-import { docs, retitle, switchTab, closeTab } from '../editor.js'
 import { bridge } from './chat.js'
 import { formats, scaleNames } from './config.js'
 import { state, eng, v, ed, rk, pl, output, shown, carded, assign } from './context.js'
@@ -11,6 +10,7 @@ import { stamp } from './format.js'
 import { shows, showAs } from './look.js'
 import { toggleAB, togglePlay, onscrub } from './play.js'
 import { ran, within, sourceName } from './run.js'
+import { docs, retitle, switchTab, closeTab } from './tabs.js'
 import { focusOn, laneIndex } from './tracks.js'
 
 // The page as the agent's tools reach it (page): its state, the script, each edit and step, what it measures and
