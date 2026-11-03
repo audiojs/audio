@@ -4,7 +4,7 @@
 // as it arrives (clone). The output streams to the page as it renders; while a file arrives and the output has
 // nothing yet (it needs the whole file, as trim and normalize do), the file itself streams, as it decodes. What a chain
 // made is kept by what made it, its steps too, so what was made before comes at once (renders kept, below).
-import audio from '../audio.js'
+import audio, { keysOf, recall, onto, prefix, rootOf, idOf, wholeOf } from '../audio.js'
 import { LOAD } from '../core.js'
 import plugins from 'editor:plugins'
 import { attacks, rises, plainness } from '../fn/hits.js'
@@ -22,44 +22,9 @@ audio.import = spec => plugins[spec]?.() ?? import(spec)
 // Jobs that go out to threads (parallel.js: declip's blocks) on workers of their own, beside this one (jobs.js)
 audio.worker = () => new Worker(new URL('./jobs.js', import.meta.url), { type: 'module' })
 
-// Samples kept in the browser's own file system by a key, as a studio keeps its renders: each file its meta's length,
-// its channels' count and length (three uint32), its meta as JSON (to a multiple of 4 bytes), then each channel's
-// samples. Up to `max` bytes, the oldest let go first; the storage failing, nothing is kept, nothing found.
-function disk(name, max) {
-  const dir = async () => (await navigator.storage.getDirectory()).getDirectoryHandle(name, { create: true })
-  // the names kept, read once: a key not there is not looked for (a run that has none starts at once)
-  const kept = dir().then(async d => { const all = new Set(); for await (const k of d.keys()) all.add(k); return all }).catch(() => new Set())
-  return {
-    async get(key) {
-      if (!(await kept).has(encodeURIComponent(key))) return null
-      try {
-        const file = await (await (await dir()).getFileHandle(encodeURIComponent(key))).getFile()
-        const [m, k, n] = new Uint32Array(await file.slice(0, 12).arrayBuffer()), at = 12 + Math.ceil(m / 4) * 4
-        if (!k || file.size !== at + k * n * 4) return null
-        const meta = m ? JSON.parse(await file.slice(12, 12 + m).text()) : null, data = new Float32Array(await file.slice(at).arrayBuffer())
-        return { meta, channels: Array.from({ length: k }, (_, c) => data.subarray(c * n, (c + 1) * n)) }
-      } catch { return null }
-    },
-    async set(key, channels, meta = null) {
-      const d = await dir(), json = new TextEncoder().encode(meta ? JSON.stringify(meta) : '')
-      const out = await (await d.getFileHandle(encodeURIComponent(key), { create: true })).createWritable()
-      await out.write(new Uint32Array([json.length, channels.length, channels[0]?.length ?? 0]))
-      await out.write(json)
-      if (json.length % 4) await out.write(new Uint8Array(4 - json.length % 4))
-      for (const c of channels) await out.write(c)
-      await out.close()
-      const names = await kept, all = []
-      names.add(encodeURIComponent(key))
-      for await (const h of d.values()) if (h.kind === 'file' && !h.name.endsWith('.crswap')) { const f = await h.getFile(); all.push({ name: h.name, size: f.size, at: f.lastModified }) }
-      let total = all.reduce((s, f) => s + f.size, 0)
-      for (const f of all.sort((p, q) => p.at - q.at)) { if (total <= max) break; names.delete(f.name); await d.removeEntry(f.name).catch(() => {}); total -= f.size }
-    }
-  }
-}
-// What a model made of its input (core.js memo: deepfilter's enhancement, vocals' separation), by its key: a reload,
-// another tab, a setting applied after the model read it back, the model not run again
-const memos = disk('audio-editor-memo', 2 ** 30)
-audio.memo = { get: async key => (await memos.get(key))?.channels ?? null, set: (key, channels) => memos.set(key, channels) }
+// What a model made of its input (core.js memo: deepfilter's enhancement, vocals' separation), by its key, in the browser's
+// own files (store.js): a reload, another tab, a setting applied after the model read it back, the model not run again
+audio.memo = audio.store('audio-editor-memo', { max: 2 ** 30 })
 
 // Sounds as the editor keeps them (the files it opens, its outputs, their steps, the stages a measure reads): instances
 // of their samples in pages, past KEEP.budget bytes each in the browser's own files (storage 'auto', cache.js), so how
@@ -226,110 +191,6 @@ function feed(id, event, peaks, total, fields = () => ({})) {
   }
 }
 
-// Sounds kept in the browser's own files by a key, past a reload (renders): each file its meta's length, its channels'
-// count and length (three uint32), its meta as JSON (to a multiple of 4 bytes), each channel's samples; then its block
-// figures (the library's stats): their layout's length, their layout as JSON (to 4 bytes), their values. Read back as a
-// sound over the file's pages (audio.from a page store), none of them in memory till read, so a long one is back at
-// once. Up to `max` bytes, or a quarter of the storage the browser gives where that is more, the oldest let go first;
-// the storage failing, nothing kept, nothing found.
-function shelf(name, max) {
-  const dir = async () => (await navigator.storage.getDirectory()).getDirectoryHandle(name, { create: true })
-  const kept = dir().then(async d => { const all = new Set(); for await (const k of d.keys()) all.add(k); return all }).catch(() => new Set())
-  const room = navigator.storage.estimate().then(({ quota }) => Math.max(max, (quota || 0) / 4)).catch(() => max)
-  return {
-    async get(key) {
-      if (!(await kept).has(encodeURIComponent(key))) return null
-      try {
-        const file = await (await (await dir()).getFileHandle(encodeURIComponent(key))).getFile()
-        const [m, k, n] = new Uint32Array(await file.slice(0, 12).arrayBuffer()), at = 12 + pad(m), end = at + k * n * 4
-        const meta = m ? JSON.parse(await file.slice(12, 12 + m).text()) : {}
-        if (!k || !meta.sampleRate || file.size < end) return null
-        let stats = null, picture = null
-        if (file.size > end) {
-          const [l] = new Uint32Array(await file.slice(end, end + 4).arrayBuffer()), layout = JSON.parse(await file.slice(end + 4, end + 4 + l).text())
-          const { leaves, levels, ...figures } = unpack(new Uint8Array(await file.slice(end + 4 + pad(l)).arrayBuffer()), layout)
-          stats = figures
-          if (leaves && levels) picture = { leaves, spectra: { ...layout.spectra, at: 0, levels } }
-        }
-        const PS = audio.PAGE_SIZE, store = {
-          has: async i => i * PS < n,
-          write: async () => {},
-          read: i => Promise.all(Array.from({ length: k }, async (_, c) =>
-            new Float32Array(await file.slice(at + (c * n + i * PS) * 4, at + (c * n + Math.min(n, (i + 1) * PS)) * 4).arrayBuffer())))
-        }
-        return { meta, picture, sound: audio.from(store, { length: n, channels: k, sampleRate: meta.sampleRate, stats, budget: KEEP.budget }) }
-      } catch { return null }
-    },
-    // `sound` read block by block, each channel's samples where they go, its figures counted as they pass; its picture,
-    // where one was made as it rendered (none made here: a render after it would wait on its spectra)
-    async set(key, sound, meta, picture = null) {
-      const d = await dir(), n = sound.length, k = sound.channels, head = json(meta), at = 12 + pad(head.length)
-      const out = await (await d.getFileHandle(encodeURIComponent(key), { create: true })).createWritable()
-      const write = (data, position) => out.write({ type: 'write', position, data })
-      try {
-        await write(new Uint32Array([head.length, k, n]), 0)
-        await write(head, 12)
-        // a page of each channel at a time: few writes, each a long one
-        const session = audio.statSession(sound.sampleRate), PS = audio.PAGE_SIZE, buf = Array.from({ length: k }, () => new Float32Array(Math.min(PS, n)))
-        let pos = 0, from = 0
-        const turn = turns(), flush = async () => { for (let c = 0; c < k; c++) await write(buf[c].subarray(0, pos - from), at + (c * n + from) * 4); from = pos }
-        for await (const block of sound.stream()) {
-          // kept in the background, a long one never holds up what the page asks
-          await turn()
-          const len = Math.min(block[0].length, n - pos), part = block.map(c => c.subarray(0, len))
-          if (len <= 0) break
-          session.page(part)
-          for (let i = 0; i < len;) {
-            const m = Math.min(len - i, buf[0].length - (pos - from))
-            for (let c = 0; c < k; c++) buf[c].set(part[c].subarray(i, i + m), pos - from)
-            pos += m; i += m
-            if (pos - from === buf[0].length) await flush()
-          }
-        }
-        if (pos > from) await flush()
-        if (pos !== n) throw new Error(`${pos} of ${n} samples`)
-        const { layout, data } = pack({ ...session.done(), ...picture && { leaves: picture.leaves, levels: picture.spectra.levels } })
-        if (picture) layout.spectra = { size: picture.spectra.size, hop: picture.spectra.hop }
-        const l = json(layout), end = at + k * n * 4
-        await write(new Uint32Array([l.length]), end)
-        await write(l, end + 4)
-        await write(data, end + 4 + pad(l.length))
-        await out.close()
-      } catch (error) { await out.abort().catch(() => {}); await d.removeEntry(encodeURIComponent(key)).catch(() => {}); throw error }
-      const names = await kept, all = [], limit = await room
-      names.add(encodeURIComponent(key))
-      for await (const h of d.values()) if (h.kind === 'file' && !h.name.endsWith('.crswap')) { const f = await h.getFile(); all.push({ name: h.name, size: f.size, at: f.lastModified }) }
-      let total = all.reduce((s, f) => s + f.size, 0)
-      for (const f of all.sort((p, q) => p.at - q.at)) { if (total <= limit) break; names.delete(f.name); await d.removeEntry(f.name).catch(() => {}); total -= f.size }
-    }
-  }
-}
-const json = v => new TextEncoder().encode(JSON.stringify(v))
-const pad = n => Math.ceil(n / 4) * 4
-// Figures as bytes and their layout ({ blockSize, length, fields: [[name, each channel's length, its type]] }), and back:
-// the library's block figures, a picture's leaves (Float32) and spectra (bytes), each array to a multiple of 4 bytes
-const TYPES = { f32: Float32Array, u8: Uint8Array }
-function pack(figures) {
-  const fields = [], parts = []
-  for (const [name, v] of Object.entries(figures)) {
-    const type = Array.isArray(v) && Object.keys(TYPES).find(t => v.every(x => x instanceof TYPES[t]))
-    if (type) { fields.push([name, v.map(x => x.length), type]); parts.push(...v) }
-  }
-  const data = new Uint8Array(parts.reduce((s, x) => s + pad(x.byteLength), 0))
-  parts.reduce((o, x) => (data.set(new Uint8Array(x.buffer, x.byteOffset, x.byteLength), o), o + pad(x.byteLength)), 0)
-  return { layout: { blockSize: figures.blockSize, length: figures.length, fields }, data }
-}
-function unpack(data, { blockSize, length, fields }) {
-  const figures = { blockSize, length }
-  let o = 0
-  for (const [name, lengths, type = 'f32'] of fields) figures[name] = lengths.map(n => {
-    const T = TYPES[type], x = new T(data.buffer.slice(data.byteOffset + o, data.byteOffset + o + n * T.BYTES_PER_ELEMENT))
-    o += pad(n * T.BYTES_PER_ELEMENT)
-    return x
-  })
-  return figures
-}
-
 const AsyncFunction = (async () => {}).constructor
 const LOOP_LIMIT = 5000
 // The longest output the page holds as samples (it keeps a few copies): 30 channel-minutes at 48 kHz.
@@ -368,6 +229,7 @@ function open(name) {
   if (sources.has(name)) return sources.get(name)
   const a = load(name)
   sources.set(name, a)
+  known.add(a)
   a.ready.catch(() => { if (sources.get(name) === a) sources.delete(name) })
   return a
 }
@@ -376,11 +238,10 @@ const forget = name => { sources.get(name)?.dispose(); sources.delete(name) }
 const opening = (name, error) => error.missing ? error : new Error(`Could not open ${name}: ${error.message}`)
 
 // `audio` as scripts see it: a named source opens from the page's files, and each run edits its own copy, which knows
-// the source it was copied from (`roots`); every instance made goes to `track`, to be let go with what made it
-const roots = new WeakMap()
+// the source it was copied from (rootOf); every instance made goes to `track`, to be let go with what made it
 function scoped(track) {
   const api = new Proxy(function audio_(source, opts) {
-    if (typeof source === 'string' && !opts) { const a = open(source).clone(); roots.set(a, open(source)); return track(a) }
+    if (typeof source === 'string' && !opts) return track(open(source).clone())
     if (Array.isArray(source) && source.some(s => typeof s === 'string')) return track(audio(source.map(s => typeof s === 'string' ? api(s) : s), opts))
     return track(audio(source, opts))
   }, {
@@ -393,19 +254,16 @@ function scoped(track) {
 const silences = new Map()
 function silent(seconds, opts) {
   const key = JSON.stringify([seconds, opts ?? {}])
-  if (!silences.has(key)) silences.set(key, audio.from(seconds, opts))
-  const root = silences.get(key), a = root.clone()
-  roots.set(a, root)
-  return a
+  if (!silences.has(key)) { silences.set(key, audio.from(seconds, opts)); known.add(silences.get(key)) }
+  return silences.get(key).clone()
 }
 const api = scoped(a => (run?.created.push(a), a))
 // A copy a script makes of a sound (`take.clone()`, the sound tracks copy, their shared steps in it) knows the source
-// that sound was copied from, so it is kept by its edits as that sound is (keysOf): a track split from another starts
-// from what is kept of the one it was. One made while its sound's run runs goes with that run
+// that sound was copied from (rootOf), so it is kept by its edits as that sound is (keysOf): a track split from another
+// starts from what is kept of the one it was. One made while its sound's run runs goes with that run
 const cloning = audio.fn.clone
 audio.fn.clone = function () {
   const b = cloning.call(this)
-  if (roots.has(this)) roots.set(b, roots.get(this))
   if (run?.created.includes(this)) run.created.push(b)
   return b
 }
@@ -477,10 +335,10 @@ async function execute({ id, code, names = [], tab = null, peaks = 0, preview = 
     const record = { id, tab, peaks, preview, instance: output, tracks: layers, muted: new Set(muted), created: run.created, saves: run.saves, names, tape: null, sound: null, length: 0, sampleRate: 0, done: false }
     record.finished = new Promise(resolve => { record.finish = resolve })
     // a mix is kept as its tracks are, each by its own edits
-    record.keys = layers ? Object.assign([], { marked: true }) : keysOf(output)
+    record.keys = layers ? Object.assign([], { marked: true }) : keysOf(output, sourceId)
     // the same chain paused before it had all of its output (a step turned off and on again as it renders): it goes on
     if (keyed(record) && paused.has(record.keys.at(-1))) adopt(record, paused.get(record.keys.at(-1)))
-    record.based = layers || record.blocks ? null : based(record)
+    record.based = layers || record.blocks ? null : await based(record)
     if (record.based?.instance) record.created.push(record.based.instance)
     record.content = layers ? null : contentOf(code, names)
     outputs.set(id, record)
@@ -552,61 +410,36 @@ function adopt(record, r) {
   Object.assign(record, { instance: r.instance, created: r.created, blocks: r.blocks, from: r })
 }
 // ── Renders kept ──────────────────────────────────────────────
-// What a chain made, kept by what made it (keysOf): the source it opens, the marks its script put, its edits up to a step.
-// A run that starts as one kept renders only what follows it, on its samples (based): an edit added at the end, a step
-// turned off or on, a card chosen, a tab shown again; what that leaves as it was passes through block by block, only
-// what it changes is processed (a ranged op copies the rest). The steps of each output are kept too, once it has come and
-// nothing else runs (checkpoints), so a step changed renders from the one before it. Kept here up to KEPT samples (128 MB
-// as float32: the sound edited and a few of its steps, a 5 minute stereo song's output whole), the least lately used let
-// go first, the one just kept never; each output also in the browser's own file system by its script and the files it opens
-// (renders), so a reload, or a tab shown for the first time since, shows it at once. Anything the edits can't say is the
-// same (a function, samples made in the script) is kept no further than the step before it.
-const KEPT = 2 ** 25
-const kept = new Map()         // key → { sound, sampleRate, markers, regions, figures }
-const renders = shelf('audio-editor-renders', 2 ** 31)
+// What a chain made, kept by what made it (checkpoint.js keysOf): the source it opens, the marks its script put, its edits
+// up to a step. A run that starts as one kept renders only what follows it, on its samples (based, the library's
+// recall): an edit added at the end, a step turned off or on, a card chosen, a tab shown again; what that leaves as it
+// was passes through block by block, only what it changes is processed (a ranged op copies the rest). The steps of each
+// output are kept too, once it has come and nothing else runs (checkpoints), so a step changed renders from the one
+// before it. Kept here up to KEPT bytes (128 MB of float32: the sound edited and a few of its steps, a 5 minute stereo
+// song's output whole), the least lately used let go first, the one just kept never (audio.store, in memory); each output
+// also in the browser's own file system by its script and the files it opens (renders), so a reload, or a tab shown for
+// the first time since, shows it at once. Anything the edits can't say is the same (a function, samples made in the
+// script) is kept no further than the step before it.
+const KEPT = 2 ** 27
+const kept = audio.store({ max: KEPT })    // key → its sound, and as its meta the entry: { sound, sampleRate, markers, regions, figures, … }
+const renders = audio.store('audio-editor-renders', { max: navigator.storage.estimate().then(({ quota }) => Math.max(2 ** 31, (quota || 0) / 4)).catch(() => 2 ** 31) })
 const size = e => e.sound.length * e.sound.channels
-function store(key, entry) {
-  kept.delete(key)
-  kept.set(key, entry)
-  let total = 0
-  for (const [k, e] of [...kept].reverse()) if ((total += size(e)) > KEPT && k !== key) kept.delete(k)
-}
-function recall(key) {
-  const e = kept.get(key)
-  if (e) { kept.delete(key); kept.set(key, e) }
-  return e
-}
-// what the script's marks are: those of the file it opens, or any it put (then only a whole output is a start: a mark
-// put after a step would be lost on what the steps before it made)
-const marksOf = a => (a.meta, JSON.stringify([a._.markers ?? [], a._.regions ?? [], a._.marks ?? []]))
-// The keys of an output's start and of each step after it, [the source, its first edit, …]; none for a sound the script
-// made from nothing. Each source named by `id` (idOf: this worker's own count; fileOf: its file, the same past a reload)
-function keysOf(a, id = idOf) {
-  const root = roots.get(a), own = root && id(root)
-  if (own == null) return Object.assign([], { marked: true })
-  const marks = marksOf(a), keys = Object.assign([`${own}|${marks}|`], { marked: marks !== marksOf(root) })
-  for (const e of a.edits) { const s = sig(e, id); if (s == null) break; keys.push(`${keys.at(-1)}${s};`) }
-  return keys
-}
+const store = (key, e) => kept.set(key, e.sound, e)
+const entry = async key => (await kept.open(key))?.meta ?? null
+// The sounds a run's output is kept by: the files the scripts open, and the silences they make (silent); a sound the
+// script made from nothing is none of them
+const known = new WeakSet()
+const sourceId = root => known.has(root) ? idOf(root) : null
 // A run's start: its whole output kept ({ hit }), else the longest of its starts kept with the steps after it on its
-// samples ({ at, instance }); null, none (a clipboard a step before it filled, a paste would find empty)
-function based(r) {
-  const keys = r.keys, edits = r.instance.edits
-  for (let k = keys.length - 1; k >= 0; k--) {
-    const e = recall(keys[k])
-    if (!e) continue
-    if (k === edits.length) return { hit: e }
-    try { return { at: k, instance: from(e, edits.slice(k)) } } catch { return null }
-  }
-  return null
+// samples ({ at, instance }); null, none
+async function based(r) {
+  const n = r.instance.edits.length, hit = keyed(r) && await entry(r.keys[n])
+  if (hit) return { hit }
+  const instance = await recall(r.instance, kept, sourceId)
+  return instance && { at: n - instance.edits.length, instance }
 }
 // A sound kept, with `edits` after it
-function from(e, edits) {
-  const a = e.sound.clone()
-  if (e.markers.length) a.markers = e.markers
-  if (e.regions.length) a.regions = e.regions
-  return edits.length ? a.run(...edits.map(([type, opts]) => [type, opts ? { ...opts } : {}])) : a
-}
+const from = (e, edits) => onto({ sound: e.sound, meta: e }, edits)
 // An output's name in the browser's files: the build, the script, the files it opens, each by its name and size (a
 // sound made here as the WAV it is kept as, 32-bit float); one it reads from elsewhere (a web address), which may change
 // there, nothing kept
@@ -630,19 +463,6 @@ async function digest(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(x => x.toString(16).padStart(2, '0')).join('')
 }
 
-// An edit as a string to compare, or null where it holds what cannot be compared: a copy of a source as that source
-// (named by `id`, as keysOf) and its own edits; a function or samples, never the same as another's
-const ids = new WeakMap()
-let lastId = 0
-const idOf = o => ids.get(o) ?? (ids.set(o, ++lastId), lastId)
-function sig(v, id = idOf) {
-  if (typeof v === 'function' || ArrayBuffer.isView(v)) return null
-  if (v == null || typeof v !== 'object') return JSON.stringify(v) ?? 'undefined'
-  if (isAudio(v)) { const root = roots.get(v), own = root && id(root), edits = sig(v.edits, id); return own != null && edits != null ? `a${own}${edits}` : null }
-  const parts = Array.isArray(v) ? v.map(x => sig(x, id)) : Object.keys(v).sort().map(k => { const x = sig(v[k], id); return x == null ? null : `${k}:${x}` })
-  return parts.includes(null) ? null : Array.isArray(v) ? `[${parts}]` : `{${parts}}`
-}
-
 const post = (message, transfer = []) => self.postMessage(message, transfer)
 
 // A run's output to the page as it renders, in pieces of about a tenth of a second, then its figures; one kept, at once,
@@ -657,8 +477,8 @@ async function render(r) {
   let hit = r.based?.hit ?? null
   const content = await r.content
   if (!hit && content && alive()) {
-    const got = await renders.get(content)
-    if (got) { hit = { ...got.meta, sound: got.sound, picture: got.picture }; if (keyed(r)) store(r.keys.at(-1), hit) }
+    hit = await unshelve(content)
+    if (hit && keyed(r)) store(r.keys.at(-1), hit)
   }
   if (!alive()) return
   if (hit) return replay(r, hit)
@@ -733,11 +553,11 @@ async function mixTracks(r, alive) {
       // its file whole first: a track is made whole, its rate and channels known
       await t.instance.ready
       if (!alive()) return
-      const e = await made(t.instance, keysOf(t.instance), alive, r, true)
+      const keys = keysOf(t.instance, sourceId), e = await made(t.instance, keys, alive, r, true)
       if (!e) return
-      Object.assign(t, e, { made: e })
+      Object.assign(t, e, { made: e, key: keys.length === t.instance.edits.length + 1 ? keys.at(-1) : null })
       // one not kept (a sound made in the script) goes with the run
-      if (![...kept.values()].includes(e)) r.created.push(e.sound)
+      if (!t.key) r.created.push(e.sound)
     }
     // a track at another rate resampled to the first's, once for what is kept of it (a take recorded at the device's
     // rate under a file's: each edit of another track once resampled it all again)
@@ -749,7 +569,7 @@ async function mixTracks(r, alive) {
         const a = t.sound.clone().resample(rate)
         try { sound = await collect(a, alive) } finally { a.dispose?.() }
         if (!sound) return
-        if ([...kept.values()].includes(t.made)) rates.set(rate, sound)
+        if (t.key && await kept.has(t.key)) rates.set(rate, sound)
         else r.created.push(sound)
       }
       t.sound = sound
@@ -827,11 +647,16 @@ async function laneOf(sound, rate, n, alive) {
 }
 // Whether a run's every edit has a key: its whole output can be kept
 const keyed = r => r.keys.length === r.instance.edits.length + 1
-// An output kept past a reload, by what made it (contentOf), once nothing else is being made
+// An output kept past a reload, by what made it (contentOf), once nothing else is being made: its sound, the rest of its
+// entry as its meta (its picture's arrays as bytes); and found again, a sound over the file's pages
 function shelve(content, e) {
   if (!content) return
-  const { sound, picture, ...meta } = e
-  renders.set(content, sound, meta, picture).catch(() => {})
+  const { sound, ...meta } = e
+  renders.set(content, sound, meta).catch(() => {})
+}
+async function unshelve(content) {
+  const got = await renders.open(content, { budget: KEEP.budget })
+  return got?.meta?.sampleRate ? { ...got.meta, sound: got.sound } : null
 }
 // A kept output to the page at once: ten seconds a piece, or its picture where it is longer than the page holds
 async function replay(r, e) {
@@ -889,7 +714,7 @@ async function checkpoint(r) {
   for (let k = 1; k < n; k++) {
     do await new Promise(resolve => setTimeout(resolve, quiet() ? 0 : 50)); while (own() && !quiet())
     if (!own()) return
-    const known = recall(keys[k])
+    const known = await entry(keys[k])
     if (known) { last = known; at = k; cost = 0; continue }
     if (audio.op(edits[k - 1][0])?.whole) {
       const e = rendered(r, k)
@@ -915,15 +740,13 @@ async function checkpoint(r) {
     finally { a.dispose?.() }
   }
 }
-// What a step rendering its input whole made of it in the output's render (plan.js keeps it on the sound that rendered,
-// by the step's place there): the output's first `k` edits, as kept; null where there is none
+// What a step rendering its input whole made of it in the output's render (plan.js wholeOf, by the step's place in the
+// sound that rendered): the output's first `k` edits, as kept; null where there is none
 function rendered(r, k) {
-  const s = r.streamed, i = k - 1 - (s?.at ?? 0), cache = s?.a._.wrc
-  if (i < 0 || !cache || cache.v !== s.a.version) return null
-  const sound = [...cache.m].findLast(([key]) => key.startsWith(`${i}:`))?.[1]
+  const s = r.streamed, i = k - 1 - (s?.at ?? 0), sound = s && i >= 0 ? wholeOf(s.a, i) : null
   if (!sound) return null
   // its marks as the steps up to it leave them: none where the file it opens has none
-  const p = prefix(r.instance, k), src = roots.get(r.instance)
+  const p = prefix(r.instance, k), src = rootOf(r.instance)
   try { return { sound, sampleRate: sound.sampleRate, ...marksAt(p) } }
   catch { return src?._.markers?.length || src?._.regions?.length ? null : { sound, sampleRate: sound.sampleRate, markers: [], regions: [] } }
   finally { p.dispose?.() }
@@ -944,22 +767,15 @@ async function collect(a, going, blocks = a.stream()) {
 // An instance's sound, as kept: whole if it is, else rendered from the longest of its starts kept, then kept; null once
 // `going()` says to stop; for run `owner`'s output, where it is one's. `shelved`: kept in the browser's files too, by
 // what makes it (soundContent), and found there before anything renders: a track, whose model ran once, never again
-async function made(a, keys = keysOf(a), going = () => true, owner = null, shelved = false) {
-  const n = a.edits.length, whole = keys.length === n + 1
-  let b = a
-  for (let k = Math.min(keys.length - 1, n); k >= 0; k--) {
-    const e = recall(keys[k])
-    if (!e) continue
-    if (k === n) return e
-    try { b = from(e, a.edits.slice(k)) } catch {}
-    break
-  }
-  const content = shelved && whole ? await soundContent(a) : null, got = content && await renders.get(content)
+async function made(a, keys = keysOf(a, sourceId), going = () => true, owner = null, shelved = false) {
+  const n = a.edits.length, whole = keys.length === n + 1, hit = whole && await entry(keys[n])
+  if (hit) return hit
+  const b = await recall(a, kept, sourceId) ?? a
+  const content = shelved && whole ? await soundContent(a) : null, got = content && await unshelve(content)
   if (got) {
     if (b !== a) b.dispose?.()
-    const e = { ...got.meta, sound: got.sound }
-    store(keys[n], e)
-    return e
+    store(keys[n], got)
+    return got
   }
   inputs.set(b, keys.slice(n - b.edits.length))
   if (owner) owners.set(b, owner)
@@ -988,7 +804,8 @@ const local = ([type, opts]) => { const d = audio.op(type); return !!d && !['cop
 async function fragment(r) {
   const o = [...outputs.values()].findLast(x => x.done && x !== r && x.tab === r.tab && x.keys)
   if (!o || r.keys.marked || o.keys[0] !== r.keys[0] || !keyed(r) || !keyed(o)) return null
-  const was = o.instance.edits.map(e => sig(e)), now = r.instance.edits.map(e => sig(e))
+  // each edit as its key says it: what it adds to the key before it
+  const said = keys => keys.slice(1).map((k, i) => k.slice(keys[i].length)), was = said(o.keys), now = said(r.keys)
   let p = 0, q = 0
   while (p < was.length && p < now.length && was[p] === now[p]) p++
   while (q < was.length - p && q < now.length - p && was[was.length - 1 - q] === now[now.length - 1 - q]) q++
@@ -997,10 +814,10 @@ async function fragment(r) {
   if (!changed.length || spans.includes(null)) return null
   // the start it renders from: the longest kept up to the change, every step from there working on its own
   let k = p
-  while (k > 0 && !kept.has(r.keys[k])) k--
+  while (k > 0 && !await kept.has(r.keys[k])) k--
   const edits = r.instance.edits.slice(k)
   if (!edits.every(local) || !o.instance.edits.slice(k).every(local)) return null
-  const base = recall(r.keys[k]), rate = o.sampleRate, n = o.length, e = Math.round(EDGE * rate)
+  const base = await entry(r.keys[k]), rate = o.sampleRate, n = o.length, e = Math.round(EDGE * rate)
   let a
   try { a = base ? from(base, edits) : prefix(r.instance, r.instance.edits.length) } catch { return null }
   try {
@@ -1033,12 +850,6 @@ async function fragment(r) {
     const sound = o.sound.clone().write(got.map(c => c.slice(s0 - lead, end - lead)), { at: s0 / rate })
     return { sound, sampleRate: rate, markers: o.markers, regions: o.regions, bitDepth: r.instance.bitDepth ?? null }
   } finally { a.dispose?.() }
-}
-// The output's first `k` edits on its source, as the source arrives
-function prefix(a, k) {
-  const b = a.clone()
-  b.undo(b.edits.length - k)
-  return b
 }
 // A step reading its input whole first (its op's prepare: deepfilter's model over it, vocals' separation) is said by
 // its name to the run whose sound it reads (owners), while it does; with the part of it running, where it says (auto's
@@ -1083,7 +894,7 @@ const owners = new WeakMap()   // a sound rendered → the run whose output it m
 const passes = new Set()       // { type, key, tab, done }
 function orphaned(sounds, tab) {
   if (!passes.size) return false
-  const needs = new Set(sounds.flatMap(a => { const keys = keysOf(a); return a.edits.map(([type], i) => keys[i + 1] ?? `${type}@?`) }))
+  const needs = new Set(sounds.flatMap(a => { const keys = keysOf(a, sourceId); return a.edits.map(([type], i) => keys[i + 1] ?? `${type}@?`) }))
   return [...passes].some(p => p.tab === tab && p.key && !needs.has(p.key) && !needs.has(`${p.type}@?`))
 }
 // How long the output will be: known once its files have all arrived; until then what the first still arriving says
@@ -1729,9 +1540,9 @@ const handlers = {
   // files' lengths, s, each opened as a script opens it; null where one won't open: where a take ends (editor.js places)
   lengths: ({ names }) => Promise.all(names.map(async name => { try { const a = open(name); await a.ready; return a.duration } catch { return null } })).then(lengths => ({ lengths })),
   // a file changed: what was made of it goes
-  file: ({ name, data }) => {
+  file: async ({ name, data }) => {
     const was = sources.get(name)
-    if (was) for (const k of kept.keys()) if (k.startsWith(`${idOf(was)}|`)) kept.delete(k)
+    if (was) for (const k of await kept.keys()) if (k.startsWith(`${idOf(was)}|`)) kept.delete(k)
     data ? files.set(name, data) : files.delete(name); forget(name); stages.clear(); return {}
   },
   // Stop, in tab `tab`: its output streaming stops, and the script running for it makes none; those whole stay, and the
