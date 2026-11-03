@@ -13118,3 +13118,103 @@ test('editor: embedded, a skeleton of its parts holds their places till its soun
   await page.waitForFunction(() => [...document.querySelectorAll('audio-repl')].every(el => 'ready' in el.dataset && !el.querySelector('.wait')), null, { timeout: 30000 })
   await page.unroute('**/playground/?embed*')
 })
+
+// ── Guards for what was caught by eye ──────────────────────────
+
+// An action on how the sound is seen or heard renders nothing: muting, soloing or renaming a track mixes again what is
+// kept (a run, no track's block made again: the mix, for the levels and the export); the window resized, the
+// spectrogram shown, a theme, a tab shown again run nothing at all. Each track's step counts its blocks in the worker
+// (`tick`, over a BroadcastChannel), the runs the page asks counted as they are sent
+test('editor: a mute, a solo, a rename, a resize, the spectrogram, a theme or a tab shown renders nothing', async () => {
+  await page.addInitScript(() => {
+    globalThis.__runs = 0
+    globalThis.__ticks = 0
+    new BroadcastChannel('ticks').onmessage = () => __ticks++
+    const post = Worker.prototype.postMessage
+    Worker.prototype.postMessage = function (m, t) { if (m?.type === 'run') __runs++; return post.call(this, m, t) }
+  })
+  await open()
+  await noCues()
+  await write(`audio.op('tick', { process: (input, output) => { (globalThis.ticked ??= new BroadcastChannel('ticks')).postMessage(1); input.forEach((x, c) => output[c].set(x)) } })
+
+let a = audio('chime.wav').tick()
+
+let b = audio('rhodes.wav').tick()`)
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  await settled()
+  assert.ok(await page.evaluate(() => __ticks) > 0, 'the tracks rendered, counted')
+  // what an action asked of the engine, once the page has settled after it
+  const after = async act => {
+    await settled()
+    await page.evaluate(() => { __runs = 0; __ticks = 0 })
+    await act()
+    await settled()
+    return page.evaluate(() => ({ runs: __runs, ticks: __ticks }))
+  }
+  for (const [name, act] of [
+    ['mute', () => page.getByRole('button', { name: 'Mute b' }).click()],
+    ['unmute', () => page.getByRole('button', { name: 'Mute b' }).click()],
+    ['solo', () => page.getByRole('button', { name: 'Mute a' }).click({ modifiers: ['Alt'] })],
+    ['unsolo', () => page.getByRole('button', { name: 'Mute a' }).click({ modifiers: ['Alt'] })],
+    ['rename', async () => { await page.locator('.layer-name', { hasText: /^b$/ }).click(); await page.keyboard.type('bed'); await page.keyboard.press('Enter'); await page.waitForFunction(() => /\nlet bed = /.test(scriptText())) }]
+  ]) {
+    const { runs, ticks } = await after(act)
+    assert.ok(runs <= 1 && ticks === 0, `${name}: ${runs} runs, ${ticks} blocks made again`)
+  }
+  for (const [name, act] of [
+    ['resize', () => page.setViewportSize({ width: 1000, height: 700 })],
+    ['spectrogram', () => show('spec')],
+    ['waveform', () => show('wave')],
+    ['theme', () => menu('View', 'Theme', 'Light+')],
+    ['new tab', () => page.getByRole('button', { name: 'New tab' }).click()],
+    ['tab shown again', () => page.locator('.file [role="tab"]').first().click()],
+    ['the other again', () => page.locator('.file [role="tab"]').last().click()]
+  ]) assert.deepEqual(await after(act), { runs: 0, ticks: 0 }, `${name}: nothing run`)
+})
+
+// The status bar at a desktop's, a tablet's and a phone's width, a sound shown and one decoding: one row in reading
+// order (the transport, the time, its length, undo and redo, what the engine says, the levels and facts, Before), each
+// part whole in the bar and in the window, none over another, the time and its length never cut; the length shown but
+// on a phone. Layout read from the boxes, not from pixels
+for (const [device, width, height, touch] of [['desktop', 1280, 800, false], ['tablet', 820, 1180, true], ['phone', 390, 844, true]]) test(`editor: the bar on a ${device}: the time, the length, the status, undo and redo in a row, whole, none over another`, async () => {
+  const ctx = await browser.newContext({ viewport: { width, height }, isMobile: touch, hasTouch: touch })
+  try {
+    // its parts in reading order, those shown: { name, x, y, w, h, cut }; the bar's box; the page's width and the window's
+    const parts = p => p.evaluate(() => {
+      const box = e => { const r = e.getBoundingClientRect(), s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' ? { x: r.x, y: r.y, w: r.width, h: r.height, cut: e.scrollWidth > e.clientWidth + 1 } : null }
+      const named = [['play', '.deck-slot:has(.play)'], ['record', '.deck-slot:has(.record)'], ['loop', '.loop'], ['time', '.time'], ['length', '.length'], ['undo', '.history .undo'], ['redo', '.history button:last-child'],
+        ['status', '.message-words'], ['readout', '.readout'], ['facts', '.facts'], ['before', '.before']]
+      const shown = named.map(([name, s]) => { const e = document.querySelector(s), b = e && (name !== 'status' || e.textContent) && box(e); return b && { name, ...b } }).filter(Boolean)
+      return { shown, bar: box(document.querySelector('.status')), page: document.documentElement.scrollWidth, window: innerWidth }
+    })
+    const check = async (p, state, must) => {
+      const { shown, bar, page: wide, window } = await parts(p), at = name => shown.find(s => s.name === name), play = at('play')
+      const say = `${device}, ${state}: ${JSON.stringify(shown.map(({ name, x, w }) => [name, Math.round(x), Math.round(w)]))}`
+      assert.ok(wide <= window, `${device}, ${state}: the page ${wide} px wide in a window of ${window}`)
+      for (const name of must) assert.ok(at(name), `${device}, ${state}: ${name} shown`)
+      for (const s of shown) {
+        assert.ok(s.x >= bar.x - .5 && s.x + s.w <= bar.x + bar.w + .5 && s.y >= bar.y - .5 && s.y + s.h <= bar.y + bar.h + .5, `${say}: ${s.name} in the bar`)
+        assert.ok(s.x >= 0 && s.x + s.w <= window + .5, `${say}: ${s.name} in the window`)
+        assert.ok(s.y < play.y + play.h && s.y + s.h > play.y, `${say}: ${s.name} on the transport's row`)
+      }
+      for (const name of ['time', 'length', 'status']) assert.ok(!at(name)?.cut, `${say}: the ${name} whole, not cut`)
+      // in reading order, each after the last, none over another
+      shown.slice(1).forEach((s, i) => assert.ok(s.x >= shown[i].x + shown[i].w - .5, `${say}: ${s.name} after ${shown[i].name}, clear of it`))
+    }
+    const p = await ctx.newPage()
+    await chimeLeft(p)
+    p.on('pageerror', e => errors.push(e.message))
+    await p.goto(origin + '/playground/')
+    await p.locator('.readout[data-of="all"]').waitFor({ state: 'attached' })
+    await settled(p)
+    await check(p, 'a sound shown', ['play', 'record', 'time', 'undo', 'redo', ...device === 'phone' ? [] : ['length', 'readout', 'facts', 'before']])
+    await p.close()
+    // a file decoding, said in the status, how much has come
+    const q = await ctx.newPage()
+    await q.addInitScript(url => localStorage.setItem('audio-repl', JSON.stringify({ code: `audio('${url}')` })), `${origin}/slow/test/fixture.wav`)
+    q.on('pageerror', e => errors.push(e.message))
+    await q.goto(origin + '/playground/')
+    await q.locator('.message', { hasText: /^Decoding/ }).waitFor()
+    await check(q, 'a file decoding', ['play', 'record', 'time', 'undo', 'redo', 'status', ...device === 'phone' ? [] : ['length']])
+  } finally { await ctx.close() }
+})
