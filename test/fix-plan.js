@@ -7,6 +7,8 @@
 import test from 'tst'
 import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
+import { prepared, playback } from '../plan.js'
+import { tailed } from '../core.js'
 
 const ramp = n => { let ch = new Float32Array(n); for (let i = 0; i < n; i++) ch[i] = i; return ch }
 const tone = (freq, dur, sr = 44100, amp = 1) => genTone(freq, dur, amp, sr)
@@ -766,6 +768,31 @@ test('prepared — made again when a sound it reads is edited', async t => {
   b.gain(-20)
   let quiet = await peak()
   t.ok(loud > .4 && quiet < .1, `the codec hears the inserted sound turned down: ${loud.toFixed(3)} → ${quiet.toFixed(3)}`)
+})
+
+// prepared(): made once over the input, its channels the edit's `channel`; an edit after it, the samples it reads the same,
+// makes nothing again (one that changes them does: the codec's test above); an empty input passes as it is, nothing made
+test('prepared — made once, not again for an edit after it; its channels; nothing for none', async t => {
+  let made = [], MADE = Symbol('t.made')
+  audio.op('_test_prepared', { hidden: true, params: ['k'], prepare: prepared(MADE, o => `${o.k ?? 1}`, (pcm, sr, o) => (made.push(pcm.length), pcm.map(x => x.map(v => v * (o.k ?? 1))))), process: playback('_test_prepared', MADE) })
+  let x = Float32Array.from({ length: 1000 }, (_, i) => Math.sin(i / 10)), y = x.map(v => v / 2)
+  let a = audio.from([x, y], { sampleRate: 1000 }).run(['_test_prepared', { k: 2 }])
+  let [l, r] = await a.read()
+  t.is([l[10], r[10], made], [Math.fround(x[10] * 2), Math.fround(y[10] * 2), [2]], 'both channels, made once')
+  a.gain(0)
+  await a.read()
+  t.is(made, [2], 'an edit after it: its input the same, nothing made')
+  let b = audio.from([x, y], { sampleRate: 1000 }).run(['_test_prepared', { channel: 1 }])
+  let [l2, r2] = await b.read()
+  t.is([l2[10], r2[10], made.at(-1)], [x[10], y[10], 1], 'channel 1 alone: one channel made, the other as it was')
+  await audio.from([new Float32Array(0)], { sampleRate: 1000 }).run(['_test_prepared', {}]).read()
+  t.is(made, [2, 1], 'an empty input: nothing made')
+})
+
+// tailed(): an op's decay as a pad after its hidden twin, none where there is no decay
+test('tailed — the decay a pad after the twin, none for none', t => {
+  t.is(tailed('_x', { a: 1 }, 0.5), [['pad', { before: 0, after: 0.5 }], ['_x', { a: 1 }]])
+  t.is(tailed('_x', { a: 1 }, 0), [['_x', { a: 1 }]])
 })
 
 // The length is the edits' over what they read now: a sound inserted and then cropped shortens the one it is in
