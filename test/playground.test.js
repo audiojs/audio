@@ -9571,8 +9571,8 @@ test('editor: the record button records over the sound from the caret, into the 
   await lengthIs('0:08.000')
 })
 
-// The strip under the lanes, as Photoshop's split slider marks a range under its bar: a named range ◢ its name ——◣
-// there, small triangles hanging from the lanes' foot, a line from its name to its end, filled only pointed at, nothing
+// The strip under the lanes, as Photoshop's split slider marks a range under its bar: a named range ◢ its name ◣
+// there, small triangles hanging from the lanes' foot, nothing between them but a fill only pointed at, nothing
 // of it over the sound; its name still in sight once it is selected, no line of the selection in the strip. Plain
 // hovered over the lanes, as a scrub shows them: the cues either side of the pointer, a line each down the lanes in the
 // cues' colour; on one, a short wash on its sound's side
@@ -9589,9 +9589,8 @@ test('editor: the strip under the lanes marks a range ◢ named ◣, nothing ove
   await page.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
   assert.ok(await marked([px(2) - 6, px(2) + 1], [lane, lane + 9]) > 10 && await marked([px(4), px(4) + 7], [lane, lane + 9]) > 10, 'its triangles hanging from the lanes\' foot, at its start and its end')
   assert.equal(await marked([px(1.9), px(2) + 1], [lane + 10, lane + FOOT]), 0, 'as tall as its name\'s capitals')
-  // from its name to its end a line along their feet, nothing else of it between: unfilled
-  assert.ok(await marked([px(3.2), px(3.8)], [lane + 7, lane + 9]) >= px(3.8) - px(3.2) - 2, 'a line on to its end')
-  assert.equal(await marked([px(3.2), px(3.8)], [lane, lane + 7], 30), 0, 'no fill')
+  // from its name to its end nothing of it: no line, no fill
+  assert.equal(await marked([px(3.2), px(3.8)], [lane, lane + 9], 30), 0, 'nothing between its name and its end')
   // pointed at, filled, as a press there would select it
   await page.mouse.move(x(3.5), box.y + lane + 4)
   let lit = 0

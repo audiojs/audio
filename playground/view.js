@@ -2602,10 +2602,10 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     return best
   }
   // ── The marks strip: each band's foot row, under its lanes, a map of what is marked on its time, as Photoshop's split
-  // slider marks a range under its bar: a range ◢ its name ——◣, small half-triangles as tall as its name's capitals
+  // slider marks a range under its bar: a range ◢ its name ◣, small half-triangles as tall as its name's capitals
   // hanging from the lanes' foot, their upright edges at its start and its end (a selection's edges going on down them),
-  // its name after the first, cut short where it has no room, a line on from it along their feet to the last; filled as
-  // a press there would select it only pointed at; the takes' place the same, their numbers after its start
+  // its name after the first, cut short where it has no room, nothing between them but filled as a press there would
+  // select it, only pointed at; the takes' place the same, their numbers after its start
   // (placeTakes). Pressed, a range's or the takes' place selected and heard while held (down); a range's name clicked,
   // named in place (clicked); a press elsewhere in it the band's height (footAt). Over the sound, nothing of them but one
   // pointed at, its stretch as a press would select it (marksOf)
@@ -2647,8 +2647,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       c.fillStyle = ink
       bracket(m.x0, m.x1, foot, MARKED)
       // its name after its start, cut short where its end leaves too little room (none while it is written in place),
-      // where a click names it anew (labelAt); the line on from it to its end
-      let from = m.x0
+      // where a click names it anew (labelAt)
       const room = Math.min(m.x1, w) - Math.max(m.x0, 0) - 10
       if (mark?.label && !(naming && same(naming, mark)) && room >= 12) {
         let text = mark.label
@@ -2656,9 +2655,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
         const lx = Math.max(m.x0, 0) + 4, tw = c.measureText(text).width
         c.fillText(text, lx, m.y + NAMES)
         labels.push({ i: m.i, from: lx - 2, to: lx + tw + 2, y: m.y })
-        from = lx + tw + 4
       }
-      if (m.x1 - from > 2) c.fillRect(from, foot - 1, m.x1 - from, 1)
     }
   }
   // A flag's name written where it is: a field over it, Enter or a click away keeps it, Escape leaves it as it was
