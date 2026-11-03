@@ -52,8 +52,8 @@
  * and a second model run.
  */
 
-import audio, { arrived, memo, fingerprint } from '../core.js'
-import { stampOf, inputOf, playback } from '../plan.js'
+import audio, { memo, fingerprint } from '../core.js'
+import { prepared, playback } from '../plan.js'
 
 const LIMIT = 18
 
@@ -104,27 +104,18 @@ export function enhancer(name, id, finish, again) {
   const loadNeural = () => audio.import('@audio/neural-denoise').catch(e => { throw new Error(`${name}: install @audio/neural-denoise (${e.message})`) })
 
   /** Enhance the edit's input (the audio as the edits before it leave it), ahead of rendering. */
-  async function prepare(a, index) {
-    let o = a.edits[index][1], music = o.music ?? 'pass', own = id(o)
+  const prepare = prepared(ENHANCED, async o => {
+    let own = id(o), music = o.music ?? 'pass'
     if (music !== 'pass' && music !== 'enhance') throw new TypeError(`${name}: music is 'pass' or 'enhance', not ${music}`)
+    await loadNeural()
+    return `${own}:${music}:${o.weights ?? ''}`
+  }, async (pcm, fs, o) => {
     let neural = await loadNeural()
-    await arrived(a)
-    // the channels it runs on, in the order the engine hands them to process()
-    let chs = o.channel == null ? null : [o.channel].flat(), key0 = `${own}:${music}:${o.weights ?? ''}:${chs ?? ''}`
-    // same instance state as last time: the input is too (read() and stream() both prepare)
-    let stamp = `${stampOf(a)}:${key0}`, done = o[ENHANCED]
-    if (done?.stamp === stamp) return
-    let input = inputOf(a, index)
-    let pcm = await input.read()
-    if (chs) pcm = chs.map(c => pcm[c])
-    let key = `${key0}:${fingerprint(pcm)}`
-    if (done?.key === key) { done.stamp = stamp; return }
-    if (!pcm[0]?.length) { o[ENHANCED] = { key, stamp, pcm }; return }
-    let run = x => removal(neural, x, input.sampleRate, { music, weights: o.weights, device: o.device }).catch(e => { throw new Error(`${name}: ${e.message}`) })
-    let y = await run(pcm), heard = await again?.(pcm, y, input.sampleRate)
+    let run = x => removal(neural, x, fs, { music: o.music ?? 'pass', weights: o.weights, device: o.device }).catch(e => { throw new Error(`${name}: ${e.message}`) })
+    let y = await run(pcm), heard = await again?.(pcm, y, fs)
     if (heard) y = await run(heard)
-    o[ENHANCED] = { key, stamp, pcm: y.map((v, c) => finish(pcm[c], v, o, input.sampleRate, neural)) }
-  }
+    return y.map((v, c) => finish(pcm[c], v, o, fs, neural))
+  })
 
   return { prepare, process: playback(name, ENHANCED) }
 }

@@ -17,8 +17,8 @@
  * OM-LSA. The take is rendered whole ahead of rendering (deepfilter()'s way: a live stream waits for its end), and its
  * recipe, chain's code() included, names the denoiser that ran.
  */
-import audio, { arrived, emit, fingerprint } from '../core.js'
-import { stampOf, inputOf, playback } from '../plan.js'
+import audio, { emit } from '../core.js'
+import { prepared, playback } from '../plan.js'
 import { removal } from './deepfilter.js'
 import { declipped } from './declip.js'
 
@@ -88,25 +88,15 @@ const params = (specs, o) => Object.fromEntries(Object.entries(specs).map(([k, s
 
 /** The take rendered whole from the edit's input (the audio as the edits before it leave it), ahead of rendering; the
  *  instance hears each part as it starts (its 'doing' event: { op, stages }), the run taking minutes on a long take. */
-async function prepare(a, index, specs) {
-  let o = a.edits[index][1], { options } = await audio.import(audio.plugins.auto), opts = options(params(specs, o))
-  await arrived(a)
-  // the channels it runs on, in the order the engine hands them to process(); same instance state as last time: the
-  // input is too (read() and stream() both prepare)
-  let chs = o.channel == null ? null : [o.channel].flat(), own = `${JSON.stringify(opts)}:${chs ?? ''}`, stamp = `${stampOf(a)}:${own}`, done = o[RENDERED]
-  if (done?.stamp === stamp) return
-  let input = inputOf(a, index)
-  let pcm = await input.read()
-  if (chs) pcm = chs.map(c => pcm[c])
-  let key = `${own}:${fingerprint(pcm)}`
-  if (done?.key === key) { done.stamp = stamp; return }
-  let say = stages => emit(a, 'doing', { op: 'auto', stages })
-  o[RENDERED] = { key, stamp, pcm: pcm[0]?.length ? (await render(pcm, { sampleRate: input.sampleRate, ...opts }, say)).channels : pcm }
+const prepare = specs => {
+  let opts = async o => (await audio.import(audio.plugins.auto)).options(params(specs, o))
+  return prepared(RENDERED, async o => JSON.stringify(await opts(o)), async (pcm, sampleRate, o, a) =>
+    (await render(pcm, { sampleRate, ...await opts(o) }, stages => emit(a, 'doing', { op: 'auto', stages }))).channels)
 }
 
 // the manifest's op, rendered here; its recipe stat, planned as auto() plans it (the model run where the plan puts it, the
 // stages before it too: its guard's verdict is the plan's evidence)
-audio.hosted.auto = ({ whole, ...op }) => ({ ...op, prepare: (a, index) => prepare(a, index, op.plugin.params), process: playback('auto', RENDERED) })
+audio.hosted.auto = ({ whole, ...op }) => ({ ...op, prepare: prepare(op.plugin.params), process: playback('auto', RENDERED) })
 audio.hosted.chain = stat => ({ ...stat, compute: async (channels, { sampleRate: fs, ...o }) => {
   let [chain, nn] = await Promise.all([audio.import(audio.plugins.auto), neural()])
   return (await planned(chain, nn, channels, fs, o, (stages, c) => applied(chain, c, { stages }, fs))).recipe

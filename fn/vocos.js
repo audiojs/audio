@@ -18,8 +18,8 @@
  * and tones of exact period (their spectrum's floor far under any recording's), come back altered or silent.
  */
 
-import audio, { arrived, memo, fingerprint } from '../core.js'
-import { stampOf, inputOf, playback } from '../plan.js'
+import audio, { memo, fingerprint } from '../core.js'
+import { prepared, playback } from '../plan.js'
 import { highpass, lowpass } from '@audio/filter/biquad'
 
 const CROSSOVER = 11000, TOP = 12000
@@ -50,26 +50,14 @@ function id(o) {
 }
 
 /** Vocos's take of the edit's input (the audio as the edits before it leave it), ahead of rendering. */
-async function prepare(a, index) {
-  let o = a.edits[index][1], own = id(o)
-  await arrived(a)
-  let chs = o.channel == null ? null : [o.channel].flat(), key0 = `${own}:${chs ?? ''}`
-  // same instance state as last time: the input is too (read() and stream() both prepare)
-  let stamp = `${stampOf(a)}:${key0}`, done = o[MADE]
-  if (done?.stamp === stamp) return
-  let input = inputOf(a, index)
-  let pcm = await input.read(), fs = input.sampleRate
-  if (chs) pcm = chs.map(c => pcm[c])
-  let key = `${key0}:${fingerprint(pcm)}`
-  if (done?.key === key) { done.stamp = stamp; return }
-  let f = o.crossover ?? CROSSOVER, made = pcm[0]?.length ? await vocoded(pcm, fs, o) : pcm
+async function make(pcm, fs, o) {
+  let f = o.crossover ?? CROSSOVER, made = await vocoded(pcm, fs, o)
   // the input above the crossover, where Vocos has nothing or little (none to keep below Nyquist: Vocos's alone)
-  if (pcm[0]?.length && f > 0 && f < fs / 2) made = made.map((v, c) => {
+  return f > 0 && f < fs / 2 ? made.map((v, c) => {
     let lo = lr4(lowpass, v, f, fs), hi = lr4(highpass, pcm[c], f, fs)
     for (let i = 0; i < lo.length; i++) lo[i] += hi[i]
     return lo
-  })
-  o[MADE] = { key, stamp, pcm: made }
+  }) : made
 }
 
-audio.op('vocos', { params: [], prepare, process: playback('vocos', MADE) })
+audio.op('vocos', { params: [], prepare: prepared(MADE, id, make), process: playback('vocos', MADE) })

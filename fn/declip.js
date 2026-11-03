@@ -5,8 +5,8 @@
  * rendering takes it as it is (its range kept as any whole-render op keeps it); a render the preparation did not see
  * (another input) makes it in turn. auto() runs its declip stage through declipped() too.
  */
-import audio, { arrived, ranged } from '../core.js'
-import { stampOf, inputOf } from '../plan.js'
+import audio, { ranged } from '../core.js'
+import { prepared } from '../plan.js'
 import parallel from '../parallel.js'
 
 const MOD = '@audio/denoise/declip', MADE = Symbol('declip.made')
@@ -20,17 +20,8 @@ export async function declipped(pcm, opts) {
 
 // the edit's input declipped ahead of rendering, as the op renders it: its options as the host snaps them (float32
 // numbers, the order whole), the channels it is given; again only once the input or the options change
-async function prepare(a, index) {
-  let o = a.edits[index][1]
-  await arrived(a)
-  let chs = o.channel == null ? null : [o.channel].flat(), stamp = `${stampOf(a)}:${o.clipLevel}:${o.order}:${chs ?? ''}`
-  if (o[MADE]?.stamp === stamp) return
-  let input = inputOf(a, index)
-  let pcm = await input.read()
-  if (chs) pcm = chs.map(c => pcm[c])
-  let opts = { fs: input.sampleRate, clipLevel: Math.fround(o.clipLevel ?? 0), order: Math.round(Math.fround(o.order ?? 256)) }
-  o[MADE] = { stamp, pcm: pcm[0]?.length ? await declipped(pcm, opts) : pcm }
-}
+const prepare = prepared(MADE, o => `${o.clipLevel}:${o.order}`,
+  (pcm, fs, o) => declipped(pcm, { fs, clipLevel: Math.fround(o.clipLevel ?? 0), order: Math.round(Math.fround(o.order ?? 256)) }))
 
 audio.hosted.declip = op => ({ ...op, prepare, whole(input, output, ctx) {
   let made = ctx[MADE]?.pcm

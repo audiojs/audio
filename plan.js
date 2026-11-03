@@ -3,7 +3,7 @@
  * Intercepts create/run/read/stream to track and materialize edits.
  */
 
-import audio, { readPages, copyPages, walkPages, missed, parseTime, named, fromEnd, LOAD, READ, emit, resolveChannels, xfade, correlation } from './core.js'
+import audio, { readPages, copyPages, walkPages, missed, parseTime, named, fromEnd, LOAD, READ, emit, resolveChannels, xfade, correlation, arrived, fingerprint } from './core.js'
 
 let fn = audio.fn
 let ops = {}
@@ -1004,6 +1004,23 @@ export const playback = (name, key) => (input, output, ctx) => {
     let v = done.pcm[c], y = output[c]
     for (let i = 0, j = off; i < len; i++, j++) y[i] = j >= 0 && j < v.length ? v[j] : 0
   }
+}
+
+/** prepare() of an op made once over its whole input (the audio as the edits before it leave it), ahead of rendering, at
+ *  `key` on the edit: `own(o)` checks the edit's options and keys what they make of one input; `make(pcm, sampleRate, o,
+ *  a)` makes the output of the channels its `channel` picks, an empty input passing as it is. Made again only when the
+ *  input is: the instance as stamped last time skips the read (read() and stream() both prepare), the same samples
+ *  (their fingerprint) skip the run. playback(name, key) plays it. */
+export const prepared = (key, own, make) => async (a, index) => {
+  let o = a.edits[index][1], chs = o.channel == null ? null : [o.channel].flat(), mine = `${await own(o)}:${chs ?? ''}`
+  await arrived(a)
+  let stamp = `${stampOf(a)}:${mine}`, done = o[key]
+  if (done?.stamp === stamp) return
+  let input = inputOf(a, index), pcm = await input.read()
+  if (chs) pcm = chs.map(c => pcm[c])
+  let fp = `${mine}:${fingerprint(pcm)}`
+  if (done?.key === fp) { done.stamp = stamp; return }
+  o[key] = { key: fp, stamp, pcm: pcm[0]?.length ? await make(pcm, input.sampleRate, o, a) : pcm }
 }
 
 /** A splice's crossfade, in samples: its `crossfade` (s) at the op's rate (remove, insert, move) */

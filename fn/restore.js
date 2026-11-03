@@ -18,8 +18,8 @@
  * /models/restore/restore.fp16.onnx on the page's own server, or `weights`.
  */
 
-import audio, { arrived, memo, fingerprint } from '../core.js'
-import { stampOf, inputOf, playback } from '../plan.js'
+import audio, { memo, fingerprint } from '../core.js'
+import { prepared, playback } from '../plan.js'
 
 const MADE = Symbol('restore.made')
 // in a page or a worker: the copy its own server holds, until the weights are hosted
@@ -42,26 +42,14 @@ function id(o) {
   return `${s}:${o.weights ?? ''}:${o.device ?? ''}`
 }
 
-/** The model's take of the edit's input (the audio as the edits before it leave it), ahead of rendering. */
-async function prepare(a, index) {
-  let o = a.edits[index][1], own = id(o)
-  await arrived(a)
-  let chs = o.channel == null ? null : [o.channel].flat(), key0 = `${own}:${chs ?? ''}`
-  // same instance state as last time: the input is too (read() and stream() both prepare)
-  let stamp = `${stampOf(a)}:${key0}`, done = o[MADE]
-  if (done?.stamp === stamp) return
-  let input = inputOf(a, index)
-  let pcm = await input.read(), fs = input.sampleRate
-  if (chs) pcm = chs.map(c => pcm[c])
-  let key = `${key0}:${fingerprint(pcm)}`
-  if (done?.key === key) { done.stamp = stamp; return }
-  let s = o.strength ?? 1, made = pcm[0]?.length ? await restored(pcm, fs, o) : pcm
-  if (s < 1) made = made.map((y, c) => {
+/** The model's take of the edit's input, the input mixed back by 1 − strength */
+async function make(pcm, fs, o) {
+  let s = o.strength ?? 1, made = await restored(pcm, fs, o)
+  return s < 1 ? made.map((y, c) => {
     let x = pcm[c], z = new Float32Array(y.length)
     for (let i = 0; i < z.length; i++) z[i] = s * y[i] + (1 - s) * x[i]
     return z
-  })
-  o[MADE] = { key, stamp, pcm: made }
+  }) : made
 }
 
-audio.op('restore', { params: ['strength'], prepare, process: playback('restore', MADE) })
+audio.op('restore', { params: ['strength'], prepare: prepared(MADE, id, make), process: playback('restore', MADE) })

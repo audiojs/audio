@@ -30,8 +30,8 @@
  * back untouched (its `strength`, 0–4, and `music` options; `reduction` is the model's).
  */
 
-import audio, { arrived, memo, fingerprint } from '../core.js'
-import { stampOf, inputOf, playback } from '../plan.js'
+import audio, { memo, fingerprint } from '../core.js'
+import { prepared, playback } from '../plan.js'
 
 const REDUCTION = 60, METHODS = ['roformer', 'wpe'], MUSIC = ['pass', 'enhance']
 const MADE = Symbol('dereverb.made')
@@ -65,22 +65,6 @@ function id(o) {
   return method === 'wpe' ? `wpe:${o.strength ?? 1}:${music}` : `roformer:${r}:${music}:${o.weights ?? ''}`
 }
 
-/** Dereverb the edit's input (the audio as the edits before it leave it), ahead of rendering. */
-async function prepare(a, index) {
-  let o = a.edits[index][1], own = id(o)
-  await arrived(a)
-  let chs = o.channel == null ? null : [o.channel].flat(), key0 = `${own}:${chs ?? ''}`
-  // same instance state as last time: the input is too (read() and stream() both prepare)
-  let stamp = `${stampOf(a)}:${key0}`, done = o[MADE]
-  if (done?.stamp === stamp) return
-  let input = inputOf(a, index)
-  let pcm = await input.read(), fs = input.sampleRate
-  if (chs) pcm = chs.map(c => pcm[c])
-  let key = `${key0}:${fingerprint(pcm)}`
-  if (done?.key === key) { done.stamp = stamp; return }
-  o[MADE] = { key, stamp, pcm: pcm[0]?.length ? await dereverbed(pcm, fs, o) : pcm }
-}
-
 async function dereverbed(pcm, fs, o) {
   if (o.method === 'wpe') {
     let { default: wpe } = await import('@audio/denoise/dereverb').catch(e => { throw new Error(`dereverb: install @audio/denoise (${e.message})`) })
@@ -104,4 +88,5 @@ async function dereverbed(pcm, fs, o) {
   }))
 }
 
-audio.op('dereverb', { params: ['reduction'], prepare, process: playback('dereverb', MADE) })
+// the edit's input dereverbed ahead of rendering
+audio.op('dereverb', { params: ['reduction'], prepare: prepared(MADE, id, dereverbed), process: playback('dereverb', MADE) })
