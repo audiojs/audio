@@ -6033,7 +6033,8 @@ test('editor: the mark copies the pointer over the wordmark, and catches in the 
   const width = await bar.locator('canvas').evaluate(c => c.clientWidth)
   const phase = () => page.evaluate(async () => (await import('/logo/mark.js')).mark(document.querySelector('.bar .wordmark')).phase)
   await settled()
-  const rest = await poll(phase, rest => assert.ok(Math.abs(rest - Math.round(rest)) < .001, `at rest it is the logo, ${rest}`))
+  // at rest: the logo pose, still ten frames on (the live mark sized, its first pose eased into)
+  const [, rest] = await poll(async () => [await phase(), await frames(10).then(phase)], ([was, rest]) => assert.ok(Math.abs(rest - was) < 1e-6 && Math.abs(rest - Math.round(rest)) < .001, `at rest it is the logo, ${was} then ${rest}`))
   await page.mouse.move(box.x + box.width - 10, y)
   // a while over it, still: nothing moves it
   await page.waitForTimeout(700)
@@ -8265,8 +8266,9 @@ test('editor: at the end, the square before the caret opens silence past the pic
   await page.mouse.move(...at)
   await page.mouse.down()
   await page.mouse.move(box.x + box.width - 20, at[1], { steps: 5 })
+  // held out there 600 ms: the view runs on a frame at a time (view.js overrun), the silence with it
+  await page.waitForTimeout(600)
   // said by the pointer out there, as it grows
-  await page.locator('.hint', { hasText: /^silence \d+:\d\d\.\d+$/ }).waitFor()
   assert.match(await page.locator('.hint').innerText(), /^silence \d+:\d\d\.\d+$/)
   await page.mouse.up()
   await page.waitForFunction(() => /\.insert\([\d.]+, \{ at: 8, xfade: 0\.01 \}\)$/.test(scriptText()))
@@ -9582,6 +9584,8 @@ test('editor: markers on a file opened come back where they were after a reload'
   await page.locator('.file-input').setInputFiles({ name: 'marked.wav', mimeType: 'audio/wav', buffer: file })
   await lengthIs('0:02.000')
   await write(`audio('marked.wav').mark(0.5, 'a').mark({ at: 1.2, d: 0.4 }, 'r')`)
+  // kept: the file in the browser's files, the script with the page
+  await poll(keptFiles, k => assert.ok(k.includes('marked.wav'), `kept: ${k}`))
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl')).docs.some(d => d.code.includes(".mark({ at: 1.2, d: 0.4 }, 'r')")))
   await page.reload()
   await wholeLevels().waitFor()
