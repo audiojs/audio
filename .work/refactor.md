@@ -140,7 +140,9 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
         `expected` list in `test/cli.js` 'op help'): read from the registry, a test holding `audio.d.ts` to each op's `params`.
         Stage 0 met this drift twice: `restore()` landed with no CLI help, README row or `expected` entry, and three new ops pushed
         the skill (the MCP tool's description) past its 2,048 characters, so they were taken out of it
-  - [ ] the block-stat pass twice (`stats.js:26` copied to `meter.js:11`); peak and dB from block stats in five places
+  - [x] (this run) the block-stat pass twice (`stats.js:26` copied to `meter.js:11`): `blockGroups()` in stats.js, the meter's
+        deltas now carrying every field decode's stats do
+  - [ ] peak and dB from block stats in five places
   - [ ] structural ops known by name in `plan.js` `adjustLimit` (633-684): a `limit` hook on each op; splices on `spliceSegs`
   - [ ] DSP primitives (I0, sinc, Kaiser, Hann, pow2, downmix, FNV) copied across `fn/*`: `fn/dsp.js`, importing nothing
   - [x] (739b1ce) shared helpers living in feature plugins: `fingerprint` to core, `playback` and `xfadeLen` to plan, the silence
@@ -203,6 +205,7 @@ Work sessions have asked for, held until the stage that frees its files lands (t
         selection (`focused()`); the playhead bright while it plays
   - [ ] the spectrogram's top on `auto` fitted to the sound's content (its highest band above a floor, rounded up, never past
         Nyquist), a number for a fixed top, settable in the ui config
-  - [ ] (the audiojs.github.io session, at the user's word 11-03) a third value of the Scroll setting, `hover`: the bar painted
+  - [x] (built by the audiojs.github.io session 11-03, its 2 tests passing; uncommitted till the user says) a third value of
+        the Scroll setting, `hover`: the bar painted
         only while the pointer is over the picture, it is dragged, or the view moves, fading after; the ui config key `scroll`
         (`bar` the default, `hover`, `overview`) for an embed's start
