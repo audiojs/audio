@@ -2,9 +2,10 @@
 # Audio.app, linked to this repo: it runs desktop/server.js and serves the editor from here, so a change in the repo is in
 # the app at its next reload (⌥⌘R; the server's own code at the app's next start).
 #   desktop/build.sh            → desktop/build/Audio.app
-#   desktop/build.sh install    → and into /Applications
+#   desktop/build.sh install    → and /Applications/Audio.app a link to it (once: the app builds itself again after)
+#   desktop/build.sh run        → and the app quit and opened again, as built now (npm run app)
 # Only what changed is made again: the same sources sign the same, so the microphone permission, given to that
-# signature, holds from one build to the next (the app is signed ad hoc: no developer identity here).
+# signature, holds from one build to the next.
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
@@ -32,14 +33,29 @@ if newer "$app/Contents/Resources/Assets.car" "$here/shell/icon.js" || newer "$a
   rm -rf "$icon" "$here/build/icon.plist"
 fi
 
-codesign --force --sign - "$app"
+# signed with a developer identity where there is one (Xcode › Settings › Accounts: an Apple Development certificate),
+# so the microphone permission, given to the identity, holds across every build; else ad hoc, given to this build's hash
+identity=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p; s/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -1)
+codesign --force --sign "${identity:--}" "$app"
 echo "$app"
 
-if [ "$1" = install ]; then
-  osascript -e 'tell application id "dev.audiojs.audio" to quit' 2>/dev/null || true
-  rm -rf /Applications/Audio.app
-  cp -R "$app" /Applications/
-  # Launch Services told of its document types: Finder › Open With lists it
-  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Audio.app
+# install, and run: the app quit first, as it asks (a take going asks); still running, nothing is replaced under it
+if [ "$1" = install ] || [ "$1" = run ]; then
+  # (asked only of one running: told to quit, one that is not would be opened first)
+  osascript -e 'if application id "dev.audiojs.audio" is running then tell application id "dev.audiojs.audio" to quit' 2>/dev/null || true
+  for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -f 'Audio.app/Contents/MacOS/Audio$' >/dev/null || break; sleep 1; done
+  if pgrep -f 'Audio.app/Contents/MacOS/Audio$' >/dev/null; then echo "Audio is still running: quit it, then try again" >&2; exit 1; fi
+  # /Applications/Audio.app a link to this build, not a copy: each build is the app at its next start, and the app builds
+  # itself again where its shell changed (shell/main.swift), so `open -a Audio` is always this repo's app as it is
+  if [ "$(readlink /Applications/Audio.app)" != "$app" ]; then
+    rm -rf /Applications/Audio.app
+    ln -s "$app" /Applications/Audio.app
+    # Launch Services told of its document types: Finder › Open With lists it
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
+    # the Dock draws the icon it has cached till it starts again
+    killall Dock 2>/dev/null || true
+  fi
   echo /Applications/Audio.app
 fi
+# run: and opened, as it is now (npm run app)
+if [ "$1" = run ]; then open "$app"; fi

@@ -61,6 +61,7 @@
   "scripts": {
     "build": "node .esbuild.js",
     "serve": "node .site-build.js && node .site-serve.js",
+    "app": "desktop/build.sh run",
     "test": "node test/run.js",
     "test:cli": "TST_PARALLEL=3 node test/cli.js",
     "test:fixes": "node test/fix-deps.js && node test/fix-plan.js && node test/fix-core.js && node test/fix-meta.js && node test/fix-worker.js",

@@ -42,9 +42,6 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelega
     config.websiteDataStore = .default()
     config.userContentController.add(self, name: "app")
     config.mediaTypesRequiringUserActionForPlayback = []
-    // the editor joined to the app (desktop/app.js): its menus to the menu bar
-    let join = "if (location.pathname === '/playground.html') { const add = () => document.documentElement.append(Object.assign(document.createElement('script'), { type: 'module', src: '/desktop/app.js' })); document.documentElement ? add() : document.addEventListener('readystatechange', add, { once: true }) }"
-    config.userContentController.addUserScript(WKUserScript(source: join, injectionTime: .atDocumentStart, forMainFrameOnly: true))
     start()
   }
 
@@ -110,10 +107,40 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelega
     if ready { return }
     ready = true
     log("server ready on \(base)")
-    if editor == nil { openEditor(nil) } else { (editor?.contentView as? WKWebView)?.reload() }
+    if editor == nil { openEditor(nil); outdated() } else { (editor?.contentView as? WKWebView)?.reload() }
     for path in pending { openEditor(path) }
     pending = []
   }
+
+  // The app built before its shell last changed (this file): it builds itself again (desktop/build.sh, in place: the
+  // installed app is a link to that build) and asks to start anew, so `open -a Audio` is always this repo's app as it
+  // is. The page is the repo's as it is anyway (a reload); only this file needs a build. A build that fails says where
+  func outdated() {
+    let date = { (path: String) in (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date }
+    guard let built = Bundle.main.executablePath.flatMap(date), let source = date(root + "/desktop/shell/main.swift"), source > built, let w = editor else { return }
+    log("built before desktop/shell/main.swift last changed: building again")
+    let file = logs.appendingPathComponent("build.log")
+    FileManager.default.createFile(atPath: file.path, contents: nil)
+    let p = Process(), out = try? FileHandle(forWritingTo: file)
+    // in the login shell, whose PATH has node and the Xcode tools
+    p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    p.arguments = ["-lc", "exec \"$0\"", root + "/desktop/build.sh"]
+    p.standardOutput = out
+    p.standardError = out
+    p.terminationHandler = { proc in DispatchQueue.main.async { self.rebuilt(proc.terminationStatus == 0, w) } }
+    do { try p.run() } catch { rebuilt(false, w) }
+  }
+  func rebuilt(_ ok: Bool, _ w: NSWindow) {
+    log(ok ? "built again" : "could not build again: ~/Library/Logs/Audio/build.log")
+    let alert = NSAlert()
+    alert.messageText = ok ? "Audio was built again from its source" : "Audio could not build itself again"
+    alert.informativeText = ok ? "Restart it to run the new build." : "See ~/Library/Logs/Audio/build.log, or run desktop/build.sh install in \(root)."
+    if ok { alert.addButton(withTitle: "Restart"); alert.addButton(withTitle: "Later") }
+    alert.beginSheetModal(for: w) { if ok && $0 == .alertFirstButtonReturn { self.relaunch() } }
+  }
+  // quit as ever (a take going asks), the build in the repo opened once this one is gone (applicationShouldTerminate)
+  var restarting = false
+  func relaunch() { restarting = true; NSApp.terminate(nil) }
 
   func fatal(_ title: String, _ text: String) {
     let alert = NSAlert()
@@ -144,14 +171,16 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelega
     return w
   }
 
-  // the editor; a file of this machine opened in it, in a tab of its own (desktop/open.html)
+  // the editor, the site's own page asked for as the app's (?desktop: the page lays itself out so and joins the app,
+  // desktop/app.js; where the editor is, the site's root knows); a file of this machine opened in it, in a tab of its
+  // own (desktop/open.html)
   func openEditor(_ path: String?) {
     guard ready else { if let path { pending.append(path) }; return }
     let url = path.map { p -> URL in
       var c = URLComponents(url: base.appendingPathComponent("desktop/open.html"), resolvingAgainstBaseURL: false)!
       c.queryItems = [URLQueryItem(name: "path", value: p)]
       return c.url!
-    } ?? base.appendingPathComponent("playground.html")
+    } ?? URL(string: "/?desktop", relativeTo: base)!.absoluteURL
     if let w = editor, let view = w.contentView as? WKWebView {
       if path != nil { view.load(URLRequest(url: url)) }
       w.makeKeyAndOrderFront(nil)
@@ -164,7 +193,7 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelega
       bar.displayMode = .iconOnly
       bar.allowsUserCustomization = false
       w.toolbar = bar
-      w.toolbarStyle = .unified
+      w.toolbarStyle = .unifiedCompact
       // the title bar the page's own colour (app.js tells it): one ground from the top of the window down
       w.titlebarAppearsTransparent = true
       w.titlebarSeparatorStyle = .none
@@ -205,9 +234,15 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelega
       alert.informativeText = "Quitting stops this recording."
       alert.addButton(withTitle: "Quit")
       alert.addButton(withTitle: "Cancel")
-      if alert.runModal() != .alertFirstButtonReturn { return .terminateCancel }
+      if alert.runModal() != .alertFirstButtonReturn { restarting = false; return .terminateCancel }
     }
     quitting = true
+    if restarting {
+      let p = Process()
+      p.executableURL = URL(fileURLWithPath: "/bin/sh")
+      p.arguments = ["-c", "while kill -0 \(getpid()) 2>/dev/null; do sleep 0.2; done; exec open \"$0\"", root + "/desktop/build/Audio.app"]
+      try? p.run()
+    }
     if let p = server, p.isRunning {
       p.terminate()
       let until = Date().addingTimeInterval(10)
@@ -233,9 +268,15 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelega
       editor?.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
       editor?.backgroundColor = NSColor(srgbRed: rgb[0] / 255, green: rgb[1] / 255, blue: rgb[2] / 255, alpha: 1)
     }
-    if let panels = body["toolbar"] as? [[String: Any]], let bar = editor?.toolbar {
-      let on = panels.first { $0["selected"] as? Bool == true }?["label"] as? String
-      bar.selectedItemIdentifier = on.map { NSToolbarItem.Identifier("panel." + $0) }
+    if let list = body["toolbar"] as? [[String: Any]], let bar = editor?.toolbar {
+      let now = list.map { Panel(label: $0["label"] as? String ?? "", icon: $0["icon"] as? String ?? "") }
+      if now != panels {
+        panels = now
+        while bar.items.count > 1 { bar.removeItem(at: bar.items.count - 1) }
+        for (k, id) in panelIds.enumerated() { bar.insertItem(withItemIdentifier: id, at: k + 1) }
+      }
+      let on = list.first { $0["selected"] as? Bool == true }?["label"] as? String
+      for item in bar.items { if let b = item.view as? NSButton { b.contentTintColor = b.identifier?.rawValue == on ? .labelColor : .secondaryLabelColor } }
     }
     if let title = body["title"] as? String, message.webView?.window === editor { editor?.title = title }
     if let menus = body["menus"] as? [[String: Any]] { pageMenus(menus) }
@@ -323,33 +364,52 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelega
   func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { log("failed \(webView.url?.absoluteString ?? ""): \(error.localizedDescription)") }
   func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { log("page process ended: \(webView.url?.absoluteString ?? ""), reloading"); webView.reload() }
 
-  // ---- the editor's toolbar: its panels, as the page's buttons at its top right, a symbol each ----
+  // ---- the editor's toolbar: its panels, as the page's buttons at its top right, each with the page's icon ----
 
-  let panelSymbols: [(String, String)] = [
-    ("Recipes", "book"), ("Agent", "sparkles"), ("Edits", "square.3.layers.3d"),
-    ("Code", "chevron.left.forwardslash.chevron.right"), ("Export", "square.and.arrow.down"), ("Settings", "slider.horizontal.3")
-  ]
-  var panelIds: [NSToolbarItem.Identifier] { panelSymbols.map { NSToolbarItem.Identifier("panel." + $0.0) } }
+  // the panels as the page has them (desktop/app.js), its button's icon each (an SVG of its own): none till it tells
+  struct Panel: Equatable { let label: String, icon: String }
+  var panels: [Panel] = []
+  var panelIds: [NSToolbarItem.Identifier] { panels.map { NSToolbarItem.Identifier("panel." + $0.label) } }
+
+  // An icon of the page's (an SVG, playground/icons.js glyph) at `side` points, a template, so it takes the colour of
+  // the text it stands by, as the page's take theirs; each drawn once
+  var glyphs: [String: NSImage] = [:]
+  func glyph(_ svg: String, _ side: CGFloat = 16) -> NSImage? {
+    if let image = glyphs[svg] { return image }
+    guard !svg.isEmpty, let image = NSImage(data: Data(svg.utf8)) else { return nil }
+    image.size = NSSize(width: side, height: side)
+    image.isTemplate = true
+    glyphs[svg] = image
+    return image
+  }
 
   func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [.flexibleSpace] + panelIds }
   func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [.flexibleSpace] + panelIds }
-  func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { panelIds }
 
   func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-    guard let (label, symbol) = panelSymbols.first(where: { "panel." + $0.0 == id.rawValue }) else { return nil }
+    guard let panel = panels.first(where: { "panel." + $0.label == id.rawValue }) else { return nil }
+    // a small glyph, as a code editor's title bar has them: borderless, a ground only under the pointer, the open
+    // panel's in the text colour, the others dimmed; its name where its icon won't draw
+    let label = panel.label, icon = glyph(panel.icon)
+    let b = icon.map { NSButton(image: $0, target: self, action: #selector(panelButton(_:))) } ?? NSButton(title: label, target: self, action: #selector(panelButton(_:)))
+    b.setAccessibilityLabel(label)
+    b.isBordered = false
+    b.bezelStyle = .accessoryBarAction
+    b.showsBorderOnlyWhileMouseInside = true
+    b.contentTintColor = .secondaryLabelColor
+    b.identifier = NSUserInterfaceItemIdentifier(label)
+    b.toolTip = label
+    if icon != nil { b.widthAnchor.constraint(equalToConstant: 26).isActive = true }
+    b.heightAnchor.constraint(equalToConstant: 22).isActive = true
     let item = NSToolbarItem(itemIdentifier: id)
     item.label = label
-    item.toolTip = label
-    item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-    item.isBordered = true
-    item.target = self
-    item.action = #selector(panelItem(_:))
+    item.view = b
     return item
   }
 
   // a panel's button: the page's own pressed (it shows the panel, or hides the one shown)
-  @objc func panelItem(_ sender: NSToolbarItem) {
-    let label = sender.itemIdentifier.rawValue.replacingOccurrences(of: "panel.", with: "")
+  @objc func panelButton(_ sender: NSButton) {
+    guard let label = sender.identifier?.rawValue else { return }
     (editor?.contentView as? WKWebView)?.evaluateJavaScript("audioHost.panel(\(String(reflecting: label)))")
   }
 
@@ -452,6 +512,7 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelega
       i.representedObject = id
       i.state = d["checked"] as? Bool == true ? .on : .off
       i.isEnabled = d["disabled"] as? Bool != true
+      i.image = glyph(d["icon"] as? String ?? "")
       if let tip = d["tip"] as? String, !tip.isEmpty { i.toolTip = tip }
       if #available(macOS 14.4, *), let hint = d["hint"] as? String, !hint.isEmpty { i.subtitle = hint }
       if let sub = d["items"] as? [[String: Any]] {

@@ -48,11 +48,15 @@ async function file(path, req, res) {
 }
 
 // the repo's own files, as `npm run serve` serves them: never cached, so a reload runs them as they are
-async function serve(pathname, res) {
+async function serve(pathname, search, res) {
   let path = normalize(join(root, decodeURIComponent(pathname)))
   // nothing hidden (.git, .work, a .env): a dot-name anywhere under the root
   if (!path.startsWith(root) || /(^|[\\/])\.(?!well-known)/.test(path.slice(root.length))) return res.writeHead(403).end()
-  if ((await stat(path).catch(() => null))?.isDirectory()) path = join(path, 'index.html')
+  // a folder is its index.html, at its path with a slash, so the page's own links resolve inside it
+  if ((await stat(path).catch(() => null))?.isDirectory()) {
+    if (!pathname.endsWith('/')) return res.writeHead(301, { location: pathname + '/' + search }).end()
+    path = join(path, 'index.html')
+  }
   const data = await readFile(path).catch(() => null)
   if (!data) return res.writeHead(404, { 'content-type': 'text/plain' }).end(`Not found: ${pathname}`)
   res.writeHead(200, { 'content-type': TYPES[extname(path)] || 'application/octet-stream', 'cache-control': 'no-store', ...ISOLATED }).end(data)
@@ -60,7 +64,7 @@ async function serve(pathname, res) {
 
 const server = createServer(async (req, res) => {
   if (!hosts.has(req.headers.host)) return res.writeHead(421).end()
-  const { pathname } = new URL(req.url, origin)
+  const { pathname, search } = new URL(req.url, origin)
   const site = req.headers['sec-fetch-site']
   const ours = !site || site === 'same-origin' || site === 'none'
   try {
@@ -71,8 +75,8 @@ const server = createServer(async (req, res) => {
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') return res.writeHead(405).end()
     // This server supplies the isolation headers; the service worker only claims the page.
-    if (pathname === '/sw.js') return res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }).end("self.addEventListener('install', () => self.skipWaiting())\nself.addEventListener('activate', e => e.waitUntil(self.clients.claim()))\n")
-    await serve(pathname === '/' ? '/playground.html' : pathname, res)
+    if (pathname === '/playground/sw.js') return res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }).end("self.addEventListener('install', () => self.skipWaiting())\nself.addEventListener('activate', e => e.waitUntil(self.clients.claim()))\n")
+    await serve(pathname, search, res)
   } catch (e) { reply(res, e.status ?? 500, { error: e.message, code: e.code }) }
 })
 

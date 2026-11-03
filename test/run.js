@@ -19,6 +19,7 @@ const SUITES = [
   'vocos',          // a voice made again by Vocos (optional @audio/neural-vocode), the input kept above the crossover
   'restore',        // a voice back to a studio take (optional @audio/neural-restore), the input mixed back by 1 − strength
   'pedalboard',     // Pedalboard's built-ins we lacked: convolution, MP3 VBR, GSM
+  'desktop',        // the Mac app's server: the root forwards to the editor, a folder at its address with a slash
   'plugin-ops',
   'plugin-notes', 'plugin-tune', 'plugin-stats', 'plugin-stretch', 'plugin-color', 'plugin-effects', 'plugin-reverb',
   'plugin-shift', 'plugin-dynamics', 'plugin-synth', 'plugin-filter', 'plugin-fate', 'plugin-spatial', 'plugin-eq',
