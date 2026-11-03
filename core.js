@@ -221,6 +221,8 @@ audio.from = function(source, opts = {}) {
     let b = create([...source.pages], opts.sampleRate ?? source.sampleRate,
       opts.channels ?? source._.ch, source._.len,
       { source: source.source, storage: source.storage, cache: source.cache, budget: opts.budget ?? source.budget, bitDepth: opts.bitDepth ?? source._.bits }, source.srcStats)
+    // the sound whose samples it plays, at their rate and channels (checkpoint.js names a sound by it)
+    if (b._.sr === source._.sr && b._.ch === source._.ch) b._.root = source._.root ?? source
     // a source still arriving: the copy follows it as it lands; a rate or channel count asked for stays the copy's
     if (source._.waiters && !source.decoded) follow(b, source, { sr: !opts.sampleRate || opts.sampleRate === source._.sr, ch: !opts.channels || opts.channels === source._.ch })
     // one arrived: its header, so the copy reads the file's own tags and markers as the source does

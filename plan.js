@@ -1000,6 +1000,14 @@ export const playback = (name, key) => (input, output, ctx) => {
 /** A splice's crossfade, in samples: its `crossfade` (s) at the op's rate (remove, insert, move) */
 export const xfadeLen = (ctx) => Math.max(0, Math.round((parseTime(ctx.crossfade) || 0) * ctx.sampleRate))
 
+/** What a whole-render op (edit `index`) made when `a` last rendered it (compilePlan's cache, `_.wrc`): the output after
+ *  that edit, a sound of its own; null where `a` hasn't since its last edit. Checkpoints take it from there, never
+ *  running the op again */
+export function wholeOf(a, index) {
+  let c = a._.wrc
+  return c?.v === a.version ? [...c.m].findLast(([key]) => key.startsWith(`${index}:`))?.[1] ?? null : null
+}
+
 /** The sound an edit at `index` reads: the instance with the edits before it, a sound of its own over the same source */
 export function inputOf(a, index) {
   let input = audio.from(a, { sampleRate: a._.sr })

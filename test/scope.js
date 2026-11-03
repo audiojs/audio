@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process'
 
 // the library as the pages load it: its modules, the bundle they become, what that bundle pulls in
-const LIB = ['audio.js', 'core.js', 'plan.js', 'cache.js', 'store.js', 'stats.js', 'batch.js', 'worker.js', 'deck.js', 'fn/', '.esbuild.js', 'package-lock.json']
+const LIB = ['audio.js', 'core.js', 'plan.js', 'cache.js', 'store.js', 'checkpoint.js', 'stats.js', 'batch.js', 'worker.js', 'deck.js', 'fn/', '.esbuild.js', 'package-lock.json']
 // the website as served: its pages, their scripts and the bundles .site-build.js makes
 const SITE = ['index.html', 'logo/', 'assets/', '.site-build.js', 'package-lock.json']
 

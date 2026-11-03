@@ -9,7 +9,8 @@
 
 export { default } from './core.js'
 export { parseTime, bitDepth } from './core.js'
-export { render } from './plan.js'
+export { render, wholeOf } from './plan.js'
+export { keysOf, recall, keep, onto, prefix, rootOf, idOf } from './checkpoint.js'
 
 import audio, { LOAD, loadOps } from './core.js'
 import { opMethod } from './plan.js'

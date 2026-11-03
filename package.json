@@ -14,6 +14,7 @@
     "./stats": "./stats.js",
     "./cache": "./cache.js",
     "./store": "./store.js",
+    "./checkpoint": "./checkpoint.js",
     "./batch": "./batch.js",
     "./stream": "./batch.js",
     "./worker": {
@@ -42,6 +43,7 @@
     "stats.js",
     "cache.js",
     "store.js",
+    "checkpoint.js",
     "worker.js",
     "worker.d.ts",
     "parallel.js",
