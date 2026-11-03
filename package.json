@@ -67,7 +67,6 @@
     "test:fixes": "node test/fix-deps.js && node test/fix-plan.js && node test/fix-core.js && node test/fix-meta.js && node test/fix-worker.js",
     "test:batch": "node --test test/batch.test.js",
     "test:browser": "node test/browser.js",
-    "test:site": "node --test test/site.test.js",
     "test:playground": "node --test test/playground.test.js",
     "test:memory": "node --test test/memory*.test.js",
     "test:mcp": "node test/mcp.js",
