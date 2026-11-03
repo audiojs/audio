@@ -14,7 +14,7 @@ import menubar from './menu.js'
 import { levels, spectra, ballistics, cycle, trace } from './meters.js'
 import time, { UNITS } from './time.js'
 import opIcons from './icons.js'
-import { unkeep, kept, tape, tapes, own, owner, claim } from './keep.js'
+import { unkeep, kept, tape, tapes } from './keep.js'
 import hint from './hint.js'
 import { methods as scrubbers } from './scrub-methods.js'
 import agent from './agent.js'
@@ -22,9 +22,10 @@ import md from './markdown.js'
 import doing, { measures, noted } from './doing.js'
 import { THEMES, load, parse, skin, fonts, wear, webview, webviewFonts } from './theme.js'
 import { temperature, rgb, MAPS } from './tint.js'
-import { root, params, EMBED, DESKTOP, UI, SHOWN, quickOf, QUICK, GIVEN, APART, keep, generators, formats, ENCODING, writtenDepth, DEPTH_USE, mime, cutFormats, frameRates, KEEPS, icons, overlays, cueTimes, rulers, scrolls, grids, LOOK, looks, specMethods, mapNames, WAVE, waveLooks, levelList, scaleNames, curves, glyphs, gripModes, SETTINGS_ICON, AGENT_ICON, RECIPES_ICON, displays, SPEEDS, SHUTTLE, times, tenths, scrubs, rates, layouts, specs, KEY, stored, oneOf, docsOf, sideOf } from './editor/config.js'
+import { root, params, EMBED, DESKTOP, UI, SHOWN, quickOf, QUICK, GIVEN, APART, keep, generators, formats, ENCODING, writtenDepth, DEPTH_USE, mime, cutFormats, frameRates, KEEPS, icons, overlays, cueTimes, rulers, scrolls, grids, LOOK, looks, specMethods, mapNames, WAVE, waveLooks, levelList, scaleNames, curves, glyphs, gripModes, SETTINGS_ICON, AGENT_ICON, RECIPES_ICON, displays, SPEEDS, SHUTTLE, times, tenths, scrubs, rates, layouts, specs, stored, oneOf, docsOf, sideOf } from './editor/config.js'
 import { ed, rk, pl, output, incoming, timer, hush, steps, depthWas, rechoose, viewing, shown, carded, notesFor, queued, assign } from './editor/context.js'
 import { dbfs, bytes, ago, mac, keys, clock, stamp, ruled, label, quote, several, hertz, chordName, brief, note } from './editor/format.js'
+import { writing, owning, saved, store, later, wire as wirePersist } from './editor/persist.js'
 
 // The editor: its output, and at its right a panel that opens and closes, as Luminar's: the tools, every method by kind,
 // one click adding it; the edits, the chain that makes the output as a stack of steps; the same chain as code; and the
@@ -62,21 +63,8 @@ function paint({ map, gamma, depth, size, method }) {
   return { color: MAPS[map] ? Array.from({ length: n }, (_, k) => at(MAPS[map], u(k))) : null, gamma, depth, size, method }
 }
 
-// One editor writes at a time (keep.js own): opened in a second tab, it asks there to be used there, and once the first
-// has stored what it has, reads it again; the first, asked, keeps its take, stores, and says where it is now, a click
-// bringing it back. Nothing waits for it: the page comes up as it was stored, writing nothing until it is the one.
-const elsewhere = document.querySelector('dialog.elsewhere')
-// the files being written to the browser's storage (hold), which the page waits for before it steps aside
-const writing = new Set()
-elsewhere.addEventListener('cancel', event => event.preventDefault())
-// (a dialog's field or button is focused as it opens, not marked autofocus: a frame in another site's page is refused that, aloud)
-const away = run => { const go = elsewhere.querySelector('button'); go.onclick = run; if (!elsewhere.open) { elsewhere.showModal(); go.focus() } }
-const back = async () => { await claim(); location.reload() }
-const owning = APART ? Promise.resolve() : own({
-  ask: () => new Promise(away),
-  give: async () => { if (recorder) await stopRecording(); await Promise.all(writing); store() },
-  lost: () => { pl.close(); recorder?.cancel(); away(back) }
-}).then(fresh => { if (!fresh) return location.reload(), new Promise(() => {}); if (elsewhere.open) elsewhere.close(); store() })
+// One editor writes at a time (persist.js)
+wirePersist()
 // the methods last used, the newest first (used)
 let recent = Array.isArray(stored.recent) ? stored.recent.filter(n => typeof n === 'string').slice(0, 3) : []
 // The agent's conversations, the page's whichever tab shows (the chat, below): at most CHATS, the oldest first, the one
@@ -87,29 +75,6 @@ const talk = (() => {
   const chats = kept.filter(c => Array.isArray(c?.messages)).sort((a, b) => (a.at ?? 0) - (b.at ?? 0)).slice(-CHATS)
   return { chats, chatId: 'chats' in stored ? stored.chat ?? null : docsOf(stored.docs)[stored.doc ?? 0]?.chat ?? null }
 })()
-// A tab as it is kept: its script, where it was looked at and what was selected
-const saved = d => {
-  const shown = d.id === state.tab
-  return { code: shown ? ed.code : d.code, title: d.title ?? null, frame: d.frame ?? (shown ? v?.frame : null), view: d.view ?? (shown ? v?.state : null), track: shown ? state.track : d.track ?? null, muted: shown ? state.muted : d.muted ?? [], locked: shown ? state.locked : d.locked ?? [], heights: d.heights ?? {}, kinds: d.kinds ?? {} }
-}
-// the storage full, the tabs and the settings are kept without their conversations, and the page says so, once
-let full = false
-const store = () => {
-  // embedded, what the page keeps is its link to the whole editor, the script as it reads now
-  if (EMBED) return ed && link(ed.code).then(code => state.full = `${location.pathname}#code=${code}`)
-  if (GIVEN) return
-  if (!ed || !owner()) return
-  const all = { docs: docs.map(saved), doc: docs.findIndex(d => d.id === state.tab), closed: closed.map(({ doc, ...c }) => doc ? { ...saved(doc), at: c.at, shut: c.shut } : c), display: state.display, scale: state.scale, format: state.format, encoding: state.encoding, spec: state.spec, cuts: { format: state.cutFormat, fps: state.fps }, side: state.side, show: state.show, units: state.units, snap: state.snapping, curve: state.fadeCurve, levels: state.levels, ruler: state.ruler, scroll: state.scroll, grid: state.grid, step: state.levelStep, look: state.look, wave: state.wave, agent: { url: state.bridgeUrl, key: state.bridgeKey }, splice: state.splice, scrub: state.scrub, record: state.recordIn, reads: state.reads, hears: state.hears, grip: state.gripMode, panel: state.panel, folds: state.folds, recent, ...talks() }
-  try { localStorage.setItem(KEY, JSON.stringify(all)); full = false }
-  catch {
-    const { chats, chat, ...bare } = all
-    try { localStorage.setItem(KEY, JSON.stringify(bare)) } catch {}
-    if (!full) note('The browser’s storage for this page is full: the agent’s conversations are not kept.', 'error')
-    full = true
-  }
-}
-// stored a moment after the last of a run of changes (typing, selecting)
-const later = () => { clearTimeout(store.timer); store.timer = setTimeout(store, 500) }
 
 const eng = engine()
 assign({ eng })
@@ -4055,3 +4020,4 @@ evaluate()
 if (EMBED) store()
 else if (!GIVEN) recover()
 if (GIVEN && parent !== window) parent.postMessage({ ready: true }, location.origin)
+export { recent, recorder, docs, closed, stopRecording, talks, link }
