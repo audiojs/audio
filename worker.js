@@ -140,8 +140,8 @@ export async function close() {
 
 // ── Facade ───────────────────────────────────────────────────────────────
 
-// Core async surface bridged explicitly; everything else the proxy treats as a
-// chainable op — the worker registry is the source of truth, nothing duplicated here.
+// Core async surface bridged explicitly; any other name is an op of the worker's registry (chained) or a method that
+// answers (a handle): the registry is the source of truth, nothing duplicated here.
 const ASYNC = ['read', 'stat', 'encode', 'save', 'undo', 'push', 'detect', 'toJSON']
 const WRAPPED = ['clip', 'clone', 'split']  // return new instance(s) → sub-facades
 // events the facade raises itself; any other needs a worker-side subscription
@@ -415,10 +415,17 @@ function facade(chan, opened) {
         return t.decoded ? undefined : (res, rej) => t._ready.then(() => waitDecoded()).then(() => proxy).then(res, rej)
       if (prop === 'catch') return rej => proxy.then?.(null, rej) ?? Promise.resolve(proxy)
       if (typeof prop !== 'string' || prop.startsWith('_')) return t[prop]
-      // any other name: a chainable op — validated worker-side against the live registry
+      // an op of the worker's registry chains, the facade given back, its failure the next call's
+      let op = () => t._opNames?.includes(prop) ?? false, failed = e => { opErr = e; t._emit('error', e) }
+      if (op()) return (...args) => { t._call(prop, args).catch(failed); return proxy }
+      // any other method answers (check, hits, cuts…): a handle, its answer when awaited (undefined where the method
+      // answers with the instance, as mark() does) and the facade's names on it to chain on. Called before the worker
+      // has said which names are ops, the handle's answer is the facade once the name turns out to be one
       return (...args) => {
-        t._call(prop, args).catch(e => { opErr = e; t._emit('error', e) })
-        return proxy
+        let call = t._call(prop, args)
+        call.catch(e => op() && failed(e))
+        let then = (res, rej) => call.then(r => op() ? proxy : r).then(res, rej)
+        return new Proxy(proxy, { get: (p, k) => k === 'then' ? then : k === 'catch' ? rej => then(undefined, rej) : k === 'finally' ? f => then().finally(f) : p[k] })
       }
     },
   })
@@ -562,7 +569,8 @@ function host(nodePort) {
     const voices = new Map()      // id → the voice playing it into a page's deck
     const probes = new Map()      // `${id}:${probe}` → meter probe
     let nextStream = 1
-    const ops = () => Object.entries(audio.op()).filter(([, d]) => !d.hidden).map(([n]) => n)
+    // the ops the facade chains: the registered ones and the registry's, an op before its package loads
+    const ops = () => [...new Set([...Object.entries(audio.op()).filter(([, d]) => !d.hidden).map(([n]) => n), ...Object.keys(audio.plugins)])]
 
     // Methods whose fresh result buffers are safe to transfer (never views of live state)
     const TRANSFER = new Set(['read', 'encode'])

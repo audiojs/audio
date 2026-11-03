@@ -54,6 +54,29 @@ test('worker: stat + undo', async t => {
   t.is(w.edits.length, 0, 'undo synced')
 })
 
+// A method that answers (check, hits, key, cuts, notes…) answers across the boundary as it does here, its answer and not
+// the facade; asked before the worker has said which of its names are ops, too. An op still chains.
+test('worker: a method that answers gives its answer, the facade ready or not', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  let l = await audio('test/fixture.wav')
+  let same = (p, q) => JSON.stringify(p, (k, v) => ArrayBuffer.isView(v) ? [...v] : v) === JSON.stringify(q, (k, v) => ArrayBuffer.isView(v) ? [...v] : v)
+  let [wc, lc] = [await w.check('podcast'), await l.check('podcast')]
+  t.ok(wc !== w && same(wc, lc), 'check: its report')
+  t.ok(same(await w.hits(), await l.hits()), 'hits: its times')
+  t.ok(same(await w.key(), await l.key()), 'key: its key')
+  let early = audioWorker('test/fixture.wav')
+  t.ok(same(await early.check('podcast'), lc), 'asked before it is ready: the report')
+  early.gain(-6).fade(.1)
+  await early.flush()
+  t.is(early.edits.length, 2, 'ops still chain')
+  t.is(await w.mark(.5, 'a'), undefined, 'a method that answers with the instance: nothing to await')
+  w.mark(.6, 'b').gain(-3)
+  await w.flush()
+  t.is(w.edits.length, 1, 'and it chains on')
+  t.is((await l.compressor()).edits.length, 1, 'here, a registry op chains')
+  t.is(w.compressor(), w, 'and through the facade too, before its package loads')
+})
+
 test('worker: facades reference each other (mix by ref)', async t => {
   let a = await audioWorker('test/fixture.wav')
   let b = await audioWorker('test/fixture.wav')
