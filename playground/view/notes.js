@@ -1,6 +1,7 @@
 import { CURVES, CROSSFADES } from '../ops.js'
 import { lightness } from '../tint.js'
-import { drag, plot } from '../view.js'
+import { drag } from '../view.js'
+import { plot } from './geometry.js'
 import { EDGE, NOTES, midiOf, noteOf, VOICE, onaudition, color, c, rate, duration, units, pieces, start, end, envelope, shift, contour, landed, clips, data, tracks, focus, noted } from './model.js'
 import { lanesEnd } from './overlay.js'
 import { moved, rgba } from './render.js'

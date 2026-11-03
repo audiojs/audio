@@ -1,6 +1,7 @@
 import { CURVES } from '../ops.js'
 import { lightness } from '../tint.js'
-import { ownMarks, snappedTo, SIDES, unwritten, frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, drag, plot, merged, spare, lanes, extent, own, laneAt, rowBand, MAP, veils, placeFrozen, roomLane, touch, hot } from '../view.js'
+import { ownMarks, snappedTo, SIDES, unwritten, drag, touch, hot } from '../view.js'
+import { frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, plot, merged, spare, lanes, extent, own, laneAt, rowBand, MAP, veils, placeFrozen, roomLane } from './geometry.js'
 import { ONTO, INSET, FOOT, midiOf, noteOf, STRETCH, TICK, root, hint, timeRow, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, pitching, levelStep, picked, tracks, focus, allLanes, scroll, noted, held, assign } from './model.js'
 import { pitchRange, semis, pitchSays, intonationSays, median, pitched, clampY, paintGuide, BLACK, paintRoll, paintLine, bent, toneAt, paintContour } from './notes.js'
 import { decibels, drawn, W, H, dpr, half, invalidate, tape, rolled, onTape, running, wash, caretColour, rgba, shades } from './render.js'

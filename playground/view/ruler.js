@@ -1,5 +1,6 @@
 import measure, { coloured } from '../tint.js'
-import { drag, LINGER, plot, lanes, extent, own, tickTop, row, rowBand, MAP, ranges } from '../view.js'
+import { drag, ranges } from '../view.js'
+import { LINGER, plot, lanes, extent, own, tickTop, row, rowBand, MAP } from './geometry.js'
 import { TICK, timeRow, color, barStrip, runway, head, headLines, headTick, headTime, oc, c, rate, duration, hovered, start, end, selection, band, cursor, playhead, ruler, waveLook, data, tracks, focus, scroll, reached, moving, leavesOf, map, assign } from './model.js'
 import { labelled } from './notes.js'
 import { say, lanesEnd, seenTo, fitTo, away } from './overlay.js'
