@@ -52,9 +52,8 @@
  * and a second model run.
  */
 
-import audio, { arrived, memo } from '../core.js'
-import { stampOf, inputOf } from '../plan.js'
-import { fingerprint } from './vocals.js'
+import audio, { arrived, memo, fingerprint } from '../core.js'
+import { stampOf, inputOf, playback } from '../plan.js'
 
 const LIMIT = 18
 
@@ -91,18 +90,6 @@ export function removal(neural, pcm, sampleRate, { music = 'pass', weights, devi
     try { return await neural.default(pcm, { sampleRate, model, limit: 0, music }) }
     finally { model.free() }
   })
-}
-
-/** process() of an op whose whole output its preparation made, kept on the edit at `key`: its samples at the block's
- *  offset (deepfilter, derustle, auto). */
-export const playback = (name, key) => (input, output, ctx) => {
-  let done = ctx[key]
-  if (!done) throw new Error(`${name}: runs ahead of rendering, through read(), stream() or save()`)
-  let len = input[0].length, off = Math.round((ctx.blockOffset || 0) * ctx.sampleRate)
-  for (let c = 0; c < output.length; c++) {
-    let v = done.pcm[c], y = output[c]
-    for (let i = 0, j = off; i < len; i++, j++) y[i] = j >= 0 && j < v.length ? v[j] : 0
-  }
 }
 
 /**

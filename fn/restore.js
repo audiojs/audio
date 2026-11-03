@@ -18,10 +18,8 @@
  * /models/restore/restore.fp16.onnx on the page's own server, or `weights`.
  */
 
-import audio, { arrived, memo } from '../core.js'
-import { stampOf, inputOf } from '../plan.js'
-import { fingerprint } from './vocals.js'
-import { playback } from './deepfilter.js'
+import audio, { arrived, memo, fingerprint } from '../core.js'
+import { stampOf, inputOf, playback } from '../plan.js'
 
 const MADE = Symbol('restore.made')
 // in a page or a worker: the copy its own server holds, until the weights are hosted

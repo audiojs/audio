@@ -1,34 +1,5 @@
 import audio from '../core.js'
-
-export function autoThreshold(energies) {
-  let vals = energies.filter(e => e > 0)
-  if (!vals.length) return -40
-  vals.sort((a, b) => a - b)
-  let floor = vals[Math.floor(vals.length * 0.1)]
-  return Math.max(-80, Math.min(-20, 10 * Math.log10(floor) + 12))
-}
-
-/** Resolve dB threshold to linear. Found when db is null: 12 dB over the quietest tenth of the blocks (their floor),
- *  and 40 dB under their peak at most. Sound with no floor, a bell ringing on into the next strike, has a quietest tenth
- *  that is still sound: 12 dB over it read a tail at -22 dBFS as silence. */
-export function resolveThreshold(stats, ch, from, to, db) {
-  if (db == null) {
-    let energies = [], peak = 0
-    for (let c = 0; c < ch; c++) for (let i = from; i < to; i++) {
-      energies.push(stats.energy[c][i])
-      peak = Math.max(peak, -stats.min[c][i], stats.max[c][i])
-    }
-    db = Math.min(autoThreshold(energies), 20 * Math.log10(peak || 1e-9) - 40)
-  }
-  return 10 ** (db / 20)
-}
-
-/** Check if block i is loud (any channel exceeds thresh). */
-export let isLoud = (stats, i, ch, thresh) => {
-  for (let c = 0; c < ch; c++)
-    if (Math.max(Math.abs(stats.min[c][i]), Math.abs(stats.max[c][i])) > thresh) return true
-  return false
-}
+import { resolveThreshold, isLoud } from '../stats.js'
 
 const trim = (input, output, ctx) => {
   // Resolve handles trim via crop (structural). Process fallback: passthrough.

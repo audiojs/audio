@@ -4,8 +4,7 @@
  */
 
 import audio from '../core.js'
-import { queryRange } from '../stats.js'
-import { resolveThreshold, isLoud } from './trim.js'
+import { queryRange, resolveThreshold, isLoud } from '../stats.js'
 
 audio.fn.silence = async function(opts) {
   let { stats, ch, sr, from, to } = await queryRange(this, opts)

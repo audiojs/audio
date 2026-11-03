@@ -1,5 +1,5 @@
 import audio, { blockAt } from '../core.js'
-import { resolveThreshold, isLoud } from './trim.js'
+import { resolveThreshold, isLoud } from '../stats.js'
 
 const shrink = (input, output, ctx) => {
   // Resolve handles shrink via removes (structural). Process fallback: passthrough.

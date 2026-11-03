@@ -55,9 +55,8 @@
  * gained apart: linking the channels' gains measured 0.6 dB less SNR gain where their noises differ, 0.1 dB more where
  * they are the same.
  */
-import audio, { parseTime, named } from '../core.js'
+import audio, { parseTime, named, fingerprint } from '../core.js'
 import { stampOf, inputOf } from '../plan.js'
-import { fingerprint } from './vocals.js'
 
 const LEARNED = Symbol('denoise.learned'), REDUCTION = 12
 // the print's grid: 23.4375 Hz (24 kHz over 1024 bands), the bins of a 2048 frame at 48 kHz

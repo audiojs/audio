@@ -1,5 +1,4 @@
-import { seg, subSeg, sliceSegs, fadeSegs, planOffset, planLen } from '../plan.js'
-import { xfadeLen } from './remove.js'
+import { seg, subSeg, sliceSegs, fadeSegs, planOffset, planLen, xfadeLen } from '../plan.js'
 
 export function insertSegs(segs, at, len, ref, rate, x = 0) {
   if (x > 0 && len > 1) return insertXfade(segs, at, len, [seg(0, len, 0, rate, ref ?? null)], Math.min(x, Math.floor(len / 2)))

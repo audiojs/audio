@@ -1,5 +1,4 @@
-import { subSeg, sliceSegs, fadeSegs, planOffset, planLen } from '../plan.js'
-import { parseTime } from '../core.js'
+import { subSeg, sliceSegs, fadeSegs, planOffset, planLen, xfadeLen } from '../plan.js'
 
 /** Remove [off, off + dur). With a crossfade of `x` samples the splice is equal-power and
  *  centered: the left side runs on into the cut while it fades out, the right side starts
@@ -29,7 +28,6 @@ export function removeSegs(segs, off, dur, x = 0) {
 }
 
 /** Crossfade length in samples, from seconds or a duration string ('10ms'). */
-export const xfadeLen = (ctx) => Math.max(0, Math.round((parseTime(ctx.crossfade) || 0) * ctx.sampleRate))
 
 const removePlan = (segs, ctx) => {
   let { total } = ctx

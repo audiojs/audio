@@ -845,10 +845,16 @@ export async function loadOps(a) {
 }
 
 /** What an edit takes long to make of its input (a model's run over it, in its preparation), by `key`: what names the
- *  model and its input's samples (vocals.js fingerprint), never a setting applied after it. Read from `audio.memo`, the
+ *  model and its input's samples (fingerprint), never a setting applied after it. Read from `audio.memo`, the
  *  store a host gives ({ get(key) → channels or null, set(key, channels) }: the editor keeps them in the browser), else
  *  made by make() and kept there. No store, made each time. Asked again while it is being made, or before the store
  *  holds it, the one making is shared: two tracks split from one sound run the model once. */
+/** What a model's input is, as memo keys it: FNV-1a over its samples' bits, with its channels and length */
+export function fingerprint(chs) {
+  let h = 0x811c9dc5
+  for (let ch of chs) { let u = new Uint32Array(ch.buffer, ch.byteOffset, ch.length); for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 0x01000193) }
+  return `${chs.length}:${chs[0]?.length ?? 0}:${h >>> 0}`
+}
 const making = new Map()
 export function memo(key, make) {
   if (making.has(key)) return making.get(key)

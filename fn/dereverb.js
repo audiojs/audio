@@ -30,10 +30,8 @@
  * back untouched (its `strength`, 0–4, and `music` options; `reduction` is the model's).
  */
 
-import audio, { arrived, memo } from '../core.js'
-import { stampOf, inputOf } from '../plan.js'
-import { fingerprint } from './vocals.js'
-import { playback } from './deepfilter.js'
+import audio, { arrived, memo, fingerprint } from '../core.js'
+import { stampOf, inputOf, playback } from '../plan.js'
 
 const REDUCTION = 60, METHODS = ['roformer', 'wpe'], MUSIC = ['pass', 'enhance']
 const MADE = Symbol('dereverb.made')

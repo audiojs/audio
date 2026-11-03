@@ -27,10 +27,9 @@
  * The lag is found before rendering (a's input and ref read whole) and kept while both stay the same; a live stream
  * waits for its end.
  */
-import audio, { arrived } from '../core.js'
+import audio, { arrived, fingerprint } from '../core.js'
 import { stampOf, inputOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
-import { fingerprint } from './vocals.js'
 
 const ALIGNED = Symbol('align.lag'), WITHIN = 10, SPAN = 60
 

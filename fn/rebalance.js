@@ -40,9 +40,8 @@
  * it is). RX 12 Scene Rebalance runs only in Pro Tools.
  */
 
-import audio, { arrived, memo } from '../core.js'
+import audio, { arrived, memo, fingerprint } from '../core.js'
 import { stampOf, inputOf } from '../plan.js'
-import { fingerprint } from './vocals.js'
 
 const lin = db => db == null ? 1 : 10 ** (db / 20)
 

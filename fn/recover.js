@@ -22,11 +22,10 @@
  * listening test is what can rank it; none run yet. The slopes are a voice's: on pitched solo instruments it is no
  * better than sbr().
  */
-import audio, { arrived } from '../core.js'
+import audio, { arrived, fingerprint } from '../core.js'
 import { stampOf, inputOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
 import { track } from '@audio/pitch/pyin'
-import { fingerprint } from './vocals.js'
 
 const RECOVERED = Symbol('recover.made')
 const pow2 = n => 2 ** Math.ceil(Math.log2(Math.max(2, n)))

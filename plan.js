@@ -985,6 +985,21 @@ function refVersion(a) {
  *  of every sound its edits read (one inserted, then edited, changes the input though the instance's own edits don't) */
 export const stampOf = a => `${a.version}:${a._.len}:${refVersion(a)}`
 
+/** process() of an op whose whole output its preparation made, kept on the edit at `key`: its samples at the block's
+ *  offset (deepfilter, derustle, auto). */
+export const playback = (name, key) => (input, output, ctx) => {
+  let done = ctx[key]
+  if (!done) throw new Error(`${name}: runs ahead of rendering, through read(), stream() or save()`)
+  let len = input[0].length, off = Math.round((ctx.blockOffset || 0) * ctx.sampleRate)
+  for (let c = 0; c < output.length; c++) {
+    let v = done.pcm[c], y = output[c]
+    for (let i = 0, j = off; i < len; i++, j++) y[i] = j >= 0 && j < v.length ? v[j] : 0
+  }
+}
+
+/** A splice's crossfade, in samples: its `crossfade` (s) at the op's rate (remove, insert, move) */
+export const xfadeLen = (ctx) => Math.max(0, Math.round((parseTime(ctx.crossfade) || 0) * ctx.sampleRate))
+
 /** The sound an edit at `index` reads: the instance with the edits before it, a sound of its own over the same source */
 export function inputOf(a, index) {
   let input = audio.from(a, { sampleRate: a._.sr })

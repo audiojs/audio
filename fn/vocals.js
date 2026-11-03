@@ -21,19 +21,12 @@
  * the ONNX Runtime backend. Mono separates as stereo; channels past the first two pass through.
  */
 
-import audio, { arrived, memo } from '../core.js'
+import audio, { arrived, memo, fingerprint } from '../core.js'
 import { stampOf, inputOf } from '../plan.js'
 
 const SEPARATED = Symbol('vocals.separated')
 
 const loadNeural = () => audio.import('@audio/neural-separate').catch(e => { throw new Error(`vocals({ model }): install @audio/neural-separate (${e.message})`) })
-
-/** FNV-1a over the input's sample bits: the separation is reused while this matches (deepfilter's enhancement too). */
-export function fingerprint(chs) {
-  let h = 0x811c9dc5
-  for (let ch of chs) { let u = new Uint32Array(ch.buffer, ch.byteOffset, ch.length); for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 0x01000193) }
-  return `${chs.length}:${chs[0]?.length ?? 0}:${h >>> 0}`
-}
 
 /** Separate the edit's input (the audio as the edits before it leave it), ahead of rendering. */
 async function prepare(a, index) {

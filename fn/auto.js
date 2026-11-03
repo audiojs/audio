@@ -17,10 +17,9 @@
  * OM-LSA. The take is rendered whole ahead of rendering (deepfilter()'s way: a live stream waits for its end), and its
  * recipe, chain's code() included, names the denoiser that ran.
  */
-import audio, { arrived, emit } from '../core.js'
-import { stampOf, inputOf } from '../plan.js'
-import { fingerprint } from './vocals.js'
-import { removal, playback } from './deepfilter.js'
+import audio, { arrived, emit, fingerprint } from '../core.js'
+import { stampOf, inputOf, playback } from '../plan.js'
+import { removal } from './deepfilter.js'
 import { declipped } from './declip.js'
 
 export const NEURAL = '@audio/neural-denoise'

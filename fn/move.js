@@ -1,5 +1,4 @@
-import { seg, sliceSegs, fadeSegs, planOffset, planLen } from '../plan.js'
-import { xfadeLen } from './remove.js'
+import { seg, sliceSegs, fadeSegs, planOffset, planLen, xfadeLen } from '../plan.js'
 import { parseTime } from '../core.js'
 
 /** Move [off, off + n) to `to`, over what is there, as a clip slides in a DAW's slip mode: silence where it was, what it

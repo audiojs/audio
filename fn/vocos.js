@@ -18,10 +18,8 @@
  * and tones of exact period (their spectrum's floor far under any recording's), come back altered or silent.
  */
 
-import audio, { arrived, memo } from '../core.js'
-import { stampOf, inputOf } from '../plan.js'
-import { fingerprint } from './vocals.js'
-import { playback } from './deepfilter.js'
+import audio, { arrived, memo, fingerprint } from '../core.js'
+import { stampOf, inputOf, playback } from '../plan.js'
 import { highpass, lowpass } from '@audio/filter/biquad'
 
 const CROSSOVER = 11000, TOP = 12000
