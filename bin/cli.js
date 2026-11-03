@@ -14,6 +14,7 @@ import audio from '../audio.js'
 import { toMel, melEdges } from '../fn/spectrum.js'
 import { steadyTempo } from '../fn/beat.js'
 import { lufsFromEnergy } from '../fn/loudness.js'
+import { peakOf } from '../stats.js'
 import { specs } from '../fn/check.js'
 import { LOUDNESS } from '../fn/specs.js'
 import { formats as cutFormats } from '../fn/cuts.js'
@@ -879,9 +880,8 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
       let toB = Math.min(Math.floor(t * sr / bs) + 1, a.stats.max[0].length)
       let fromB = Math.max(0, toB - Math.ceil(3 * sr / bs))
       if (toB > fromB) {
-        let peak = 0
-        for (let c = 0; c < a.channels; c++)
-          for (let i = fromB; i < toB; i++) if (a.stats.max[c][i] > peak) peak = a.stats.max[c][i]
+        // both halves of the wave: a level read off the highs alone missed a peak that swings low
+        let peak = peakOf(a.stats, Array.from({ length: a.channels }, (_, c) => c), fromB, toB)
         if (peak > 1e-6) localDbStr = `   ${(20 * Math.log10(peak)).toFixed(1)} dBFS`
       }
     }

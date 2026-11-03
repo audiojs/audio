@@ -1,6 +1,7 @@
 import audio, { resolveChannels, LOAD } from '../core.js'
 import kWeighting from '@audio/weighting/k'
 import { state, step } from '@audio/biquad'
+import { peakOf } from '../stats.js'
 
 // ── LUFS measurement ─────────────────────────────────────────
 
@@ -98,12 +99,7 @@ export function dcOffsets(stats, chs, from, to) {
 
 /** Peak amplitude in dB after DC removal, blocks [from, to). Returns null if silent. */
 export function peakDb(stats, chs, dcOff, from = 0, to = Infinity) {
-  let peak = 0
-  for (let c of chs) {
-    let d = dcOff?.[c] || 0
-    for (let i = from, e = Math.min(to, stats.min[c].length); i < e; i++)
-      peak = Math.max(peak, Math.abs(stats.min[c][i] - d), Math.abs(stats.max[c][i] - d))
-  }
+  let peak = peakOf(stats, chs, from, to, dcOff)
   return peak ? 20 * Math.log10(peak) : null
 }
 
@@ -157,10 +153,7 @@ audio.stat('energy', { block: kblock, reduce: rMean, extra: ['kcut1', 'kcut2'], 
 audio.stat('db', {
   fields: ['min', 'max'],
   query: (stats, chs, from, to) => {
-    let peak = 0
-    for (let c of chs)
-      for (let i = from; i < Math.min(to, stats.min[c].length); i++)
-        peak = Math.max(peak, Math.abs(stats.min[c][i]), Math.abs(stats.max[c][i]))
+    let peak = peakOf(stats, chs, from, to)
     return peak > 0 ? 20 * Math.log10(peak) : -Infinity
   }
 })

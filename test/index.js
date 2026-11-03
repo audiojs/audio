@@ -2730,6 +2730,17 @@ test('trim, shrink — by the block size of the sound\'s stats, not one set sinc
   } finally { audio.BLOCK_SIZE = was }
 })
 
+// A peak read off block stats takes both halves of the wave, wherever it is read (peak, db, crest, the CLI's level as it
+// plays, which read the highs alone and missed a peak that swings low)
+test('peakOf — a peak that swings low', async t => {
+  let { peakOf } = await import('../stats.js')
+  let x = new Float32Array(4410).fill(.2); x[100] = -.8
+  let a = audio.from([x], { sampleRate: 44100 })
+  t.is(peakOf(a.stats, [0]), Math.fround(.8), 'the low swing')
+  t.is(await a.stat('peak'), Math.fround(.8), 'as stat(peak) reads it')
+  t.is(peakOf(a.stats, [0], 0, Infinity, [.2]), Math.fround(.8) + .2, 'the DC taken off first')
+})
+
 // A delivery spec by any of its names, the same for normalize() as for check(): Apple's is the podcast target, EBU's the
 // broadcast one, streaming Spotify's (its former name)
 test('normalize — a spec by any name check() takes, the same target', async t => {

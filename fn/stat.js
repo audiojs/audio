@@ -1,5 +1,6 @@
 import audio, { FULL } from '../core.js'
 import { rMean, blockMean } from './loudness.js'
+import { peakOf } from '../stats.js'
 
 let rMin = (values, from, to) => { let v = Infinity; for (let i = from; i < to; i++) if (values[i] < v) v = values[i]; return v === Infinity ? 0 : v }
 let rMax = (values, from, to) => { let v = -Infinity; for (let i = from; i < to; i++) if (values[i] > v) v = values[i]; return v === -Infinity ? 0 : v }
@@ -88,35 +89,14 @@ audio.stat('rms', {
 
 audio.stat('peak', {
   fields: ['min', 'max'],
-  query: (stats, chs, from, to) => {
-    if (!stats.min || !stats.max) return 0
-    let v = 0
-    for (let c of chs) {
-      let mn = stats.min[c], mx = stats.max[c], end = Math.min(to, mn.length)
-      for (let i = from; i < end; i++) {
-        let a = mn[i] < 0 ? -mn[i] : mn[i], b = mx[i] < 0 ? -mx[i] : mx[i]
-        if (a > v) v = a
-        if (b > v) v = b
-      }
-    }
-    return v
-  }
+  query: (stats, chs, from, to) => stats.min && stats.max ? peakOf(stats, chs, from, to) : 0
 })
 
 audio.stat('crest', {
   fields: ['min', 'max', 'ms'],
   query: (stats, chs, from, to) => {
     if (!stats.min || !stats.max || !stats.ms) return 0
-    let peak = 0
-    for (let c of chs) {
-      let mn = stats.min[c], mx = stats.max[c], end = Math.min(to, mn.length)
-      for (let i = from; i < end; i++) {
-        let a = mn[i] < 0 ? -mn[i] : mn[i], b = mx[i] < 0 ? -mx[i] : mx[i]
-        if (a > peak) peak = a
-        if (b > peak) peak = b
-      }
-    }
-    let rms = Math.sqrt(meanSquare(stats, chs, from, to))
+    let peak = peakOf(stats, chs, from, to), rms = Math.sqrt(meanSquare(stats, chs, from, to))
     return (peak > 0 && rms > 0) ? 20 * Math.log10(peak / rms) : 0
   }
 })

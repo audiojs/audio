@@ -468,6 +468,21 @@ audio.fn.stat = async function(name, opts) {
   return vals.reduce((a, b) => a + b, 0) / vals.length
 }
 
+/** The highest |sample| block stats hold over blocks [from, to) of channels `chs`, each channel's `dc` taken off first
+ *  (peak, crest, db, a normalize's peak, the CLI's level as it plays) */
+export function peakOf(stats, chs, from = 0, to = Infinity, dc) {
+  let v = 0
+  for (let c of chs) {
+    let mn = stats.min[c], mx = stats.max[c], d = dc?.[c] || 0
+    for (let i = from, e = Math.min(to, mn.length); i < e; i++) {
+      let a = Math.abs(mn[i] - d), b = Math.abs(mx[i] - d)
+      if (a > v) v = a
+      if (b > v) v = b
+    }
+  }
+  return v
+}
+
 // What counts as sound in block stats, for trim, shrink and silence: a level over a threshold, found from the blocks'
 // floor when not given
 export function autoThreshold(energies) {
