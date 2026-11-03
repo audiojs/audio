@@ -15,6 +15,7 @@ import { toMel, melEdges } from '../fn/spectrum.js'
 import { steadyTempo } from '../fn/beat.js'
 import { lufsFromEnergy } from '../fn/loudness.js'
 import { specs } from '../fn/check.js'
+import { LOUDNESS } from '../fn/specs.js'
 import { formats as cutFormats } from '../fn/cuts.js'
 import parseDuration from 'parse-duration'
 import fft from 'fourier-transform'
@@ -1109,7 +1110,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     } else if (prev === 'stat') {
       out = ['db', 'rms', 'loudness', 'clipping', 'dc', 'silence', 'spectrum', 'cepstrum', 'bpm', 'beats', 'onsets', 'key', 'notes', 'chords']
     } else if (prev === 'normalize') {
-      out = ['spotify', 'podcast', 'broadcast', '-1', '-3', '-6']
+      out = [...Object.keys(LOUDNESS), '-1', '-3', '-6']
     } else if (prev === 'fade') {
       out = ['linear', 'exp', 'log', 'cos']
     } else if (prev === 'speed') {

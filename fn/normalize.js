@@ -1,10 +1,8 @@
 import { dcOffsets, peakDb, rmsDb, lufsDb, lufsFromStats, printed } from './loudness.js'
 import audio, { resolveChannels, FULL, blockAt } from '../core.js'
 import { buildPlan, render } from '../plan.js'
+import { LOUDNESS, specOf } from './specs.js'
 
-// Integrated-loudness presets (LUFS): Spotify (YouTube, Tidal and Amazon Music play at it too), Apple Podcasts, EBU R 128;
-// 'streaming', Spotify's name before it had its own, still read
-const PRESETS = { spotify: -14, podcast: -16, broadcast: -23 }, FORMER = { streaming: 'spotify' }
 const MODES = ['peak', 'lufs', 'rms']
 
 
@@ -312,10 +310,12 @@ function parseTarget(target, mode) {
     return { targetDb: refLoudness(target), mode: 'lufs' }
   }
   if (typeof target === 'string') {
-    target = FORMER[target] ?? target
-    if (!Object.hasOwn(PRESETS, target)) throw new RangeError(`normalize: unknown preset '${target}' (${Object.keys(PRESETS).join(', ')}), or a number with mode peak|lufs|rms`)
+    // a delivery spec's loudness (fn/specs.js), by any of its names: Spotify's (YouTube, Tidal and Amazon Music play at it
+    // too), Apple Podcasts', EBU R 128's
+    target = specOf(target)
+    if (!Object.hasOwn(LOUDNESS, target)) throw new RangeError(`normalize: unknown preset '${target}' (${Object.keys(LOUDNESS).join(', ')}), or a number with mode peak|lufs|rms`)
     if (mode != null && mode !== 'lufs') throw new RangeError(`normalize: preset '${target}' is loudness (lufs), not ${mode}`)
-    return { targetDb: PRESETS[target], mode: 'lufs' }
+    return { targetDb: LOUDNESS[target], mode: 'lufs' }
   }
   if (mode != null && !MODES.includes(mode)) throw new RangeError(`normalize: unknown mode '${mode}' (${MODES.join(', ')})`)
   return { targetDb: typeof target === 'number' ? target : 0, mode: mode || 'peak' }

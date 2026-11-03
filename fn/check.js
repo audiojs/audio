@@ -9,6 +9,7 @@
 import audio from '../core.js'
 import { queryRange } from '../stats.js'
 import { printed } from './loudness.js'
+import { LOUDNESS, specOf } from './specs.js'
 
 const toDb = v => v > 0 ? 20 * Math.log10(v) : -Infinity
 const rule = (name, value, unit, min, max, note) => {
@@ -69,7 +70,7 @@ const SPECS = {
     name: 'Apple Podcasts', url: 'https://podcasters.apple.com/support/893-audio-requirements',
     rules: async a => {
       let [lufs, tp] = await a.stat(['loudness', 'truepeak'])
-      return [rule('Loudness', lufs, 'LUFS', -17, -15), rule('True peak', tp, 'dBTP', null, -1)]
+      return [rule('Loudness', lufs, 'LUFS', LOUDNESS.podcast - 1, LOUDNESS.podcast + 1), rule('True peak', tp, 'dBTP', null, -1)]
     }
   },
   // Spotify normalizes on playback to -14 LUFS, raising quiet tracks only as far as 1 dB of true-peak
@@ -79,10 +80,10 @@ const SPECS = {
     rules: async a => {
       let [lufs, tp] = await a.stat(['loudness', 'truepeak'])
       // "louder than -14 LUFS", judged as printed: a master normalized to -14.00 is not louder
-      let loud = printed(lufs) > -14, gain = loud ? -14 - lufs : Math.max(0, Math.min(-14 - lufs, -1 - tp))
+      let T = LOUDNESS.spotify, loud = printed(lufs) > T, gain = loud ? T - lufs : Math.max(0, Math.min(T - lufs, -1 - tp))
       return [
         info('Loudness', lufs, 'LUFS', Math.abs(printed(gain)) < 0.01 ? 'plays as is' : `plays ${Math.abs(gain).toFixed(1)} dB ${gain < 0 ? 'quieter' : 'louder'}`),
-        rule('True peak', tp, 'dBTP', null, loud ? -2 : -1, loud && 'louder than -14 LUFS: -2 dBTP'),
+        rule('True peak', tp, 'dBTP', null, loud ? -2 : -1, loud && `louder than ${T} LUFS: -2 dBTP`),
       ]
     }
   },
@@ -94,7 +95,7 @@ const SPECS = {
     rules: async a => {
       let [lufs, tp, lra, m, s] = await a.stat(['loudness', 'truepeak', 'lra', 'momentary', 'shortterm'])
       return [
-        rule('Loudness', lufs, 'LUFS', -23.2, -22.8), rule('True peak', tp, 'dBTP', null, -1),
+        rule('Loudness', lufs, 'LUFS', LOUDNESS.broadcast - .2, LOUDNESS.broadcast + .2), rule('True peak', tp, 'dBTP', null, -1),
         info('Loudness range', lra, 'LU', a.duration < 60 && 'under 1 minute: too few short-term values for LRA'),
         info('Max momentary', m, 'LUFS'), info('Max short-term', s, 'LUFS'),
       ]
@@ -110,11 +111,10 @@ const SPECS = {
     }
   },
 }
-const ALIAS = { apple: 'podcast', ebu: 'broadcast', streaming: 'spotify' }
 export const specs = Object.keys(SPECS)
 
 audio.fn.check = async function(spec) {
-  let key = ALIAS[spec] ?? spec, s = SPECS[key]
+  let key = specOf(spec), s = SPECS[key]
   if (!s) throw new RangeError(`check: unknown spec '${spec}' (${specs.join(', ')})`)
   let rules = await s.rules(this)
   return { spec: key, name: s.name, url: s.url, ...(s.note && { note: s.note }), pass: rules.every(r => r.pass !== false), rules }

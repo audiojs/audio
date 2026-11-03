@@ -2712,6 +2712,17 @@ test('stream — trim + normalize chained on live source', async t => {
   t.ok(Math.abs(peak - 1) < 0.05, `normalized peak ~1 (got ${peak.toFixed(3)})`)
 })
 
+// A delivery spec by any of its names, the same for normalize() as for check(): Apple's is the podcast target, EBU's the
+// broadcast one, streaming Spotify's (its former name)
+test('normalize — a spec by any name check() takes, the same target', async t => {
+  let sr = 44100, x = Float32Array.from({ length: 2 * sr }, (_, i) => .1 * Math.sin(2 * Math.PI * 440 * i / sr))
+  let loud = async name => (await audio.from([x], { sampleRate: sr }).normalize(name).stat('loudness')).toFixed(2)
+  for (let [other, name] of [['apple', 'podcast'], ['ebu', 'broadcast'], ['streaming', 'spotify']]) {
+    t.is(await loud(other), await loud(name), `${other} is ${name}`)
+    t.is((await audio.from([x], { sampleRate: sr }).check(other)).spec, name, `and check() says so`)
+  }
+})
+
 test('normalize: LUFS preset keeps peaks under the ceiling (stats match the render)', async t => {
   let sr = 44100
   let ch = new Float32Array(sr)

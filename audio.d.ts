@@ -40,6 +40,8 @@ type PerChannel<C, R> = C extends number[] ? R[] : R
 
 type AudioSource = AudioInstance | AudioBuffer | Float32Array[] | number
 type FilterType = 'highpass' | 'lowpass' | 'bandpass' | 'notch' | 'eq' | 'lowshelf' | 'highshelf' | 'allpass'
+/** A delivery spec with a loudness target (fn/specs.js): Apple's is podcast, EBU's broadcast; 'streaming', Spotify's former name, still read */
+type Delivery = 'podcast' | 'spotify' | 'broadcast' | 'apple' | 'ebu'
 type RepairOpts = { at: Time, duration: Time, method?: 'auto' | 'ar' | 'sinusoidal' | 'similarity' | 'spectral', window?: number }
 /** Where the noise plays alone (a range of the op's input, or several), or its print (dB per band, one or per channel) */
 /** `band` [low, high] Hz: only those frequencies gained, the rest as they were */
@@ -144,7 +146,7 @@ export interface AudioInstance {
   /** bins: the value over each of n spans of the range, on the block grid (as waveform bins); NaN where the stat has none */
   stat<C extends number | number[] = number>(name: 'db' | 'rms' | 'noisefloor' | 'loudness' | 'momentary' | 'shortterm' | 'dialog' | 'peak' | 'crest' | 'dc' | 'correlation' | 'centroid' | 'flatness' | 'bpm', opts: { bins: number, at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
   /** Each rule of a delivery spec, measured: pass is null for rules the spec describes without bounding */
-  check(spec: 'acx' | 'podcast' | 'spotify' | 'broadcast' | 'netflix' | 'apple' | 'ebu'): Promise<{ spec: string, name: string, url: string, note?: string, pass: boolean, rules: { name: string, value: number, unit: string, min?: number | null, max?: number | null, pass: boolean | null, note?: string }[] }>
+  check(spec: Delivery | 'acx' | 'netflix'): Promise<{ spec: string, name: string, url: string, note?: string, pass: boolean, rules: { name: string, value: number, unit: string, min?: number | null, max?: number | null, pass: boolean | null, note?: string }[] }>
   stat(name: 'clipping', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
   stat(name: 'clipping', opts: { bins: number, at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
   stat(name: 'dc', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<number>
@@ -360,12 +362,12 @@ export interface AudioInstance {
   /** Loudness targets (presets, mode 'lufs') hold a true-peak ceiling, -1 dBTP by default: a lookahead
    *  limiter, then loudness made up to the target. `ceiling`: dBTP, or false for none. */
   normalize(): this
-  normalize(preset: 'spotify' | 'podcast' | 'broadcast', opts?: NormalizeOpts): this
+  normalize(preset: Delivery, opts?: NormalizeOpts): this
   normalize(target: number, mode?: 'peak' | 'lufs' | 'rms', opts?: NormalizeOpts): this
   /** To a reference's integrated loudness (BS.1770) */
   normalize(reference: AudioSource, opts?: NormalizeOpts): this
   normalize(target: number, opts?: NormalizeOpts): this
-  normalize(opts: NormalizeOpts & { target?: number | 'spotify' | 'podcast' | 'broadcast' }): this
+  normalize(opts: NormalizeOpts & { target?: number | Delivery }): this
 
   // ── Fns (registered via audio.fn) ───────────────────────────
   clip(opts?: { at?: Time, duration?: Time, d?: Time }): AudioInstance
