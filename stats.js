@@ -23,7 +23,21 @@ audio.stat = function(name, desc) {
 const periodOf = (f, sr) => Object.values(statDefs).find(d => d.period && d.extra?.includes(f))?.period(sr)
 
 /** A block function's value for one stat: a record { [name]: value } serves several stats from one pass. */
-const blockValue = (v, name) => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) ? v[name] : v
+export const blockValue = (v, name) => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) ? v[name] : v
+
+/** The block functions measuring `names` (every registered stat when none), each called once a block for all the stats
+ *  it serves: { fn, ctx, names }, `names` its fields, those `extra` lists too (fields no stat is named after), each field
+ *  in one group only; `ctx` kept from block to block (a filter's state). Decode's session and the meter measure by them */
+export function blockGroups(sr, names) {
+  let groups = new Map(), fields = new Set()
+  for (let [name, d] of Object.entries(audio.stat())) {
+    if (!d.block || names && !names.includes(name)) continue
+    let g = groups.get(d.block)
+    if (!g) groups.set(d.block, g = { fn: d.block, ctx: { sampleRate: sr }, names: [] })
+    for (let f of [name, ...d.extra ?? []]) if (!fields.has(f)) { fields.add(f); g.names.push(f) }
+  }
+  return [...groups.values()]
+}
 
 /** Create a stat computation session. ch inferred from first .page() call. `names`: those stats alone (with what their
  *  block functions carry), not every one registered. */
@@ -32,17 +46,9 @@ function statSession(sr, names) {
 
   function init(c) {
     ch = c
-    // stats sharing one block function are computed by one call per block
-    let groups = new Map()
+    fns = blockGroups(sr, names)
     acc = Object.create(null)
-    for (let [name, d] of Object.entries(audio.stat())) {
-      if (!d.block || names && !names.includes(name)) continue
-      let g = groups.get(d.block)
-      if (!g) groups.set(d.block, g = { fn: d.block, ctx: { sampleRate: sr }, names: [] })
-      // `extra`: fields the block function's record carries that no stat is named after
-      for (let f of [name, ...d.extra ?? []]) if (!(f in acc)) { g.names.push(f); acc[f] = Array.from({ length: ch }, () => []) }
-    }
-    fns = [...groups.values()]
+    for (let g of fns) for (let f of g.names) acc[f] = Array.from({ length: ch }, () => [])
   }
 
   function processBlock(block) {

@@ -6,9 +6,7 @@
 
 import audio, { resolveChannels as resolveChs } from '../core.js'
 import { melSpectrum } from './spectrum.js'
-
-// A block function's value for one stat: a record { [name]: value } serves several stats (stats.js)
-const blockValue = (v, name) => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) ? v[name] : v
+import { blockGroups, blockValue } from '../stats.js'
 
 /** Compute per-block value of a named stat from raw block stats, honoring channel semantics. */
 function frameValue(name, raw, blockChs, sr, opts) {
@@ -66,17 +64,14 @@ function holdDecay(cur, prev, alpha) {
   return out
 }
 
-/** Compute all block-level stat values once per frame. `ctxs`: each block function's context, kept across the blocks
- *  of a playback (a filter's state: K-weighting restarted from rest every block misreads the energy). */
-function computeRawBlock(blockChs, sr, ctxs) {
-  let raw = {}, ch = blockChs.length, done = new Map()  // stats sharing a block function: one call
-  for (let [name, desc] of Object.entries(audio.stat())) {
-    if (!desc.block) continue
-    let r = done.get(desc.block), ctx = ctxs.get(desc.block)
-    if (!ctx) ctxs.set(desc.block, ctx = { sampleRate: sr })
-    if (r === undefined) done.set(desc.block, r = desc.block(blockChs, ctx))
-    let v = blockValue(r, name)
-    raw[name] = typeof v === 'number' ? Array(ch).fill(v) : v
+/** Every block field of one frame, by the groups decode measures with (stats.js blockGroups): each block function once,
+ *  its context kept across the blocks of a playback (a filter's state: K-weighting restarted from rest every block
+ *  misreads the energy) */
+function computeRawBlock(blockChs, groups) {
+  let raw = {}, ch = blockChs.length
+  for (let { fn, ctx, names } of groups) {
+    let r = fn(blockChs, ctx)
+    for (let name of names) { let v = blockValue(r, name); raw[name] = typeof v === 'number' ? Array(ch).fill(v) : v }
   }
   return raw
 }
@@ -95,7 +90,7 @@ export function emitMeter(a, blockChs, offset, deliver = deliverNow) {
   for (let p of probes) {
     let opts = p.opts
     if (opts.type == null) {
-      if (!raw) raw = computeRawBlock(blockChs, sr, a._.meterCtx ??= new Map())
+      if (!raw) raw = computeRawBlock(blockChs, a._.meterGroups ??= blockGroups(sr))
       let delta = { fromBlock: 0 }
       for (let n in raw) delta[n] = Array.from(raw[n], v => Float32Array.of(v))
       deliver(p, { delta, offset })
@@ -103,7 +98,7 @@ export function emitMeter(a, blockChs, offset, deliver = deliverNow) {
     }
 
     let types = Array.isArray(opts.type) ? opts.type : [opts.type]
-    if (types.some(t => t !== 'spectrum') && !raw) raw = computeRawBlock(blockChs, sr, a._.meterCtx ??= new Map())
+    if (types.some(t => t !== 'spectrum') && !raw) raw = computeRawBlock(blockChs, a._.meterGroups ??= blockGroups(sr))
 
     let values = {}
     for (let t of types) values[t] = frameValue(t, raw, blockChs, sr, opts)

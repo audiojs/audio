@@ -1767,6 +1767,9 @@ test('meter — no type arg emits {delta, offset} like decode data', async t => 
   t.ok('offset' in got, 'has offset')
   t.ok(Array.isArray(got.delta.min), 'delta.min is per-channel array')
   t.ok(got.delta.max[0] instanceof Float32Array, 'typed array per channel')
+  // the same fields decode's stats hold, those no stat is named after (loudness's kcut1, kcut2) too
+  let fields = o => Object.keys(o).filter(k => Array.isArray(o[k])).sort().join()
+  t.is(fields(got.delta), fields(a.stats), 'every field decode measures')
 })
 
 test('meter — array type returns keyed object', async t => {
