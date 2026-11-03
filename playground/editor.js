@@ -1309,7 +1309,7 @@ function resetView() {
 
 
 // Runs the script a moment after the last change; a slider runs it at once. Newer runs replace waiting ones.
-function schedule(delay) { clearTimeout(timer); timer = setTimeout(evaluate, delay) }
+function schedule(delay) { clearTimeout(timer); timer = setTimeout(() => { timer = 0; evaluate() }, delay) }
 async function evaluate() {
   const code = ed.code, quiet = hush
   hush = false
@@ -1425,6 +1425,16 @@ let waiters = [], outcome = null
 const ran = () => new Promise(resolve => waiters.push(resolve))
 const finished = result => { outcome = result; for (const resolve of waiters.splice(0)) resolve(result) }
 const within = (promise, ms = 60000) => Promise.race([promise, new Promise(resolve => setTimeout(() => resolve({ ok: false, problem: 'Still running' }), ms))])
+// Settled, for whoever drives the page and waits on it (playground.test.js): the kept files read, no run waiting to
+// start, asked or on its way, and two frames drawn since
+globalThis.__settled = async () => {
+  const frame = () => new Promise(requestAnimationFrame)
+  await restoring
+  while (timer || waiting() || incoming) await frame()
+  await frame()
+  await frame()
+  return true
+}
 
 // How long a sound already shown holds whole before what is on its way shows in its place as it comes, ms
 const WAIT = 250
@@ -4080,8 +4090,8 @@ function switchTab(id) {
   // its takes' places, as its script has them: a run, which would place them, may not come
   places()
   const out = next.output, a = next.coming
-  if (a?.said && a.code === a.editor && a.editor === ed.code) { clearTimeout(timer); state.viewing = ''; retell(a.said); takeUp(a) }
-  else if (out?.said && out.code === out.editor && out.editor === ed.code) { clearTimeout(timer); state.viewing = ''; retell(out.said) }
+  if (a?.said && a.code === a.editor && a.editor === ed.code) { clearTimeout(timer); timer = 0; state.viewing = ''; retell(a.said); takeUp(a) }
+  else if (out?.said && out.code === out.editor && out.editor === ed.code) { clearTimeout(timer); timer = 0; state.viewing = ''; retell(out.said) }
   next.ready = false
   status()
   rk?.refresh()
