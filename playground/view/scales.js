@@ -1,6 +1,7 @@
 import scales from '../scale.js'
-import { ownMarks, RECORD, fine } from '../view.js'
+import { ownMarks, RECORD } from '../view.js'
 import { plot, bandOf, lanes, BAR, THUMB, MAP } from './geometry.js'
+import { fine } from './gestures.js'
 import { GUTTER, EDGE, SNAP, STICK, ONTO, FINE, NOTES, midiOf, LEVELS, TICK, GAIN, root, onaxis, onprobe, closest, farthest, overshoot, color, c, rate, duration, show, meters, recording, start, end, fview, selection, cursor, playhead, nudge, steered, cues, ranks, contour, snapping, aview, levelUnits, pitching, scroll, zoomed, framed, unframed, pull, assign } from './model.js'
 import { linePoints } from './notes.js'
 import { reach, seenTo, fitTo, meterAt, metered } from './overlay.js'
