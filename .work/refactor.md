@@ -75,7 +75,7 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 - [ ] the 294 `waitForTimeout`s in `test/playground.test.js` (120 s of sleeping per run) replaced by it or by `waitForFunction` on state;
       a sleep that stays says why in a comment
 - [ ] tests stop rebuilding committed files (`playground.test.js` imports `.site-build.js`): build once before the browser suites
-- [ ] `test/index.js` 'pages' measures its sounds' own pages, not the process's array buffers (80 MB in a copy, 7 MB in place)
+- [x] (this stage 3 run) `test/index.js` 'pages' measured in a process of its own: 7 MB steady, where it read 7 to 105 MB
 - [ ] three guards for what was caught by eye:
   - [ ] no engine run for a non-audio action: mute, solo, rename, resize, view switch, tab switch, theme
   - [ ] followed playback with two tracks under 4× CPU throttle (CDP `Emulation.setCPUThrottlingRate`): frame-time p99 within budget
@@ -116,8 +116,9 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
   - [x] (922d18a) the worker facade decides method kinds from a fixed list (`worker.js:145`): `await a.check('acx')`, `cuts`, `hits`, `notes`,
         `chords`, `key`, `spectrum` and the other promise methods resolve to the facade, the result dropped; the host already sends
         its registry (`worker.js:565`), unused
-  - [ ] a prepared op's stamp (`${a.version}:${a._.len}:…`, `fn/deepfilter.js:127`, `fn/rebalance.js:69` and 16 more) leaves out
-        `refVersion(a)` (`plan.js:978`): an inserted sound edited later may replay a stale model result
+  - [x] (2263b84) a prepared op's stamp (`${a.version}:${a._.len}:…`, fifteen ops) left out `refVersion(a)`: an inserted sound
+        edited later replayed a stale result (a codec's 0.475 → 0.475 where 0.05 was due); all key it by `stampOf(a)` now. The
+        same in the `length` getter's cache, found beside it: an inserted sound cropped left the old length
   - [ ] `normalize('apple' | 'ebu')` throws (`fn/normalize.js:7`, `:316`) where `check('apple' | 'ebu')` works (`fn/check.js:113`)
   - [ ] `trim` and `shrink` count blocks by `audio.BLOCK_SIZE`, `silence` by `stats.blockSize` (`fn/trim.js:52`, `fn/shrink.js:17`)
   - [ ] the facade's playback has no `preservesPitch` and no paused clock (`worker.js:223-398` against `fn/play.js:172-332`)
