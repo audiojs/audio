@@ -324,6 +324,14 @@ test('parallel: jobs on threads, their results in order; none or one here; a thr
 	ok((await parallel(mod, { k: 2 }, jobs, here)).every((v, i) => v[0] === 2 * i), 'the threads serve the next call')
 })
 
+// a thread serving jobs has parallel.js as its entry (or a page's jobs entry importing its serve): it loads no core
+test('parallel: a thread serving jobs loads no core', async () => {
+	let { execFileSync } = await import('child_process')
+	let hook = `data:text/javascript,${encodeURIComponent(`export async function resolve(s, c, next) { let r = await next(s, c); if (/\\/core\\.js$/.test(r.url)) throw new Error('core loaded'); return r }`)}`
+	let script = `import { register } from 'node:module'; register(${JSON.stringify(hook)}); await import('./parallel.js'); console.log('none')`
+	is(execFileSync(process.execPath, ['--input-type=module', '-e', script], { cwd: new URL('..', import.meta.url), encoding: 'utf8' }).trim(), 'none')
+})
+
 // declip on threads at its edges: nothing to rebuild (no samples, nothing clipped) comes back as it went in; one
 // channel of two, the other untouched
 test('declip on threads: empty and unclipped as they are; one channel of two', async () => {

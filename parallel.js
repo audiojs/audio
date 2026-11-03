@@ -15,8 +15,6 @@
  *   serve(mod => ({ '@audio/denoise/declip': declip })[mod])
  */
 
-import audio from './core.js'
-
 const node = typeof process !== 'undefined' && !!process.versions?.node
 const nodeWT = node ? await import('node:worker_threads').catch(() => null) : null
 // the cores there are
@@ -30,23 +28,24 @@ function on(port, type, fn) {
   return () => port.removeEventListener(type, f)
 }
 
-// the threads, one fewer than the cores, eight at most, made on first use and kept; none where there is no way to make one
+// the threads, one fewer than the cores, eight at most, made on first use and kept; none where there is no way to make one.
+// The host's maker is core's, read only here: a thread serving jobs loads no core
 let pool = null
-function threads() {
+async function threads() {
   if (pool) return pool
-  let make = audio.worker
+  let make
   if (nodeWT?.isMainThread) {
     // the process's flags but those that make it a script of its own (node --input-type=module -e …), a thread's entry
     // being this file
     const execArgv = process.execArgv.filter((a, i, all) => !/^--(input-type|eval|print)\b|^-[ep]$/.test(a) && !/^-[ep]$|^--(eval|print)$/.test(all[i - 1] ?? ''))
     make = () => { const w = new nodeWT.Worker(new URL(import.meta.url), { workerData: { parallel: true }, execArgv }); w.unref(); return w }
-  }
-  return make ? pool = Array.from({ length: Math.max(1, Math.min(8, cores - 1)) }, make) : null
+  } else make = (await import('./core.js')).default.worker
+  return make ? pool ??= Array.from({ length: Math.max(1, Math.min(8, cores - 1)) }, make) : null
 }
 
 let ids = 0
 export default async function parallel(mod, shared, jobs, solve) {
-  const all = jobs.length > 1 && threads()
+  const all = jobs.length > 1 && await threads()
   if (!all) return jobs.map(j => solve(shared, j))
   shared = Object.fromEntries(Object.entries(shared).map(([k, v]) => [k, ArrayBuffer.isView(v) && v.byteLength !== v.buffer.byteLength ? v.slice() : v]))
   const id = ++ids, out = new Array(jobs.length), size = Math.max(1, Math.floor(jobs.length / (all.length * 8)))
