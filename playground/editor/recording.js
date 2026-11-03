@@ -2,7 +2,7 @@ import { append, number, between, steps as stepsOf, turnOff, tracks as tracksOf,
 import { builtins, sample, microphone, hold as holdInput, unique } from '../sources.js'
 import opIcons from '../icons.js'
 import { tape } from '../keep.js'
-import { docs, lend, closeMenus } from '../editor.js'
+import { docs, closeMenus } from '../editor.js'
 import { root, DESKTOP, keep } from './config.js'
 import { state, eng, v, ed, pl, output } from './context.js'
 import { write, applied, changed } from './edits.js'
@@ -10,6 +10,7 @@ import { lengths, lengthOf, shelf, restoring, saving, taken, place } from './fil
 import { clock, stamp, quote, note } from './format.js'
 import { sway, follower, togglePlay } from './play.js'
 import { meter } from './readouts.js'
+import { lend } from './run.js'
 import { focusOn, laneIndex, fetches, lanesOf, newTrack } from './tracks.js'
 
 // Recording: a take, at the caret, into a new track as the others play, or as another take of one there; the takes'
