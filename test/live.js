@@ -24,7 +24,7 @@ const link = async script => base + 'playground/#code=' + Buffer.from(await new 
 const chime = await link(`audio('chime.wav').trim().normalize(-1)`)
 await check('playground opens on an empty tab, its ways in offered', async page => {
   await page.goto(base + 'playground/')
-  await page.locator('.empty-button', { hasText: 'Record' }).waitFor({ timeout: 30000 })
+  await page.locator('.empty', { hasText: 'record' }).waitFor({ timeout: 30000 })
 })
 await check('playground opens a link\'s sound, measured', async page => {
   await page.goto(chime)
