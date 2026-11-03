@@ -75,6 +75,9 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 - [ ] the 294 `waitForTimeout`s in `test/playground.test.js` (120 s of sleeping per run) replaced by it or by `waitForFunction` on state;
       a sleep that stays says why in a comment
 - [ ] tests stop rebuilding committed files (`playground.test.js` imports `.site-build.js`): build once before the browser suites
+- [ ] 'engine: past what the page holds, an output comes as its peaks and spectra…' asserts the long output comes in more than
+      one piece: a render quicker than the messages comes in one (alone: 4 of 4 failing at 9b2cd3a, 1 of 4 at 90c5458). Its
+      sound through the test server's slow route (8 KB every 120 ms) makes the pieces certain
 - [x] (this stage 3 run) `test/index.js` 'pages' measured in a process of its own: 7 MB steady, where it read 7 to 105 MB
 - [ ] three guards for what was caught by eye:
   - [ ] no engine run for a non-audio action: mute, solo, rename, resize, view switch, tab switch, theme
