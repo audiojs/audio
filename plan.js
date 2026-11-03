@@ -755,8 +755,21 @@ function compilePlan(a, len, final, measure = false) {
     st.cur = stageCursor(a, index, bakes++)
     segs = [seg(0, st.totalLen, 0, undefined, st)]
     ch = st.outCh
-    pipeline = []; pulls = []; latency = 0; warmup = 0
+    clear()
   }
+  // a fresh pipeline, after a stage baked or a whole op rendered
+  let clear = () => { pipeline = []; pulls = []; latency = 0; warmup = 0 }
+  // a structural op: the pipeline so far baked, the segments rewritten, the safe boundary moved as the op says (limit)
+  let restructure = (op, type, at, duration, extra) => {
+    bake()
+    let pctx = mkPlanCtx(planLen(segs), sr, at != null ? Math.round(at * sr) : null, duration != null ? Math.round(duration * sr) : null, extra)
+    segs = op.plan(segs, pctx)
+    if (!final) limit = adjustLimit(limit, type, pctx)
+  }
+  // an op that sets the rate from here on (resample)
+  let rerate = (op, o) => { let ns = op?.sr?.(sr, o); if (ns) sr = ns }
+  // a whole op's declared decay, in samples: rendered past its input's end
+  let tailN = (op, o) => Math.round((typeof op.tail === 'function' ? op.tail(o, sr) : op.tail || 0) * sr)
 
   // Apply edits emitted by an expand/resolve hook: structural → segment rewrite,
   // otherwise pipeline. Inherits the parent edit's range and mix unless overridden.
@@ -772,17 +785,13 @@ function compilePlan(a, len, final, measure = false) {
       re = [rType, o]
       if (rOp?.whole) throw new Error(`audio: whole-render op '${rType}' cannot be emitted by expand/resolve`)
       if (o.mix != null && !rOp?.params?.includes('mix')) mixable(rType, o.mix, rOp)
-      if (rOp?.plan && typeof rOp.plan === 'function') {
-        bake()
+      if (typeof rOp?.plan === 'function') {
         let { at: rAt, duration: rDur, channel: rCh, ...rExtra } = o
-        let t = planLen(segs), rOff = rAt != null ? Math.round(rAt * sr) : null, rLen = rDur != null ? Math.round(rDur * sr) : null
-        let rpctx = mkPlanCtx(t, sr, rOff, rLen, rExtra)
-        segs = rOp.plan(segs, rpctx)
-        if (!final) limit = adjustLimit(limit, rType, rpctx)
+        restructure(rOp, rType, rAt, rDur, rExtra)
       } else {
         pushProc(re)
       }
-      if (rOp?.sr) { let ns = rOp.sr(sr, o); if (ns) sr = ns }
+      rerate(rOp, o)
     }
   }
 
@@ -818,7 +827,7 @@ function compilePlan(a, len, final, measure = false) {
       let expanded = op.expand(ctx)
       if (expanded !== null && expanded !== undefined) {
         if (expanded !== false) applyEmitted(expanded, at, duration, channel, mix)
-        if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
+        rerate(op, extra)
         continue
       }
     }
@@ -855,10 +864,10 @@ function compilePlan(a, len, final, measure = false) {
         return s.done()
       }
       let resolved = op.resolve(ctx)
-      if (resolved === false) { if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }; continue }
+      if (resolved === false) { rerate(op, extra); continue }
       if (resolved) {
         applyEmitted(resolved, at, duration, channel, mix)
-        if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
+        rerate(op, extra)
         continue
       }
     }
@@ -875,10 +884,10 @@ function compilePlan(a, len, final, measure = false) {
       let ranged = op.frames && (at != null || duration != null), framesOf = n => Math.max(0, Math.round(op.frames(n, extra, sr)))
       if (measure && !a.edits.slice(i + 1).some(([n]) => ops[n]?.resolve)) {
         let [s0, s1] = ranged ? spanOf(t, at, duration, sr) : [0, 0]
-        let n = t + Math.round((typeof op.tail === 'function' ? op.tail(extra, sr) : op.tail || 0) * sr)
+        let n = t + tailN(op, extra)
         segs = [seg(0, ranged ? t - (s1 - s0) + framesOf(s1 - s0) : op.frames ? framesOf(n) : n, 0, undefined, null)]
-        pipeline = []; latency = 0; warmup = 0; pulls = []
-        if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
+        clear()
+        rerate(op, extra)
         continue
       }
       if (t > MAX_FLAT_SIZE) throw new Error(`Audio too large for whole-render op '${type}' (${(t / 1e6).toFixed(0)}M samples)`)
@@ -894,8 +903,8 @@ function compilePlan(a, len, final, measure = false) {
         let [s0, s1] = ranged ? spanOf(input[0].length, at, duration, sr) : [0, 0], whole = input, cl = 0
         if (ranged) { let c = Math.round(SEAM_CONTEXT * sr); cl = Math.min(c, s0); input = input.map(x => x.subarray(s0 - cl, Math.min(x.length, s1 + c))) }
         // declared tail → extend input with silence so the decay renders (equal frames in/out)
-        let tailN = ranged ? 0 : Math.round((typeof op.tail === 'function' ? op.tail(extra, sr) : op.tail || 0) * sr)
-        if (tailN > 0) input = input.map(chn => { let e = new Float32Array(chn.length + tailN); e.set(chn); return e })
+        let tail = ranged ? 0 : tailN(op, extra)
+        if (tail > 0) input = input.map(chn => { let e = new Float32Array(chn.length + tail); e.set(chn); return e })
         // channel-changing whole op (e.g. 2→5.1 upmix) — output owns its declared width
         let outCh = (op.ch && op.ch(input.length, extra)) || input.length
         // structural whole op (e.g. time-stretch) — declared frames hook sets output length
@@ -913,21 +922,14 @@ function compilePlan(a, len, final, measure = false) {
       }
       segs = [seg(0, ref._.len, 0, undefined, ref)]
       ch = ref._.ch
-      pipeline = []; latency = 0; warmup = 0; pulls = []
-      if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
+      clear()
+      rerate(op, extra)
       continue
     }
 
-    if (op.plan) {
-      bake()
-      let t = planLen(segs), offset = at != null ? Math.round(at * sr) : null, length = duration != null ? Math.round(duration * sr) : null
-      let pctx = mkPlanCtx(t, sr, offset, length, extra)
-      segs = op.plan(segs, pctx)
-      if (!final) limit = adjustLimit(limit, type, pctx)
-    } else {
-      pushProc(edit)
-    }
-    if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
+    if (op.plan) restructure(op, type, at, duration, extra)
+    else pushProc(edit)
+    rerate(op, extra)
   }
   let totalLen = planLen(segs)
   if (final) limit = totalLen
