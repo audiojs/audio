@@ -30,7 +30,7 @@
  */
 import audio, { arrived, parseTime } from '../core.js'
 import { i0 } from './dsp.js'
-import { isCurve, curveFn, stampOf, inputOf } from '../plan.js'
+import { isCurve, curveFn, stampOf, inputOf, rangeOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
 
 const TURNS = Symbol('phase.turns'), RAMP = 0.01, REACH = 0.093, BETA = 10
@@ -100,9 +100,7 @@ function phase(input, output, ctx) {
     st = ctx._ph = { tr: transformer(nch, sr), f, c: Math.cos(v * rad), s: Math.sin(v * rad) }
     st.lat = st.tr.B + st.tr.D
   }
-  // the range, absolute (ctx.at is block-relative), in samples of the timeline
-  let p0 = Math.round((ctx.blockOffset || 0) * sr), ranged = ctx.at != null || ctx.duration != null
-  let a0 = ctx.at != null ? Math.round((ctx.at + (ctx.blockOffset || 0)) * sr) : 0, a1 = ctx.duration != null ? a0 + Math.round(ctx.duration * sr) : Infinity
+  let p0 = Math.round((ctx.blockOffset || 0) * sr), ranged = ctx.at != null || ctx.duration != null, [a0, a1] = rangeOf(ctx)
   let R = Math.max(1, Math.round(RAMP * sr)), { tr, f } = st
   for (let i = 0; i < len;) {
     let k = Math.min(len - i, tr.B - tr.n), at = tr.n

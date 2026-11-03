@@ -19,7 +19,7 @@
  * a cursor at the ratio semitones give instead.
  */
 
-import { seg, subSeg, spliceSegs, planOffset, isCurve, curveFn } from '../plan.js'
+import { seg, subSeg, spliceSegs, planOffset, isCurve, curveFn, rangeOf } from '../plan.js'
 import { i0, sinc } from './dsp.js'
 import audio, { xfade } from '../core.js'
 import pvocLock from '@audio/stretch/pvoc-lock'
@@ -441,15 +441,6 @@ function lookupAt(ot, fv, t) {
 
 const minOf = a => a.reduce((m, v) => v < m ? v : m, Infinity)
 const maxOf = a => a.reduce((m, v) => v > m ? v : m, -Infinity)
-
-/** An op's range on the timeline, in samples: [a0, a1), as the engine hands it over (`at` relative to this block);
- *  unranged, the whole timeline. */
-export const rangeOf = ctx => {
-  let sr = ctx.sampleRate
-  if (ctx.at == null && ctx.duration == null) return [-Infinity, Infinity]
-  let a0 = ctx.at != null ? Math.round((ctx.at + (ctx.blockOffset || 0)) * sr) : 0
-  return [a0, ctx.duration != null ? a0 + Math.round(ctx.duration * sr) : Infinity]
-}
 
 // The source back through the plan's map, stretched by the vocoder: the factor over the range (a sliding one per
 // quantum), 1 outside it, where the vocoder runs only for its context and the crossfades. Ranged, the stretch also

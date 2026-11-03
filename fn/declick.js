@@ -16,6 +16,7 @@
  * and warm-up the span and its trailing context (0.93 s at 44.1 kHz). With a range, spans away from it pass through.
  */
 import audio from '../core.js'
+import { rangeOf } from '../plan.js'
 
 const W = sr => 2 ** Math.round(Math.log2(0.046 * sr))   // the kernel's analysis window
 const span = sr => 16 * W(sr), context = sr => 4 * W(sr)
@@ -31,9 +32,7 @@ function declick(input, output, ctx) {
     st = ctx._dc = { n, k, base: n, buf: Array.from({ length: nch }, () => new Float32Array(H + 2 * M + len)), fill: 0, done: [] }
   }
   let end = Number.isFinite(ctx.totalDuration) ? Math.round(ctx.totalDuration * sr) : Infinity
-  // the range, absolute: ctx.at is block-relative
-  let s0 = ctx.at != null ? Math.round((ctx.at + (ctx.blockOffset || 0)) * sr) : ctx.duration != null ? 0 : null
-  let s1 = s0 == null ? null : ctx.duration != null ? s0 + Math.round(ctx.duration * sr) : Infinity
+  let [s0, s1] = rangeOf(ctx), ranged = ctx.at != null || ctx.duration != null
   let mod = audio.op('declick').mod.default
 
   for (let i = 0; i < len; i++, st.n++) {
@@ -44,9 +43,9 @@ function declick(input, output, ctx) {
     let a = st.k * H
     if (a < end && (n + 1 >= a + H + M || n + 1 >= end)) {
       let i0 = Math.max(0, a - M, st.base), i1 = Math.min(n + 1, a + H + M, end), b = Math.min(a + H, end)
-      let near = s0 == null || (a < s1 + M && a + H > s0 - M)
+      let near = a < s1 + M && a + H > s0 - M
       let opts = { fs: sr, threshold: ctx.threshold, longest: ctx.longest, order: ctx.order }
-      if (s0 != null) opts.regions = [{ at: (s0 - i0) / sr, duration: (Math.min(s1, i1) - s0) / sr }]
+      if (ranged) opts.regions = [{ at: (s0 - i0) / sr, duration: (Math.min(s1, i1) - s0) / sr }]
       st.done.push({ a, out: st.buf.map(x => {
         let seg = x.subarray(i0 - st.base, i1 - st.base)
         return (near ? mod(seg, opts) : seg).slice(a - i0, b - i0)

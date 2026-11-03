@@ -20,6 +20,7 @@
  * sample for sample.
  */
 import audio from '../core.js'
+import { rangeOf } from '../plan.js'
 import { hann } from './dsp.js'
 import { fft, ifft } from 'fourier-transform'
 
@@ -118,8 +119,7 @@ function deconstruct(input, output, ctx) {
   let len = input[0].length, nch = input.length
   if (flat(ctx)) { for (let c = 0; c < nch; c++) output[c].set(input[c]); return }
   let st = ctx._dc ??= init(ctx, nch), sr = ctx.sampleRate, { N, H, L, R } = st
-  // the range, absolute (ctx.at is block-relative)
-  let a0 = ctx.at != null ? Math.round((ctx.at + (ctx.blockOffset || 0)) * sr) : -Infinity, a1 = ctx.duration != null ? Math.max(a0, 0) + Math.round(ctx.duration * sr) : Infinity
+  let [a0, a1] = rangeOf(ctx)
   for (let i = 0; i < len; i++, st.p++) {
     let p = st.p
     for (let c = 0; c < nch; c++) { st.in[c][p & (N - 1)] = input[c][i]; st.dry[c][p & (R - 1)] = input[c][i] }

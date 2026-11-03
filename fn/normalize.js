@@ -1,7 +1,7 @@
 import { dcOffsets, peakDb, rmsDb, lufsDb, lufsFromStats, printed } from './loudness.js'
 import { i0, sinc } from './dsp.js'
 import audio, { resolveChannels, blockAt } from '../core.js'
-import { buildPlan, render } from '../plan.js'
+import { buildPlan, render, rangeOf } from '../plan.js'
 import { LOUDNESS, specOf } from './specs.js'
 
 const MODES = ['peak', 'lufs', 'rms']
@@ -179,8 +179,7 @@ function ceiling(input, output, ctx) {
   let base = Math.round((ctx.blockOffset || 0) * sr), lim = 10 ** ((ctx.limit ?? -1) / 20)
   let P = ctx.peaks, s = P && 10 ** ((ctx.gain ?? 0) / 20)
   let pks = P && P.floor * s <= lim ? scaled(P, base, len, s, st) : st.reach(input, lim)
-  let r0 = ctx.at != null ? base + Math.round(ctx.at * sr) : -Infinity
-  let r1 = ctx.duration != null ? r0 + Math.round(ctx.duration * sr) : Infinity
+  let [r0, r1] = rangeOf(ctx)
   // the deque a ring: its head, the slot after its tail, how many it holds; how many samples in a row needed no limiting
   let n = st.n, rPrev = st.rPrev, env = st.env, sum = st.sum, ai = st.ai, qh = st.qh, qt = st.qt, qk = st.qk, di = st.di, quiet = st.quiet
 
@@ -407,7 +406,7 @@ audio.op('normalize', {
     // past that reads its own).
     let peaks = null, limit = ['ceiling', { limit: ceiling }]
     if (ctx.stream && !ctx.adaptive) {
-      let r0 = ctx.at == null ? -Infinity : Math.round(at * sampleRate), r1 = ctx.duration == null ? Infinity : r0 + Math.round(ctx.duration * sampleRate)
+      let [r0, r1] = rangeOf({ sampleRate, at: ctx.at == null ? null : at, duration: ctx.duration })
       peaks = peaksOf(ctx.stream(hasDc ? edits[0] : ['gain', { value: 0 }]), chs, 10 ** ((ceiling - (makeup ? gain[1].value + MARGIN : g0)) / 20))
       if (peaks && !over(peaks, g0, ceiling, r0, r1)) { gain[1].value = g0; return edits.length === 1 ? edits[0] : edits }
       if (peaks) Object.assign(limit[1], { peaks, gain: gain[1].value })

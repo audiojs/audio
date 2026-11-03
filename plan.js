@@ -139,6 +139,15 @@ export function opRange(ctx, len) {
   return [s, ctx.duration != null ? s + Math.round(ctx.duration * sr) : len]
 }
 
+/** An op's range on the timeline, in samples: [a0, a1), as the engine hands it over (`at` relative to this block), for
+ *  an op that keeps state across blocks; a duration alone from 0, as opRange reads it; unranged, the whole timeline. */
+export function rangeOf(ctx) {
+  let sr = ctx.sampleRate
+  if (ctx.at == null && ctx.duration == null) return [-Infinity, Infinity]
+  let a0 = ctx.at != null ? Math.round((ctx.at + (ctx.blockOffset || 0)) * sr) : 0
+  return [a0, ctx.duration != null ? Math.max(a0, 0) + Math.round(ctx.duration * sr) : Infinity]
+}
+
 // ── Op Registration ─────────────────────────────────────────────
 
 function isOpts(v) {

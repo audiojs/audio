@@ -26,7 +26,7 @@
  */
 import audio, { arrived, parseTime } from '../core.js'
 import { hann } from './dsp.js'
-import { isCurve, curveFn, stampOf, inputOf } from '../plan.js'
+import { isCurve, curveFn, stampOf, inputOf, rangeOf } from '../plan.js'
 import { sincInterp } from './resample.js'
 import { fft } from 'fourier-transform'
 
@@ -77,7 +77,7 @@ function azimuth(input, output, ctx) {
   for (let c = 0; c < nch; c++) { buf[c].copyWithin(0, st.fill - keep, st.fill); buf[c].set(input[c], keep) }
   st.b0 = p0 - keep; st.fill = keep + len
   let ranged = ctx.at != null || ctx.duration != null, R = Math.max(1, Math.round(RAMP * sr))
-  let a0 = ctx.at != null ? Math.round((ctx.at + (ctx.blockOffset || 0)) * sr) : 0, a1 = ctx.duration != null ? a0 + Math.round(ctx.duration * sr) : Infinity
+  let [a0, a1] = rangeOf(ctx)
   for (let c = 0; c < nch; c++) {
     let x = buf[c], y = output[c], ch = chans[c]
     for (let i = 0; i < len; i++) {

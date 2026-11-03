@@ -56,7 +56,7 @@
  * they are the same.
  */
 import audio, { parseTime, named, fingerprint } from '../core.js'
-import { stampOf, inputOf } from '../plan.js'
+import { stampOf, inputOf, rangeOf } from '../plan.js'
 
 const LEARNED = Symbol('denoise.learned'), REDUCTION = 12
 // the print's grid: 23.4375 Hz (24 kHz over 1024 bands), the bins of a 2048 frame at 48 kHz
@@ -139,7 +139,7 @@ function init(ctx, nch) {
   if (!list) throw new Error('denoise: the noise is learned before rendering, through read(), stream() or save()')
   let reduction = ctx.reduction ?? REDUCTION, thr = 10 ** ((ctx.threshold ?? 0) / 10)
   let n0 = Math.round((ctx.blockOffset || 0) * sr), g0 = Math.ceil(n0 / hop) * hop
-  let st = { n: n0, g0, s0: -Infinity, s1: Infinity, chans: [] }
+  let st = { n: n0, g0, chans: [] }
   // the band's bins, each whose centre is inside it; the rest kept as they were (`was`)
   let band = ctx.band, k0 = band ? Math.ceil(band[0] * N / sr) : 0, k1 = band ? Math.min(N / 2, Math.floor(band[1] * N / sr)) : N / 2
   let was = band && new Float32Array(N / 2 + 1)
@@ -157,7 +157,7 @@ function init(ctx, nch) {
     let visit = (mag, phase, state, sc) => {
       let mid = g0 - (N - hop) + (sc?.pos ?? f * hop) + N / 2
       f++
-      return proc && mid >= st.s0 && mid < st.s1 ? gain(proc, mag, phase) : { mag, phase }
+      return proc && mid >= st.range[0] && mid < st.range[1] ? gain(proc, mag, phase) : { mag, phase }
     }
     let stft = stftStream(visit, { fs: sr, frameSize: N, hopSize: hop })
     st.chans.push({ stft, q: new Float32Array(N << 2), len: N - 1, drop: N - hop - stft.write(new Float32Array(N - hop)).length })
@@ -172,10 +172,9 @@ function push(ch, x) {
 }
 
 function denoise(input, output, ctx) {
-  let st = ctx._dn ??= init(ctx, input.length), sr = ctx.sampleRate, len = input[0].length
-  // the op's own range (ranged op: ctx.at is block-relative), in samples of its timeline
-  if (ctx.at != null) st.s0 = Math.round((ctx.at + (ctx.blockOffset || 0)) * sr)
-  if (ctx.duration != null) st.s1 = Math.max(st.s0, 0) + Math.round(ctx.duration * sr)
+  let st = ctx._dn ??= init(ctx, input.length), len = input[0].length
+  // the op's own range, in samples of its timeline
+  st.range = rangeOf(ctx)
   let skip = Math.max(0, Math.min(len, st.g0 - st.n))  // before the first frame on the grid: passed as it is
   for (let c = 0; c < input.length; c++) {
     let ch = st.chans[c], x = input[c], y = output[c]

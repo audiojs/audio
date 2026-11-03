@@ -8,8 +8,8 @@
  */
 
 import audio from '../core.js'
-import { isCurve } from '../plan.js'
-import { shifter, shiftBlock, shiftLatency, rangeOf } from './stretch.js'
+import { isCurve, rangeOf } from '../plan.js'
+import { shifter, shiftBlock, shiftLatency } from './stretch.js'
 
 // A voice: @audio/tune-curve's retuner (TD-PSOLA on the voice's cycles, one set for all channels), loaded with the op on
 // first use, out of the bundle; missing, only a voice shift fails. What it runs behind, for voices down to 60 Hz, is

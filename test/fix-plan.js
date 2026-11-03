@@ -778,3 +778,27 @@ test('length — follows a sound an edit reads, edited after', async t => {
   t.is(a.duration, 2.25)
   t.is((await a.read())[0].length, 2250, 'as read')
 })
+
+// A range given by its duration alone starts at 0, as the engine reads it for every op (plan.js opRange, core.js ranged):
+// each op that reads its range itself renders { duration } as { at: 0, duration }, sample for sample
+test('range — a duration alone starts at 0, in every op that reads its own range', { timeout: 60000 }, async t => {
+  let sr = 48000, n = 2 * sr, seed = 1, rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647 - 0.5
+  let x = Float32Array.from({ length: n }, (_, i) => (i % 4800 < 200 ? 0.9 : 0.05) * Math.sin(2 * Math.PI * 220 * i / sr) + 0.02 * rnd())
+  let other = Float32Array.from({ length: n }, (_, i) => 0.3 * Math.sin(2 * Math.PI * 330 * i / sr))
+  // every ranged op, and normalize, which resolves its range; repair asks for `at` itself, crossfade's duration is its length
+  let args = { gain: { value: -6 }, fade: { in: 0.1 }, mix: { source: [other, other] }, write: { data: [other, other] },
+    ceiling: { limit: -12 }, pan: { value: 0.5 }, _stretch_dsp: null, pitch: { semitones: 3 }, spectral: { band: [500, 2000], gain: -20 },
+    repair: null, formant: { semitones: 3 }, crossfade: null, denoise: { noise: { at: 1.5, duration: 0.4 } }, declick: {},
+    phase: { angle: 90 }, azimuth: { delay: 0.5 }, deconstruct: { tonal: -12 }, normalize: { target: -6, mode: 'lufs' } }
+  let ranged = Object.keys(audio.op()).filter(k => audio.op(k).ranged)
+  t.is(ranged.filter(k => !(k in args)), [], 'each ranged op is listed here')
+  let off = {}
+  for (let [name, o] of Object.entries(args)) {
+    if (!o) continue
+    let read = r => audio.from([x, x.slice()], { sampleRate: sr }).run([name, { ...o, ...r }]).read()
+    let [a, b] = [await read({ duration: 1 }), await read({ at: 0, duration: 1 })]
+    let d = 0; for (let c = 0; c < 2; c++) for (let i = 0; i < a[c].length; i++) d = Math.max(d, Math.abs(a[c][i] - b[c][i]))
+    if (d) off[name] = d
+  }
+  t.is(off, {}, '{ duration: 1 } as { at: 0, duration: 1 }, sample for sample (the most any op parts by, if any)')
+})

@@ -24,14 +24,13 @@
  *   routed on their mix: a transplant copies the same passage into each.
  */
 import audio from '../core.js'
+import { rangeOf } from '../plan.js'
 
 const N = 2048, HOP = N / 4
 
-/** Absolute region [s0, s1) in samples and band [f0, f1] in Hz; ranged op, so ctx.at is block-relative. */
+/** Absolute region [s0, s1) in samples and band [f0, f1] in Hz */
 function region(ctx) {
-  let sr = ctx.sampleRate, s0 = -Infinity, s1 = Infinity
-  if (ctx.at != null) s0 = Math.round((ctx.at + (ctx.blockOffset || 0)) * sr)
-  if (ctx.duration != null) s1 = Math.max(s0, 0) + Math.round(ctx.duration * sr)
+  let sr = ctx.sampleRate, [s0, s1] = rangeOf(ctx)
   let [f0 = 0, f1 = sr / 2] = ctx.band ?? []
   return { s0, s1, f0, f1 }
 }
