@@ -1023,20 +1023,10 @@ fn.seek = function(t) {
   t = Math.max(0, t)
   this.seeking = true
   this.currentTime = t
-  if (this.cache) {
-    let page = Math.floor(t * this.sampleRate / audio.PAGE_SIZE)
-    ;(async () => {
-      for (let i = Math.max(0, page - 1); i <= Math.min(page + 2, this.pages.length - 1); i++) {
-        if (this._.disposed) return
-        if (this.pages[i] === null && await this.cache.has(i)) {
-          if (this._.disposed) return
-          const data = await this.cache.read(i)
-          if (this._.disposed) return
-          this.pages[i] = data
-          touchLru(this, i)  // restoring counts as access — keeps it eligible for normal LRU aging
-        }
-      }
-    })().catch(() => {})
+  // the pages about it back from the cache ahead of the read (cache.js), from the one before to two after
+  if (this.cache && audio.ensurePages) {
+    let PS = audio.PAGE_SIZE, page = Math.floor(t * this.sampleRate / PS), from = Math.max(0, page - 1) * PS
+    audio.ensurePages(this, from / this.sampleRate, ((page + 3) * PS - from) / this.sampleRate).catch(() => {})
   }
   if (this.playing && this._.play) this._.play.seek(t)
   else this.seeking = false

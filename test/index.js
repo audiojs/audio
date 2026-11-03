@@ -1972,6 +1972,21 @@ test('seek — preloads nearby pages only', async t => {
   t.ok(a.currentTime === 1.5, 'currentTime position set')
 })
 
+// A seek brings back from the cache the pages about it, from the one before to two after, and no others
+test('seek — restores the evicted pages about it, ahead of the read', async t => {
+  let n = PAGE_SIZE * 8, x = Float32Array.from({ length: n }, (_, i) => Math.sin(i / 50)), asked = []
+  let store = { read: async i => (asked.push(i), [x.slice(i * PAGE_SIZE, (i + 1) * PAGE_SIZE)]), has: async () => true, write: async () => {} }
+  let a = audio.from(store, { length: n, channels: 1, sampleRate: 48000 })
+  a.seek(PAGE_SIZE * 4.5 / 48000)
+  while (asked.length < 4) await new Promise(r => setTimeout(r, 1))
+  t.is(asked, [3, 4, 5, 6], 'pages 3 to 6 about page 4')
+  t.ok(a.pages[4] && !a.pages[2] && !a.pages[7], 'held, the others not')
+  a.seek(0)
+  while (asked.length < 7) await new Promise(r => setTimeout(r, 1))
+  t.is(asked.slice(4), [0, 1, 2], 'at the start, pages 0 to 2')
+  a.dispose()
+})
+
 test('metadata event — fires before full decode with sampleRate/channels', async t => {
   let a = audio(lenaMp3)
   let meta = await new Promise(r => a.on('metadata', r))
