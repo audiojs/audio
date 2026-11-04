@@ -498,10 +498,8 @@ test('editor: markers on a file opened come back where they were after a reload'
 // The strip under the lanes, as Photoshop's split slider marks a range under its bar: a named range ◢ its name ◣
 // there, small serifs hanging from the lanes' foot, a faint line along their feet from its name to its end, lit as
 // it is pointed at, nothing of it over the sound but its stretch pointed at; its name still in sight once it is
-// selected, no line of the selection in the strip. Plain hovered over the lanes, the main lines alone either side of
-// the pointer (a range's ends, the sound's), not the cues a scrub shows, down the lanes in the cues' colour; on one, a
-// short wash on its sound's side
-test('editor: the strip under the lanes marks a range, its line and serifs, named, nothing over the sound; hovered, the cues either side', async () => {
+// selected, no line of the selection in the strip. Plain hovered over the lanes, no cue line; held Alt, every one
+test('editor: the strip under the lanes marks a range, its line and serifs, named, nothing over the sound; hovered, no cues', async () => {
   await open()
   await write(`audio('chime.wav').mark({ at: 2, d: 2 }, 'Chorus')`)
   await lengthIs('0:08.000')
@@ -551,34 +549,18 @@ test('editor: the strip under the lanes marks a range, its line and serifs, name
   await page.mouse.move(box.x + 5, box.y + box.height - 8)
   assert.equal(await marked([px(5.2), px(5.8)], [lane + 1, lane + FOOT - 1]), 0, 'no line of the selection in the strip')
   await page.mouse.click(x(.5), box.y + TOP + (lane - TOP) / 2)
-  // plain hovered over the lanes between two strikes: the main lines either side alone, down the lanes (their top rows,
-  // over the sound's quiet edge): the range's end at 4 s and the sound's at 8 s, none of the strikes' cues between
+  // plain hovered over the lanes, no line: the cues show as a thing is dragged, never on a hover
   const lines = () => pixels(`const out = []; for (let x = 0; x < arg.w; x++) { const i = (arg.y * w + x) * 4; if (d[i] - d[i + 2] > 30 && (!out.length || x - out.at(-1) > 2)) out.push(x) } return out`, { y: TOP + 3, w: px(8) + 2 })
-  let near = []
-  for (const until = Date.now() + 8000; near.length < 2 && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.move(x(5.3), box.y + TOP + (lane - TOP) / 3); near = await lines() }
-  assert.ok(near.length === 2 && Math.abs(near[0] - px(4)) <= 1 && Math.abs(near[1] - px(8)) <= 1, `the range's end and the sound's either side of 5.3 s: ${near}`)
-  // in the gap between the sound's channels too, nothing going out as the pointer crosses it
-  await page.mouse.move(x(5.3), box.y + TOP + (lane - TOP) / 2)
+  await page.mouse.move(x(5.3), box.y + TOP + (lane - TOP) / 3)
   await frames()
-  assert.deepEqual(await lines(), near, 'the same in the gap between its channels')
-  // between them, no wash; on one (within 3 px, where a press would snap), the sound's start, a short wash after it,
-  // gone within WASH (8) px
-  const tint = (xs, dx) => pixels(`return arg.xs.map(x => { const i = (arg.y * w + x + arg.dx) * 4; return d[i] - d[i + 2] })`, { xs, y: TOP + 3, dx })
-  assert.ok((await tint(near.slice(0, 1), 3)).every(v => v < 4), 'between them, no wash')
-  const on = px(0)
-  await page.mouse.move(box.x + on + 1, box.y + TOP + (lane - TOP) / 3)
-  await poll(async () => [await tint([on], 3), await tint([on], 12)], ([after, past]) => assert.ok(after[0] >= 8 && past[0] < 4, `on it, washed after it: ${after}; 12 px on: ${past}`), 3000)
+  assert.deepEqual(await lines(), [], 'plain hovered, none')
+  await page.mouse.move(box.x + px(0) + 1, box.y + TOP + (lane - TOP) / 3)
+  await frames()
+  assert.deepEqual(await lines(), [], 'on the sound\'s start, none')
   // held Alt, every cue's line
   await page.keyboard.down('Alt')
   await poll(lines, all => assert.ok(all.length > 2, `held Alt, ${all.length} lines`), 3000)
   await page.keyboard.up('Alt')
-  // snapping off: none, a press going where it is
-  await menu('View', 'Snap')
-  await page.mouse.move(x(5.3), box.y + TOP + (lane - TOP) / 3)
-  await poll(lines, near => assert.deepEqual(near, [], 'none with snapping off'), 3000)
-  // the pointer gone from the lanes: none
-  await page.mouse.move(box.x + 5, box.y + box.height - 8)
-  await poll(lines, near => assert.deepEqual(near, [], 'none with the pointer off the lanes'), 3000)
 })
 
 // A range pointed at in its strip lights its stretch over the sound, as a press there would select it; selected

@@ -174,8 +174,8 @@ export async function stopRecording() {
   const parts = [...t.passes.map(p => [p + lead, room]), ...cut ? [] : [[t.pass + lead, length]]]
   if (!(parts[0][1] > 0)) { t.tape.drop(); if (t.into) v.take(null); places(); return note('Nothing was recorded.') }
   // the caret at once where the take ends: what follows waits on the tape and the engine, frames in which it would
-  // show where the take began
-  if (t.into) v.setCursor(from + parts.at(-1)[1] / rate)
+  // show where the take began; into nothing too, the take drawn there the sound till its own comes
+  v.setCursor(from + parts.at(-1)[1] / rate)
   const names = []
   for (const _ of parts) names.push(names.length ? unique('take.wav', new Set([...taken(), ...names])) : t.name)
   // each as it was written down as it came (keep.js tape), a file read from disk as the engine decodes it: none of it

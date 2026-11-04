@@ -199,6 +199,23 @@ test('editor: a take stopped, the caret at its end from the first frame, never b
   for (const [playhead, cursor] of frames) assert.ok(playhead != null || cursor > 2.5, `a frame after stop: playhead ${playhead}, caret ${cursor}`)
 })
 
+// Into nothing (an empty tab), the same: the take drawn is the sound till its own comes, the caret at its end, never
+// back at 0 where it began
+test('editor: a take into an empty tab stopped, the caret at its end from the first frame', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await page.addInitScript(() => localStorage.setItem('audio-repl', JSON.stringify({ code: '' })))
+  await page.goto(origin + '/playground/')
+  await page.getByRole('button', { name: 'Record', exact: true }).click()
+  await page.waitForFunction(() => __view.playhead > .6, null, { timeout: 15000 })
+  const frames = await page.evaluate(async () => {
+    document.querySelector('button.record').click()
+    const out = [[__view.playhead, __view.cursor]]
+    for (let i = 0; i < 12; i++) { await new Promise(r => requestAnimationFrame(r)); out.push([__view.playhead, __view.cursor]) }
+    return out
+  })
+  for (const [playhead, cursor] of frames) assert.ok(playhead != null || cursor > .5, `a frame after stop: playhead ${playhead}, caret ${cursor}`)
+})
+
 // The microphone is opened once and kept between takes (sources.js): the second take asks the device for nothing and
 // starts on the next block; a hidden page lets it go (its tracks ended), the next take opens it again; another channel
 // count opens another

@@ -12,14 +12,16 @@ button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .4; }
 :focus { outline: none; }
-/* Scrollbars, every one alike and as the picture's (view.js paintBar): a faint thumb 6px thick, 2px off the edge, on no
-   track; under the pointer the same size, only brighter. Chrome drops the ::-webkit-scrollbar look wherever
-   scrollbar-width or scrollbar-color is set, so those are for Firefox alone, which has no other */
-@supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: var(--color-scroll) transparent; } }
-::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+/* Scrollbars, every one alike and as the picture's (view.js paintBar, paintLift): a faint round thumb 4px thick, 2px off
+   the edge, on no track, there only while the pointer is over what scrolls; under the pointer 6px and brighter. Chrome
+   drops the ::-webkit-scrollbar look wherever scrollbar-width or scrollbar-color is set, so those are for Firefox
+   alone, which has no other */
+@supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: transparent transparent; } *:hover { scrollbar-color: var(--color-scroll) transparent; } }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
-::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 5px; background: var(--color-scroll) padding-box; }
-::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { background-color: color-mix(in oklab, var(--color-scroll), var(--color-screen-soft) 40%); }
+::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 4px; background: transparent padding-box; }
+:hover::-webkit-scrollbar-thumb { background-color: var(--color-scroll); }
+::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { border-width: 1px; background-color: color-mix(in oklab, var(--color-scroll), var(--color-screen-soft) 40%); }
 [hidden] { display: none !important; }
 /* Until the script takes the page over, its conditional and repeated parts stay out of sight and the rest takes no
    clicks, never shown dead. Sprae drops each directive attribute as it takes that element, so any version of the
@@ -362,11 +364,13 @@ svg { flex: none; }
 
 /* The bar's parts */
 /* Play, record and loop, side by side as on a deck, one round button each */
-.record, .play, .busy, .loop { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--color-screen-bright); }
-.record, .busy, .loop { width: 36px; height: 36px; }
-.record:hover, .loop:hover:not(:disabled) { background: var(--color-screen-hover); }
-.loop { margin-right: 4px; color: var(--color-screen-muted); }
-.loop svg { width: 17px; height: 17px; }
+.record, .play, .busy { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--color-screen-bright); }
+.record, .busy { width: 36px; height: 36px; }
+.record:hover { background: var(--color-screen-hover); }
+/* the loop by the length, small, as a mode of what plays is: a ring, no key cap */
+.loop { flex: none; align-self: baseline; translate: 0 1px; display: grid; place-items: center; width: 24px; height: 24px; margin-left: -6px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--color-screen-muted); }
+.loop:hover:not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-soft); }
+.loop svg { width: 14px; height: 14px; }
 .loop[aria-pressed="true"] { color: var(--color-screen-accent); }
 /* before the edits, a key at the bar's right end: lit while the file as it opened is heard */
 .before { flex: none; min-height: 22px; margin-left: 12px; padding: 0 8px; border: 0; border-radius: 11px; background: var(--color-quiet); color: var(--color-screen-muted); font: 11px var(--font-mono); }
@@ -377,11 +381,12 @@ svg { flex: none; }
 .record:hover .record-icon { opacity: 1; }
 /* Recording, a square to stop it, steady; armed, the microphone still opening, it blinks, as a deck's record key does */
 .record.on .record-icon { border-radius: 2px; opacity: 1; }
-/* what it would do, pointed at with Alt or Shift held, beside the dot as a menu's chevron is: a fork, a take; a plus, a
-   new track */
+/* what it would do, pointed at with Alt or Shift held, inside the dot, grown to hold it: a fork, a take; a plus, a new
+   track */
 .record { position: relative; }
-.record-how { position: absolute; top: 50%; left: 25px; display: none; width: 9px; height: 9px; translate: 0 -50%; }
+.record-how { position: absolute; top: 50%; left: 50%; display: none; width: 10px; height: 10px; translate: -50% -50%; color: var(--color-screen); }
 .record:hover:is(.forking, .adding) .record-how { display: block; }
+.record:hover:is(.forking, .adding) .record-icon { width: 17px; height: 17px; opacity: 1; }
 .record.forking .how-track, .record.adding .how-take { display: none; }
 .record.armed .record-icon { animation: armed .5s steps(1) infinite; }
 @keyframes armed { 50% { opacity: .3; } }

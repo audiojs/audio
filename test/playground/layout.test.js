@@ -258,7 +258,7 @@ test('editor: output and bar are one block, the panel docked at the output\'s ri
   assert.ok(Math.abs(bar.y + bar.height - (panes.y + panes.height)) <= 1, 'the bar ends the block')
   assert.ok(Math.abs(bar.x - panes.x) <= 1 && Math.abs(bar.x + bar.width - (panes.x + panes.width)) <= 1, 'the whole width')
   const loop = await box('button.loop')
-  assert.ok(play.x - bar.x < 24 && play.x < record.x && record.x < loop.x && loop.x + loop.width < view.x + view.width, 'play, record, loop, at its start')
+  assert.ok(play.x - bar.x < 24 && play.x < record.x && record.x < loop.x && loop.x + loop.width < view.x + view.width, 'play and record at its start, loop after them')
   assert.equal(await page.locator('.status').evaluate(el => getComputedStyle(el).borderTopWidth), '0px')
   const over = await box('.side-head')
   assert.ok(Math.abs(head.width + over.width - panes.width) <= 1 && head.y + head.height <= view.y + 1 && Math.abs(over.x - side.x) <= 1, 'the head over both: the picture\'s and the panel\'s')
@@ -327,7 +327,7 @@ for (const [device, width, height, touch] of [['desktop', 1280, 800, false], ['t
     // its parts in reading order, those shown: { name, x, y, w, h, cut }; the bar's box; the page's width and the window's
     const parts = p => p.evaluate(() => {
       const box = e => { const r = e.getBoundingClientRect(), s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' ? { x: r.x, y: r.y, w: r.width, h: r.height, cut: e.scrollWidth > e.clientWidth + 1 } : null }
-      const named = [['play', '.deck-slot:has(.play)'], ['record', '.deck-slot:has(.record)'], ['loop', '.loop'], ['time', '.time'], ['length', '.length'], ['undo', '.history .undo'], ['redo', '.history button:last-child'],
+      const named = [['play', '.deck-slot:has(.play)'], ['record', '.deck-slot:has(.record)'], ['time', '.time'], ['length', '.length'], ['loop', '.loop'], ['undo', '.history .undo'], ['redo', '.history button:last-child'],
         ['status', '.message-words'], ['readout', '.readout'], ['facts', '.facts'], ['before', '.before']]
       const shown = named.map(([name, s]) => { const e = document.querySelector(s), b = e && (name !== 'status' || e.textContent) && box(e); return b && { name, ...b } }).filter(Boolean)
       return { shown, bar: box(document.querySelector('.status')), page: document.documentElement.scrollWidth, window: innerWidth }

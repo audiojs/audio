@@ -297,7 +297,9 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
       // on the spectrogram, the level its colour stands for under it, and where that falls on the spectrum meter's scale
       const db = pitched(lane, L) ? loudness(lane.i, lane, at) : null
       if (db == null) return
-      axis(decibel(db), ly + 21)
+      // under the colours' floor (no energy there: below the lowest bin, −∞), as low as they show: under it
+      const floor = decibels?.[0] ?? -Infinity
+      axis(db < floor ? `<${decibel(floor)}` : decibel(db), ly + 21)
       // measuring, where its row crosses the spectrum meter, which shows the spectrum under the pointer (probe)
       if (measure && meters?.spectra && show.spectrum) { c.fillStyle = gauge(); c.fillRect(Math.round(meterX(meterAt(metered(L)), db)) - 1, ly - 1, 3, 3) }
     }

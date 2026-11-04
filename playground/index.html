@@ -339,7 +339,7 @@
         <!-- the picture's side: play and the time, what is happening, what the output holds -->
         <div class="status-main">
           <!-- the transport, as a deck's: play, a ring round it how far through the sound it plays; record, off while it
-               plays, as Play is while it records; loop. Play held and dragged searches, back and forth, its line over it.
+               plays, as Play is while it records. Play held and dragged searches, back and forth, its line over it.
                While the engine works (status), Record gives way to a ring of how far it has come, turning where nothing
                says, its square stopping it; Play plays what there is -->
           <span class="deck-slot">
@@ -349,11 +349,11 @@
             <button class="busy" :inert="!halting" :class="{ turning: arrived == null }" :style="'--arrived: ' + (arrived ?? 0)" :onclick="stop" aria-label="Stop" :title="'Stop: ' + progress"><span class="stop-icon" aria-hidden="true"></span></button>
             <button class="record" :class="{ on: recording, armed: recording?.pending, forking: whole && !recording && held === 'alt', adding: whole && !recording && held === 'shift' }" :inert="halting" :disabled="playing || shuttle != null" :onpointerdown="armRecording" :onclick="toggleRecording" :aria-label="recording ? 'Stop recording' : 'Record'" :title="recording?.pending ? 'Cancel' : recording ? 'Stop (' + shortcut('record') + ')' : whole && held === 'alt' ? 'Record a take (' + shortcut('record.take') + ')' : whole && held === 'shift' ? 'Record in a new track (' + shortcut('record.track') + ')' : 'Record (' + shortcut('record') + ')'"><span class="record-icon" aria-hidden="true"></span><svg class="record-how" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="how-take" d="M3 7h6l6 10h6M15 7h6"/><path class="how-track" d="M12 5v14M5 12h14"/></svg></button>
           </span>
-          <button class="loop" :aria-pressed="loop ? 'true' : 'false'" aria-label="Loop" :title="tip('loop')" :onclick="toggleLoop" :disabled="!whole"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11V6h17m-4-4 4 4-4 4M21 13v5H4m4-4-4 4 4 4"/></svg></button>
           <!-- the time, and after it how long all that is selected is, or with nothing selected all of the sound, softer;
                a sound on its way, dashes till its length is known; with no sound, nothing, what the engine says coming
-               right after the time -->
-          <p class="clock" :title="timeTitle" aria-live="off"><span class="time" :text="timeText" :onclick="bringTime" :title="timeTip">0:00.000</span><span class="length" :class="{ whole: lengthWhole }" :text="lengthText" :onclick="frameLength" :title="lengthTitle"></span></p>
+               right after the time; by the length, loop, a mode of what plays (the selection or all of it), not an act
+               as Play and Record are -->
+          <p class="clock" :title="timeTitle" aria-live="off"><span class="time" :text="timeText" :onclick="bringTime" :title="timeTip">0:00.000</span><span class="length" :class="{ whole: lengthWhole }" :text="lengthText" :onclick="frameLength" :title="lengthTitle"></span><button class="loop" :aria-pressed="loop ? 'true' : 'false'" aria-label="Loop" :title="tip('loop')" :onclick="toggleLoop" :disabled="!whole"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6H8a6 6 0 0 0 0 12h8a6 6 0 0 0 0-12M9 3l3 3-3 3"/></svg></button></p>
           <!-- after the length, the history: undo, redo -->
           <div class="history" role="group" aria-label="History">
             <button class="icon-button undo" :aria-disabled="canUndo ? null : 'true'" :onclick="undo" aria-label="Undo" :title="tip('undo')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>

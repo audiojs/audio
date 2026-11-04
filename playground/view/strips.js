@@ -1,13 +1,14 @@
 import clock from '../time.js'
-import { markLane, ownMarks, snappedTo, placed } from './data.js'
+import { markLane, ownMarks, placed } from './data.js'
 import { ghost, CHUNK, plot, spare, lanes, floor, inRoom, own, inLanes, roomLane, banded } from './geometry.js'
 import { fine, nearCue } from './gestures.js'
 import { EDGE, FOOT, KINDS, mac, root, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, band, cursor, playhead, cues, bounds, snapping, clips, aview, levelUnits, data, tracks, focus, allLanes, sections, windows, lift, chosen, held, assign } from './model.js'
 import { clipMarks } from './notes.js'
-import { say, triangleAt, WASHED, washFrom, crossAt, lanesEnd, seenTo } from './overlay.js'
+import { say, triangleAt, crossAt, lanesEnd, seenTo } from './overlay.js'
 import { drag, hot } from './pointer.js'
 import { W, moved, invalidate, wash } from './render.js'
-import { x, X, time, digits, seen, stick, inside, fy, ay, sampled, decibel } from './scales.js'
+import { THIN, THICK } from './ruler.js'
+import { x, X, digits, seen, inside, fy, ay, sampled, decibel } from './scales.js'
 
 // The strips under the lanes and across them: the measure, the fades at the view's edges, each band's look, the room
 // under the tracks, the selection behind the sound, the cues, the markers and the names
@@ -90,17 +91,20 @@ export function paintRoom(L, at) {
   if (on && !tracks) say('New track', at[0] + 12, at[1] - 16)
 }
 // More bands than the picture holds: a scrollbar down its right edge, its thumb where those in sight are among them
-// all, dragged as any is (liftAt)
+// all, dragged as any is (liftAt), drawn as the time's (paintBar): a round thumb on no track, there while the pointer
+// is over the picture, THICK and brighter under it
 const LIFT = 6
 export const thumb = () => { const { h } = plot(), th = Math.max(24, h * h / (h + spare)); return { y: lift / spare * (h - th), h: th, room: h - th } }
 export const liftAt = (px, py) => spare > 0 && px >= W - LIFT && py <= plot().h
 export function paintLift(at) {
-  if (!spare) return
-  const t = thumb(), on = drag?.lifting || at && liftAt(...at)
-  c.fillStyle = color('--color-screen-rule')
-  c.fillRect(W - 4, 0, 3, plot().h)
-  c.fillStyle = color(on ? '--color-screen-bright' : '--color-screen-soft')
-  c.fillRect(W - 4, Math.round(t.y), 3, Math.round(t.h))
+  if (!spare || !hovered && !drag?.lifting) return
+  const t = thumb(), on = drag?.lifting || at && liftAt(...at), tw = on ? THICK : THIN
+  c.globalAlpha = on ? .6 : .3
+  c.fillStyle = color('--color-screen-soft')
+  c.beginPath()
+  c.roundRect(W - tw - 1, Math.round(t.y), tw, Math.round(t.h), tw / 2)
+  c.fill()
+  c.globalAlpha = 1
 }
 // A value by the pointer, on a patch of the screen so the labels under it give way
 export function tag(text, px, py, align, fill = color('--color-screen-bright'), pill = null) {
@@ -158,23 +162,20 @@ export function paintEdge(L, sel) {
 }
 // a time as the whole page writes it, in the units chosen (time.js): 0:05, 5.0s, 240000
 export const stamp = (t, d = digits()) => clock(t, units, { digits: d, rate })
-// Cues: shown only where they matter, never a forest over the sound, as Figma shows its guides as a thing is dragged:
-// dragged (the caret held, an edge, a range dragged out, a marker's serif), what it snaps to either side of where it
-// is, faint: the cues, the markers' and the takes' ends; plain over the edited track's lanes, the main ones alone either
-// side of the pointer (the sound's own start and end, the markers' and the takes' ends); the one a press there would
-// snap to brighter, with a short wash on the side its sound is on (washFrom); held Alt (`all`), all of them, faint; held ⌘ (Ctrl), the one under the pointer a
-// press would take; the one dragged, bright where it will land; those an end measured to sits on (`lit`), lit
+// Cues: shown only where they matter, never a forest over the sound, as Figma shows its guides only as a thing is
+// dragged: dragged (the caret held, an edge, a range dragged out, a marker's triangle), what it snaps to either side of
+// where it is, faint: the cues, the markers' and the takes' ends; nothing on a plain hover; held Alt (`all`), all of
+// them, faint; held ⌘ (Ctrl), the one under the pointer a press would take; the one dragged, bright where it will land;
+// those an end measured to sits on (`lit`), lit
 const on = (lit, px) => lit.some(t => Math.abs(x(t) - px) < .5)
 // The time a drag moves, as the caret or a range's end: the caret held, an edge, a range dragged out (Shift held before
 // the press or after it), a marker's serif moved (a range's end, the one held), else null
 export const dragged = () => drag?.caret ? cursor : drag?.resizing || drag?.anchor != null && drag.moved && !drag.box ? drag.hear
   : drag?.marker != null && drag.moved ? drag.edge ? drag.end : drag.to : null
-// the time dragged, or the pointer's plain over the edited track's lanes, snapping on (not held ⌘, which aims finely,
-// nothing snapping), where a press there would put the caret
-const aimedAt = () => dragged() ?? (!drag && hovered && snapping && !editing() && inLanes(own(lanes()).all, hovered[1]) ? time(hovered[0]) : null)
+
 export const editing = (keys = held) => !!(mac ? keys.metaKey : keys.ctrlKey)
 export function paintCues(rects, lit, all = false) {
-  const t0 = aimedAt(), times = seen().map(i => cues[i]), marks = ownMarks(), lines = new Map()
+  const t0 = dragged(), times = seen().map(i => cues[i]), marks = ownMarks(), lines = new Map()
   const pool = (all || dragged() != null ? [...times, ...marks] : [...times.filter(t => bounds.has(t)), ...marks]).sort((p, q) => p - q)
   // a line at a time, as it is drawn (moved), the brightest asked for it; none on a dragged line (that line alone, white,
   // the crosses saying it snapped)
@@ -184,14 +185,11 @@ export function paintCues(rects, lit, all = false) {
   }
   if (all) for (const t of pool) put(t, .4)
   if (t0 != null && snapping) { const p = X(t0); put(pool.findLast(t => X(t) < p - .5), .4); put(pool.find(t => X(t) > p + .5), .4) }
-  const onto = drag || t0 == null ? null : stick(t0)?.t
-  if (pool.includes(onto)) put(onto, .7)
   const near = !drag && hovered ? nearCue(...hovered, held) : -1
   if (near >= 0) put(cues[near], .7)
   for (const t of drag ? [] : lit) put(times.find(c => Math.abs(X(c) - X(t)) < .5), 1)
   if (drag?.cue != null) lines.set(X(drag.to), { t: drag.to, a: 1 })
   for (const [px, { t, a }] of lines) {
-    if (t === onto) washFrom(px, snappedTo(t).side, rects, a * WASHED)
     c.fillStyle = accent()
     c.globalAlpha = a
     for (const [, ly, , lh] of rects) c.fillRect(px, ly, 1, lh)
