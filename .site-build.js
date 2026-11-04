@@ -6,7 +6,7 @@ import { build, context } from 'esbuild'
 import { builtinModules } from 'node:module'
 import { constants } from 'node:fs'
 import { copyFile, cp, readFile, rm, writeFile } from 'node:fs/promises'
-import { dirname, join, normalize, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import audio from './audio.js'
 
@@ -238,6 +238,9 @@ async function page(dir) {
  *  bundles made before, and the playground's page as deployed (page) */
 export async function site(dir) {
   dir = resolve(dir)
+  // cleared first: never the repository, nor a folder that holds it
+  const up = relative(dir, ROOT)
+  if (!up.startsWith('..') && !isAbsolute(up)) throw new Error(`.site-build.js: ${dir} holds the repository; the site goes to a folder of its own`)
   await rm(dir, { recursive: true, force: true })
   await cp(ROOT, dir, { recursive: true, mode: constants.COPYFILE_FICLONE, filter: src => resolve(src) !== dir && !/(^|\/)(\.[^/]*|node_modules)$/.test(relative(ROOT, src)) })
   await page(dir)
