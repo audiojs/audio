@@ -247,9 +247,12 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 
 ### 5. The playground's architecture, written
 
-- [ ] `playground/README.md` (now: embedding only) gains the realms, the data flow (code → model → run → output → view and player),
+- [x] `playground/README.md` (now: embedding only) gains the realms, the data flow (code → model → run → output → view and player),
       what is cached where, and the invariants now spread through comments, each linked to its test
-- [ ] the track grammar `code.js` infers, stated; side state kept by track name reconciled with the code on every change
+- [x] the track grammar `code.js` infers, stated; side state kept by track name reconciled with the code on every change:
+      stated in the README, and not pruned on every change: a rename in the UI carries a track's mute, lock, height, view
+      and being edited; a name the script lost is ignored and its state stays, so a half-typed name, a syntax error or an
+      undo loses nothing. A new track reusing that name takes what it holds
 - Written as each stage lands; finished last
 
 ## Draft feature boundaries (final map after stage 0, from the integrated files)
