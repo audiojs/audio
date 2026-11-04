@@ -5,7 +5,7 @@ import { drag } from './pointer.js'
 import { W, H, invalidate } from './render.js'
 import { gutter, x, X, time, clamp } from './scales.js'
 import { told } from './select.js'
-import { NAMES, NAMEH, strips, stripAt, fieldTop } from './strips.js'
+import { NAMES, NAMEH, strips, stripAt, fieldTop, forks } from './strips.js'
 
 // Geometry: the bands and their lanes, the rooms under the tracks, each track's height, the takes' places and the
 // frozen pieces, laid out
@@ -91,8 +91,7 @@ export function placeTakes(L) {
   })
 }
 export function placeFork(L) {
-  const m = !drag && hovered ? stripAt(...hovered, L) : null, mark = m?.kind === 'mark' && markers[m.i]
-  const seen = mark?.duration && !sections.some(t => (t.lane ?? null) === markLane(mark) && Math.abs(X(t.at) - m.x0) < 1)
+  const m = !drag && hovered ? stripAt(...hovered, L) : null, seen = m && forks(m)
   forkButton.hidden = !seen
   if (!seen) return
   forkButton.dataset.i = m.i
