@@ -111,7 +111,7 @@ test('editor: a copy puts the range on the system clipboard, as code and as a WA
   await page.waitForFunction(() => /\.copy\(/.test(scriptText()))
   const [, at, d] = (await code()).match(/\.copy\(\{ at: ([\d.]+), d: ([\d.]+) \}\)/).map(Number)
   // the WAV encoded in the worker, the clipboard written once it comes
-  await page.waitForFunction(async () => { try { return (await navigator.clipboard.read())[0]?.types.includes('web audio/wav') } catch { return false } })
+  await page.waitForFunction(async () => { try { const t = (await navigator.clipboard.read())[0]?.types ?? []; return t.includes('web audio/wav') && t.includes('text/plain') } catch { return false } })
   const got = await page.evaluate(async () => {
     const [item] = await navigator.clipboard.read()
     return { types: item.types, text: await (await item.getType('text/plain')).text(), wav: [...new Uint8Array(await (await item.getType('web audio/wav')).arrayBuffer())] }

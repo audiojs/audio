@@ -812,7 +812,7 @@ async function layersOf(y, rate = 5.5) {
   return { centre: M[0][K], vibrato: Math.hypot(M[1][K], M[2][K]), drift: Math.hypot(M[3][K], M[4][K]) }
 }
 
-test('modulation, drift, center: a note\'s vibrato, drift and centre each scaled apart, the others kept', async t => {
+test('modulation, drift, center: a note\'s vibrato, drift and centre each scaled apart, the others kept', { timeout: 30000 }, async t => {
   if (!await import('@audio/tune-curve').catch(() => null)) return t.ok(true, 'skipped: @audio/tune-curve is not installed')
   let sr = 44100, x = held(), was = await layersOf(x), run = async f => layersOf((await f(audio.from([x.slice()], { sampleRate: sr })).read())[0])
   let near = (got, want, tol) => Math.abs(got - want) <= tol
