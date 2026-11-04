@@ -34,7 +34,9 @@ jobs:
       - run: npm ci
         env:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
-      - run: npm run build
+      # the library's dist/, then the site's bundles (git holds none): a test importing the playground's modules in Node
+      # (code.js reads assets/lezer.js) finds them before it runs
+      - run: npm run build && node .site-build.js
       - run: npx playwright install --with-deps chromium
       # a sound device for the pages: without one Chromium plays to a fake sink whose clock runs ahead of real time,
       # which the recording and playback tests measure; a PulseAudio null sink keeps it real time, as on a user's machine
