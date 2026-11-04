@@ -234,10 +234,16 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
       suite (447) after 2, 13, 17, V2, V13: 444, 445, 446, 445, 445 passed. The failures: the playhead by the frames' own
       time, dragged inside the selection, a take recorded as the others play, each passing 3 of 3 alone; a sound longer
       than the page holds, 3 of 5 alone at V13 as at master. Where the moves part from the design: `.work/stage4.md` §7
-- [ ] one command list `{ id, label, keys, when, run }`: menus, context menu, shortcuts, tooltips, the Mac menu bar and the agent's
-      tools read it. Today the same actions are written three times (`menus()`, two keydown handlers, the agent's `page` API)
-- [ ] `test/playground.test.js` (848 KB, 407 tests) split the same way; `test/scope.js` picks by feature
-- Done: each command defined once; no playground module past ~600 lines without a reason written at its top
+- [x] (49028f2) one command list `{ id, label, keys, when, run }`: menus, context menu, shortcuts, tooltips, the Mac menu bar and the agent's
+      tools read it. Today the same actions are written three times (`menus()`, two keydown handlers, the agent's `page` API).
+      `playground/editor/commands.js`, 78 commands, 25 with keys; as built, and what stays apart: `.work/stage4.md` §8.
+      Full suite after it: 446 of 447, none failing, one skipped
+- [x] (e7ed44e) `test/playground.test.js` (848 KB, 407 tests) split the same way; `test/scope.js` picks by feature: 23 files in
+      `test/playground/` over `page.js`, run a file at a time (`npm run test:playground`), `.work/stage4.md` §9. Full suite
+      after it: 446 of 447, none failing, one skipped
+- Done: each command defined once; no playground module past ~600 lines without a reason written at its top. Past it:
+  scrub-methods.js (1,301, a vendored bundle, its top says so) and help.js (869, text by op) have their reason;
+  `playground/worker.js` (1,553) and `code.js` (931) have none: left for a split of their own
 
 ### 5. The playground's architecture, written
 
