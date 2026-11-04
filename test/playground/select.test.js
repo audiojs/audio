@@ -774,6 +774,7 @@ test('editor: dragged inside the selection, its audio slides over what is there;
   assert.equal(await page.locator('.plot').evaluate(el => el.style.cursor), 'grab', 'over the selection, a hand')
   // (once made: till then what it moved is frozen, no press taking it)
   await page.waitForFunction(() => !document.querySelector('.plot .veil:not([hidden])'))
+  await settled()
   await page.mouse.click(x(4.5), y)
   assert.equal(await selected(), '', 'clicked inside it, no selection')
   assert.equal((await code()).match(/\.move\(/g).length, 1)
