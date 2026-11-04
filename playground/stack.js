@@ -1,8 +1,12 @@
 import { ops, methods, format, fromManifest, reshapes, labelOf, icons } from './ops.js'
 import opIcons from './icons.js'
 import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing, unsplit, useTake } from './code.js'
-import { help, layout } from './help.js'
 import { SLOP } from './view.js'
+
+// What each setting does and which come first (help.js), the largest text the page has: loaded with the first card's
+// settings, not with the page
+let help, layout
+const words = () => import('./help.js').then(m => ({ help, layout } = m))
 
 // The edits: the chain's steps as cards, in order, as Luminar's edits or a history panel; the same chain as the code,
 // as controls, a rack of cards as mel's modules. The sound it starts from is the first card (the file opened, or
@@ -442,7 +446,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
     const self = {
       dom, ready: false, spec: null,
       async load() {
-        const name = card.call.name, spec = ops[name]?.params || fromManifest(await describe(name))
+        const name = card.call.name, [spec] = await Promise.all([ops[name]?.params || describe(name).then(fromManifest), help || words()])
         if (card.params !== self) return
         self.spec = spec
         // a source, a band or what is learned from a selection is set in the code or on the picture, not by a slider

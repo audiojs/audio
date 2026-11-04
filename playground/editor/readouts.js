@@ -1,6 +1,6 @@
 import { NOTES, noteOf } from '../view.js'
 import { levels, spectra, ballistics } from '../meters.js'
-import { root, cueTimes, layouts } from './config.js'
+import { root, cueTimes, layouts, SHOWN } from './config.js'
 import { state, eng, v, ed, pl, output, shown, carded, notesFor, assign } from './context.js'
 import { cuesOf } from './edits.js'
 import { dbfs, stamp, hertz, chordName } from './format.js'
@@ -161,12 +161,15 @@ let hearings = {}
 // rests, and dropped if they or the track have moved on since. A note's cents from 5 on: less is about the least
 // change of pitch heard (frequency DLs of 0.2–0.3% at mid frequencies, 3.5–5 cents: Moore, An Introduction to the
 // Psychology of Hearing, 6th ed., 2012, ch. 6), and as close as the pitch curve reads a steady tone (1 cent off on 440 Hz)
+// Embedded with parts named and the heard readout not among them (config.js SHOWN): nothing listened for, nothing loaded
+// for it in the engine (its key, tempo and chord finders)
+const HEARD = !SHOWN.length || SHOWN.includes('heard')
 let listening = 0
 export function listen() {
   clearTimeout(listening)
   state.heard = null
   hearings = {}
-  if (!output?.duration || pl.playing || state.band || state.boxes > 1) return
+  if (!HEARD || !output?.duration || pl.playing || state.band || state.boxes > 1) return
   const out = output, sel = state.selection, at = v.cursor, track = laneIndex(out), now = () => out === output && laneIndex() === track && `${state.selection}` === `${sel}` && (sel || v.cursor === at)
   listening = setTimeout(async () => {
     const r = await eng.listen(out.id, sel ? [...sel] : [at - .06, at + .06], sel ? [...sel] : [0, out.duration], track).catch(() => null)
@@ -190,6 +193,7 @@ export function listen() {
 // one the playhead is in and the next a few seconds before it gets there, each asked for once; said as it changes
 export let live = { id: null, track: undefined, blocks: [], asking: false, off: false, text: null }
 export function chordAt(t) {
+  if (!HEARD) return
   if (live.id !== output?.id || live.track !== laneIndex()) live = { id: output?.id, track: laneIndex(), blocks: [], asking: false, off: false, text: null }
   const has = at => live.blocks.some(b => at >= b.from && at < b.to), want = [t, t + 5].find(at => at < v.duration && !has(at))
   if (want != null && live.id != null && !live.asking && !live.off) {
