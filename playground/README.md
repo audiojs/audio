@@ -100,8 +100,8 @@ let bed = audio('bed.mp3').gain(-18)
 What a track's lane holds outside the script is kept by the track's name: its mute (`state.muted`), lock (`state.locked`), height (`heights`), what it shows (`kinds`), and which track is edited (`state.track`).
 
 - A rename in the UI (`renameTrackTo`) carries all five to the new name.
-- A name the script no longer has is ignored, and the edited track falls back to one it has (`trackOf`).
-- State under a missing name stays on purpose. A half-typed name, a syntax error or an undo must not lose a track's mute. The cost is that a new track reusing an old name, or a rename typed into the script, takes whatever that name holds.
+- A track made or taken away in the UI (`anew`) clears what its name held, so a new one of that name starts clean.
+- A name lost by typing in the script is ignored, and the edited track falls back to one the script has (`trackOf`). Its state stays on purpose: a half-typed name or a syntax error must not lose a track's mute. The cost is that a rename typed into the script leaves the state behind, and a track typed in under an old name takes it.
 
 ### Keys, menus and the agent
 

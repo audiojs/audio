@@ -1,7 +1,6 @@
 # Refactor: one library, one engine, small modules, tests on state
 
-Approved 2026-11-02. Nothing else lands in `playground/`, `test/playground.test.js` or the library's root modules until this is done.
-Owner: session audio-9e. Other sessions: finish what you have, report to audio-9e (don't commit), start nothing new here.
+Approved 2026-11-02. Stages 0, 1, 3, 4 and 5 done 11-03, stage 2 but for what its list leaves open; `playground/` is open again.
 
 ## Why
 
@@ -251,8 +250,8 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
       what is cached where, and the invariants now spread through comments, each linked to its test
 - [x] the track grammar `code.js` infers, stated; side state kept by track name reconciled with the code on every change:
       stated in the README, and not pruned on every change: a rename in the UI carries a track's mute, lock, height, view
-      and being edited; a name the script lost is ignored and its state stays, so a half-typed name, a syntax error or an
-      undo loses nothing. A new track reusing that name takes what it holds
+      and being edited; a track made or taken away in the UI clears them (`anew`); a name lost by typing is ignored and
+      its state stays, so a half-typed name or a syntax error loses nothing ('a mute kept by a name the script lost')
 - Written as each stage lands; finished last
 
 ## Draft feature boundaries (final map after stage 0, from the integrated files)

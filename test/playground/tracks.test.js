@@ -533,6 +533,24 @@ test('editor: Alt and a track\'s speaker solos it', async () => {
   assert.deepEqual(await pressed(), ['false', 'false', 'false'])
 })
 
+// What a track's name holds outside the script stays while typing has the name gone (a name half written, a line broken)
+// and is there when it comes back; the sound is heard without the mute a name no track has
+test('editor: a mute kept by a name the script lost, back with the name', async () => {
+  await open()
+  await noCues()
+  const two = name => `let a = audio('chime.wav')\n\nlet ${name} = audio('rhodes.wav')`
+  await write(two('b'))
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  await page.getByRole('button', { name: 'Mute b' }).click()
+  await write(two('c'))
+  await page.getByRole('button', { name: 'Mute c' }).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Mute c' }).getAttribute('aria-pressed'), 'false', 'c, a name of its own, heard')
+  await write(`let a = audio('chime.wav')\n\nlet b = audio(`)
+  await write(two('b'))
+  await page.getByRole('button', { name: 'Mute b' }).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Mute b' }).getAttribute('aria-pressed'), 'true', 'b again, muted')
+})
+
 // A track taken away is laid out at once, before the mix without it comes, the mix playing still with it: a lane pressed
 // then edits the track it shows, and its speaker mutes no track it does not show
 test('editor: a track taken away, a lane pressed before the mix without it comes is the track it shows', async () => {
