@@ -443,8 +443,8 @@ export function scheduleCheck(delay = 300) {
 
 export function wire() {
   eng.onrestart = () => { for (const d of docs) if (d.output) d.output.said = null }
-  // Settled, for whoever drives the page and waits on it (playground.test.js): the kept files read, no run waiting to
-  // start, asked or on its way, and two frames drawn since
+  // Settled, for whoever drives the page and waits on it (test/playground/page.js settled): the kept files read, no run
+  // waiting to start, asked or on its way, and two frames drawn since
   globalThis.__settled = async () => {
     const frame = () => new Promise(requestAnimationFrame)
     await restoring

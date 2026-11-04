@@ -37,5 +37,5 @@ const set = {
 }
 export function assign(o) { for (const k in o) set[k](o[k]) }
 
-// (no `export let`: tests patch these declarations' text, playground.test.js)
+// (no `export let`: tests patch these declarations' text, test/playground/)
 export { state, eng, v, ed, rk, pl, output, incoming, showing, timer, hush, steps, depthWas, rechoose, viewing, shown, carded, notesFor, queued }
