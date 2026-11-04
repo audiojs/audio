@@ -108,16 +108,15 @@ Missing: true harmonic resynthesis (`sbr` is a waveshaper exciter, not the voice
 - [ ] Listening test: input / sbr / recover / original, a few takes each, cut to 8 and 16 kHz (MUSHRA-style); the only evidence left that it sounds better
 - [ ] Pitched solo instruments: as it is, no better than sbr (one-off run, cut to 8 kHz, LSD 4–20 kHz: MDB-stem-synth 7 stems 11.5 against 11.4, GuitarSet solo 8 takes 13.7 against 13.2); the slopes are a voice's; per-instrument slopes untried
 
-### 3. Generative speech restoration: the Adobe Enhance class (1–2 weeks)
-- [ ] `restore()` on Sidon v0.1 (MIT; w2v-BERT 2.0's first 8 layers + LoRA, DAC decoder; 470 MB f16): export to ONNX on this laptop, int8, onnxruntime-node with CoreML, chunked as deepfilter
-- [ ] Measure against `deepfilter()` and `auto()`: VoiceBank+DEMAND, vbreverb, phone and laptop-mic takes; DNSMOS, UTMOS, WER (neural-asr), speaker similarity; listen blind
-- [ ] Strength knob: mix back into the input as deepfilter's mixback
-- [ ] `auto('speech')` gains it as the last repair stage when the package is installed
+### 3. Generative speech restoration: the Adobe Enhance class ([restore.md](restore.md))
+- [x] Plan, prior art and data audit: `.work/restore.md` (FINALLY's recipe; Sidon MIT as the teacher; the open-license data that exists for English, Russian and singing, and what does not)
+- [x] Training side built and smoke-tested on CPU: `train/restore/` (degradation chain with codecs, mixed-bandwidth targets through one band-limited loss, ConvNeXt + attention generator in the STFT, MPD + MRD + WavLM losses, resume, ONNX export verified, chunked inference, bench scoring)
+- [ ] First run on a GPU (VCTK, LibriTTS-R, VocalSet, OpenAIR/BUT rooms, MUSAN/FSD50K): dim 384, 50k steps; `score.py` on VoiceBank+DEMAND and vbreverb against `deepfilter()`
+- [ ] Teacher pass (Sidon) over Golos crowd, RuLS and separated CC vocals with the quality gate (DNSMOS, WER, speaker similarity); full-size run
+- [ ] `restore()` on `fn/deepfilter.js`'s `enhancer()`, `@audio/neural-restore`, weights hosted; measured against `deepfilter()`, `auto()` and Adobe Enhance v2 by hand; `auto('speech')` gains it as the last repair stage when the package is installed
 
-### 4. A browser-size restorer (weeks, only if 3 proves the gap)
-- [ ] Student 2–20M params (10–30 MB int8): a net predicting band gains, deep-filter taps and harmonic amplitudes, the DSP from 2 rendering them
-- [ ] Trained on Sidon's outputs over our own speech data (distillation, MIT allows), PyTorch MPS on this laptop
-- [ ] Runs in onnxruntime-web, WebGPU, real time
+### 4. A browser-size restorer
+- [ ] The same recipe at dim 384, 6 blocks (~8M, ~16 MB fp16); what it loses against full size; onnxruntime-web WebGPU and the RoFormer engine's kernels, real time in the page
 
 ### 5. Browser, measure what exists
 - [ ] **Fast, best-quality split on the GPU** (measured 2026-10-09 in Node, onnxruntime-node 1.30, machine under load: absolute times pessimistic, ratios hold)
