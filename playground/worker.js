@@ -11,11 +11,13 @@ import { attacks, rises, plainness } from '../fn/hits.js'
 import { steadyTempo } from '../fn/beat.js'
 import { contour as pitchOf, harmony } from '../fn/pitch-detect.js'
 import { notes as noted } from '@audio/pitch/pyin'
-import { expose } from '../worker.js'
 import { heard } from './heard.js'
 import { fft } from 'fourier-transform'
 import aWeighting from '@audio/weighting/a'
 import kWeighting from '@audio/weighting/k'
+// What plays from here (audio/worker's host, which speaks to the page once it adopts a voice), loaded with the first
+// voice asked of this worker, not with it
+const host = () => import('../worker.js')
 
 // Registry plugins load from their chunks: the build writes one literal import per plugin.
 audio.import = spec => plugins[spec]?.() ?? import(spec)
@@ -1278,6 +1280,7 @@ async function voice({ output, source, loudness, muted, ...as }) {
     a = muted && r.tracks && !r.tracks.some(t => t.master) ? mixOf(r.tracks, t => !muted.includes(t.name)) : r.sound.clone()
   }
   if (as.edit && !audio.op(as.edit[0])) await audio.use(as.edit[0])
+  const { expose } = await host()
   return { inst: expose(heard(a, as)) }
 }
 
@@ -1543,6 +1546,8 @@ const handlers = {
   }
 }
 self.onmessage = async ({ data }) => {
+  // a page adopting a voice hands audio/worker's host a port: the host's (loaded after this listener, it hears it after)
+  if (data?.['@audio']) return
   // a run taken: the worker is not held (engine.js HELD)
   if (data.type === 'run') post({ id: data.id, event: 'taken' })
   let reply
