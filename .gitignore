@@ -14,6 +14,7 @@ __pycache__/
 /models
 /.work/ui
 # made by node .site-build.js
+/_site
 /assets/aiff.js
 /assets/audio.js
 /assets/codemirror.js

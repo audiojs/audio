@@ -1,6 +1,7 @@
 name: pages
 # The website, built: the bundles in assets/ and the playground's engine in playground/dist/ (which git ignores) made
-# from this commit by node .site-build.js, then deployed and opened as a visitor would (test/live.js)
+# from this commit, the site as served in _site, the playground's page minified there (node .site-build.js _site), then
+# deployed and opened as a visitor would (test/live.js)
 on:
   push:
     branches: [master]
@@ -26,9 +27,8 @@ jobs:
       - run: npm ci
         env:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
-      - run: node .site-build.js
-      # the repository as served before, its dot-files and node_modules left out
-      - run: rsync -a --exclude='.*' --exclude=node_modules ./ _site/
+      # the repository as served, its dot-files and node_modules left out (.site-build.js site)
+      - run: node .site-build.js _site
       - uses: actions/upload-pages-artifact@v5
         with:
           path: _site

@@ -59,6 +59,8 @@ The script is the document. Every edit, from the picture, a card or the agent, r
 
 `npm run serve` builds the bundles, rebuilds them as sources change, and serves the repository with nothing cached. Tests build only `playground/dist/`, which git ignores.
 
+Pages serves the site `node .site-build.js _site` makes: the repository's files, and this page with its modules and stylesheet bundled and minified (`dist/page/`), what a module loads on first use a chunk of its own. The tests and `npm run serve` run the modules as they are. `node test/live.js --local` opens that site before a deploy, and holds the home's hero (an embed: no code pane, the parts and edits the home names) to its first-load budget, gzipped, the sound apart.
+
 ### From a keystroke to sound
 
 1. The script changes. `schedule()` in `editor/run.js` waits a moment; a slider runs at once.

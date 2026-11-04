@@ -50,7 +50,8 @@ const SUITES = [
   { name: 'memory', run: 'npm run test:memory', on: [...LIB, ...SITE, 'test/memory.test.js', 'test/memory-core.test.js'] },
   // the editor, a feature a suite: its engine against the library in Node, its code against the CLI
   ...Object.entries(FEATURES).map(([name, own]) => ({ name: `playground ${name}`, run: `node --test test/playground/${name}.test.js`, on: [...PLAYGROUND, ...own, `test/playground/${name}.test.js`], off: OWNED.filter(p => !own.includes(p)) })),
-  // what a visitor sees first, as test/live.js checks the deployed site after each deploy: here, before one
+  // what a visitor sees first, as test/live.js checks the deployed site after each deploy: here, before one, on the site
+  // as Pages gets it (the playground's page minified), the home's hero held to its first-load budget
   { name: 'live', run: 'node test/live.js --local', on: [...SITE, 'playground/', '.site-serve.js', 'test/live.js'] },
   { name: 'recording', run: 'CI= node --test --test-name-pattern="recording with the spectrogram shown" test/playground/recording.test.js', advice: true, on: ['playground/', 'test/playground/page.js', 'test/playground/recording.test.js'] },
   // real-time playback, clicks and gaps measured as heard
