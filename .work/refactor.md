@@ -87,8 +87,9 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 - [x] three guards for what was caught by eye (two; the third measured and left, below):
   - [x] (9f413b4) no engine run for a view-only action: a resize, the spectrogram, a theme, a tab shown again run nothing.
         A mute, a solo, a rename run once, the mix again (for the levels and the export), no track's block made again
-        (each track's step counts its blocks). The plan's "no run" for these three needs the page to stop asking that mix:
-        for the user
+        (each track's step counts its blocks). Kept, 11-03: a mute and a solo change what is heard, and the bar's levels, the
+        export and the agent's measures read that mix, so skipping it leaves them wrong; a rename's run renders nothing and
+        keys the output by its new names
   - [ ] followed playback under 4× CPU throttle, frame-time p99: not robust here, not added. Measured (load ~20, two
         tracks zoomed in, 3 s followed, three runs each): as it is, p99 16.7–83 ms, max 50–100; with the pictures drawn
         again each frame, the regression it would catch, p99 50–83, max 66–100, p95 33 against 16.7, ~130 frames against
