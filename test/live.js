@@ -8,7 +8,7 @@ import { chromium } from 'playwright'
 import { gzipSync } from 'node:zlib'
 
 // the home's hero's first load, at most (below)
-const BUDGET_KB = 520
+const BUDGET_KB = 510
 
 const local = process.argv[2] !== '--local' ? null : await (async () => {
   const { bundles, site } = await import('../.site-build.js'), { mkdtemp, rm } = await import('node:fs/promises'), { tmpdir } = await import('node:os'), { join } = await import('node:path')

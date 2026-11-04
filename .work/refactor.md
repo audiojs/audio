@@ -140,7 +140,15 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 - [ ] `loads.mjs` becomes a test: each library module instantiated once per realm
 - Done: page library bytes ~66 KB (from ~430 KB) (69 KB, c70d21e); `git status` clean after any build; an embed as the home's hero uses it
   (panel none, display wave, no code panel, no menubar) under 300 KB at first load, the user's target (11-02: 1,059 KB
-  gzipped today, the mp3's 176 KB apart), codecs, renderers and converters as they're needed
+  gzipped today, the mp3's 176 KB apart), codecs, renderers and converters as they're needed.
+  11-03, not met: 500 KB (895 before; branch `embed`: CodeMirror with a code pane or an undo, help.js with a card, no
+  key/tempo/chord finders without the heard readout, the page bundled and minified on Pages, the engine's audio/worker
+  host on first use, scrub's names alone on the page); test/live.js holds it at 510. The rest: the editor's whole UI in
+  the page bundle (196: every panel and menu, the spectrogram renderer, the agent, recipes, themes, wired at boot by
+  editor.js), the library in the engine (101 + 17 core: every op and measure audio.js imports; lazy ops by the engine
+  build alone measured −12, dropped: what stays eager rests on a scan for ops named in other modules, too fragile for
+  12 KB; the library registering its own ops lazily would carry it), the JS parser (47: code.js reads the script with
+  it), the font (29, Latin only already), the page (16), CSS (13)
 
 ### 3. The library owns engine concerns; duplicates removed
 
@@ -283,7 +291,8 @@ Work sessions have asked for, held until the stage that frees its files lands (t
 - playground/player.js says the speed plays "as a tape's: the pitch with it"; preservesPitch is true by default on both
   sides now, as before on the local one: the comment is stale
 - the audiojs.github.io session: an embed that loads only what its UI config uses (folded into stage 2); its host-side
-  preview in playground/embed.js was let through after stage 0
+  preview in playground/embed.js was let through after stage 0. Partly (11-03, branch `embed`): CodeMirror, help.js, the
+  heard readout's finders, scrub's ways load as their parts are used; the rest of the editor still loads with it (above)
 - the audiojs.github.io session, for the home's embed (after stage 4, unless the user overrides):
   - [ ] (taken back 11-03 by the audiojs.github.io session, in playground view.js, editor.js, menu.js, editor.css,
         index.html: keep out of those till it reports) the caret in an inactive tone while the picture isn't focused or
