@@ -313,7 +313,8 @@ test('editor: Denoise learns the noise where it is selected and takes it out eve
   await page.waitForFunction(() => /\.denoise\(\{ noise: \{ at: 6, d: 1\.5 \} \}\)$/.test(scriptText()))
   await tab('Edits')
   await page.locator('.step.open .step-name', { hasText: 'Denoise' }).waitFor()
-  assert.deepEqual(await page.locator('.step.open .param label').allInnerTexts(), ['reduction', 'threshold'])
+  // its settings, once what each says has come with the first card opened (help.js)
+  await poll(() => page.locator('.step.open .param label').allInnerTexts(), labels => assert.deepEqual(labels, ['reduction', 'threshold']))
   // the output comes with the noise taken out: its level changes, nothing goes wrong
   await page.waitForFunction(was => document.querySelector('.readout').textContent !== was, readout)
   assert.equal(await page.locator('.message.problem').count(), 0)

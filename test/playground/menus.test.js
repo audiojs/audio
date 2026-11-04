@@ -224,6 +224,8 @@ test('editor: one Stretch, its algorithm a choice; the menus name each method in
   await lengthIs('0:12.000')
   await tab('Edits')
   await page.locator('.step-name', { hasText: /^Stretch$/ }).click()
+  // its settings built (what each says comes with the first card opened, help.js), Advanced among them
+  await page.locator('.step.open .param').first().waitFor()
   const more = page.locator('.step.open .step-more')
   if (await more.count() && await more.getAttribute('aria-expanded') === 'false') await more.click()
   const method = page.locator('.step.open .param', { hasText: 'method' })
