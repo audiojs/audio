@@ -214,6 +214,8 @@ wireFiles()
 assign({ ed: codeEditor(root.querySelector('.script-editor'), {
   hint: hints,
   wrap: EMBED,
+  // embedded, CodeMirror comes with the code pane, if the page asks for one, or with an undo
+  lazy: EMBED,
   doc: first.code,
   onchange(code, update) {
     const slider = !!update?.transactions.some(tr => tr.isUserEvent('input.slider'))

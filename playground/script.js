@@ -5,11 +5,12 @@ import { ops, methods, stats, presets, GROUPS, format, fromManifest } from './op
 // number says what it sets in the page's hints (`hint`, hint.js), pointed at, selected, dragged or stepped.
 // `wrap`: long lines wrap to the panel's width, as an embedded editor's do, never hidden past its edge.
 // CodeMirror, the largest module the page has, which a phone waited on before anything showed, comes once the page
-// shows (`onready` then): till then each document is held here as it opened and the edits made to it since, in order,
+// shows (`onready` then); `lazy`, once its pane shows too, or an undo or a redo asks for it (an embed with no code pane
+// may never load it): till then each document is held here as it opened and the edits made to it since, in order,
 // which CodeMirror replays into its history as though they were made there, so nothing waits for it and nothing made
 // before it is lost to undo
 export default function editor(parent, options) {
-  const { doc = '', onchange, oncaret, onready } = options
+  const { doc = '', onchange, oncaret, onready, lazy = false } = options
   // a document: its text as it opened, the edits since ({ changes, userEvent, history, scroll }), its text now, its
   // selection, its errors; the one shown by its key, null till open() names it
   const plain = new Map([[null, { doc, text: doc, edits: [], selection: null, errors: [] }]])
@@ -42,8 +43,12 @@ export default function editor(parent, options) {
     dispatch({ changes: { from: a, to: end.length - b, insert: start.slice(a, start.length - b) }, userEvent: 'input.slider', history: false })
     dispatch({ changes: { from: a, to: start.length - b, insert: end.slice(a, end.length - b) }, userEvent: 'input.slider' })
   }
-  // after the page's first frames, so the page shows first
-  const ready = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+  // after the page's first frames, so the page shows first; lazy, once its pane has a size (shown) or it is asked for
+  let want
+  const wanted = new Promise(r => want = r)
+  if (!lazy) want()
+  else new ResizeObserver((_, seen) => { if (parent.offsetWidth) { seen.disconnect(); want() } }).observe(parent)
+  const ready = Promise.all([wanted, new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))])
     .then(() => import('../assets/codemirror.js'))
     .then(lib => { cm = codemirror(lib, parent, options, plain, key, { slide, settle }); plain.clear(); onready?.() })
   const self = {
@@ -72,8 +77,8 @@ export default function editor(parent, options) {
     // The caret moved without the keys: the page keeps them
     caret(pos) { cm ? cm.caret(pos) : dispatch({ selection: { anchor: pos } }) },
     // One history for typing, sliders and edits made on the waveform: before CodeMirror comes, undone as it does
-    undo() { cm ? cm.undo() : ready.then(() => cm.undo()) },
-    redo() { cm ? cm.redo() : ready.then(() => cm.redo()) },
+    undo() { cm ? cm.undo() : (want(), ready.then(() => cm.undo())) },
+    redo() { cm ? cm.redo() : (want(), ready.then(() => cm.redo())) },
     get canUndo() { return cm ? cm.canUndo : self.depth[0] > 0 },
     get canRedo() { return cm ? cm.canRedo : false },
     // Steps back and forth: [undoable, redoable]

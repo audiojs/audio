@@ -51,25 +51,28 @@ test('editor: embedded, another page\'s script runs alone, its panel as asked, n
   const url = new URL(src, origin)
   assert.equal(url.pathname, '/playground/')
   assert.deepEqual([...url.searchParams], [['embed', ''], ['ui', JSON.stringify({ panel: 'edits' })]])
-  const script = await page.evaluate(async hash => {
+  // a link's script, deflated, base64url; the frame's, as its way to the whole editor carries it
+  const unpack = hash => page.evaluate(async hash => {
     const bytes = Uint8Array.from(atob(hash.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
     return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text()
-  }, url.hash.slice('#code='.length))
+  }, hash.slice('#code='.length))
+  const linked = async () => {
+    await page.waitForFunction(() => document.querySelector('.embed-open')?.getAttribute('href')?.includes('#code='))
+    return unpack(new URL(await page.locator('.embed-open').getAttribute('href'), origin).hash)
+  }
+  const script = await unpack(url.hash)
   assert.equal(script, `audio('handpan.wav')\n  .gain(-6)`)
   // the frame's page: that script, its edits open, no tabs, the way to the whole editor carrying the script
   await page.goto(url.href)
   await page.locator('.step', { hasText: 'Gain' }).waitFor()
-  // CodeMirror, which comes once the page shows
-  await page.locator('.cm-content').waitFor({ state: 'attached' })
-  assert.equal(await page.evaluate(() => scriptText()), script)
+  assert.equal(await linked(), script)
   assert.equal(await page.evaluate(() => document.documentElement.classList.contains('embed')), true)
   assert.equal(await page.locator('.panes').getAttribute('data-side'), 'open')
   assert.equal(await page.locator('.stack').isVisible(), true)
   assert.equal(await page.locator('.files').isVisible(), false)
   assert.equal(await page.locator('.side-head').isVisible(), false)
-  // its lines wrap to the panel, none hidden past its edge
-  assert.equal(await page.locator('.cm-content.cm-lineWrapping').count(), 1)
-  await page.waitForFunction(() => document.querySelector('.embed-open')?.getAttribute('href')?.includes('#code='))
+  // no code pane to show it in: no CodeMirror
+  assert.equal(await page.locator('.cm-content').count(), 0)
   // past the 500 ms an editor keeps its script after (later): nothing written
   await page.waitForTimeout(700)
   assert.equal(await page.evaluate(() => localStorage.getItem('audio-repl')), kept)
@@ -77,8 +80,13 @@ test('editor: embedded, another page\'s script runs alone, its panel as asked, n
   // a reload runs the link again: it is all the frame has
   await page.reload()
   await page.locator('.step', { hasText: 'Gain' }).waitFor()
-  await page.locator('.cm-content').waitFor({ state: 'attached' })
+  assert.equal(await linked(), script)
+  // its code pane asked for: CodeMirror, which comes once the page shows, its lines wrapping to the panel, none hidden
+  // past its edge
+  await page.goto(origin + '/playground/?embed&panel=code' + url.hash)
+  await page.locator('.cm-content.cm-lineWrapping').waitFor({ state: 'attached' })
   assert.equal(await page.evaluate(() => scriptText()), script)
+  assert.equal(await page.evaluate(() => localStorage.getItem('audio-repl')), kept)
   // two frames beside an editor open in another tab of the same browser: none asks another to step aside, and the
   // editor's tabs stay as they were
   const context = await browser.newContext(), open = async href => {
@@ -147,6 +155,10 @@ test('editor: embedded, the page sets how far time zooms and how far past the en
 })
 
 test('editor: embedded, the parts the page names, its edits a press away, its files in and out', async () => {
+  // the script as the editor holds it: CodeMirror, with no code pane to show it in, comes only with the first undo
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('assign({ ed: codeEditor(', 'assign({ ed: globalThis.__ed = codeEditor(') }) })
+  const script = () => page.evaluate(() => __ed.code), mirrored = []
+  page.on('request', r => r.url().endsWith('/assets/codemirror.js') && mirrored.push(r.url()))
   await page.goto(origin + '/blank.html')
   const src = await page.evaluate(async () => {
     await import('/playground/embed.js')
@@ -208,21 +220,24 @@ test('editor: embedded, the parts the page names, its edits a press away, its fi
   assert.deepEqual(await menu().locator('.menu-about').allTextContents(), ['Longer or shorter, same pitch', 'Fade in and out', 'Play backwards'])
   await menu().filter({ hasText: 'Stretch' }).click()
   await length('0:10.000')
-  assert.equal(scriptOf(await page.evaluate(() => scriptText())), scriptOf(`audio('chime.wav').stretch(1.25)`))
+  assert.equal(scriptOf(await script()), scriptOf(`audio('chime.wav').stretch(1.25)`))
   // made: counted by the plus; in the menu first, checked, the others after it; pressed again, taken away
   assert.deepEqual([await page.locator('.embed-ops').getAttribute('aria-label'), await page.locator('.embed-ops span').textContent()], ['Edits, 1 made', '1'])
   await page.locator('.embed-ops').click()
   assert.deepEqual(await menu().evaluateAll(rows => rows.map(r => [r.querySelector('.menu-label').textContent, r.getAttribute('aria-checked')])), [['Stretch', 'true'], ['Fade', null], ['Reverse', null]])
   await menu().filter({ hasText: 'Stretch' }).click()
   await length('0:08.000')
-  assert.equal(scriptOf(await page.evaluate(() => scriptText())), scriptOf(`audio('chime.wav')`))
+  assert.equal(scriptOf(await script()), scriptOf(`audio('chime.wav')`))
   assert.deepEqual([await page.locator('.embed-ops').getAttribute('aria-label'), await page.locator('.embed-ops span').count()], ['Add an edit', 0])
+  // no code pane: no CodeMirror, till the first undo brings it, the press undoing once it has
+  assert.deepEqual(mirrored, [])
   // taken away as any edit is, undone as one: back, then gone again
   await page.locator('.history .undo').click()
   await length('0:10.000')
   await page.locator('.history .undo').click()
   await length('0:08.000')
-  assert.equal(scriptOf(await page.evaluate(() => scriptText())), scriptOf(`audio('chime.wav')`))
+  assert.equal(scriptOf(await script()), scriptOf(`audio('chime.wav')`))
+  assert.equal(mirrored.length, 1)
   // the sound's name over the picture; pressed, its ways in: a file, a take, the samples; one picked, in its place
   assert.equal(await page.locator('.embed-sound-name').textContent(), 'chime.wav')
   await page.locator('.embed-sound').click()
@@ -231,7 +246,7 @@ test('editor: embedded, the parts the page names, its edits a press away, its fi
   assert.ok(ways.includes('handpan.wav'), ways.join(', '))
   await menu().filter({ hasText: 'handpan.wav' }).click()
   await page.waitForFunction(() => document.querySelector('.embed-sound-name')?.textContent === 'handpan.wav')
-  assert.equal(scriptOf(await page.evaluate(() => scriptText())), scriptOf(`audio('handpan.wav')`))
+  assert.equal(scriptOf(await script()), scriptOf(`audio('handpan.wav')`))
   // saved: the format picked from its menu, the result as the export saves it; opened: a file of the reader's in its place
   await page.locator('.embed-save').click()
   assert.deepEqual(await menu().locator('.menu-label').allTextContents(), ['WAV', 'FLAC', 'MP3', 'OGG', 'AIFF'])
@@ -239,7 +254,7 @@ test('editor: embedded, the parts the page names, its edits a press away, its fi
   assert.match(saved.suggestedFilename(), /\.flac$/)
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.locator('.embed-open-file').click()])
   await chooser.setFiles(fileURLToPath(new URL('../fixture.wav', import.meta.url)))
-  await page.waitForFunction(() => document.querySelector('.cm-content')?.textContent.includes('fixture.wav'))
+  await page.waitForFunction(() => __ed.code.includes('fixture.wav'))
   // no controls asked for: the parts as ever, the files' buttons not among them; no ops, no row of them
   await page.goto(origin + '/playground/?embed&panel=none' + url.hash)
   await wholeLevels().waitFor()
