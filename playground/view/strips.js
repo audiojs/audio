@@ -1,6 +1,6 @@
 import clock from '../time.js'
 import { markLane, ownMarks, snappedTo, placed } from './data.js'
-import { ghost, CHUNK, plot, spare, lanes, floor, inRoom, own, inLanes, roomLane } from './geometry.js'
+import { ghost, CHUNK, plot, spare, lanes, floor, inRoom, own, inLanes, roomLane, banded } from './geometry.js'
 import { fine, nearCue } from './gestures.js'
 import { EDGE, FOOT, KINDS, mac, root, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, band, cursor, playhead, cues, bounds, snapping, clips, aview, levelUnits, data, tracks, focus, allLanes, sections, windows, lift, chosen, held, assign } from './model.js'
 import { clipMarks } from './notes.js'
@@ -64,7 +64,7 @@ export function ground(r) {
   root.style.setProperty('--ground-h', `${Math.round(g.height)}px`)
 }
 export function placeLook(L) {
-  const f = floor(L), seen = duration && !tracks && f + FOOT <= plot().h, top = `${Math.round(f + 1)}px`, left = `${Math.round(plot().w + 1)}px`, kind = L.all[0]?.kind
+  const f = floor(L), seen = duration && !banded() && f + FOOT <= plot().h, top = `${Math.round(f + 1)}px`, left = `${Math.round(plot().w + 1)}px`, kind = L.all[0]?.kind
   if (lookButton.hidden !== !seen) lookButton.hidden = !seen
   if (!seen) return
   if (lookButton.style.top !== top || lookButton.style.left !== left) Object.assign(lookButton.style, { top, left })
@@ -159,14 +159,14 @@ export function paintEdge(L, sel) {
 // a time as the whole page writes it, in the units chosen (time.js): 0:05, 5.0s, 240000
 export const stamp = (t, d = digits()) => clock(t, units, { digits: d, rate })
 // Cues: shown only where they matter, never a forest over the sound, as Figma shows its guides as a thing is dragged:
-// dragged (the caret held, an edge, a range dragged out, a marker's triangle), what it snaps to either side of where it
+// dragged (the caret held, an edge, a range dragged out, a marker's serif), what it snaps to either side of where it
 // is, faint: the cues, the markers' and the takes' ends; plain over the edited track's lanes, the main ones alone either
 // side of the pointer (the sound's own start and end, the markers' and the takes' ends); the one a press there would
 // snap to brighter, with a short wash on the side its sound is on (washFrom); held Alt (`all`), all of them, faint; held ⌘ (Ctrl), the one under the pointer a
 // press would take; the one dragged, bright where it will land; those an end measured to sits on (`lit`), lit
 const on = (lit, px) => lit.some(t => Math.abs(x(t) - px) < .5)
 // The time a drag moves, as the caret or a range's end: the caret held, an edge, a range dragged out (Shift held before
-// the press or after it), a marker's triangle moved (a range's end, the one held), else null
+// the press or after it), a marker's serif moved (a range's end, the one held), else null
 export const dragged = () => drag?.caret ? cursor : drag?.resizing || drag?.anchor != null && drag.moved && !drag.box ? drag.hear
   : drag?.marker != null && drag.moved ? drag.edge ? drag.end : drag.to : null
 // the time dragged, or the pointer's plain over the edited track's lanes, snapping on (not held ⌘, which aims finely,
@@ -220,23 +220,22 @@ export function markAt(px, py) {
   for (const t of ownMarks().map(t => moved(t) ?? t)) if (Math.abs(x(t) - px) <= EDGE && (best == null || Math.abs(x(t) - px) < Math.abs(x(best) - px))) best = t
   return best
 }
-// ── The marks strip: each band's foot row, under its lanes, a map of what is marked on its time, as Photoshop's split
-// slider marks a range under its bar: a range ◢ its name ◣, small half-triangles as tall as its name's capitals
-// hanging from the lanes' foot, their upright edges at its start and its end (a selection's edges going on down them),
-// its name after the first, cut short where it has no room, a faint line along their feet, their ground over it, all
-// lit while it is pointed at, there or over the sound, or active (its stretch selected, the marker chosen or dragged); a moment ▲ its name, the two halves one at its time; the takes' place as a
-// range's, their numbers at its end inside it (placeTakes). Pressed, a range's or the takes' place selected and
-// heard while held (down); a marker's triangle dragged, it moves (a range's, that end; a moment's held Alt, pulled
-// apart into a range), snapping as an edge does, clicked, the caret goes to it and the marker is chosen; a name
-// clicked, named in place (clicked); a press elsewhere in the strip the band's height (footAt). Over the sound,
-// nothing of them but one pointed at, its stretch as a press would select it, or dragged, and a line as the caret
-// would go (paintMarkers, marksOf)
-export const TRI = 5, MARKED = 9, NAMES = 6, NAMEH = 14
+// ── The marks strip: each band's foot row, under its lanes, a map of what is marked on its time: a range its line, a
+// serif at either end standing up toward the sound (a selection's edges going on down them), its name after the first,
+// cut short where it has no room, its ground over the line; all lit while it is pointed at, there or over the sound,
+// or active (its stretch selected, the marker chosen or dragged); a moment a serif on a foot, its name by it; the
+// takes' place as a range's, their numbers at its end inside it (placeTakes). Pressed, a range's or the takes' place
+// selected and heard while held (down); a marker's serif dragged, it moves (a range's, that end; a moment's held Alt,
+// pulled apart into a range, as Photoshop's split slider's triangle), snapping as an edge does, clicked, the caret
+// goes to it and the marker is chosen; a name clicked, named in place (clicked); a press elsewhere in the strip the
+// band's height (footAt). Over the sound, nothing of them but one pointed at, its stretch as a press would select it,
+// or dragged, and a line as the caret would go (paintMarkers, marksOf). REACH, how near a serif a press takes it
+export const REACH = 4, MARKED = 9, NAMES = 6, NAMEH = 14, SERIF = 6
 // where each marker's name is drawn, [{ i, from, to, y }] px: a click there names it anew (clicked)
 let labels = []
 export const labelAt = (px, py) => labels.find(n => py >= n.y && py < n.y + FOOT && px >= n.from && px <= n.to)?.i ?? -1
-// where a marker's name starts, its start at `x0`: past a moment's triangle, inside a range's, held in sight
-const nameLeft = (moment, x0) => moment ? x0 + TRI + 3 : Math.max(x0, 0) + 4
+// where a marker's name starts, its start at `x0`: past a moment's foot, inside a range's, held in sight
+const nameLeft = (moment, x0) => moment ? x0 + 6 : Math.max(x0, 0) + 4
 // each band's strip: { y, i }, its top (its lanes' foot) and its track's index (null: a sound's)
 export const strips = L => tracks ? L.all.map(([, y, , lh], i) => ({ y: y + lh, i })) : L.all.length ? [{ y: floor(L), i: null }] : []
 // what the strips hold: [{ kind: 'mark' (a marker's, `i` its index; a moment's x1 its x0, `moment`; one pulled apart
@@ -252,29 +251,26 @@ export function stripped(L) {
 }
 // whether a range in a strip has a fork, pointed at: one with no takes from its start (placeFork)
 export const forks = m => m.kind === 'mark' && !!markers[m.i]?.duration && !sections.some(t => (t.lane ?? null) === markLane(markers[m.i]) && Math.abs(X(t.at) - m.x0) < 1)
-// which of a marker's triangles `px` is on: a moment's or a range's start's, 0; a range's end's, 1; else -1
+// which of a marker's serifs `px` is by: a moment's or a range's start's, 0; a range's end's, 1; else -1
 export function notch(m, px) {
   if (m.kind !== 'mark') return -1
-  if (m.moment) return Math.abs(px - m.x0) <= TRI + 1 ? 0 : -1
-  const start = px >= m.x0 - TRI && px <= m.x0 + 2, end = px >= m.x1 - 1 && px <= m.x1 + TRI + 1
+  const start = Math.abs(px - m.x0) <= REACH, end = !m.moment && Math.abs(px - m.x1) <= REACH
   return start && (!end || px <= (m.x0 + m.x1) / 2) ? 0 : end ? 1 : -1
 }
-// what a press in a strip takes: a marker's triangle, a name, a range or the takes' place under it; or null
+// what a press in a strip takes: a marker's serif, a name, a range or the takes' place under it; or null
 export function stripAt(px, py, L = lanes()) {
   if (py > plot().h) return null
   const row = stripped(L).filter(m => py >= m.y && py < m.y + FOOT), named = labelAt(px, py)
-  return row.find(m => notch(m, px) >= 0) ?? row.find(m => m.kind === 'mark' && m.i === named) ?? row.find(m => px >= m.x0 - TRI && px <= m.x1 + TRI) ?? null
+  return row.find(m => notch(m, px) >= 0) ?? row.find(m => m.kind === 'mark' && m.i === named) ?? row.find(m => px >= m.x0 - REACH && px <= m.x1 + REACH) ?? null
 }
-// a marker's triangles standing on `y`, `h` px tall, in the fill's colour: a range's ◢ ending with x0's pixel and ◣
-// from x1's (a line at a time, its pixel: the caret's, an edge's, under each), a moment's ▲ on x0's pixel
-function bracket(x0, x1, y, h, moment) {
-  c.beginPath()
-  if (moment) { c.moveTo(x0 + .5 - TRI, y); c.lineTo(x0 + .5, y - h); c.lineTo(x0 + .5 + TRI, y); c.closePath() }
-  else {
-    c.moveTo(x0 + 1, y); c.lineTo(x0 + 1, y - h); c.lineTo(x0 + 1 - TRI, y); c.closePath()
-    c.moveTo(x1, y); c.lineTo(x1, y - h); c.lineTo(x1 + TRI, y); c.closePath()
-  }
-  c.fill()
+// a marker's serifs standing on the line `y` (its last row), SERIF px up toward the sound, in the fill's colour, as a
+// typeface's on its baseline: a range's at x0's pixel and at x1's (a line at a time, its pixel: the caret's, an edge's,
+// over each), a moment's on x0's pixel, a foot either side of it
+function bracket(x0, x1, y, moment) {
+  const at = Math.round(x0), to = Math.round(x1)
+  if (moment) { c.fillRect(at, y - SERIF, 1, SERIF); c.fillRect(at - 2, y - 1, 5, 1); return }
+  c.fillRect(at, y - SERIF, 1, SERIF)
+  c.fillRect(to, y - SERIF, 1, SERIF)
 }
 // whether the pointer is over what a range or the takes' place marks: its lanes, the gaps between them too
 const within = m => !!hovered && !drag && m.x1 > m.x0 && hovered[0] >= m.x0 && hovered[0] <= m.x1 && inLanes(m.rects, hovered[1])
@@ -284,17 +280,17 @@ export function paintStrips(L, pointedAt, selected) {
   c.textAlign = 'left'
   labels = []
   for (const m of stripped(L)) {
-    if (m.x1 + TRI < 0 || m.x0 - TRI > w) continue
+    if (m.x1 + REACH < 0 || m.x0 - REACH > w) continue
     // lit, a range and the takes' place alike: pointed at, there or over the sound (within), or active (its stretch
     // selected, the marker chosen or dragged), its stretch lit over the sound alone from the strip (marksOf); the accent
     // is the hints' alone
     const mark = m.kind === 'mark' && markers[m.i], lit = selected(m) || mark && (chosen && same(chosen, mark) || drag?.marker === m.i) || pointedAt?.kind === m.kind && pointedAt.i === m.i || within(m)
     const ink = color(lit ? '--color-screen-bright' : !mark || edited(markLane(mark)) ? '--color-screen-mark' : '--color-screen-muted')
-    // its triangles joined along their feet, the line faint as a centre line with nothing in it (marksOf), bright with
-    // them; a name and numbers on it, their ground over it
-    if (!m.moment) { c.fillStyle = lit ? ink : color('--color-screen-wave'); c.globalAlpha = lit ? 1 : .35; c.fillRect(m.x0 + 1, m.y + MARKED - 1, m.x1 - m.x0 - 1, 1); c.globalAlpha = 1 }
+    // its line from end to end, faint as a centre line with nothing in it (marksOf), bright with its serifs; a name and
+    // numbers on it, their ground over it
+    if (!m.moment) { c.fillStyle = lit ? ink : color('--color-screen-wave'); c.globalAlpha = lit ? 1 : .35; c.fillRect(Math.round(m.x0) + 1, m.y + MARKED - 1, Math.round(m.x1) - Math.round(m.x0) - 1, 1); c.globalAlpha = 1 }
     c.fillStyle = ink
-    bracket(m.x0, m.x1, m.y + MARKED, MARKED, m.moment)
+    bracket(m.x0, m.x1, m.y + MARKED, m.moment)
     // its name, cut short where a range's end leaves too little room (none while it is written in place), where a
     // click names it anew (labelAt)
     const lx = nameLeft(m.moment, m.x0), room = m.moment ? Infinity : Math.min(m.x1, w) - lx - 6

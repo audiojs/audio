@@ -1,11 +1,11 @@
 import { valuesOf } from '../stack.js'
 import { ops, guides, fromManifest, reshapes } from '../ops.js'
-import { prepare, chain, number, setArg, unsetArg, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, useTake } from '../code.js'
+import { prepare, chain, number, setArg, unsetArg, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, useTake, takes } from '../code.js'
 import { bridge } from './chat.js'
 import { command } from './commands.js'
 import { formats, scaleNames } from './config.js'
 import { state, eng, v, ed, rk, pl, output, shown, carded, assign } from './context.js'
-import { write, applied } from './edits.js'
+import { write, applied, switchTake } from './edits.js'
 import { shelf, openFiles, encodingOf } from './files.js'
 import { stamp } from './format.js'
 import { shows, showAs } from './look.js'
@@ -105,7 +105,8 @@ export const page = {
     if (!change) throw new Error(to != null ? `Edit ${index} stays among the steps it is with: those other tracks share, or this track's own` : `Edit ${index} cannot be commented out: its text holds */`)
     whole()
     const done = ran()
-    ed.change(change)
+    const take = !remove && to == null && takes(ed.code).some(r => r.list.some(x => x.from === s.call.from))
+    take ? switchTake(change) : ed.change(change)
     return within(done)
   },
   // a file on the user's machine, read through the bridge, in a tab of its own (the tab shown, if it is empty)

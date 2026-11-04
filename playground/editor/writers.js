@@ -94,7 +94,7 @@ function markCall({ time, duration = 0, track }) {
   return calls.reduce((a, k) => !a || far(k) <= far(a) ? k : a, null)
 }
 const unmarked = () => note('This marker comes from the file; no mark() in the script sets it.')
-// A marker taken away (from its menu), or moved (a drag of its triangle): its mark() call gone, or its time moved
+// A marker taken away (from its menu), or moved (a drag of its serif): its mark() call gone, or its time moved
 // as much (a range's end dragged, its length too: `d`; a moment pulled apart, a range from then on, its time an options
 // object; a range's ends let go on each other, `d` 0, a moment, its time a number), the edits after it being what they
 // were, or, past an edit, written after it where it was let go (remark)

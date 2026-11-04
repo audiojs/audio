@@ -2,7 +2,7 @@
 // helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { page, code, tipOf, wholeLevels, seconds, open, settled, frames, poll, selected, tab, menu, palette, noCues, write, LANES, tall, spans, axis, grab, drag, lengthIs, pixels, bursts, turn, chime, contextRow } from './page.js'
+import { endWay, endDrag, TOP, TRACK, page, code, tipOf, wholeLevels, seconds, open, settled, frames, poll, selected, tab, menu, palette, noCues, write, LANES, tall, spans, axis, grab, drag, lengthIs, pixels, bursts, turn, chime, contextRow } from './page.js'
 
 test('editor: a slider rewrites its argument, the output and its guide follow', async () => {
   await open()
@@ -195,10 +195,10 @@ test('editor: an edit made with the output rolled back to a step goes in right a
   await page.locator('.viewing', { hasText: 'Up to Trim: ' }).waitFor()
 })
 
-// Rolled back, a choice that sets the last step again in place (the grip's way, a fade's curve) leaves the steps after
+// Rolled back, a choice that sets the last step again in place (⌘ at a range's end, its way; a fade's curve) leaves the steps after
 // the one shown alone: only what shows is set again, never a step hidden
-test('editor: rolled back to a step, the grip\'s way leaves a stretch after it as it is', async () => {
-  const { box, x, y } = await chime(), lh = (tall(box) - LANES) / 2
+test('editor: rolled back to a step, the end\'s way leaves a stretch after it as it is', async () => {
+  const { box, x, y } = await chime(), lh = (TRACK - LANES) / 2
   await write(`audio('chime.wav').stretch(1.5, { at: 1, duration: 1 })`)
   await lengthIs('0:08.500')
   await tab('Edits')
@@ -206,7 +206,7 @@ test('editor: rolled back to a step, the grip\'s way leaves a stretch after it a
   await page.locator('.viewing', { hasText: 'The source alone' }).waitFor()
   await lengthIs('0:08.000')
   await drag([x(1), y], [x(2) - x(1), 0])
-  await turn(await grab([[x(2) + 8, box.y + lh * 3 / 4]], /^url\(|ew-resize/), 'grip', 'speed')
+  await endWay([x(2), y], 'speed')
   await settled()
   assert.equal(await code(), `audio('chime.wav').stretch(1.5, { at: 1, duration: 1 })`)
 })
@@ -215,9 +215,9 @@ test('editor: rolled back to a step, the grip\'s way leaves a stretch after it a
 // was selected before the step, redo what was selected after it. A stretch makes its range longer: undone, the range is
 // as long as it was; a delete leaves a caret: undone, its range is selected again
 test('editor: undo brings back what was selected before the step, redo what was selected after it', async () => {
-  const { box, x, y } = await chime(), lh = (tall(box) - LANES) / 2
+  const { box, x, y } = await chime(), lh = (TRACK - LANES) / 2
   await drag([x(1), y], [x(2) - x(1), 0])
-  await drag(await grab([[x(2) + 8, box.y + lh * 3 / 4]], /^url\(|ew-resize/), [x(1.5) - x(1), 0])
+  await endDrag([x(2), y], [x(1.5) - x(1), 0])
   await page.waitForFunction(() => /\.stretch\(1\.5, \{ at: 1, d: 1 \}\)$/.test(scriptText()))
   assert.equal(await selected(), '0:01.000–0:02.500')
   await page.keyboard.press('ControlOrMeta+Z')
@@ -267,9 +267,9 @@ test('editor: Undo steps back through the script, a slider drag one step however
 test('editor: deleting a selection writes remove() and shortens the output by its length', async () => {
   await open()
   const before = await seconds(), { box, x } = await axis(before)
-  await page.mouse.move(x(before * .25), box.y + 100)
+  await page.mouse.move(x(before * .25), box.y + TOP + 100)
   await page.mouse.down()
-  await page.mouse.move(x(before * .5), box.y + 120, { steps: 5 })
+  await page.mouse.move(x(before * .5), box.y + TOP + 120, { steps: 5 })
   await page.mouse.up()
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => scriptText().includes('.remove('))
@@ -318,7 +318,7 @@ test('editor: a recipe goes on the sound as it is, over the selection when there
   await menu('Edit', 'Undo')
   await page.waitForFunction(c => scriptText() === c, chime)
   await noCues()
-  const { box, x } = await axis(6.525), y = box.y + tall(box) / 3
+  const { box, x } = await axis(6.525), y = box.y + TOP + TRACK / 3
   await drag([x(1), y], [x(2) - x(1), 0])
   await menu('Process', 'Recipes', 'Remove room echo')
   await page.waitForFunction(c => scriptText() === c, `${chime}\n  // Remove room echo\n    .highpass(80, { at: 1, d: 1 })\n    .dereverb({ at: 1, d: 1 })`)
@@ -341,7 +341,7 @@ test('editor: pauses selected together are shortened or deleted together, in one
   await open()
   await write(bursts)
   await lengthIs('0:02.500')
-  const { box, x } = await axis(2.5), y = box.y + tall(box) / 3
+  const { box, x } = await axis(2.5), y = box.y + TOP + TRACK / 3
   await page.mouse.dblclick(x(.45), y)
   await page.keyboard.press('ControlOrMeta+D')
   await page.keyboard.press('ControlOrMeta+D')
@@ -511,7 +511,7 @@ test('editor: an edit made rolled back to a card, undone and redone, brings back
   const card = name => page.locator('.steps-list .step', { has: page.locator('.step-name', { hasText: new RegExp(`^${name}$`) }) })
   await card('Gain').locator('.step-toggle').click()
   await page.locator('.viewing', { hasText: 'Up to Gain: 2 later steps bypassed' }).waitFor()
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await drag([x(2), y], [x(3) - x(2), 0])
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => /\.gain\(-3\)\s*\.remove\([^)]*\)\s*\.reverse\(\)\s*\.highpass\(80\)$/.test(scriptText().trim()))

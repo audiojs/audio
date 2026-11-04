@@ -2,7 +2,7 @@
 // helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { page, code, wholeLevels, levelsTable, open, settled, frames, poll, still, settings, selected, tab, menu, palette, noCues, write, LANES, tall, gutter, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, heard, hits, handles, dragCue, pixels, show, bursts, way, turn, keyed, chime } from './page.js'
+import { endWay, endDrag, TOP, TRACK, page, code, wholeLevels, levelsTable, open, settled, frames, poll, still, settings, selected, tab, menu, palette, noCues, write, LANES, tall, gutter, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, heard, hits, handles, dragCue, pixels, show, bursts, way, turn, keyed, chime } from './page.js'
 
 // Moved past the sound's end, a slice opens silence up to where it lands: the sound gets longer
 test('editor: a slice moved past the end opens silence up to where it lands', async () => {
@@ -26,7 +26,7 @@ test('editor: dragging a cue moves it, the audio on either side stretching to fi
   await write(hits)
   await lengthIs('0:02.000')
   // the cues are lines in the lanes, each grabbed there with ⌘ (Ctrl) held; without it, a press there is the caret's
-  const { box, x } = await axis(2), y = box.y + 20, cursor = () => page.locator('.plot').evaluate(el => el.style.cursor)
+  const { box, x } = await axis(2), y = box.y + TOP + 20, cursor = () => page.locator('.plot').evaluate(el => el.style.cursor)
   // the hit at 1 s, and the cues either side of it, before it moves
   const w = await spans(box)
   const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.some(t => Math.abs(t - 1) < .02), `the cue at 1 s: ${cues}`), 8000)
@@ -88,7 +88,7 @@ test('editor: a dragged cue moves alone; the sound stretched around it makes no 
   const k = before.findIndex((p, i) => i > 0 && i < before.length - 1 && before[i + 1] - p > dx * 1.5 && p - before[i - 1] > dx * .5)
   assert.ok(k > 0, JSON.stringify(before))
   const cued = await page.evaluate(() => globalThis.__cued)
-  await dragCue([[box.x + before[k], box.y + 20]], [dx, 0])
+  await dragCue([[box.x + before[k], box.y + TOP + 20]], [dx, 0])
   await page.waitForFunction(() => /\.warp\(/.test(scriptText()))
   // the warped output's own cues come
   await page.waitForFunction(n => globalThis.__cued > n, cued)
@@ -110,7 +110,7 @@ test('editor: a cue dragged over a sustained sound leaves every other cue where 
   await open()
   await write(`audio('rhodes.wav')`)
   await lengthIs('0:09.000')
-  const { box, x } = await axis(9), y = box.y + 20
+  const { box, x } = await axis(9), y = box.y + TOP + 20
   const before = await poll(handles, before => assert.ok(before.length, 'its cues'), 8000)
   // the chord struck at 4.85 s, moved half a second earlier
   const from = before.reduce((a, h) => Math.abs(h - (x(4.853) - box.x)) < Math.abs(a - (x(4.853) - box.x)) ? h : a), to = from - (x(.5) - x(0))
@@ -141,7 +141,7 @@ test('editor: a level change draws the gain line; its points drag, above or mirr
   await still()
   await page.locator('.plot').focus()
   await page.keyboard.press('0')
-  const { box, x } = await axis(2), mid = box.y + tall(box) * .4
+  const { box, x } = await axis(2), mid = box.y + TOP + TRACK * .4
   await page.mouse.move(x(.5), mid)
   await page.mouse.down()
   await page.mouse.move(x(1.5), mid, { steps: 5 })
@@ -163,7 +163,7 @@ test('editor: a level change draws the gain line; its points drag, above or mirr
   // nothing selected, so a press on the line is the line's, not the selection's audio
   await page.mouse.click(x(1.9), mid)
   // the line on its own scale (view.js GAIN): −36 dB at the lane's centre line to +12 at its edges, mirrored below
-  const lane = tall(box), centre = box.y + lane / 2, gy = (db, sign = 1) => centre - sign * (db + 36) / 48 * lane / 2
+  const lane = tall(box), centre = box.y + TOP + (lane - TOP) / 2, gy = (db, sign = 1) => centre - sign * (db + 36) / 48 * lane / 2
   // its height first, then out to 5 px either side: the points of a 5 ms ramp, 3 px across and 5 px up the lane, apart
   const near = (t, db, sign = 1) => Array.from({ length: 11 }, (_, i) => [x(t), gy(db, sign) + (i % 2 ? -1 : 1) * Math.ceil(i / 2)])
   // between its points, the line itself: a press there adds one
@@ -185,7 +185,7 @@ test('editor: louder and quieter ease a range in and out on the one gain curve t
   await open()
   await noCues()
   const { box, x } = await axis(6.525)
-  await drag([x(2), box.y + 100], [x(3) - x(2), 0])
+  await drag([x(2), box.y + TOP + 100], [x(3) - x(2), 0])
   const louder = () => palette('3 dB louder'), gain = () => code().then(c => c.match(/\.gain\((.*)\)$/)?.[1])
   await louder()
   await page.waitForFunction(() => /\.gain\(/.test(scriptText()))
@@ -194,7 +194,7 @@ test('editor: louder and quieter ease a range in and out on the one gain curve t
   await louder()
   await page.waitForFunction(() => /v: \[0, 6, 6, 0\]/.test(scriptText()))
   // a range from the start has no ramp there; the curve keeps the points of both
-  await drag([x(1), box.y + 40], [x(0) - x(1) - 10, 0])
+  await drag([x(1), box.y + TOP + 40], [x(0) - x(1) - 10, 0])
   await palette('3 dB quieter')
   await page.waitForFunction(() => /v: \[-3, -3, 0, 0, 6, 6, 0\]/.test(scriptText()))
   assert.equal(await gain(), '{ t: [0, 0.995, 1, 2, 2.005, 2.995, 3], v: [-3, -3, 0, 0, 6, 6, 0] }')
@@ -207,7 +207,7 @@ test('editor: a band quieter or louder is one spectral() call, changed in place 
   await lengthIs('0:02.000')
   await show('spec')
   const { box, x } = await axis(2)
-  await boxDrag([x(.5), box.y + tall(box) * .3], [x(1) - x(.5), box.height * .2])
+  await boxDrag([x(.5), box.y + TOP + TRACK * .3], [x(1) - x(.5), TRACK * .2])
   await palette('This band 6 dB quieter')
   await page.waitForFunction(() => /\.spectral\(\[\d+, \d+\], -6, \{ at: 0\.5, d: 0\.5 \}\)$/.test(scriptText()))
   await palette('This band 6 dB quieter')
@@ -226,8 +226,8 @@ test('editor: a script that opens with gain() loads, its gain line drawn', async
 // crossfaded as a delete's, or silence added), stretched with the pitch kept, or sped with the pitch following, a click
 // on it turning it to the next; a stretch just made changes with it. Its pill sets its level; the first of the tools at
 // the lanes' foot, its pitch. Each is one step.
-test('editor: a selection\'s grip trims, stretches or speeds it, its pill sets its level and its pitch tool its pitch', async () => {
-  const { box, x, y } = await chime(), lh = (tall(box) - LANES) / 2
+test('editor: ⌘ at a selection\'s end trims, stretches or speeds it, its pill sets its level and its pitch tool its pitch', async () => {
+  const { box, x, y } = await chime(), lh = (TRACK - LANES) / 2
   const select = async (a, b) => { await page.mouse.click(x(7.5), y); await drag([x(a), y], [x(b) - x(a), 0]) }
   const last = async pattern => { await page.waitForFunction(p => new RegExp(p).test(scriptText()), pattern.source); return code() }
   const undo = async () => {
@@ -235,23 +235,23 @@ test('editor: a selection\'s grip trims, stretches or speeds it, its pill sets i
     await page.waitForFunction(() => scriptText() === "audio('chime.wav')")
     await lengthIs('0:08.000')
   }
-  const grip = b => grab([[x(b) + 8, box.y + lh * 3 / 4]], /^url\(|ew-resize/), pill = (a, b) => grab([[(x(a) + x(b)) / 2, box.y + 4]], 'ns-resize')
+  const pill = (a, b) => grab([[(x(a) + x(b)) / 2, box.y + TOP + 4]], 'ns-resize')
   await select(1, 2)
-  await drag(await grip(2), [x(1.5) - x(1), 0])
+  await endDrag([x(2), y], [x(1.5) - x(1), 0])
   assert.match(await last(/\.stretch\(/), /\.stretch\(1\.5, \{ at: 1, d: 1 \}\)$/)
   await lengthIs('0:08.500')
-  await turn(await grip(2.5), 'grip', 'speed')
+  await endWay([x(2.5), y], 'speed')
   assert.match(await last(/\.speed\(/), /\.speed\(0\.66667, \{ at: 1, d: 1 \}\)$/)
   await undo()
   await select(1, 2)
-  await turn(await grip(2), 'grip', 'trim')
-  await drag(await grip(2), [x(1.5) - x(2), 0])
+  await endWay([x(2), y], 'trim')
+  await endDrag([x(2), y], [x(1.5) - x(2), 0])
   assert.match(await last(/\.remove\(/), /\.remove\(\{ at: 1\.5, d: 0\.5, xfade: 0\.01 \}\)$/)
   await lengthIs('0:07.500')
   assert.equal(await selected(), '0:01.000–0:01.500')
   await undo()
   await select(1, 2)
-  await drag(await grip(2), [x(2.5) - x(2), 0])
+  await endDrag([x(2), y], [x(2.5) - x(2), 0])
   assert.match(await last(/\.insert\(/), /\.insert\(0\.5, \{ at: 2, xfade: 0\.01 \}\)$/)
   await lengthIs('0:08.500')
   await undo()
@@ -274,13 +274,13 @@ test('editor: a selection fades from its top corners: inward from its edge, outw
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3, dot = box.y + 9
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, dot = box.y + TOP + 9
   const select = async () => { await page.mouse.click(x(7.5), y); await page.mouse.move(x(2.2), y); await page.mouse.down(); await page.mouse.move(x(4.2), y, { steps: 4 }); await page.mouse.up() }
   await select()
   await drag(await grab([[x(2.2) + 9, dot]], 'ew-resize'), [x(2.7) - x(2.2), 0])
   await page.waitForFunction(() => /\.fade\(0\.5, \{ at: 2\.2 \}\)$/.test(scriptText()))
   // a click on the corner: the next curve, which the fade just made takes, each click one step
-  await turn([x(2.2) + 3, box.y + 3], 'curve', 'cos')
+  await turn([x(2.2) + 3, box.y + TOP + 3], 'curve', 'cos')
   await page.waitForFunction(() => /\.fade\(0\.5, \{ at: 2\.2, curve: 'cos' \}\)$/.test(scriptText()))
   for (let i = 0; i < 4; i++) await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => !scriptText().includes('fade'))
@@ -307,7 +307,7 @@ test('editor: Denoise learns the noise where it is selected and takes it out eve
   await lengthIs('0:08.000')
   await menu('Process', 'Repair', 'Denoise')
   await page.locator('.message', { hasText: 'Select where the noise plays alone first.' }).waitFor()
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3, readout = await page.locator('.readout').textContent()
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, readout = await page.locator('.readout').textContent()
   await page.mouse.move(x(6), y); await page.mouse.down(); await page.mouse.move(x(7.5), y, { steps: 4 }); await page.mouse.up()
   await palette('The noise here, taken 12 dB down everywhere')
   await page.waitForFunction(() => /\.denoise\(\{ noise: \{ at: 6, d: 1\.5 \} \}\)$/.test(scriptText()))
@@ -336,9 +336,9 @@ test('editor: Denoise learns the noise where it is selected and takes it out eve
   await page.keyboard.press('ControlOrMeta+Z')
   await show('spec')
   const lane = tall(at.box)
-  await page.mouse.click(at.x(.2), at.box.y + lane * .5)
+  await page.mouse.click(at.x(.2), at.box.y + TOP + (lane - TOP) * .5)
   await page.keyboard.press('0')
-  await boxDrag([at.x(1), at.box.y + lane * .1], [at.x(1.4) - at.x(1), lane * .15])
+  await boxDrag([at.x(1), at.box.y + TOP + (lane - TOP) * .1], [at.x(1.4) - at.x(1), lane * .15])
   assert.match(await selected(), /^0:01\.0\d\d–0:01\.4\d\d$/)
   await palette('The noise here, taken 12 dB down in this band everywhere')
   await page.waitForFunction(() => /\.denoise\(\{ noise: \{ at: 1(\.0\d*)?, d: 0\.[34]\d* \}, band: \[\d+, \d+\] \}\)$/.test(scriptText()))
@@ -353,12 +353,11 @@ test('editor: Denoise learns the noise where it is selected and takes it out eve
 // A stretch dragged to anywhere, not a round factor: the output it makes ends the stretched range where the drag let go,
 // to the sample, so nothing after it moves when it comes (the library's length, round(n × factor), fn/stretch.js)
 test('editor: a stretch dragged anywhere ends where it was let go, to the sample', async () => {
-  const { box, x, y } = await chime({ units: 'samples' }), lh = (tall(box) - LANES) / 2
+  const { box, x, y } = await chime({ units: 'samples' }), lh = (TRACK - LANES) / 2
   await page.mouse.click(x(7.5), y)
   await drag([x(1), y], [x(1.7) - x(1), 0])
   assert.equal(await selected(), '44100–74970')
-  const grip = await grab([[x(1.7) + 8, box.y + lh * 3 / 4]], /^url\(|ew-resize/)
-  await drag(grip, [x(2.07) - x(1.7) + 3, 0])
+  await endDrag([x(1.7), y], [x(2.07) - x(1.7) + 3, 0])
   await page.waitForFunction(() => /\.stretch\(/.test(scriptText()))
   const [a, to] = (await selected()).split('–').map(Number)
   // its length, in the samples the times are in, no longer 8 s'
@@ -370,16 +369,16 @@ test('editor: a stretch dragged anywhere ends where it was let go, to the sample
   assert.equal(total - 8 * 44100, to - a - 30870, await code())
 })
 
-test('editor: a selection\'s grip only stretches it, its pill dragged up only sets its level', async () => {
+test('editor: ⌘ at a selection\'s end only stretches it, its pill dragged up only sets its level', async () => {
   await page.addInitScript(tap)
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3, lh = (tall(box) - LANES) / 2
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, lh = (TRACK - LANES) / 2
   const select = async () => { await page.mouse.click(x(7.5), y); await drag([x(2.2), y], [x(4.2) - x(2.2), 0]) }
   await select()
-  await drag(await grab([[x(4.2) + 8, box.y + lh * 3 / 4], [x(4.2) + 8, box.y + lh + LANES + lh * 3 / 4]], STRETCHING), [x(5.2) - x(4.2), -80])
+  await keyed(['ControlOrMeta'], async () => drag(await grab([[x(4.2), y]], STRETCHING), [x(5.2) - x(4.2), -80]))
   await page.waitForFunction(() => /\.stretch\(1\.5, \{ at: 2\.2, d: 2 \}\)$/.test(scriptText()))
   assert.equal(await selected(), '0:02.200–0:05.200')
   assert.doesNotMatch(await code(), /gain/)
@@ -389,7 +388,7 @@ test('editor: a selection\'s grip only stretches it, its pill dragged up only se
   await lengthIs('0:08.000')
   await select()
   // the pill dragged: heard at the level it goes to as it goes, as a pitch dragged is
-  const pill = await grab([[(x(2.2) + x(4.2)) / 2, box.y + 4]], 'ns-resize')
+  const pill = await grab([[(x(2.2) + x(4.2)) / 2, box.y + TOP + 4]], 'ns-resize')
   await heard()
   await page.mouse.move(...pill)
   await page.mouse.down()
@@ -407,7 +406,7 @@ test('editor: the crossfade tool on a selection crossfades across it', async () 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await drag([x(2.2), y], [x(2.3) - x(2.2), 0])
   await page.keyboard.press('ControlOrMeta+K')
   await page.keyboard.type('crossfade')
@@ -424,10 +423,10 @@ test('editor: the square past the caret opens silence there', async () => {
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), lh = (tall(box) - LANES) / 2
-  await page.mouse.click(x(2), box.y + tall(box) * .3)
+  const { box, x } = await axis(8), lh = (TRACK - LANES) / 2
+  await page.mouse.click(x(2), box.y + TOP + TRACK * .3)
   // its pointer trim's, as it does what trimming out does
-  await drag(await grab([[x(2) + 9, box.y + lh * 3 / 4]], 'ew-resize'), [x(3) - x(2), 0])
+  await drag(await grab([[x(2) + 9, box.y + TOP + lh * 3 / 4]], 'ew-resize'), [x(3) - x(2), 0])
   await page.waitForFunction(() => /\.insert\(1, \{ at: 2, xfade: 0\.01 \}\)$/.test(scriptText()))
   await lengthIs('0:09.000')
 })
@@ -439,10 +438,10 @@ test('editor: at the end, the square before the caret opens silence past the pic
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), lh = (tall(box) - LANES) / 2
+  const { box, x } = await axis(8), lh = (TRACK - LANES) / 2
   await page.locator('.plot').focus()
   await page.keyboard.press('End')
-  const at = await grab([[x(8) - 8, box.y + lh * 3 / 4]], 'ew-resize')
+  const at = await grab([[x(8) - 8, box.y + TOP + lh * 3 / 4]], 'ew-resize')
   await page.mouse.move(...at)
   await page.mouse.down()
   await page.mouse.move(box.x + box.width - 20, at[1], { steps: 5 })
@@ -467,7 +466,7 @@ test('editor: a selection\'s fade squares sit on whole pixels, flush with its st
   await write(`audio.from(2)`)
   await lengthIs('0:02.000')
   const { box, x } = await axis(2)
-  await drag([x(.5) + .3, box.y + 60], [x(1.5) - x(.5), 0])
+  await drag([x(.5) + .3, box.y + TOP + 60], [x(1.5) - x(.5), 0])
   // the pointer by it, so its squares show, in its middle on the time row, clear of the rows measured
   await page.mouse.move(x(1), box.y + box.height - 11)
   await poll(() => pixels(`
@@ -475,8 +474,8 @@ test('editor: a selection\'s fade squares sit on whole pixels, flush with its st
     // on a row under the squares, between the grid's dots (a tenth of full scale apart, 8 px in a lane TRACK px tall):
     // the wash's first column, and the caret's line, the brightest, after its last (where the drag left it)
     let start = -1, line = 0
-    for (let px = 1; px < w - 60; px++) { if (at(px, 20) > at(line, 20)) line = px; if (start < 0 && at(px, 20) > at(px - 1, 20) + 4) start = px }
-    return { start, line, row: [start, start + 8, start + 15, start + 16, line - 17, line - 16, line - 8, line - 1].map(px => at(px, 1)) }`), r => {
+    for (let px = 1; px < w - 60; px++) { if (at(px, ${TOP + 20}) > at(line, ${TOP + 20})) line = px; if (start < 0 && at(px, ${TOP + 20}) > at(px - 1, ${TOP + 20}) + 4) start = px }
+    return { start, line, row: [start, start + 8, start + 15, start + 16, line - 17, line - 16, line - 8, line - 1].map(px => at(px, ${TOP + 1})) }`), r => {
     const [in0, inMid, in1, washIn, washOut, out0, outMid, out1] = r.row
     assert.ok(in0 < washIn - 4 && in1 < washIn - 4 && out0 < washOut - 4 && out1 < washOut - 4, `squares darker than the wash at their edges: ${JSON.stringify(r)}`)
     assert.ok(Math.abs(in0 - inMid) <= 2 && Math.abs(in1 - inMid) <= 2 && Math.abs(out0 - outMid) <= 2 && Math.abs(out1 - outMid) <= 2, `edges as dark as middles: ${JSON.stringify(r)}`)
@@ -505,7 +504,7 @@ test('editor: Delete crossfades the seam it leaves, 10 ms unless the config says
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => /\.remove\(\{ at: 1, d: 1, xfade: 0\.01 \}\)$/.test(scriptText()))
@@ -526,10 +525,10 @@ test('editor: a click on a fade corner turns it to the next curve, no menu, the 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await drag([x(2), y], [x(4) - x(2), 0])
   for (const curve of ['exp', 'log', 'cos', 'linear']) {
-    await page.mouse.click(x(2) + 8, box.y + 8)
+    await page.mouse.click(x(2) + 8, box.y + TOP + 8)
     assert.equal(await way('curve'), curve)
   }
   assert.equal(await page.locator('[popover]:popover-open').count(), 0)
@@ -542,14 +541,14 @@ test('editor: a fade shows on the waveform while its dot is dragged', async () =
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await drag([x(2), y], [x(4) - x(2), 0])
   // the waveform's bright pixels there: a fade draws it smaller
   const light = () => pixels(`let n = 0; for (let x = Math.round(arg[0] * w); x < arg[1] * w; x++) for (let y = 0; y < h * .9; y++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 450) n++ } return n`, [(x(2.05) - box.x) / box.width, (x(2.6) - box.x) / box.width])
   const before = await light()
-  await page.mouse.move(x(2) + 9, box.y + 9)
+  await page.mouse.move(x(2) + 9, box.y + TOP + 9)
   await page.mouse.down()
-  await page.mouse.move(x(3) + 9, box.y + 9, { steps: 6 })
+  await page.mouse.move(x(3) + 9, box.y + TOP + 9, { steps: 6 })
   await frames()
   const during = await light()
   await page.mouse.up()
@@ -567,11 +566,11 @@ test('editor: a crossfade dragged out of a range\'s end draws both sides\' fades
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t), { duration: 2 })`)
   await lengthIs('0:02.000')
   const { box, x } = await axis(2)
-  await drag([x(.4), box.y + 80], [x(1) - x(.4), 0])
+  await drag([x(.4), box.y + TOP + 80], [x(1) - x(.4), 0])
   // the corner at the range's end, at the lanes' top
-  await page.mouse.move(x(1) - 8, box.y + 8)
+  await page.mouse.move(x(1) - 8, box.y + TOP + 8)
   await page.mouse.down()
-  await page.mouse.move(x(1.4) - 8, box.y + 8, { steps: 6 })
+  await page.mouse.move(x(1.4) - 8, box.y + TOP + 8, { steps: 6 })
   await frames()
   // the accent's columns, the curves
   const [a, b] = await pixels(`let lo = w, hi = -1; for (let y = 0; y < h - 30; y++) for (let x = 0; x < w - ${await gutter()}; x++) { const i = (y * w + x) * 4; if (d[i] > 120 && d[i] - d[i + 2] > 60) { lo = Math.min(lo, x); hi = Math.max(hi, x) } } return [lo, hi]`)
@@ -587,10 +586,10 @@ test('editor: a fade corner dragged back to where it began makes nothing', async
   const { box, x, y } = await chime()
   await drag([x(2), y], [x(4) - x(2), 0])
   const before = await code()
-  await page.mouse.move(x(2) + 9, box.y + 9)
+  await page.mouse.move(x(2) + 9, box.y + TOP + 9)
   await page.mouse.down()
-  await page.mouse.move(x(1.5), box.y + 9, { steps: 4 })
-  await page.mouse.move(x(2) + 10, box.y + 9, { steps: 4 })
+  await page.mouse.move(x(1.5), box.y + TOP + 9, { steps: 4 })
+  await page.mouse.move(x(2) + 10, box.y + TOP + 9, { steps: 4 })
   await page.mouse.up()
   await settled()
   assert.equal(await code(), before)

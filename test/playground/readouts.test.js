@@ -1,7 +1,7 @@
 // The status bar's readouts: the level, the note, the chord, the facts; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { page, tipOf, wholeLevels, open, settled, frames, poll, menuRow, tab, noCues, write, LANES, tall, tracksAt, gutter, spans, axis, drag, lengthIs, pixels, show, chime, crossed } from './page.js'
+import { TOP, TRACK, page, tipOf, wholeLevels, open, settled, frames, poll, menuRow, tab, noCues, write, LANES, tall, tracksAt, gutter, spans, axis, drag, lengthIs, pixels, show, chime, crossed } from './page.js'
 
 // The readout pointed at marks what it reads on the sound, the peak: a plain line through where it is and at its level,
 // each end crossed; a row of its table pointed at, that row's alone: the RMS, its level, no line through the peak
@@ -21,7 +21,7 @@ test('editor: the readout marks the level it reads on the sound, a row of its ta
   await poll(marks, peak => assert.ok(peak.col > h * .8 && peak.row > w * .8, `the peak, through its place and at its level: ${JSON.stringify(peak)}`))
   await page.locator('#levels tr', { hasText: 'RMS' }).hover()
   await poll(marks, rms => assert.ok(rms.col < h * .2 && rms.row > w * .8, `the RMS alone, at its level: ${JSON.stringify(rms)}`))
-  await page.mouse.move(box.x + 10, box.y + 10)
+  await page.mouse.move(box.x + 10, box.y + TOP + 10)
   await poll(marks, none => assert.ok(none.col < h * .2 && none.row < w * .2, `let go, none: ${JSON.stringify(none)}`))
 })
 
@@ -69,7 +69,7 @@ test('editor: the status bar says the note at the caret, a selection\'s compass,
   const heard = text => page.waitForFunction(text => document.querySelector('.heard')?.textContent === text, text)
   await write(`audio.from(t => (t < 1 ? Math.sin(2 * Math.PI * 440 * t) : Math.sin(2 * Math.PI * 659.26 * t)) * .5, { duration: 2 })`)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + tall(box) / 2
+  const { box, x } = await axis(2), y = box.y + TOP + TRACK / 2
   await page.mouse.click(x(.5), y)
   await heard('A4')
   await page.mouse.click(x(1.5), y)
@@ -115,7 +115,7 @@ test('editor: the status bar names the chord at the caret, a selection\'s chords
   const heard = re => page.waitForFunction(re => new RegExp(re).test(document.querySelector('.heard')?.textContent), re.source)
   await write(`audio.from(t => [[261.63, 329.63, 392], [220, 261.63, 329.63], [174.61, 220, 261.63]][Math.min(2, Math.floor(t / 2))].reduce((s, f) => s + Math.sin(2 * Math.PI * f * t), 0) * .2, { duration: 6 })`)
   await lengthIs('0:06.000')
-  const { box, x } = await axis(6), y = box.y + tall(box) / 2
+  const { box, x } = await axis(6), y = box.y + TOP + TRACK / 2
   await page.mouse.click(x(1), y)
   await heard(/^C$/)
   assert.equal(await page.locator('.heard').evaluate(tipOf), 'Chord at the caret')
@@ -169,7 +169,7 @@ audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
   await lengthIs('0:01.000')
   await show('spec')
   await settled()
-  const box = await page.locator('.plot').boundingBox(), lh = (tall(box) - LANES) / 2, left = box.width - (await gutter()) - 45
+  const box = await page.locator('.plot').boundingBox(), lh = (TRACK - LANES) / 2, left = box.width - (await gutter()) - 45
   const at = f => 1 - Math.log2(f / 20) / Math.log2(24000 / 20)
   // the meter's columns in the measuring red along a row a pixel under the pointer's (its guide runs on the pointer's)
   const red = y => page.evaluate(([y, left]) => {
@@ -185,7 +185,7 @@ audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
     await page.keyboard.up('Alt')
     return (lit[0] + lit.at(-1) + 1) / 2 / k
   }
-  const loud = await mark(Math.round(lh * at(1000))), quiet = await mark(Math.round(lh + LANES + lh * at(4000)))
+  const loud = await mark(Math.round(TOP + lh * at(1000))), quiet = await mark(Math.round(TOP + lh + LANES + lh * at(4000)))
   assert.ok(loud > 37, `the loudest at the top: ${loud.toFixed(1)} of 40 px`)
   assert.ok(Math.abs(loud - quiet - 10) <= 1.5, `20 dB apart, 10 px: ${(loud - quiet).toFixed(1)}`)
 })
@@ -259,7 +259,7 @@ test('editor: the level reads the peak, the RMS or the loudness, as chosen', asy
   assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).reads, 'loudness')
   // a selection's own: its peak, the loudness being all of it's; its RMS, under its peak (the value alone, no word: the
   // menu and the tip say which)
-  await drag([x(1), box.y + 40], [x(2) - x(1), 0])
+  await drag([x(1), box.y + TOP + 40], [x(2) - x(1), 0])
   const peak = await read()
   assert.match(peak, /^−\d+\.\ddBFS$/)
   await page.locator('.readout').click()

@@ -2,7 +2,7 @@
 // page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { page, origin, readout, tipOf, open, settled, frames, poll, settings, selected, menu, facts, noCues, write, LANES, FOOT, tall, tracksAt, gutter, axis, grab, boxDrag, drag, lengthIs, tap, taken, heard, show, chime, measuredOnRow, crossed } from './page.js'
+import { TOP, TRACK, page, origin, readout, tipOf, open, settled, frames, poll, settings, selected, menu, facts, noCues, write, LANES, FOOT, tall, tracksAt, gutter, axis, grab, boxDrag, drag, lengthIs, tap, taken, heard, show, chime, measuredOnRow, crossed } from './page.js'
 
 // Before, a key at the bar's right end, after the rate and channels: pressed, the file as it opened, as B does, lit while it is heard; again, or B,
 // the output. A generated sound has no file to hear it against: the key is off
@@ -135,11 +135,11 @@ test('editor: playback goes on without a gap while the engine processes, and its
 test('editor: the caret goes where the pointer presses; Play starts on its press; the loop switch leaves Space to play', async () => {
   await open()
   const { box, x } = await axis(6.525)
-  await page.mouse.move(x(2), box.y + tall(box) / 2)
+  await page.mouse.move(x(2), box.y + TOP + TRACK / 2)
   await page.mouse.down()
   // times go by the zoom's 1-2-5 step just above a pixel (view.js unit): 6.5 s over this plot, 0.02 s
   await page.locator('.time', { hasText: /^0:02\.000$/ }).waitFor()
-  await page.mouse.move(x(3), box.y + tall(box) / 2, { steps: 4 })
+  await page.mouse.move(x(3), box.y + TOP + TRACK / 2, { steps: 4 })
   await page.mouse.up()
   // the clock shows the caret (where the drag left the selection's moving end), one time always, in the units the
   // settings choose, as the time row writes them; after it how long the selection is, in white, between bars as a length
@@ -178,7 +178,7 @@ test('editor: the caret goes where the pointer presses; Play starts on its press
 test('editor: the playhead starts at the caret and only moves on, however late the device sounds', async () => {
   await open()
   const { box, x } = await axis(6.525)
-  await page.mouse.click(x(2), box.y + tall(box) / 2)
+  await page.mouse.click(x(2), box.y + TOP + TRACK / 2)
   await page.locator('.time', { hasText: '0:02.000' }).waitFor()
   await page.keyboard.press('Space')
   // the clock each frame for half a second: never before 2 s (the device lags the render), never backwards
@@ -196,7 +196,7 @@ test('editor: the playhead starts at the caret and only moves on, however late t
 // there, never a frame where it was (what the speakers still play of it)
 test('editor: the caret put elsewhere while it plays goes there at once, never back', async () => {
   await open()
-  const { box, x } = await axis(6.525), y = box.y + tall(box) / 2
+  const { box, x } = await axis(6.525), y = box.y + TOP + TRACK / 2
   await page.mouse.click(x(1), y)
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
@@ -230,7 +230,7 @@ test('editor: played from past the middle of a zoomed view, the view glides the 
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + tall(box) / 2, at = f => box.x + f * w
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + TOP + TRACK / 2, at = f => box.x + f * w
   await page.mouse.move(at(.5), y)
   for (let i = 0; i < 7; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   const time = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
@@ -265,7 +265,7 @@ test('editor: scrolled while it plays, the view stays where it was put till the 
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + tall(box) / 3
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + TOP + TRACK / 3
   await page.mouse.move(box.x + 20, y)
   for (let i = 0; i < 10; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.mouse.click(box.x + 20, y)
@@ -306,7 +306,7 @@ test('editor: zoomed while it plays, about the playhead, still followed', async 
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + tall(box) / 3
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + TOP + TRACK / 3
   await page.mouse.move(box.x + 20, y)
   for (let i = 0; i < 10; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.mouse.click(box.x + 20, y)
@@ -350,7 +350,7 @@ test('editor: followed, the reel runs on by the compositor, its pictures not dra
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + box.height / 3
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + TOP + TRACK / 3
   await page.mouse.move(box.x + w * .1, y)
   for (let i = 0; i < 9; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.mouse.click(box.x + w * .6, y)
@@ -389,7 +389,7 @@ test('editor: followed, the view steps by whole device pixels and the playhead h
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + box.height / 3
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + TOP + TRACK / 3
   await page.mouse.move(box.x + w * .1, y)
   for (let i = 0; i < 9; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.mouse.click(box.x + w * .1, y)
@@ -544,7 +544,7 @@ test('editor: zoomed in, the playhead goes on by the frames\' own time, however 
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
   for (const layer of ['waveform', 'spectrum']) assert.equal(await page.locator(`.plot canvas.${layer}`).evaluate(e => getComputedStyle(e).maskImage), 'none', layer)
-  const box = await page.locator('.plot').boundingBox(), y = box.y + box.height / 2
+  const box = await page.locator('.plot').boundingBox(), y = box.y + TOP + TRACK / 2
   await page.mouse.move(box.x + 20, y)
   for (let i = 0; i < 10; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.mouse.click(box.x + 20, y)
@@ -728,7 +728,7 @@ test('editor: a band plays through stable filters: what reaches the speakers sta
   await open()
   await show('spec')
   const { box, x } = await axis(6.525)
-  await boxDrag([x(1), box.y + box.height * .2], [x(2) - x(1), box.height * .1])
+  await boxDrag([x(1), box.y + TOP + TRACK * .2], [x(2) - x(1), TRACK * .1])
   assert.match(await readout(), /Hz–/)
   await heard()
   await page.keyboard.press('Space')
@@ -903,13 +903,13 @@ test('editor: the mark still shows the wave of a fragment pitched down, playing,
   }
   // the most wave shown over about a second of it playing
   const shapes = async () => { let most = 0; for (let i = 0; i < 12; i++) { await page.waitForTimeout(90); most = Math.max(most, await crest()) } return most }
-  await page.mouse.click(x(1.3), box.y + box.height / 2)
+  await page.mouse.click(x(1.3), box.y + TOP + TRACK / 2)
   await page.keyboard.press('Space')
   { const n = await shapes(); assert.ok(n > 5, `a wave while the fragment plays: ${n}`) }
   await page.keyboard.press('Space')
   await page.getByRole('button', { name: 'Play', exact: true }).waitFor()
   // again, from before the fragment, and after it
-  await page.mouse.click(x(.2), box.y + box.height / 2)
+  await page.mouse.click(x(.2), box.y + TOP + TRACK / 2)
   await page.keyboard.press('Space')
   assert.ok(await shapes() > 5, 'and while what is before it plays')
   await page.keyboard.press('Space')
@@ -948,7 +948,7 @@ test('editor: a file still decoding plays as far as it has come', async () => {
 // While a selection loops, the caret put elsewhere takes playback there, over all of the output (nothing is selected)
 test('editor: the caret put elsewhere while a selection loops plays from there, past the old loop', async () => {
   await open()
-  const { box, x } = await axis(6.525), y = box.y + tall(box) * .3
+  const { box, x } = await axis(6.525), y = box.y + TOP + TRACK * .3
   await drag([x(1), y], [x(1.5) - x(1), 0])
   await page.getByRole('button', { name: 'Loop' }).click()
   await page.keyboard.press('Space')
@@ -978,7 +978,7 @@ test('editor: the pointer hides while the caret sounds, and comes back', async (
 
 // Handles are for editing: while it plays there are none, the caret's square past it too
 test('editor: no handles while it plays', async () => {
-  const { box, x, y } = await chime(), lh = (tall(box) - LANES) / 2, at = [x(2) + 9, box.y + lh * 3 / 4]
+  const { box, x, y } = await chime(), lh = (TRACK - LANES) / 2, at = [x(2) + 9, box.y + TOP + lh * 3 / 4]
   await page.mouse.click(x(2), y)
   await grab([at], 'ew-resize')
   await page.keyboard.press('Space')
@@ -997,7 +997,7 @@ test('editor: the caret moves within a selection from the time row or the arrows
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3, row = box.y + box.height - 11
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, row = box.y + box.height - 11
   const clock = () => page.locator('.time').innerText(), seconds = t => t.split(':').reduce((m, s) => m * 60 + +s, 0)
   await drag([x(1), y], [x(5) - x(1), 0])
   assert.equal(await selected(), '0:01.000–0:05.000')

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import audio from '../../audio.js'
 import clock from '../../playground/time.js'
 import { samples, RATE as SAMPLES } from '../../playground/samples.js'
-import { browser, page, origin, errors, chimeLeft, code, open, settled, selected, palette, noCues, write, tall, axis, drag, lengthIs } from './page.js'
+import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, open, settled, selected, palette, noCues, write, tall, axis, drag, lengthIs } from './page.js'
 
 // The clipboard's keys: ⌘C copies the selection, ⌘X cuts it, ⌘V pastes at the caret, each a call on the chain. ⌘C once
 // wrote the copy an Alt-drag makes, from a selection that has no destination: `copy: at is NaN`.
@@ -14,7 +14,7 @@ test('editor: ⌘C copies the selection, ⌘X cuts it, ⌘V pastes at the caret'
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3, last = () => code().then(c => c.trim().split('\n').at(-1))
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, last = () => code().then(c => c.trim().split('\n').at(-1))
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('ControlOrMeta+C')
   await page.waitForFunction(() => /\.copy\(\{ at: [\d.]+, d: [\d.]+ \}\)$/.test(scriptText().trim()))
@@ -42,7 +42,7 @@ test('editor: a range copied in one tab pastes in another', async () => {
   await noCues()
   await write(`audio('chime.wav').gain(-3).save('out.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('ControlOrMeta+C')
   await page.waitForFunction(() => /\.copy\(\{ at: [\d.]+, d: [\d.]+ \}\)/.test(scriptText()))
@@ -105,7 +105,7 @@ test('editor: a copy puts the range on the system clipboard, as code and as a WA
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
   await write(`audio('chime.wav').gain(-3)`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('ControlOrMeta+C')
   await page.waitForFunction(() => /\.copy\(/.test(scriptText()))
@@ -138,7 +138,7 @@ test('editor: ⌘V pastes a WAV another page copied, and an audio file copied el
   await lengthIs('0:09.000')
   const tone = [...await audio.from([Float32Array.from({ length: SAMPLES }, (_, i) => .5 * Math.sin(2 * Math.PI * 440 * i / SAMPLES))], { sampleRate: SAMPLES }).encode('wav')]
   await page.evaluate(bytes => navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob(['elsewhere'], { type: 'text/plain' }), 'web audio/wav': new Blob([new Uint8Array(bytes)], { type: 'audio/wav' }) })]), tone)
-  const { box, x } = await axis(9), y = box.y + tall(box) * .3
+  const { box, x } = await axis(9), y = box.y + TOP + TRACK * .3
   await page.mouse.click(x(3), y)
   await page.keyboard.press('ControlOrMeta+V')
   await page.waitForFunction(() => /\.insert\(audio\('pasted\.wav'\), \{ at: 3(\.\d+)?, xfade: 0\.01 \}\)$/.test(scriptText().trim()))

@@ -43,7 +43,7 @@ export function down(event) {
   if (liftAt(px, py)) { const t = thumb(); if (py < t.y || py > t.y + t.h) assign({ lift: Math.max(0, Math.min(spare, (py - t.h / 2) / t.room * spare)) }); drag = { lifting: true, y: py, lift0: lift }; return invalidate() }
   if (inRoom(py)) return haunt(snap(time(px)))
   unghost()
-  // in a band's strip, the band then the one edited: a marker's triangle takes hold of it (a range's, that end), the
+  // in a band's strip, the band then the one edited: a marker's serif takes hold of it (a range's, that end), the
   // caret and what plays staying where they are, dragged, it moves, let go unmoved, the caret goes to it (up); in a
   // locked track's, nothing. A range or the takes' place: its stretch selected at once and heard from its start while
   // held, as it is; nothing more (dragged on, nothing moves). A name pressed, named anew as it is let go (clicked)
@@ -134,7 +134,7 @@ export function drags(event, px, py) {
   drag.last = [event, px, py]
   // a drag draws what it does (the helpers, the picture as it will be): the pointer goes while it does, once it moves
   if (drag.x == null || Math.abs(px - drag.x) >= SLOP || Math.abs(py - (drag.y ?? py)) >= SLOP) root.style.cursor = 'none'
-  // a marker held by its triangle: a moment, it moves (held Alt as it was pressed, pulled apart into a range from it, as
+  // a marker held by its serif: a moment, it moves (held Alt as it was pressed, pulled apart into a range from it, as
   // Photoshop's split slider's triangle is); a range, the end held, as far as the other, onto it within ONTO px (one
   // there as it is let go: a moment, up); onto the cues and markers near it, as an edge goes (stuck)
   if (drag.marker != null) {
@@ -305,7 +305,7 @@ function overrun(reach) {
   if (end > was) drag.overrun = requestAnimationFrame(() => { if (!drag?.overrun) return; drag.overrun = 0; drags(...drag.last) })
 }
 // What a press would grab, as the pointer: a handle; held ⌘ (Ctrl), a range's end to set its length, a cue's line;
-// the selection's audio (held Alt to copy, ⌘ to move); a marker's triangle in its strip; the gain line or a point on
+// the selection's audio (held Alt to copy, ⌘ to move); a marker's serif in its strip; the gain line or a point on
 // it, a voiced stretch of the pitch curve, a range's edge (lit, `hot`) or a caret; held ⌘ or Alt over the lanes, a
 // cross, aiming or measuring (⌘ on the spectrogram, a box of time and frequency). Else what a press does: the
 // I-beam, a range of time; held Shift, with a chevron the way the selection goes out to it; held Alt, with a plus.
@@ -319,7 +319,7 @@ export function hover(px, py, keys = held) {
   // the room under the lanes, a new track's caret, as a lane's
   if (liftAt(px, py)) { hot = null; grabbing = true; root.style.cursor = 'default'; return }
   if (inRoom(py)) { hot = null; grabbing = false; root.style.cursor = ''; return }
-  // in a band's strip, a marker's triangle to drag; a name, a range or the takes' place, to press; elsewhere there,
+  // in a band's strip, a marker's serif to drag; a name, a range or the takes' place, to press; elsewhere there,
   // the band's height to drag (where a selection's tools are not)
   const mark = !gripAt(own(lanes()), px, py) && stripAt(px, py)
   if (mark) { hot = null; grabbing = notch(mark, px) >= 0; root.style.cursor = grabbing ? 'ew-resize' : 'pointer'; return }
@@ -399,7 +399,7 @@ export function up(event) {
     // in its own lane: what it moves frozen till the output comes (a copy put in, all after it)
     else { freeze([{ lane: own0(), a: d.carry === 'copy' ? d.to : Math.min(d.a, d.to), b: d.carry === 'copy' ? d.to + length : Math.max(d.b, d.to + length) }]); select(d.to, d.to + length, null, true) }
   }
-  else if ((d.stretch || d.pill) && !d.moved) { if (d.stretch && !d.end) onmode('grip'); else if (d.tool === 'pitch') onmode('pitch') }
+  else if ((d.stretch || d.pill) && !d.moved) { if (d.stretch) onmode('grip'); else if (d.tool === 'pitch') onmode('pitch') }
   else if (d.stretch && d.mode === 'trim') {
     if (Math.abs(d.to - d.b) < 1e-9 || !onedit('trim', { at: d.a, end: d.b, to: d.to })) assign({ pieces: null })
     else { freeze([{ lane: own0(), a: Math.min(d.b, d.to), b: Math.max(d.b, d.to) }]); d.to > d.a ? select(d.a, d.to, null, true) : (select(0, 0), setCursor(d.a)) }

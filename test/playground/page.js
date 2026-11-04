@@ -265,11 +265,12 @@ async function drawn(of = '.plot') {
 // The time axis spans the plot less the level axis at its right, as wide as its labels (view.js axisWidth, --axis on the
 // slab); the lanes are 2 px apart (GAP), over the time row (RULER, 22 px)
 const LANES = 2
-// A sound's lanes fill the picture all told but their foot (FOOT px) and the room under it (ROOM px); a track's lane
-// TRACK px, its head line HEAD px over it where the layers are not beside the picture (view.js). `tall(box)`: a sound's
-// lanes, all told, in the plot `box`
+// A sound is a track as any (view.js banded): its head line HEAD px, its lanes TRACK px all told, its foot (FOOT px),
+// the room under it (ROOM px). `tall(box)`: where a sound's lanes end, px from the top of the plot `box`
 const TRACK = 160, ROOM = 80, FOOT = 18, HEAD = 20
-const tall = box => box.height - 22 - FOOT - ROOM
+const tall = () => HEAD + TRACK
+// where its lanes start, px from the plot's top: under its head line
+const TOP = HEAD
 // Each track's lane, as its layer has it (data-lane: its top and height from the picture's top), CSS px in the page:
 // { y, h } in order
 const tracksAt = () => page.locator('.layer').evaluateAll(els => els.map(e => { const [y, h] = e.dataset.lane.split(' ').map(Number), p = document.querySelector('.plot').getBoundingClientRect(); return { y: p.y + y, h } }))
@@ -294,6 +295,8 @@ async function grab(points, cursor) {
 }
 // the stretch grip's pointer: arrows out to bars, its own (view.js STRETCH)
 const STRETCHING = /^url\(.*ew-resize$/
+// ⌘ at a range's end: its way's pointer, stretch's or speed's own, trim's the plain one
+const STRETCHES = /^url\(|ew-resize/
 const warps = async () => JSON.parse((await code()).match(/\.warp\((\[.*\])\)/)[1])
 // A box on the spectrogram, ⌘ (Ctrl) held as it is pressed: a band of time and frequency; with Alt as well, another
 async function boxDrag(from, by, ...keys) {
@@ -466,6 +469,10 @@ async function turn(at, key, name) {
   assert.equal(await way(key), name)
 }
 const keyed = async (keys, act) => { for (const k of keys) await page.keyboard.down(k); await act(); for (const k of [...keys].reverse()) await page.keyboard.up(k) }
+// a range's end at `at`, ⌘ (Ctrl) held there (view.js endDown): pressed, its way turned to `name` (trim, stretch, speed);
+// or dragged `by` px, its length set so
+const endWay = (at, name) => keyed(['ControlOrMeta'], async () => turn(await grab([at], STRETCHES), 'grip', name))
+const endDrag = (at, by) => keyed(['ControlOrMeta'], async () => drag(await grab([at], STRETCHES), by))
 async function chime(ui) {
   await open(ui)
   await noCues()
@@ -520,4 +527,4 @@ const themed = async name => {
 // a test's own page in place of the one it was given, closed after it as that one is
 const setPage = p => { page = p }
 
-export { root, browser, page, origin, errors, made, CHIME, chimeLeft, RATE, sine, peakDb, wavBytes, engine, scrubbed, clicked, attack, code, readout, tipOf, wholeLevels, levelsTable, lengthText, seconds, open, settled, frames, poll, still, menuRow, choice, settings, selected, tab, edits, menu, facts, offered, palette, noCues, write, drawn, LANES, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, TAIL, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, taken, heard, hits, handles, dragCue, gridShown, pixels, show, shown, bursts, struck, scriptOf, keptFiles, takesLeft, recordFor, way, turn, keyed, chime, marked, pointed, measuredOnRow, crossed, contextRow, tools, themed, setPage }
+export { TOP, endWay, endDrag, root, browser, page, origin, errors, made, CHIME, chimeLeft, RATE, sine, peakDb, wavBytes, engine, scrubbed, clicked, attack, code, readout, tipOf, wholeLevels, levelsTable, lengthText, seconds, open, settled, frames, poll, still, menuRow, choice, settings, selected, tab, edits, menu, facts, offered, palette, noCues, write, drawn, LANES, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, TAIL, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, taken, heard, hits, handles, dragCue, gridShown, pixels, show, shown, bursts, struck, scriptOf, keptFiles, takesLeft, recordFor, way, turn, keyed, chime, marked, pointed, measuredOnRow, crossed, contextRow, tools, themed, setPage }

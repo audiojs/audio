@@ -1,5 +1,5 @@
 import { markLane } from './data.js'
-import { RULER, GAP, EDGE, HEAD, FOOT, TRACK, LOW, ROOM, midiOf, TICK, VOICE, root, oncursor, onfocus, ontake, onghost, onlayout, onbusy, keepRoom, timeRow, element, FORK, forkButton, count, rate, duration, display, hovered, markers, recording, empty, pieces, guest, start, end, selection, band, cursor, ruler, waveLook, tracks, focus, allLanes, sections, scroll, heights, lift, kinds, noted, zoomed, assign } from './model.js'
+import { RULER, GAP, EDGE, HEAD, FOOT, TRACK, LOW, ROOM, midiOf, TICK, VOICE, root, oncursor, onfocus, ontake, onghost, onlayout, onbusy, keepRoom, timeRow, element, keep, FORK, forkButton, count, rate, duration, display, hovered, markers, recording, empty, pieces, guest, start, end, selection, band, cursor, ruler, waveLook, tracks, focus, allLanes, sections, scroll, heights, lift, kinds, noted, zoomed, assign } from './model.js'
 import { lanesEnd } from './overlay.js'
 import { drag } from './pointer.js'
 import { W, H, invalidate } from './render.js'
@@ -39,7 +39,7 @@ export function unghost() { if (!ghost) return; ghost = false; onghost(false); i
 // picture's top
 let bandsLaid = ''
 export function layout(L) {
-  const r = roomLane(L), [top, foot] = extent(L.all), hd = headOf(), rows = !duration ? [] : tracks ? L.all.map(([, y, , lh]) => ({ top: y - hd, y, h: lh })) : [{ top, y: top, h: foot - top }]
+  const r = roomLane(L), [top, foot] = extent(L.all), hd = headOf(), rows = !duration && !empty ? [] : tracks ? L.all.map(([, y, , lh]) => ({ top: y - hd, y, h: lh })) : [{ top: top - hd, y: top, h: foot - top }]
   const key = JSON.stringify([rows, r?.[1], r?.[3], plot().h])
   if (key !== bandsLaid) { bandsLaid = key; onlayout({ rows, room: r && { y: r[1], h: r[3] }, h: plot().h }) }
 }
@@ -51,6 +51,7 @@ function takeChip(i) {
   const el = element('div', 'takes', root)
   el.setAttribute('role', 'group')
   for (const type of ['pointerdown', 'pointerup', 'contextmenu', 'dblclick']) el.addEventListener(type, e => e.stopPropagation())
+  el.addEventListener('pointerdown', keep)
   el.addEventListener('pointerenter', () => { chipped = i; invalidate(true) })
   el.addEventListener('pointerleave', () => { if (chipped === i) chipped = -1; invalidate(true) })
   el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; e.stopPropagation(); ontake(i, b.value === 'add' || b.value === 'more' ? b.value : +b.value, b) })
@@ -115,15 +116,17 @@ export const plot = () => ({ w: Math.max(1, W - gutter), h: Math.max(1, H - rowH
 // a sound's channels in one lane: as the waveform's look has them, or its notes, a voice's, found on their mix
 export const merged = () => !tracks && (display === 'notes' || display === 'wave' && waveLook.lanes === 'one')
 // Each band's height by its name, a track's or '' for a sound's, as its foot was dragged (onheight); the bands
-// scrolled up `lift` px, as far as they and the room run past the picture (`spare` px); a track's head line over it
+// scrolled up `lift` px, as far as they and the room run past the picture (`spare` px); a track's head line over it.
+// A sound is a track as any is (`banded`): its head line, TRACK px, the room under it, an empty tab's track too; but
+// where the picture is all there is (`keepRoom` false: embedded), its lanes fill it
 export let spare = 0
 export const bandOf = i => tracks ? tracks[i]?.name ?? '' : ''
-const headOf = () => tracks ? HEAD : 0
+export const banded = () => !!tracks || keepRoom
+const headOf = () => banded() ? HEAD : 0
 // the room kept under the lanes, with a sound or an empty track: a take into nothing, as it comes and done, in the
-// same lane, nothing moving as it stops; none where the picture is all there is (`keepRoom` false: embedded, the lanes
-// fill its frame)
+// same lane, nothing moving as it stops
 const roomy = () => keepRoom && (duration || empty) ? ROOM : 0
-export const tallOf = name => Math.max(LOW, heights[name] ?? (tracks ? TRACK : plot().h - FOOT - roomy()))
+export const tallOf = name => Math.max(LOW, heights[name] ?? (banded() ? TRACK : plot().h - FOOT - roomy()))
 export const kindOf = i => (tracks && kinds[bandOf(i)]) || display
 // The lanes, [x, y, w, h] each, with what it shows (`kind`) and its channel's or its track's index (`i`), a notes lane
 // its keys (keysOf): `all` in order, and by kind, `wave`, `spec` and `notes`; `spectral`, whether any of the picture's
@@ -132,11 +135,11 @@ export const kindOf = i => (tracks && kinds[bandOf(i)]) || display
 export function lanes() {
   const { w, h } = plot(), n = merged() ? 1 : Math.max(1, count), kind = Array.from({ length: n }, (_, i) => kindOf(i)), hd = headOf()
   const each = tracks ? kind.map((_, i) => tallOf(bandOf(i))) : Array(n).fill((tallOf('') - GAP * (n - 1)) / n)
-  const all = tracks ? each.reduce((s, lh) => s + hd + lh + FOOT, 0) : each.reduce((s, lh) => s + lh, 0) + GAP * (n - 1) + FOOT
+  const all = tracks ? each.reduce((s, lh) => s + hd + lh + FOOT, 0) : hd + each.reduce((s, lh) => s + lh, 0) + GAP * (n - 1) + FOOT
   spare = Math.max(0, all + roomy() - h)
   assign({ lift: Math.max(0, Math.min(lift, spare)) })
   let y = -lift
-  return sorted(each.map((lh, i) => { y += hd; const r = Object.assign([0, y, w, lh], { kind: kind[i], i, keys: kind[i] === 'notes' ? keysOf(i) : null }); y += lh + (tracks ? FOOT : GAP); return r }))
+  return sorted(each.map((lh, i) => { if (tracks || !i) y += hd; const r = Object.assign([0, y, w, lh], { kind: kind[i], i, keys: kind[i] === 'notes' ? keysOf(i) : null }); y += lh + (tracks ? FOOT : GAP); return r }))
 }
 const sorted = (all, spectral = all.some(r => r.kind === 'spec')) => ({ all, wave: all.filter(r => r.kind === 'wave'), spec: all.filter(r => r.kind === 'spec'), notes: all.filter(r => r.kind === 'notes'), spectral })
 const keyed = new WeakMap()
@@ -252,9 +255,9 @@ export function carried(i) {
   return out
 }
 // The lane a new track would have in the room: under tracks, where the one made there has it, under its head line, as
-// tall as the last's; under a sound, all the room. The part in the picture, or null
+// tall as the last's; under a sound, as tall as its band (embedded, all the room). The part in the picture, or null
 export function roomLane(L = lanes()) {
-  const r = roomOf(L), y = r && r.y + headOf(), h = r && Math.min(tracks ? L.all.at(-1)[3] : Infinity, plot().h - y)
+  const r = roomOf(L), y = r && r.y + headOf(), h = r && Math.min(tracks ? L.all.at(-1)[3] : banded() ? tallOf('') : Infinity, plot().h - y)
   return h > 0 ? [0, y, plot().w, h] : null
 }
 // Each piece's part in view: where on screen (CSS px across the plot), the samples it shows, its level

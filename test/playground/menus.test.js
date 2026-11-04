@@ -2,7 +2,7 @@
 // helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { page, origin, tipOf, wholeLevels, open, menuRow, tab, edits, noCues, write, tall, axis, drag, lengthIs } from './page.js'
+import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, menuRow, tab, edits, noCues, write, tall, axis, drag, lengthIs } from './page.js'
 
 // A control pointed at says what it is on a tag pointing at it, after a moment, the next at once; the browser's own
 // tooltip never, the title back once the pointer leaves
@@ -54,7 +54,7 @@ test('editor: a control pointed at says what it is and does, on a tag pointing a
 // its card open. One the library can't run without a value gets its default written. Escape closes it.
 test('editor: an edit from the palette goes on the selection, its card open among the edits', async () => {
   await open()
-  const { box, x } = await axis(6.525), y = box.y + tall(box) * .3
+  const { box, x } = await axis(6.525), y = box.y + TOP + TRACK * .3
   await drag([x(1.01), y], [x(2.01) - x(1.01), 0])
   await page.keyboard.press('ControlOrMeta+K')
   const groups = await page.locator('.palette-group').allInnerTexts()
@@ -112,7 +112,7 @@ test('editor: the context menu, or K, keeps only the selection', async () => {
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await drag([x(2), y], [x(4) - x(2), 0])
   await page.mouse.click(x(3), y, { button: 'right' })
   await page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: /^Crop$/ }) }).click()
@@ -134,7 +134,7 @@ test('editor: the context menu takes the clicks out of the selection, or rebuild
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await drag([x(2), y], [x(4) - x(2), 0])
   await page.mouse.click(x(3), y, { button: 'right' })
   await menuRow('Process').click()
@@ -168,14 +168,14 @@ test('editor: a right-click gives the edits for the selection, or puts the caret
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   const item = name => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${name}$`) }) })
   await drag([x(1), y], [x(3) - x(1), 0])
   await page.mouse.click(x(2), y, { button: 'right' })
   // its own: the edits of what is there, then Process, the methods by kind and the search for one, no more
   const own = () => page.locator('.menubar-menu > .menu-row .menu-label').allInnerTexts(), kinds = ['Edit', 'Level', 'Filter', 'Dynamics', 'Repair', 'Time & pitch', 'Effect', 'Color', 'Reverb', 'Space', 'Generate', 'Find an edit…']
   const processed = () => page.locator('.menubar-sub:popover-open > .menu-row .menu-label').allInnerTexts()
-  assert.deepEqual(await own(), ['Cut', 'Copy', 'Paste', 'Delete', 'Crop', 'Mark it', 'Process'])
+  assert.deepEqual(await own(), ['Cut', 'Copy', 'Paste', 'Delete', 'Crop', 'Mark it', 'Process', 'Track'])
   await item('Process').click()
   assert.deepEqual(await processed(), kinds)
   // under its kind, Edit, the first of it
@@ -195,7 +195,7 @@ test('editor: a right-click gives the edits for the selection, or puts the caret
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').recent?.[0] === 'reverse')
   await page.mouse.click(x(6), y, { button: 'right' })
   assert.equal(await page.locator('.time').innerText(), '0:06.000')
-  assert.deepEqual(await own(), ['Paste', 'Add a marker', 'Process'], 'the caret\'s own, no Cut')
+  assert.deepEqual(await own(), ['Paste', 'Add a marker', 'Process', 'Track'], 'the caret\'s own, no Cut')
   // Esc closes it, the caret staying
   await page.keyboard.press('Escape')
   await page.locator('.menubar-menu').waitFor({ state: 'detached' })
@@ -211,7 +211,7 @@ test('editor: one Stretch, its algorithm a choice; the menus name each method in
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await page.mouse.click(x(2), y, { button: 'right' })
   await menuRow('Process').click()
   await menuRow('Time & pitch').click()
@@ -256,18 +256,18 @@ test('editor: the pointer on its way to a submenu crosses the rows between, whic
   const subs = () => page.locator('.menubar-sub:popover-open').count()
   const frame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
   await page.locator('.menubar-item', { hasText: /^View$/ }).click()
-  const show = await menuRow('Spectrogram options').boundingBox(), zoom = await menuRow('Zoom').boundingBox()
+  const show = await menuRow('Spectrogram options').boundingBox(), far = await menuRow('Snap').boundingBox(), zoom = await menuRow('Zoom').boundingBox()
   await page.mouse.move(show.x + 30, show.y + show.height / 2)
   await page.locator('.menubar-sub:popover-open').waitFor()
   const sub = await page.locator('.menubar-sub:popover-open').boundingBox()
-  assert.ok(sub.y + sub.height > zoom.y + zoom.height, 'the submenu reaches past Zoom, rows down')
-  // down and right over the rows between and onto Zoom's far end, by the submenu's edge
-  await page.mouse.move(zoom.x + zoom.width - 4, zoom.y + zoom.height / 2, { steps: 12 })
+  assert.ok(sub.y + sub.height > far.y + far.height, 'the submenu reaches past Snap, rows down')
+  // down and right over the rows between and onto Snap's far end, by the submenu's edge
+  await page.mouse.move(far.x + far.width - 4, far.y + far.height / 2, { steps: 12 })
   await frame()
   assert.equal(await lit(), 'Spectrogram options', 'the row crossed lets it pass')
   assert.equal(await subs(), 1, 'its submenu still open')
   // gone out of the menus from there and resting: nothing, the row it last crossed taking nothing
-  await page.mouse.move(zoom.x + zoom.width - 4, zoom.y + zoom.height + 400)
+  await page.mouse.move(far.x + far.width - 4, far.y + far.height + 400)
   // resting past the 300 ms a row takes the pointer in (menu.js REST)
   await page.waitForTimeout(500)
   assert.equal(await lit(), 'Spectrogram options', 'out of the menus, nothing changes')

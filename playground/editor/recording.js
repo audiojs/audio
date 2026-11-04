@@ -5,7 +5,7 @@ import { tape } from '../keep.js'
 import { item } from './commands.js'
 import { root, DESKTOP, UI, keep } from './config.js'
 import { state, eng, v, ed, pl, output } from './context.js'
-import { write, applied, changed } from './edits.js'
+import { write, applied, changed, switchTake } from './edits.js'
 import { lengths, lengthOf, shelf, restoring, saving, taken, place } from './files.js'
 import { clock, stamp, quote, note } from './format.js'
 import { closeMenus } from './menus.js'
@@ -114,7 +114,8 @@ export async function startRecording(fresh = false, run = null, place = false) {
 }
 // Each frame from the first block on: the blocks come since the last onto the picture, the playhead where the take has
 // got to, drawn as it runs (follow). The blocks come in bursts, and late as the page is busy: where it has got to is the
-// microphone's clock since the first (t0), never short of what came
+// microphone's clock since the first (t0), held back by as far as it has run past what came (`behind`, its most, let go
+// slowly), so the playhead runs evenly and never ahead of what is drawn
 function flush(t, frame = performance.now()) {
   t.frame = 0
   const blocks = t.queue.splice(0)
@@ -144,7 +145,9 @@ function flush(t, frame = performance.now()) {
   // played over, the take drawn lined up as its output will be, from where the others' clock is heard: no shift as it
   // stops and its output comes
   if (t.over) { const a = aligned(t, recorder); v.align(a.at, a.lead) }
-  const got = Math.max(t.samples, Math.round((recorder.time - t.t0) * t.rate)), at = t.follow(t.at + Math.min(room, got - t.pass) / t.rate, frame, 1)
+  const clock = Math.round((recorder.time - t.t0) * t.rate)
+  t.behind = Math.max(clock - t.samples, (t.behind ?? 0) * .995)
+  const got = Math.min(t.samples, clock - t.behind), at = t.follow(t.at + Math.min(room, got - t.pass) / t.rate, frame, 1)
   v.speed = t.follow.speed
   v.playhead = at
   state.time = stamp(at)
@@ -280,19 +283,13 @@ export function takesHere(alone = false) {
   const many = all.filter(r => r.list.length > 1)
   return within.findLast(r => alone || r.list.length > 1) ?? (alone ? null : many.findLast(r => span(r)[0] <= t + 1e-6) ?? many[0] ?? null)
 }
-// Another take heard, the picture held till its output comes (no change of level, over all of it): one past the sound's
-// end makes it longer or shorter, and all but the take's place stays where it is, the view at its scale
-function hear(change) {
-  v.expect('gain', [0, v.duration])
-  ed.change(change)
-}
 // A take there heard, the others turned off, as a take folder's are switched (Logic's): playing, it takes over where it
 // plays; none (k -1), the sound as it was, the first of them as the picture counts. One step, which Undo takes back
 export function useTakeOf(run, k) {
   const heard = run.list.findIndex(x => x.on)
   if (k === heard) return
   const change = k < 0 ? turnOff(ed.code, stepsOf(ed.code)[run.list[heard].i].call) : onTop(run, useTake(ed.code, run.list[k].from))
-  if (change) hear(change)
+  if (change) switchTake(change, `Take ${k + 2}`)
   note(`Take ${k + 2} of ${run.list.length + 1}, ${k < 0 ? 'as it was' : run.list[k].name || 'empty'}`)
 }
 // A named range forked (its fork, view.js placeFork): takes start there, an empty take over it, turned off, the sound
@@ -313,7 +310,7 @@ export function forkRange({ time, duration, track }) {
 function deleteTake(run) {
   const k = Math.max(0, run.list.findLastIndex(x => x.on)), change = dropTake(ed.code, run.list[k].from)
   if (!change) return
-  hear(run.list.length > 1 ? onTop(run, change) : change)
+  switchTake(run.list.length > 1 ? onTop(run, change) : change, `Delete take ${k + 2}`)
   note(run.list.length > 1 ? `Take ${k + 2} deleted, ${run.list.length} left here` : 'The take deleted')
 }
 // The takes there as a menu lists them, the one heard checked; the one heard, deleted; the context menu's, both

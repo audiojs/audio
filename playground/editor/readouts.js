@@ -49,7 +49,6 @@ export function meter(t = null, probe = null) {
   const size = 4096, now = performance.now()
   const live = l => { const dt = peaked ? (now - peaked.at) / 1000 : 0; peaked = { levels: ballistics(l, peaked?.levels, dt), at: now }; return peaked.levels }
   if (t == null && !recorder) peaked = null
-  if (!state.show.meters && !state.show.spectrum) { v.meters = null; return }
   // the spectrum read once, and only where a spectrogram's lane draws it (view.js paintMeters): a selection dragged
   // over the waveform reads none, where each move read up to 16 frames a channel
   const read = (levels, f, rate) => { let got; return { levels, get spectra() { return got ??= f() }, size, rate } }

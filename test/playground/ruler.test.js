@@ -1,7 +1,7 @@
 // The time row, the overview, the scrollbar, the caret out of sight; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { browser, page, origin, errors, tipOf, wholeLevels, open, settled, frames, poll, settings, selected, noCues, write, FOOT, tall, tracksAt, gutter, spans, axis, lengthIs, tap, heard, pixels, keyed, menu } from './page.js'
+import { TOP, TRACK, browser, page, origin, errors, tipOf, wholeLevels, open, settled, frames, poll, settings, selected, noCues, write, FOOT, tall, tracksAt, gutter, spans, axis, lengthIs, tap, heard, pixels, keyed, menu } from './page.js'
 
 // The caret, the selection or the playhead out of sight, past the lanes' end under the meters too: it stays at the edge
 // of the lanes it is past, its line as opaque as in sight, and on the time row under it its tick with a chevron pointing
@@ -14,7 +14,7 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at 
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + tall(box) / 3
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + TOP + TRACK / 3
   const range = () => page.evaluate(() => __view.range), seen = async t => { const [a, b] = await range(); return t >= a && t <= a + (b - a) * .9 }
   // the view where it goes, its travel there over (no frame moving it)
   const rest = async () => { let now = await range(), was; do { was = now; await frames(1); now = await range() } while (now[0] !== was[0] || now[1] !== was[1]); return now }
@@ -61,11 +61,11 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at 
     done(lit)
   }))), [py, opaque])
   const cols = async (py, opaque) => Object.keys(await columns(py, opaque)).map(Number)
-  await page.mouse.move(box.x + 40, box.y + 30)
+  await page.mouse.move(box.x + 40, box.y + TOP + 30)
   let opacity = null
   for (const px of [e - 1, e, e + 2, w]) {
     await page.evaluate(t => __view.setCursor(t), await timeAt(px))
-    const lit = await columns(h * .1)
+    const lit = await columns(TOP + TRACK * .1)
     assert.deepEqual(Object.keys(lit).map(Number), [e - 1], `a caret at ${px - e} px from the lanes' end`)
     opacity ??= lit[e - 1]
     assert.equal(lit[e - 1], opacity, `a caret at ${px - e} px from the lanes' end: as opaque as in sight`)
@@ -73,12 +73,12 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at 
     const chevron = (await cols(tall(box) - 7)).filter(c => c >= e - 9 && c < e - 1)
     assert.ok(chevron.length >= 3, `a caret at ${px - e} px from the lanes' end: its chevron at its line's foot, ${chevron.length} columns`)
   }
-  // a range ending there, the pointer in it: the squares of its end, its fade's in its top corner and its grip past it
-  // 3/4 down the lane, with its end in sight; with it past the lanes' end, none under the meters
+  // a range ending there, the pointer in it: its fade's square in its top corner, with its end in sight; with it past
+  // the lanes' end, none under the meters
   for (const [px, shown] of [[e - 40, true], [e + 1, false]]) {
     await page.evaluate(([a, b]) => __view.select(a, b), [await timeAt(e - 200), await timeAt(px)])
-    await page.mouse.move(box.x + e - 100, box.y + 30)
-    for (const [py, from] of [[BOX / 2, px - BOX], [Math.round(tall(box) * 3 / 4) - 4, px]]) {
+    await page.mouse.move(box.x + e - 100, box.y + TOP + 30)
+    for (const [py, from] of [[TOP + BOX / 2, px - BOX]]) {
       const lit = (await cols(py, shown ? 128 : 0)).filter(c => c >= from && c < from + BOX)
       assert.ok(shown ? lit.length >= BOX - 4 : !lit.some(c => c >= e), `a range ending ${px - e} px from the lanes' end, at ${py} px: ${lit.length} lit`)
     }
@@ -128,7 +128,7 @@ test('editor: the overview shows the whole sound under the time row; pressed or 
   assert.ok(await ink(.25) > 4, 'the sound drawn in the overview')
   assert.ok(await ink(.75) <= 2, 'silence a line')
   // zoomed out past the end, the sound's strip ends where the sound does
-  await page.mouse.move(box.x + w / 2, box.y + 40)
+  await page.mouse.move(box.x + w / 2, box.y + TOP + 40)
   for (let i = 0; i < 2; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, 120); await page.keyboard.up('Control') }
   const [, past] = await range()
   assert.ok(past > 25, `zoomed out past the end: ${past}`)
@@ -185,7 +185,7 @@ test('editor: the overview draws the sound as its lanes do, its body brightest a
 test('editor: the caret drags like an edge from its line, a press on the time row puts it there, and the moment under it sounds while held', async () => {
   await page.addInitScript(tap)
   await open()
-  const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + tall(box) / 2
+  const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + TOP + TRACK / 2
   // the mark in the bar: the logo at rest, the wave under the caret while it sounds, turned by the caret's travel
   const markShot = () => page.locator('.bar .wordmark .logo > canvas').screenshot()
   // how far apart two shots are, gray levels a pixel: a turn that ends back at the pose leaves a hair's width of it
@@ -277,7 +277,7 @@ test('editor: zoomed in, the scrollbar at the time row\'s top moves the view, th
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3, foot = box.y + box.height - 22 + 4, w = box.width - (await gutter())
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, foot = box.y + box.height - 22 + 4, w = box.width - (await gutter())
   const time = async () => (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0)
   const left = async () => { await page.mouse.click(box.x + 1, y); return time() }
   await page.mouse.click(x(6), foot)
@@ -335,7 +335,7 @@ test('editor: on hover, the scrollbar shows only while the pointer is over the p
   await shows(false)
   assert.ok(Date.now() - zoomed > 700, `held after the zoom: ${Date.now() - zoomed} ms`)
   // the pointer over the picture: shown, and kept while it stays
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.move(box.x + box.width / 2, box.y + TOP + TRACK / 2)
   await shows(true)
   const at = await page.evaluate(() => performance.now())
   await page.waitForFunction(t => performance.now() > t + 1500, at)
@@ -406,12 +406,12 @@ test('editor: past the sound\'s end, its centre line on to the view\'s end, the 
   await settled()
   const box = await page.locator('.plot').boundingBox(), w = await spans(box), lane = tall(box)
   // the first lane's middle row past the end (the last tenth of the lanes, where the sound is not), its ink
-  const line = () => pixels(`let n = 0; for (let x = Math.round(arg.w * .92); x < arg.w - 2; x++) { let most = 0; for (let y = arg.y - 1; y <= arg.y + 1; y++) { const i = (y * w + x) * 4; most = Math.max(most, d[i] + d[i + 1] + d[i + 2]) } if (most > 120) n++ } return n`, { w, y: Math.round(lane / 4) })
+  const line = () => pixels(`let n = 0; for (let x = Math.round(arg.w * .92); x < arg.w - 2; x++) { let most = 0; for (let y = arg.y - 1; y <= arg.y + 1; y++) { const i = (y * w + x) * 4; most = Math.max(most, d[i] + d[i + 1] + d[i + 2]) } if (most > 120) n++ } return n`, { w, y: Math.round(TOP + TRACK / 4) })
   await page.mouse.move(box.x + 5, box.y + box.height - 4)
   assert.ok(await line() > w * .07 - 4, `its centre line on past its end: ${await line()}`)
   // the pointer past the end, over the lanes: its tick on the row, where it is, bright
   const at = Math.round(w * .95)
-  await page.mouse.move(box.x + at, box.y + lane / 2)
+  await page.mouse.move(box.x + at, box.y + TOP + (lane - TOP) / 2)
   await frames()
   const tick = await pixels(`for (let x = arg.at - 2; x <= arg.at + 2; x++) { const i = ((h - 6) * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 450) return x - arg.at } return null`, { at })
   assert.ok(tick != null, 'its time on the row, past the end')

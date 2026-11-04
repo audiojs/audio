@@ -1,7 +1,7 @@
 // Zoom: the pinch and the wheel, the view kept; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { page, origin, readout, wholeLevels, open, settled, frames, selected, noCues, write, tall, gutter, spans, axis, boxDrag, lengthIs, hits, pixels, show, chime, crossed } from './page.js'
+import { TOP, TRACK, page, origin, readout, wholeLevels, open, settled, frames, selected, noCues, write, tall, gutter, spans, axis, boxDrag, lengthIs, hits, pixels, show, chime, crossed } from './page.js'
 
 // A trackpad's pinch (Chrome's: Ctrl and the wheel, no key held, −100·ln s of deltaY for a spread s) zooms twice as far
 // as the fingers spread, about the pointer, its events one by one or merged: spread 2×, the span a quarter. With Ctrl
@@ -15,7 +15,7 @@ test('editor: a pinch zooms twice as far as the fingers spread, the wheel with C
   await lengthIs('0:20.000')
   // at a whole pixel: Chrome's pinch lands where its x truncates to, and half a pixel off there is more than the time
   // kept is held to
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + box.height / 3, px = Math.round(box.x + w * .3), k = (px - box.x) / w
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + TOP + TRACK / 3, px = Math.round(box.x + w * .3), k = (px - box.x) / w
   const range = () => page.evaluate(() => __view.range), span = async () => { const [a, b] = await range(); return b - a }
   const [a, b] = await range(), at = a + k * (b - a)
   const cdp = await page.context().newCDPSession(page)
@@ -50,12 +50,12 @@ test('editor: a pinch zooms the axis under the pointer, the frequencies or the t
   const { box, x } = await axis(2)
   // a box, as a ratio of its top frequency to its bottom, and its times
   const band = async () => {
-    await boxDrag([x(.5), box.y + tall(box) * .4], [x(1) - x(.5), tall(box) * .2])
+    await boxDrag([x(.5), box.y + TOP + TRACK * .4], [x(1) - x(.5), TRACK * .2])
     const [lo, hi] = (await readout()).match(/[\d.]+k?Hz/g).map(v => parseFloat(v) * (v.includes('k') ? 1000 : 1))
     const times = await selected()
     // the caret away from where the next box starts, which would drag it instead
     await page.keyboard.press('Escape')
-    await page.mouse.click(x(1.9), box.y + box.height * .2)
+    await page.mouse.click(x(1.9), box.y + TOP + TRACK * .2)
     return [hi / lo, times]
   }
   const [whole, span] = await band()
@@ -63,19 +63,19 @@ test('editor: a pinch zooms the axis under the pointer, the frequencies or the t
   assert.match(span, /^0:00\.50\d–0:01\.00\d$/)
   // Ctrl and the wheel (a trackpad's pinch) on the frequencies: they zoom, time stays
   const pinch = async (px, py) => { await page.mouse.move(px, py); for (let i = 0; i < 12; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -60); await page.keyboard.up('Control') } }
-  await pinch(box.x + box.width - 20, box.y + box.height * .5)
+  await pinch(box.x + box.width - 20, box.y + TOP + TRACK * .5)
   const [zoomed, same] = await band()
   assert.ok(zoomed < 1.5, `zoomed in: ×${zoomed}`)
   assert.equal(same, span)
   // the wheel alone there scrolls through them, as it scrolls a page: a box the same height spans the same ratio
-  await page.mouse.move(box.x + box.width - 20, box.y + box.height * .5)
+  await page.mouse.move(box.x + box.width - 20, box.y + TOP + TRACK * .5)
   for (let i = 0; i < 3; i++) await page.mouse.wheel(0, 60)
   const [scrolled] = await band()
   assert.ok(Math.abs(scrolled - zoomed) < .05, `the same span: ×${scrolled}`)
-  await page.mouse.move(box.x + box.width - 20, box.y + box.height * .5)
+  await page.mouse.move(box.x + box.width - 20, box.y + TOP + TRACK * .5)
   for (let i = 0; i < 3; i++) await page.mouse.wheel(0, -60)
   // Ctrl and the wheel over the picture: time zooms, the frequencies stay
-  await page.mouse.move(x(1), box.y + box.height * .5)
+  await page.mouse.move(x(1), box.y + TOP + TRACK * .5)
   for (let i = 0; i < 12; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -60); await page.keyboard.up('Control') }
   const [kept, closer] = await band()
   assert.ok(Math.abs(kept - zoomed) < .05, `frequencies kept: ×${kept}`)
@@ -91,7 +91,7 @@ test('editor: a pinch zooms the axis under the pointer, the frequencies or the t
   const [again, all] = await band()
   assert.ok(Math.abs(again - whole) < .3 && all === span, 'all of both again')
   // on the spectrum just before the frequencies, a pinch zooms them as there
-  await pinch(box.x + box.width - (await gutter()) - 20, box.y + box.height * .5)
+  await pinch(box.x + box.width - (await gutter()) - 20, box.y + TOP + TRACK * .5)
   const [strip, still] = await band()
   assert.ok(strip < 1.5 && still === span, `zoomed in from the spectrum: ×${strip}`)
 })
@@ -114,7 +114,7 @@ test('editor: after a reload the view is where it was left while its sound still
   await noCues()
   await write(`audio('${origin}/slow/test/fixture.wav')`)
   await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
-  const { box, x } = await axis(2), y = box.y + tall(box) * .3
+  const { box, x } = await axis(2), y = box.y + TOP + TRACK * .3
   const left = async () => { await page.mouse.click(box.x + 1, y); return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0) }
   await page.mouse.click(x(1.5), y)
   await page.locator('.plot').focus()
@@ -158,7 +158,7 @@ test('editor: a kept view that makes no sense shows the sound whole', async () =
   await page.addInitScript(() => localStorage.setItem('audio-repl', JSON.stringify({ docs: [{ code: `audio('chime.wav')`, frame: { range: [5, 'x'], freqs: [1, 0], levels: null, duration: 8, rate: 0, channels: 1e6 } }] })))
   await open()
   await lengthIs('0:08.000')
-  const { box } = await axis(8), y = box.y + tall(box) * .3
+  const { box } = await axis(8), y = box.y + TOP + TRACK * .3
   await page.mouse.click(box.x + 1, y)
   assert.ok((await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0) < .05, 'from its start')
 })
@@ -193,7 +193,7 @@ test('editor: a view zoomed out past the end stays so after a reload', async () 
   // 3/8 of the way across is 4 s in, where fitted to the sound it would be 3 s
   const at = async (t = 4, across = 32 / 3) => {
     const { box, x } = await axis(across)
-    await page.mouse.click(x(t), box.y + tall(box) * .3)
+    await page.mouse.click(x(t), box.y + TOP + TRACK * .3)
     return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0)
   }
   assert.ok(Math.abs(await at() - 4) < .1, 'zoomed out')

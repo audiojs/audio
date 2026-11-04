@@ -358,7 +358,6 @@ svg { flex: none; }
 
 /* a tab with no sound: a word in its empty track (view.js blank: a lane as tall as a sound's, TRACK px), of what goes
    there, faint, as an empty editor's placeholder is; nothing to press, the picture's own keys and drop at work under it */
-.empty { position: absolute; top: 0; left: 0; right: var(--axis, 40px); height: 160px; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0 16px; color: var(--color-screen-muted); font-size: 13px; text-align: center; pointer-events: none; }
 
 
 /* The bar's parts */
@@ -611,6 +610,8 @@ svg { flex: none; }
 .layer.locked { cursor: default; }
 .layer-name { flex: none; max-width: 24em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 2px; }
 .layer-field { height: 16px; padding-left: 2px; }
+/* the name's own room before its buttons */
+.layer :is(.layer-name, .layer-field) + .track-mute { margin-left: 6px; }
 .track-mute[aria-pressed="true"], .layer-lock[aria-pressed="true"] { color: var(--color-screen-accent); }
 .layer-lock:not([aria-pressed="true"]):not(:focus-visible) { opacity: 0; }
 .layer:hover .layer-lock { opacity: 1; }
@@ -847,7 +848,6 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
   html:not(.embed) .app .side-head .tabs.icons button { width: 48px; min-height: 44px; }
 }
 /* On a touchscreen there is nothing to drop: the empty track and Record say it
-@media (hover: none) and (pointer: coarse) { .empty { display: none; } }
 /* A narrow bar: what the sound holds goes, then the digits are smaller, then the levels, the rate and the length, each
    whole where the bar has the room for it, a tablet's too (a message takes the level's place as it is said); the
    pictures' switch stays, on a

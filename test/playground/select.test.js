@@ -2,7 +2,7 @@
 // helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { page, code, readout, tipOf, wholeLevels, seconds, open, settled, frames, poll, menuRow, settings, selected, menu, noCues, write, tall, gutter, spans, axis, grab, boxDrag, drag, lengthIs, hits, handles, pixels, show, shown, bursts, struck, keyed, chime, marked, pointed, measuredOnRow, crossed } from './page.js'
+import { TRACK, TOP, page, code, readout, tipOf, wholeLevels, seconds, open, settled, frames, poll, menuRow, settings, selected, menu, noCues, write, tall, gutter, spans, axis, grab, boxDrag, drag, lengthIs, hits, handles, pixels, show, shown, bursts, struck, keyed, chime, marked, pointed, measuredOnRow, crossed } from './page.js'
 
 // The caret is where a drag leaves the selection's moving end, as a text's: dragged either way, the end let go; the
 // clock reads it, and once the selection is gone it stays there; Play still plays the selection from its start.
@@ -13,9 +13,9 @@ test('editor: the caret is where a drag left the selection\'s moving end; double
   const before = await seconds(), { box, x } = await axis(before), clock = () => page.locator('.time').innerText()
   // (the second begun off the caret the first left, whose line a press would drag)
   for (const [from, to] of [[.25, .5], [.6, .3]]) {
-    await page.mouse.move(x(before * from), box.y + 100)
+    await page.mouse.move(x(before * from), box.y + TOP + 100)
     await page.mouse.down()
-    await page.mouse.move(x(before * to), box.y + 120, { steps: 5 })
+    await page.mouse.move(x(before * to), box.y + TOP + 120, { steps: 5 })
     await page.mouse.up()
     const [start, end] = (await selected()).split('–'), head = to > from ? end : start
     assert.equal(await clock(), head, `dragged ${from} → ${to}: the caret at ${head}`)
@@ -23,13 +23,13 @@ test('editor: the caret is where a drag left the selection\'s moving end; double
     assert.equal(await selected(), '')
     assert.equal(await clock(), head, 'the selection gone, the caret stays')
   }
-  await page.mouse.dblclick(x(before * .4), box.y + 100)
+  await page.mouse.dblclick(x(before * .4), box.y + TOP + 100)
   const [start, end] = (await selected()).split('–')
   assert.ok(end, 'a double-click selects')
   assert.equal(await clock(), start, 'double-clicked: the caret at the start')
   // Shift and a click further on: out to it, the caret there
   await page.keyboard.down('Shift')
-  await page.mouse.click(x(before * .8), box.y + 100)
+  await page.mouse.click(x(before * .8), box.y + TOP + 100)
   await page.keyboard.up('Shift')
   const [, to] = (await selected()).split('–')
   assert.equal(await clock(), to, 'Shift-clicked: the caret at the end it moved')
@@ -42,8 +42,8 @@ test('editor: held Alt, every cue shows; held ⌘, only the one under the pointe
   await open()
   await write(hits)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + 40
-  const lit = async () => pixels(`let n = 0, run = false; for (let x = 0; x < w - ${await gutter()}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) n++; run = on } return n`)
+  const { box, x } = await axis(2), y = box.y + TOP + 40
+  const lit = async () => pixels(`let n = 0, run = false; for (let x = 0; x < w - ${await gutter()}; x++) { const i = (${TOP + 4} * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) n++; run = on } return n`)
   const w = await spans(box)
   const cue = await poll(async () => (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02), cue => assert.equal(cue.length, 1), 8000)
   assert.equal(await lit(), 0, 'none shown')
@@ -67,8 +67,8 @@ test('editor: zoomed out, only the plainer cues show, none within 24 px of anoth
   await lengthIs('1:00.000')
   // the cues drawn, held Alt, across the lanes (the meter after them left out), the pointer's own line at 30 px too, and
   // what it measures there (the strikes past full scale: a triangle at the lane's top, 7 px across)
-  const box = await page.locator('.plot').boundingBox(), y = box.y + 40
-  const runs = async () => (await pixels(`const out = []; let run = false; for (let x = 0; x < ${await spans(box)}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 40; if (on && !run) out.push(x); run = on } return out`)).filter(x => Math.abs(x - 30) > 5)
+  const box = await page.locator('.plot').boundingBox(), y = box.y + TOP + 40
+  const runs = async () => (await pixels(`const out = []; let run = false; for (let x = 0; x < ${await spans(box)}; x++) { const i = (${TOP + 4} * w + x) * 4, on = d[i] - d[i + 2] > 40; if (on && !run) out.push(x); run = on } return out`)).filter(x => Math.abs(x - 30) > 5)
   await page.mouse.move(box.x + 30, y)
   const g = await gutter()
   await page.keyboard.down('Alt')
@@ -96,9 +96,9 @@ test('editor: held Alt, a press held takes the caret along, the cues showing; on
   await open()
   await write(hits)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
+  const { box, x } = await axis(2), y = box.y + TOP + 40, w = await spans(box)
   // the runs of the cues' colour across the lanes' top row, [x, …] px
-  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) out.push(x); run = on } return out`)
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (${TOP + 4} * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) out.push(x); run = on } return out`)
   const cue = await poll(async () => (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02), cue => assert.ok(cue.length, 'the cue at 1 s'), 8000)
   const clock = async () => +(await page.locator('.time').innerText()).split(':')[1]
   await page.mouse.move(x(.75), y)
@@ -134,12 +134,12 @@ test('editor: a range begun by a cue starts on it; its end dragged onto one, the
   await open()
   await write(hits)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
+  const { box, x } = await axis(2), y = box.y + TOP + 40, w = await spans(box)
   const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.some(t => Math.abs(t - 1) < .02), `the cue at 1 s: ${cues}`), 8000)
   const a = cues.find(t => Math.abs(t - .5) < .02), b = cues.find(t => Math.abs(t - 1) < .02)
   // white down the lane's top rows, over the sound's quiet edge, at a column (or a pixel either side): how many of rows
   // 6 to 16
-  const white = px => pixels(`let most = 0; for (let x = arg - 1; x <= arg + 1; x++) { let n = 0; for (let y = 6; y < 16; y++) { const i = (y * w + x) * 4; if (d[i] > 150 && d[i + 2] > 150 && Math.abs(d[i] - d[i + 2]) < 30) n++ } most = Math.max(most, n) } return most`, Math.round(px - box.x))
+  const white = px => pixels(`let most = 0; for (let x = arg - 1; x <= arg + 1; x++) { let n = 0; for (let y = ${TOP + 6}; y < ${TOP + 16}; y++) { const i = (y * w + x) * 4; if (d[i] > 150 && d[i + 2] > 150 && Math.abs(d[i] - d[i + 2]) < 30) n++ } most = Math.max(most, n) } return most`, Math.round(px - box.x))
   await page.mouse.move(x(a) + 2, y)
   await page.mouse.down()
   await page.mouse.move(x(b) - 2, y, { steps: 6 })
@@ -159,7 +159,7 @@ test('editor: a caret dragged onto a cue or a marker says what it went onto', as
   await open()
   await write(hits + `\n  .mark(0.75, 'Intro')\n  .mark({ at: 1.6, d: 0.2 }, 'Coda')`)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
+  const { box, x } = await axis(2), y = box.y + TOP + 40, w = await spans(box)
   const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.some(t => Math.abs(t - 1) < .02), `the cue at 1 s: ${cues}`), 8000)
   const start = cues.find(t => Math.abs(t - 1) < .02), end = cues.find(t => t > 1.1 && t < 1.45)
   const said = () => page.locator('.hint').evaluate(e => e.hidden ? '' : e.textContent)
@@ -181,7 +181,7 @@ test('editor: a caret dragged onto a cue or a marker says what it went onto', as
     await page.mouse.up()
   }
   // let go and moved off it, nothing said
-  await page.mouse.move(x(1.75), box.y + 40)
+  await page.mouse.move(x(1.75), box.y + TOP + 40)
   await poll(said, s => assert.equal(s, ''))
 })
 
@@ -191,7 +191,7 @@ test('editor: a caret dragged onto a marker by a cue snaps once, a cross at each
   await open()
   await write(hits + `\n  .mark({ at: 1, d: 0.2 }, 'Hit')`)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + 40, w = await spans(box), lane = Math.round(tall(box))
+  const { box, x } = await axis(2), y = box.y + TOP + 40, w = await spans(box), lane = Math.round(tall(box))
   const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.some(t => Math.abs(t - 1) < .02), `the cue at 1 s: ${cues}`), 8000)
   const cue = cues.find(t => Math.abs(t - 1) < .02)
   await page.mouse.move(x(.25), y)
@@ -213,8 +213,8 @@ test('editor: dragged, the caret or an edge shows the cues either side of it; wi
   await open()
   await write(hits)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
-  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
+  const { box, x } = await axis(2), y = box.y + TOP + 40, w = await spans(box)
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (${TOP + 4} * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
   const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.length >= 5, `its cues: ${cues}`), 8000)
   // the caret held at 0.7 s, between the cues at 0.5 s and where that hit falls quiet, a third of a second on
   const [before, after] = [cues.findLast(t => t < .7), cues.find(t => t > .7)]
@@ -246,7 +246,7 @@ test('editor: Shift and a double-click extend the selection to the fragment; Shi
   await open()
   await write(bursts)
   await lengthIs('0:02.500')
-  const { box, x } = await axis(2.5), y = box.y + tall(box) / 3, w = await spans(box)
+  const { box, x } = await axis(2.5), y = box.y + TOP + TRACK / 3, w = await spans(box)
   const range = async () => (await selected()).split('–').map(t => +t.split(':')[1])
   const near = ([a, b], [p, q]) => Math.abs(a - p) < .03 && Math.abs(b - q) < .03
   await poll(async () => (await handles()).map(h => h / w * 2.5), at => assert.ok(at.length >= 7, `its cues: ${at}`), 8000)
@@ -261,7 +261,7 @@ test('editor: Shift and a double-click extend the selection to the fragment; Shi
   assert.ok(near(await range(), [1.2, 2.4]), `from the caret: ${await range()}`)
   // Shift held, a drag from the caret: the cues either side of where its end is
   await page.mouse.click(x(.2), y)
-  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (${TOP + 4} * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
   await page.keyboard.down('Shift')
   await page.mouse.move(x(1.1), y)
   await page.mouse.down()
@@ -278,8 +278,8 @@ test('editor: dragged, a marker shows as a snap line with the cues; held Alt, ev
   await open()
   await write(hits + `.mark(0.7, 'M')`)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
-  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
+  const { box, x } = await axis(2), y = box.y + TOP + 40, w = await spans(box)
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (${TOP + 4} * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
   await poll(async () => (await handles()).length, n => assert.ok(n >= 5, `its cues: ${n}`), 8000)
   const at = t => px => Math.abs(px - (x(t) - box.x)) < 2
   // the caret held at 0.65 s, dragged to 0.75 s: the marker at 0.7 s the line before it
@@ -308,8 +308,8 @@ test('editor: where cues crowd, where a sound starts shows before an onset by it
   const { box, x } = await axis(2), w = await spans(box)
   await poll(async () => (await handles()).length, n => assert.ok(n >= 3, `its cues found: ${n}`), 8000)
   await page.evaluate(() => { __view.cues = [{ t: 1, kind: 'start', rank: 1 }, { t: 1.02, kind: 'hit', rank: 10 }] })
-  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
-  await page.mouse.move(box.x + 30, box.y + 40)
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (${TOP + 4} * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
+  await page.mouse.move(box.x + 30, box.y + TOP + 40)
   await page.keyboard.down('Alt')
   const shown = await lit()
   await page.keyboard.up('Alt')
@@ -324,7 +324,7 @@ test('editor: a triple-click\'s third press, nudged, moves no audio', async () =
   await noCues()
   await write(bursts)
   await lengthIs('0:02.500')
-  const { box, x } = await axis(2.5), y = box.y + tall(box) / 3
+  const { box, x } = await axis(2.5), y = box.y + TOP + TRACK / 3
   await page.mouse.dblclick(x(.7), y)
   assert.notEqual(await selected(), '', 'the burst selected')
   const before = await code()
@@ -366,11 +366,11 @@ test('editor: a box on the spectrogram selects a band, plays it alone, and Delet
   await show('spec')
   const { box, x } = await axis(2)
   // a drag there selects time, as on the waveform
-  await drag([x(.5), box.y + tall(box) * .3], [x(1) - x(.5), box.height * .2])
+  await drag([x(.5), box.y + TOP + TRACK * .3], [x(1) - x(.5), TRACK * .2])
   assert.match(await selected(), /^0:00\.50\d–0:01\.00\d$/)
   assert.doesNotMatch(await readout(), /Hz/)
   await page.keyboard.press('Escape')
-  await boxDrag([x(.5), box.y + tall(box) * .3], [x(1) - x(.5), box.height * .2])
+  await boxDrag([x(.5), box.y + TOP + TRACK * .3], [x(1) - x(.5), TRACK * .2])
   // the palette offers what a band takes first
   await page.keyboard.press('ControlOrMeta+K')
   assert.equal(await page.locator('.palette-group').first().innerText(), 'For the band')
@@ -391,15 +391,15 @@ test('editor: a box on the spectrogram selects a band, plays it alone, and Delet
   await settings('Frequency scale', 'Octaves')
   assert.equal(await page.locator('.plot').getAttribute('data-scale'), 'log')
   await page.keyboard.press('Escape')
-  await boxDrag([x(.5), box.y + tall(box) * .3], [x(1) - x(.5), box.height * .2])
+  await boxDrag([x(.5), box.y + TOP + TRACK * .3], [x(1) - x(.5), TRACK * .2])
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => /\.spectral\(/.test(scriptText()))
   const [, lo, hi, at, duration] = (await code()).match(/\.spectral\(\[([\d.]+), ([\d.]+)\], \{ at: ([\d.]+), d: ([\d.]+) \}\)/).map(Number)
   assert.ok(30 < lo && lo < hi && hi < 22050, `${lo} ${hi}`)
   assert.ok(Math.abs(at - .5) < .01 && Math.abs(at + duration - 1) < .01, `${at} ${duration}`)
   // near a mark on the frequency axis, an edge takes its value: 2 kHz and 500 Hz on the log axis, 20 Hz to Nyquist
-  const lane = tall(box), fy = f => box.y + lane - Math.log2(f / 20) / Math.log2(22050 / 20) * lane
-  await page.mouse.click(x(1.9), box.y + 20)
+  const lane = tall(box), fy = f => box.y + lane - Math.log2(f / 20) / Math.log2(22050 / 20) * TRACK
+  await page.mouse.click(x(1.9), box.y + TOP + 20)
   await boxDrag([x(1.2), fy(2000) + 3], [x(1.6) - x(1.2), fy(500) - fy(2000) - 5])
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => /\.spectral\(\[500, 2000\]/.test(scriptText()))
@@ -414,13 +414,13 @@ test('editor: ⌘ pressed while a range is dragged on the spectrogram makes it a
   await lengthIs('0:02.000')
   await show('spec')
   const { box, x } = await axis(2), lane = tall(box)
-  await page.mouse.move(x(.25), box.y + lane * .3)
+  await page.mouse.move(x(.25), box.y + TOP + (lane - TOP) * .3)
   await page.mouse.down()
-  await page.mouse.move(x(.5), box.y + lane * .5, { steps: 4 })
+  await page.mouse.move(x(.5), box.y + TOP + (lane - TOP) * .5, { steps: 4 })
   assert.doesNotMatch(await readout(), /Hz/)
   await page.keyboard.down('ControlOrMeta')
   await page.waitForFunction(() => /Hz–[\d.]+k?Hz$/.test(document.querySelector('.readout').textContent))
-  await page.mouse.move(x(.75), box.y + lane * .6, { steps: 4 })
+  await page.mouse.move(x(.75), box.y + TOP + (lane - TOP) * .6, { steps: 4 })
   await page.mouse.up()
   await page.keyboard.up('ControlOrMeta')
   assert.match(await selected(), /^0:00\.25\d–0:00\.75\d$/)
@@ -439,16 +439,16 @@ test('editor: Alt and a drag on the spectrogram adds another box; Delete takes e
   await lengthIs('0:08.000')
   await show('spec')
   const { box, x } = await axis(8), lane = tall(box)
-  await boxDrag([x(1), box.y + lane * .2], [x(2) - x(1), lane * .1])
+  await boxDrag([x(1), box.y + TOP + (lane - TOP) * .2], [x(2) - x(1), lane * .1])
   // Shift pressed and let go on the way loses none
   await page.keyboard.down('Alt')
-  await page.mouse.move(x(4), box.y + lane * .6)
+  await page.mouse.move(x(4), box.y + TOP + (lane - TOP) * .6)
   await page.mouse.down()
-  await page.mouse.move(x(4.5), box.y + lane * .65, { steps: 3 })
+  await page.mouse.move(x(4.5), box.y + TOP + (lane - TOP) * .65, { steps: 3 })
   await page.keyboard.down('Shift')
-  await page.mouse.move(x(4.7), box.y + lane * .67, { steps: 2 })
+  await page.mouse.move(x(4.7), box.y + TOP + (lane - TOP) * .67, { steps: 2 })
   await page.keyboard.up('Shift')
-  await page.mouse.move(x(5), box.y + lane * .7, { steps: 3 })
+  await page.mouse.move(x(5), box.y + TOP + (lane - TOP) * .7, { steps: 3 })
   await page.mouse.up()
   await page.keyboard.up('Alt')
   assert.equal(await readout(), '2 bands')
@@ -457,7 +457,7 @@ test('editor: Alt and a drag on the spectrogram adds another box; Delete takes e
   assert.equal(await page.locator('.palette-group').first().innerText(), 'For the 2 bands')
   await page.keyboard.press('Escape')
   // a method from the context menu, for each box's time: the clicks in each taken out
-  await page.mouse.click(x(1.5), box.y + lane * .25, { button: 'right' })
+  await page.mouse.click(x(1.5), box.y + TOP + (lane - TOP) * .25, { button: 'right' })
   await menuRow('Process').click()
   await menuRow('Repair').click()
   await menuRow('Remove the clicks in each').click()
@@ -477,7 +477,7 @@ test('editor: Alt and a drag on the spectrogram adds another box; Delete takes e
 // its start, the edge takes the press; only clicked, it is a click: the caret there alone
 test('editor: inside a selection the caret drags, the selection kept; on the selection\'s edge, the edge drags', async () => {
   await open()
-  const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + tall(box) / 2
+  const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + TOP + TRACK / 2
   const drag = async (a, b) => { await page.mouse.move(x(a), lane); await page.mouse.down(); for (let i = 1; i <= 8; i++) await page.mouse.move(x(a + (b - a) * i / 8), lane); await page.mouse.up() }
   const caret = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
   await drag(1, 3)
@@ -514,7 +514,7 @@ test('editor: a double-click on a ringing tail selects from its strike to where 
   const { box, x } = await axis(6.525), seconds = t => t.split(':').reduce((m, s) => m * 60 + +s, 0)
   let range = []
   for (const until = Date.now() + 8000; Date.now() < until && !(range[1] < 6); await page.waitForTimeout(200)) {
-    await page.mouse.dblclick(x(2.8), box.y + tall(box) * .3)
+    await page.mouse.dblclick(x(2.8), box.y + TOP + TRACK * .3)
     range = (await selected()).split('–').map(seconds)
   }
   assert.ok(Math.abs(range[0] - 1.81) < .02 && range[1] > 3 && range[1] < 3.25, range.join('–'))
@@ -524,7 +524,7 @@ test('editor: a double-click selects the fragment between its cues, or the pause
   await open()
   await write(bursts)
   await lengthIs('0:02.500')
-  const { box, x } = await axis(2.5), y = box.y + tall(box) / 3
+  const { box, x } = await axis(2.5), y = box.y + TOP + TRACK / 3
   const range = async () => (await selected()).split('–').map(t => +t.split(':')[1])
   const near =([a, b], [p, q]) => Math.abs(a - p) < .03 && Math.abs(b - q) < .03
   // its cues, each burst's start (where its attack starts) and end (where the quiet begins, within a block)
@@ -573,7 +573,7 @@ test('editor: on strikes with no pause between them, a double-click takes one st
   await open()
   await write(struck)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + tall(box) / 3
+  const { box, x } = await axis(2), y = box.y + TOP + TRACK / 3
   const range = async () => (await selected()).split('–').map(t => +t.split(':')[1])
   let r = []
   for (const until = Date.now() + 8000; Date.now() < until && !(Math.abs(r[0] - .5) < .02 && Math.abs(r[1] - 1) < .02); await page.waitForTimeout(200)) {
@@ -591,7 +591,7 @@ test('editor: a selection\'s dragged edge, or the caret, snaps to a cue near it'
   await open()
   await write(hits)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + tall(box) * .3
+  const { box, x } = await axis(2), y = box.y + TOP + TRACK * .3
   const cues = await poll(handles, cues => assert.ok(cues.length >= 3, `its cues found: ${cues}`), 8000)
   const at = cues.find(h => Math.abs(h - (x(1) - box.x)) < 20)
   await drag([x(.7), y], [box.x + at + 2 - x(.7), 0])
@@ -619,7 +619,7 @@ test('editor: a selection\'s dragged edge snaps to a range\'s ends and to the ta
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 10 })\n  .mark({ at: 2, d: 3 }, 'verse')\n  // .write(audio('chime.wav'), { at: 1 })\n  .write(audio('birdsong.wav'), { at: 1 })`)
   await lengthIs('0:10.000')
   await page.locator('.plot .takes:not([hidden])').waitFor()
-  const { box, x } = await axis(10), y = box.y + tall(box) * .6
+  const { box, x } = await axis(10), y = box.y + TOP + TRACK * .6
   const end = async (to, by = 2) => { await page.mouse.click(x(9.8), y); await drag([x(.4), y], [x(to) + by - x(.4), 0]); return (await selected()).split('–')[1] }
   assert.equal(await end(5), '0:05.000', 'the range\'s end')
   assert.equal(await end(2), '0:02.000', 'its start')
@@ -637,13 +637,13 @@ test('editor: the handles show only with the pointer on or by the selection or t
   await noCues()
   await write(`audio.from(2)`)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + 60, away = [box.x + 5, y]
+  const { box, x } = await axis(2), y = box.y + TOP + 60, away = [box.x + 5, y]
   const region = ([x0, y0]) => pixels(`const out = []; for (let y = arg[1]; y < arg[1] + 12; y++) for (let x = arg[0]; x < arg[0] + 12; x++) out.push(d[(y * w + x) * 4]); return out`, [Math.round(x0 - box.x), Math.round(y0)])
   const differ = (a, b) => a.filter((v, i) => Math.abs(v - b[i]) > 8).length
   const seen = async (at, square) => { await page.mouse.move(...at); await frames(); return region(square) }
   // a selection's fade-in square, in from its start's line at its top
   await drag([x(.5) + .3, y], [x(1.5) - x(.5), 0])
-  const fade = [x(.5) + 3, 2], none = await seen(away, fade)
+  const fade = [x(.5) + 3, TOP + 2], none = await seen(away, fade)
   assert.ok(differ(none, await seen([x(1), y], fade)) > 20, 'the pointer in it: its square')
   assert.ok(differ(none, await seen([x(1.5) + 12, y], fade)) > 20, 'the pointer just past its end: its square')
   assert.ok(differ(none, await seen(away, fade)) <= 2, 'the pointer away again: none')
@@ -719,13 +719,13 @@ test('editor: held Alt, the pointer measures how far it is from the selection, d
   const { box, x, y } = await chime()
   await drag([x(1), y], [x(2) - x(1), 0])
   // high over the lane, far over the sound there
-  const py = box.y + 12
+  const py = box.y + TOP + 2
   await page.mouse.move(x(4), py)
   const span = x(4) - x(2) - 4, red = (x0, x1, y0, y1) => pixels(`let n = 0; for (let py = ${Math.round(y0)}; py < ${Math.round(y1)}; py++) for (let px = ${Math.round(x0)}; px < ${Math.round(x1)}; px++) { const i = (py * w + px) * 4; if (d[i] - d[i + 2] > 60 && d[i] > 150) n++ } return n`)
   // the row of the most red right of the pointer's column, over the lane's upper half; the waveform's top a few px
   // before that column (its first pixel down from the lane's top lit as the waveform is)
-  const across = () => pixels(`let best = 0, at = -1; for (let py = 0; py < arg.h; py++) { let n = 0; for (let px = arg.x0; px < arg.x1; px++) { const i = (py * w + px) * 4; if (d[i] - d[i + 2] > 60 && d[i] > 150) n++ } if (n > best) { best = n; at = py } } return { at, n: best }`, { x0: Math.round(x(4) - box.x + 4), x1: Math.round(x(5) - box.x), h: Math.round(tall(box) / 4) })
-  const top = () => pixels(`for (let py = 0; py < arg.h; py++) { const i = (py * w + arg.x) * 4; if (d[i] > 120 && Math.abs(d[i] - d[i + 2]) < 30) return py } return -1`, { x: Math.round(x(4) - box.x - 3), h: Math.round(tall(box) / 4) })
+  const across = () => pixels(`let best = 0, at = -1; for (let py = ${TOP}; py < arg.h; py++) { let n = 0; for (let px = arg.x0; px < arg.x1; px++) { const i = (py * w + px) * 4; if (d[i] - d[i + 2] > 60 && d[i] > 150) n++ } if (n > best) { best = n; at = py } } return { at, n: best }`, { x0: Math.round(x(4) - box.x + 4), x1: Math.round(x(5) - box.x), h: Math.round(TOP + TRACK / 4) })
+  const top = () => pixels(`for (let py = ${TOP}; py < arg.h; py++) { const i = (py * w + arg.x) * 4; if (d[i] > 120 && Math.abs(d[i] - d[i + 2]) < 30) return py } return -1`, { x: Math.round(x(4) - box.x - 3), h: Math.round(TOP + TRACK / 4) })
   assert.equal(await measuredOnRow(box, x(2) + 2, x(4) - 2), 0)
   await page.keyboard.down('ControlOrMeta')
   await crossed()
@@ -756,10 +756,10 @@ test('editor: held Alt where the waveform runs past the levels shown, the line s
   await page.evaluate(() => { __view.frame = { levels: [-.2, .2] } })
   const { box, x } = await axis(2), red = (x0, x1, y0, y1) => pixels(`let n = 0; for (let py = arg[2]; py < arg[3]; py++) for (let px = arg[0]; px < arg[1]; px++) { const i = (py * w + px) * 4; if (d[i] - d[i + 2] > 60 && d[i] > 150) n++ } return n`, [x0, x1, y0, y1].map(Math.round))
   const px = x(1) - box.x
-  await page.mouse.move(x(1), box.y + tall(box) / 6)
+  await page.mouse.move(x(1), box.y + TOP + TRACK / 6)
   await page.keyboard.down('Alt')
-  await poll(() => red(px - 4, px + 5, 0, 6), tip => assert.ok(tip >= 6, `a triangle at the lane's top: ${tip} px`), 3000)
-  const across = await red(px + 8, px + 80, 0, 2)
+  await poll(() => red(px - 4, px + 5, TOP, TOP + 6), tip => assert.ok(tip >= 6, `a triangle at the lane's top: ${tip} px`), 3000)
+  const across = await red(px + 8, px + 80, TOP, TOP + 2)
   await page.keyboard.up('Alt')
   assert.ok(across > 20, `the line along the top edge, out to the axis: ${across} px`)
 })
@@ -871,7 +871,7 @@ test('editor: Alt and a double-click adds a word; Shift and a double-click exten
   await open()
   await write(bursts)
   await lengthIs('0:02.500')
-  const { box, x } = await axis(2.5), y = box.y + tall(box) / 3
+  const { box, x } = await axis(2.5), y = box.y + TOP + TRACK / 3
   for (const until = Date.now() + 8000; Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.dblclick(x(.2), y); if (/^0:00\.4/.test((await selected()).split('–')[1] ?? '')) break }
   await page.keyboard.down('Alt'); await page.mouse.dblclick(x(1.7), y); await page.keyboard.up('Alt')
   assert.match(await page.locator('.clock').evaluate(tipOf), /^Selected 2 ranges: 0:00\.8/)
@@ -914,7 +914,7 @@ test('editor: the caret faint while the picture is not focused', async () => {
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const box = await page.locator('.plot').boundingBox(), x = box.x + box.width * .3, y = box.y + box.height * .15
+  const box = await page.locator('.plot').boundingBox(), x = box.x + box.width * .3, y = box.y + TOP + TRACK * .15
   // the caret's alpha: the most along a row in the lanes, a few px either side of where the picture was pressed
   const alpha = () => page.evaluate(([x, y]) => {
     const cv = __overlay(), r = cv.getBoundingClientRect(), k = cv.width / r.width
@@ -922,7 +922,7 @@ test('editor: the caret faint while the picture is not focused', async () => {
     return Math.max(...Array.from({ length: 9 }, (_, i) => d[4 * i + 3]))
   }, [x, y])
   const reads = async ok => { let a; for (const end = Date.now() + 3000; !ok(a = await alpha()) && Date.now() < end;) await frames(1); return a }
-  const press = async () => { await page.mouse.click(x, box.y + box.height * .4); await page.mouse.move(1, 1) }
+  const press = async () => { await page.mouse.click(x, box.y + TOP + TRACK * .4); await page.mouse.move(1, 1) }
   await press()
   assert.equal(await reads(a => a === 255), 255, 'focused, the caret whole')
   await page.evaluate(() => document.activeElement?.blur())
@@ -938,14 +938,14 @@ test('editor: the end of a selection dragged, the caret its one line', async () 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .5, px = t => Math.round(x(t) - box.x)
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .5, px = t => Math.round(x(t) - box.x)
   await drag([x(2), y], [x(3) - x(2), 0])
   await drag([x(3), y], [x(4) - x(3), 0])
   assert.equal(await selected(), '0:02.000–0:04.000')
   // pointed at, the end lit: the bright columns by it in the lanes' top rows (over the sound's quiet edge)
   await page.mouse.move(x(4) - 2, y)
   await frames()
-  const lit = await pixels(`const out = []; for (let x = arg - 3; x <= arg + 3; x++) { const i = (4 * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 600) out.push(x - arg) } return out`, px(4))
+  const lit = await pixels(`const out = []; for (let x = arg - 3; x <= arg + 3; x++) { const i = (${TOP + 4} * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 600) out.push(x - arg) } return out`, px(4))
   assert.equal(lit.length, 1, `one line at its end: ${lit}`)
 })
 
@@ -954,7 +954,7 @@ test('editor: a press by the sound\'s start or end goes onto it', async () => {
   await open()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   for (const [t, dx, want] of [[0, 2, '0:00.000'], [8, -2, '0:08.000']]) {
     for (const until = Date.now() + 8000; Date.now() < until; await page.waitForTimeout(200)) {
       await page.mouse.click(x(t) + dx, y)
@@ -1000,11 +1000,11 @@ test('editor: a selection behind the sound, as behind text; focused elsewhere, t
   await write(`audio.from(t => 0.3 * Math.sin(2 * Math.PI * 220 * t), { duration: 2 })`)
   await lengthIs('0:02.000')
   const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), lane = tall(box)
-  await page.mouse.move(box.x + w * .3, box.y + lane * .5)
+  await page.mouse.move(box.x + w * .3, box.y + TOP + (lane - TOP) * .5)
   await page.mouse.down()
-  await page.mouse.move(box.x + w * .6, box.y + lane * .5, { steps: 4 })
+  await page.mouse.move(box.x + w * .6, box.y + TOP + (lane - TOP) * .5, { steps: 4 })
   await page.mouse.up()
-  await page.mouse.move(box.x + w * .9, box.y + 5)
+  await page.mouse.move(box.x + w * .9, box.y + TOP + 5)
   // the colour in the selection's middle, above the sound (an eighth of the way down its one lane, TRACK px), and the
   // darkest of four on its centre line (a column holds a third of a cycle, not always where it crosses the line)
   const at = () => pixels(`const px = (y, x) => { const i = (Math.round(y) * w + Math.round(x)) * 4; return [d[i], d[i + 1], d[i + 2]] }, sum = c => c[0] + c[1] + c[2]

@@ -28,11 +28,22 @@ export function remember(code, sliding) {
   if (sliding && back === was) return
   assign({ depthWas: back })
   const restore = s => { v.state = s; assign({ rechoose: s.chosen ?? null }) }
-  // undone, an edit drawn ahead of its output is not coming: the picture goes back to the output there is
-  if (back < was) { v.expect(null); if (steps[was]) steps[was].after = now; if (steps[back + 1]?.before) restore(steps[back + 1].before) }
-  else if (back > was && steps[back]?.code === code && steps[back].after) restore(steps[back].after)
-  if (steps[back]?.code !== code) steps[back] = { code, label: back ? said(steps[back - 1]?.code ?? '', code) : 'The script as it opened', before: back > was ? now : steps[back]?.before }
+  // undone, an edit drawn ahead of its output is not coming: the picture goes back to the output there is; a take's
+  // switch, undone or redone, holds it as the switch did
+  if (back < was) { steps[was]?.hold ? still() : v.expect(null); if (steps[was]) steps[was].after = now; if (steps[back + 1]?.before) restore(steps[back + 1].before) }
+  else if (back > was && steps[back]?.code === code) { if (steps[back].hold) still(); if (steps[back].after) restore(steps[back].after) }
+  if (steps[back]?.code !== code) steps[back] = { code, label: holding || (back ? said(steps[back - 1]?.code ?? '', code) : 'The script as it opened'), before: back > was ? now : steps[back]?.before, hold: !!holding }
   steps.length = back + ahead + 1
+}
+// Another take heard (its numbers, the edits' switch, the agent's), or one deleted: the picture held till its output
+// comes, no change of level over all of it, so one past the sound's end, making it longer or shorter, moves nothing
+// but its place, the view at its scale. One step, named by what it did (`label`), held so again undone or redone
+let holding = ''
+const still = () => v.expect('gain', [0, v.duration])
+export function switchTake(change, label = 'Switch take') {
+  still()
+  holding = label
+  try { ed.change(change) } finally { holding = '' }
 }
 export function undoList() {
   const [back] = ed.depth

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import audio from '../../audio.js'
-import { root, page, origin, sine, peakDb, wavBytes, code, tipOf, wholeLevels, seconds, open, poll, settings, tab, menu, noCues, write, drawn, TRACK, ROOM, gutter, axis, drag, lengthIs, pixels, show, keptFiles, chime } from './page.js'
+import { TOP, root, page, origin, sine, peakDb, wavBytes, code, tipOf, wholeLevels, seconds, open, poll, settings, tab, menu, noCues, write, drawn, TRACK, ROOM, gutter, axis, drag, lengthIs, pixels, show, keptFiles, chime } from './page.js'
 
 // The check (fn/check.js) of the result beside the file as it opened. Apple Podcasts: -16 LKFS ±1, true peak ≤ -1 dBFS
 // (podcasters.apple.com/support/893). The default script peaks at -1 dBFS: its true peak sits above, and it is loud.
@@ -214,16 +214,16 @@ test('editor: a file arriving draws as it decodes, what is still to come a centr
   await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   const { box, x } = await axis(2), end = Math.min(x(2), box.x + box.width - (await gutter()) - 50) - box.x
   // CSS px: where the line of how far it has come is (past the caret's), and the share of the columns after it, to the
-  // end, that the centre line lights; in its lane, at most TRACK px tall
-  const read = () => page.evaluate(([end, most, room]) => {
-    const cv = __overlay(), k = cv.width / cv.clientWidth, g = cv.getContext('2d'), h = Math.max(most, cv.clientHeight - 22 - 18 - room)
-    const row = y => g.getImageData(0, Math.round(y) * k, cv.width, 1).data, top = row(h * .25), mid = row(h / 2)
+  // end, that the centre line lights; in its lane, TRACK px tall under its head line
+  const read = () => page.evaluate(([end, h, y0]) => {
+    const cv = __overlay(), k = cv.width / cv.clientWidth, g = cv.getContext('2d')
+    const row = y => g.getImageData(0, Math.round(y) * k, cv.width, 1).data, top = row(y0 + h * .25), mid = row(y0 + h / 2)
     let come = -1
     for (let i = 3 * k; i < cv.width; i++) if (top[4 * i + 3] > 100) { come = i / k; break }
     let lit = 0, n = 0
     for (let i = Math.ceil((come + 3) * k); i < end * k; i++, n++) lit += mid[4 * i + 3] > 0
     return { come, line: n ? lit / n : 1, decoding: /^Decoding/.test(document.querySelector('.message').textContent) }
-  }, [end, TRACK, ROOM])
+  }, [end, TRACK, TOP])
   const early = await read()
   const later = await poll(read, later => {
     assert.ok(early.decoding && later.decoding, 'still decoding')
@@ -275,11 +275,11 @@ test('editor: a file that will not open says so, until another sound is chosen',
   await wholeLevels().waitFor()
 })
 
-// The sound held as it was left, its file gone: the view lets it go and invites a drop, as with nothing kept
+// The sound held as it was left, its file gone: the view lets it go, an empty track, as with nothing kept
 test('editor: a view kept for a file no longer here gives way to the drop', async () => {
   await page.addInitScript(() => localStorage.setItem('audio-repl', JSON.stringify({ docs: [{ code: `audio('missing.wav')`, frame: { range: [1, 2], freqs: [0, 1], levels: [-1, 1], duration: 8, rate: 44100, channels: 2 } }] })))
   await page.goto(origin + '/playground/')
-  await page.locator('.empty', { hasText: 'Drop audio here' }).waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   await page.locator('.message.problem', { hasText: 'missing.wav is not open' }).waitFor({ state: 'attached' })
 })
 
@@ -293,7 +293,7 @@ test('editor: a file arriving on the spectrogram draws its spectrogram as it com
   await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   const lit = async layer => {
     await page.evaluate(layer => { for (const c of document.querySelectorAll('.plot canvas')) c.style.visibility = c.classList.contains(layer) ? '' : 'hidden' }, layer)
-    const n = await pixels(`let n = 0; for (let y = 10; y < h - 30; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4; if (Math.max(d[i], d[i + 1], d[i + 2]) > 40) n++ } return n`)
+    const n = await pixels(`let n = 0; for (let y = ${TOP + 2}; y < ${TOP + TRACK}; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4; if (Math.max(d[i], d[i + 1], d[i + 2]) > 40) n++ } return n`)
     await page.evaluate(() => { for (const c of document.querySelectorAll('.plot canvas')) c.style.visibility = '' })
     return n
   }

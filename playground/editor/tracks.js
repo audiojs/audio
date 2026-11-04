@@ -5,20 +5,25 @@ import { root, icons, glyphs, displays } from './config.js'
 import { state, eng, v, ed, rk, pl, output, assign } from './context.js'
 import { write } from './edits.js'
 import { label, note } from './format.js'
-import { setKind, trackKinds, shows } from './look.js'
+import { setKind, trackKinds, shows, showAs } from './look.js'
 import { bar, openDropdown } from './menus.js'
 import { store } from './persist.js'
 import { marks, describe } from './readouts.js'
 import { schedule } from './run.js'
-import { docs, docOf, newTab, closeTab } from './tabs.js'
+import { docs, docOf, newTab, closeTab, renameTab } from './tabs.js'
 import { envelopeShown, shiftOf } from './writers.js'
 
 // Tracks: their lanes and layers, the one edited, mute, solo and lock, a track made, named, moved, split out (a voice,
 // stems), lined up, matched, ducked, mastered, taken away or to a tab
 
 // A track's layer right-clicked: the track's own, named anew, heard alone, locked, shown as a waveform, a spectrogram
-// or its notes, taken away (the others are a press away: a marker, an edit, on its lane)
-export const trackMenu = i => [
+// or its notes, taken away (the others are a press away: a marker, an edit, on its lane). A sound alone, a track as
+// any, its tab's name: named anew, shown as it shows
+export const trackMenu = i => !v.tracks ? [
+  { label: 'Rename…', hint: tabName(), run: () => renameLayer(tabName()), icon: glyphs.marker },
+  '-',
+  ...displays.map(d => ({ label: d.label, checked: shows(null) === d.name, run: () => showAs(d.name, null) }))
+] : [
   { label: 'Rename…', hint: state.track ?? '', run: () => renameLayer(laneName(i)), icon: glyphs.marker },
   { label: 'Solo', run: () => toggleMute(i, true), icon: icons.track },
   { label: 'Lock', checked: state.locked.includes(laneName(i)), run: () => toggleLock(laneName(i)) },
@@ -31,7 +36,7 @@ export const trackMenu = i => [
 // dropdown by it), its name (clicked, named anew), its mute (with Alt, solo) and its lock; pressed, the one edited, as
 // a press in its lane makes it; right-clicked, its menu
 export function layerPress(l, event) {
-  if (event.detail > 1 || l.locked) return
+  if (event.detail > 1 || l.locked || l.single) return
   focusOn(l.name)
   v.focus = l.i
 }
@@ -39,7 +44,7 @@ export function layerPress(l, event) {
 // as it is): another's, once its layers are laid out as that one's, so the field drawn is the one written in
 export function layerName(l, event) {
   event.stopPropagation()
-  if (l.locked || l.name === state.track) return renameLayer(l.name)
+  if (l.locked || l.single || l.name === state.track) return renameLayer(l.name)
   layerPress(l, event)
   requestAnimationFrame(() => requestAnimationFrame(() => renameLayer(l.name)))
 }
@@ -81,7 +86,9 @@ export function renamed(event, l) {
   event.stopPropagation()
   if (state.renaming !== l.name) return
   state.renaming = null
-  if (event.key !== 'Escape' && to && to !== l.name) renameTrackTo({ from: l.name, to })
+  if (event.key === 'Escape' || !to || to === l.name) return
+  if (l.single) renameTab(state.tab, to)
+  else renameTrackTo({ from: l.name, to })
 }
 // The title a new track would have, under the last (index.html .layer-new): pressed, the track made, empty, its name in
 // hand to write, as a layer named as it is made
@@ -143,6 +150,8 @@ export function trackOf(name) {
 // The track lane `i` is, by its name, as the view lays it out: a track just made or taken away is laid out before the
 // output with it comes (relane), which has the tracks as they were
 export function laneName(i) { return v.tracks?.[i]?.name }
+// the tab's name, a sound alone's layer's
+const tabName = () => state.tabs?.find(t => t.id === state.tab)?.name ?? ''
 // The output's track edited ({ name, length, silences }), or null; its index, or none, without tracks
 export function lane(out = output) { return out?.tracks?.find(t => t.name === state.track) ?? null }
 export function laneIndex(out = output) { const i = out?.tracks?.findIndex(t => t.name === state.track) ?? -1; return i < 0 ? undefined : i }

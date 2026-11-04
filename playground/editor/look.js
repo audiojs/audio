@@ -5,7 +5,7 @@ import { root, GIVEN, APART, LOOK, looks, specMethods, mapNames, WAVE, waveLooks
 import { state, v, pl } from './context.js'
 import { stamp, note } from './format.js'
 import { store } from './persist.js'
-import { marks, notesShown, meter, describe } from './readouts.js'
+import { marks, notesShown, describe } from './readouts.js'
 import { docs, docOf } from './tabs.js'
 
 // How the page looks: the theme worn, the waveform's and spectrogram's looks and their swatches, the settings and the
@@ -74,8 +74,7 @@ function optionGroups(kind, s = state) {
     group('Colour', waveLooks.colour.map(([v, name, hint]) => [v, name, hint, colourSwatch(v, s.wave.map)]), s.wave.colour, c => setWave('colour', c), { select: true }),
     group('Colormap', waveLooks.map.map(([m, name, hint]) => [m, name, hint, mapSwatch(m, true)]), s.wave.map, m => setWave('map', m), { select: true }),
     group('Fill', waveLooks.fill, s.wave.fill, c => setWave('fill', c)),
-    group('Channels', waveLooks.lanes, s.wave.lanes, c => setWave('lanes', c)),
-    meterGroup('meters', 'Level', 'The level where it plays, or the caret is, by the lane\'s right end', s)
+    group('Channels', waveLooks.lanes, s.wave.lanes, c => setWave('lanes', c))
   ]
   if (kind === 'spec') return [
     group('Frequency scale', Object.entries(scales).map(([name, sc]) => [name, scaleNames[name], sc.text[0].toUpperCase() + sc.text.slice(1)]), s.scale, setScale),
@@ -84,16 +83,10 @@ function optionGroups(kind, s = state) {
     // a curve's exponent, one quantity bending one way: a slider through its steps, not keys
     group('Gamma', looks.gamma.map(g => [g, String(g), g < 1 ? 'Quiet parts brighter' : g > 1 ? 'Quiet parts darker' : 'Levels even']), s.look.gamma, g => setLook('gamma', g), { slider: true, preview: g => { v.spectrogram = paint({ ...state.look, gamma: g }) } }),
     group('Range', looks.depth.map(d => [d, `${d}dB`, `From the loudest down ${d} dB to the floor`]), s.look.depth, d => setLook('depth', d)),
-    group('FFT size', looks.size.map(n => [n, n ? String(n) : 'Auto', n ? `Frames of ${n} samples` : 'Frames of 40 ms, longer on a zoomed band']), s.look.size, n => setLook('size', n)),
-    meterGroup('spectrum', 'Spectrum', 'The spectrum where it plays, or the caret is, by the lane\'s right end, on its scale', s)
-  ]
-  if (kind === 'notes') return [
-    meterGroup('keys', 'Keys', 'A piano\'s keys by the lane\'s right end, the note where it plays, or the caret is, lit', s)
+    group('FFT size', looks.size.map(n => [n, n ? String(n) : 'Auto', n ? `Frames of ${n} samples` : 'Frames of 40 ms, longer on a zoomed band']), s.look.size, n => setLook('size', n))
   ]
   return []
 }
-// A look's meter, by the lanes' right end: one key, pressed while it shows
-function meterGroup(name, label, hint, s) { return { label: 'Meter', options: [{ label, hint, on: !!s.show[name], run: () => toggleShow(name) }] } }
 // the View menu's submenus, the same groups (commands.js look.wave, look.spec)
 export function lookMenu(kind) {
   return optionGroups(kind).map(g => ({ label: g.label, items: g.options.map(o => ({ label: o.label, hint: o.hint, checked: o.on, run: o.run })) }))
@@ -101,7 +94,6 @@ export function lookMenu(kind) {
 export function resetView() {
   v.fit()
   setDisplay('wave')
-  state.show = { gain: true, meters: true, spectrum: true, keys: true, guides: true }
   setLevels('linear')
   setGrid('none')
   state.look = { ...LOOK }
@@ -110,12 +102,6 @@ export function resetView() {
   v.waveform = state.wave
   marks()
   store()
-}
-export function toggleShow(name) {
-  state.show = { ...state.show, [name]: !state.show[name] }
-  store()
-  marks()
-  meter()
 }
 // What every band shows (View; a sound's look), each track's own let go
 export function setDisplay(name) {

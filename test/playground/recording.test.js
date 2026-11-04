@@ -5,19 +5,19 @@ import { writeFile, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
-import { page, origin, errors, code, tipOf, wholeLevels, lengthText, open, settled, frames, poll, still, choice, settings, selected, tab, menu, facts, noCues, write, drawn, TRACK, ROOM, FOOT, tall, tracksAt, gutter, TAIL, axis, drag, lengthIs, pixels, show, keptFiles, takesLeft, recordFor, chime, contextRow } from './page.js'
+import { TOP, page, origin, errors, code, tipOf, wholeLevels, lengthText, open, settled, frames, poll, still, choice, settings, selected, tab, menu, facts, noCues, write, drawn, TRACK, ROOM, FOOT, tall, tracksAt, gutter, TAIL, axis, drag, lengthIs, pixels, show, keptFiles, takesLeft, recordFor, chime, contextRow, spans } from './page.js'
 
 // With nothing open, the take is the sound, drawn as it comes
 test('editor: a recording becomes a file the script opens', async () => {
   await open()
   await write('')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   // stopped before the microphone answers (Record clicked twice at once): nothing recorded, the microphone let go, the
   // next take free to start
   await page.evaluate(() => { const b = document.querySelector('button.record'); b.click(); b.click() })
   // a moment for the microphone's late answer to start a take, which it must not
   await page.waitForTimeout(500)
-  assert.equal(await page.locator('.empty').isVisible(), true, 'nothing recorded')
+  assert.equal(await page.locator('.plot[data-empty]').count(), 1, 'nothing recorded')
   assert.equal(await page.getByRole('button', { name: 'Stop recording', exact: true }).count(), 0)
   await page.getByRole('button', { name: 'Record', exact: true }).first().click()
   const started = Date.now()
@@ -58,7 +58,7 @@ test('editor: recording, the playhead keeps its speed as the blocks come in burs
   await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
   await open()
   await write('')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   await page.getByRole('button', { name: 'Record', exact: true }).first().click()
   await page.waitForFunction(() => __view.playhead > .3)
   const frames = await page.evaluate(() => new Promise(done => {
@@ -76,7 +76,7 @@ test('editor: recording, the playhead keeps its speed as the blocks come in burs
 test('editor: a recording is kept until it is deleted: its tab closed, it waits under Open recent', async () => {
   await open()
   await write('')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   await recordFor(1)
   await page.locator('.plot').focus()
   await page.keyboard.press('Space')
@@ -87,7 +87,7 @@ test('editor: a recording is kept until it is deleted: its tab closed, it waits 
   await poll(async () => [await keptFiles(), await takesLeft()], ([files, left]) => assert.ok(files.join() === 'recording.wav' && !left, `kept: ${files}, ${left} takes left`))
   await menu('File', 'Close tab')
   await page.reload()
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   assert.deepEqual(await keptFiles(), ['recording.wav'])
   await menu('File', 'Open recent', 'recording.wav')
   await page.waitForFunction(() => scriptText().startsWith("audio('recording.wav')"))
@@ -118,7 +118,7 @@ test('editor: a recording is kept until it is deleted: its tab closed, it waits 
 test('editor: a take the page closes on as it records is kept on the next visit', async () => {
   await open()
   await write('')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   await recordFor(2.6)
   // the browser asks before a take is left
   page.once('dialog', d => { assert.equal(d.type(), 'beforeunload'); d.accept() })
@@ -205,7 +205,7 @@ test('editor: a take stopped, the caret at its end from the first frame, never b
 test('editor: the microphone kept between takes, let go once the page is hidden, opened again for stereo', async () => {
   await open()
   await write('')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   await page.evaluate(() => {
     const md = navigator.mediaDevices, ask = md.getUserMedia.bind(md)
     window.__asked = []
@@ -245,7 +245,7 @@ test('editor: the record button records over the sound from the caret, into the 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await page.mouse.click(x(7.5), box.y + box.height - 8)
   await page.getByRole('button', { name: 'Record', exact: true }).click()
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
@@ -372,7 +372,7 @@ test('editor: Alt and Record make a take as they are pressed, one take or more, 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .5, button = page.locator('button.record'), mark = page.locator('button.record .record-how')
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .5, button = page.locator('button.record'), mark = page.locator('button.record .record-how')
   const shown = () => page.locator('.plot .takes:not([hidden]) button').evaluateAll(b => b.map(x => x.value === 'add' ? 'fork' : x.textContent + (x.getAttribute('aria-pressed') === 'true' ? '*' : '')))
   await button.hover()
   assert.equal(await button.evaluate(tipOf), 'Record (R)')
@@ -403,7 +403,7 @@ test('editor: Alt and Record make a take as they are pressed, one take or more, 
   await page.waitForFunction(() => document.querySelector('button.record').classList.contains('forking'))
   await page.evaluate(() => dispatchEvent(new PointerEvent('pointermove')))
   await says('Record')
-  await page.mouse.move(box.x + 5, box.y + 5)
+  await page.mouse.move(box.x + 5, box.y + TOP + 5)
   // over a selection: the take there as Record is pressed, before anything is recorded
   await drag([x(2), y], [x(2.5) - x(2), 0])
   await page.keyboard.press('Alt+KeyR')
@@ -435,7 +435,9 @@ test('editor: a take switched moves nothing outside its place, one past the soun
   const chip = page.locator('.plot .takes:not([hidden])')
   await chip.locator('button').first().waitFor()
   const away = async () => { await page.mouse.move(box.x + box.width + 40, 4); await settled(); await page.waitForTimeout(300); await frames(3) }
-  const before = () => pixels(`const o = []; for (let x = 0; x < arg; x++) { let v = 0; for (let y = 0; y < h; y++) { const i = (y * w + x) * 4; v = (v * 31 + d[i] * 3 + d[i + 1] * 5 + d[i + 2]) | 0 } o.push(v) } return o`, to)
+  const before = (n = to) => pixels(`const o = []; for (let x = 0; x < arg; x++) { let v = 0; for (let y = 0; y < h; y++) { const i = (y * w + x) * 4; v = (v * 31 + d[i] * 3 + d[i + 1] * 5 + d[i + 2]) | 0 } o.push(v) } return o`, n)
+  // (the picture focused, as a press on its numbers leaves it)
+  await page.locator('.plot').focus()
   await away()
   const was = await before()
   for (const [k, length] of [['0', '0:08.000'], ['1', '0:12.000'], ['2', '0:08.000'], ['0', '0:08.000'], ['1', '0:12.000']]) {
@@ -444,15 +446,38 @@ test('editor: a take switched moves nothing outside its place, one past the soun
     await away()
     assert.deepEqual(await before(), was, `take ${k}, ${length}: the picture before its place as it was`)
   }
-  // the one heard deleted, the same, the sound going back to its own end (the caret there first: a right-click puts it)
-  await page.mouse.click(x(5), box.y + tall(box) * .25)
+  // each a step named by the take heard; undone and redone, the same (a take pressed, the picture keeps the keys); in
+  // the edits, its switch, the same
+  assert.equal(await page.evaluate(async () => (await import('/playground/editor/edits.js')).undoList()[0].label), 'Take 2')
+  assert.equal(await page.evaluate(() => document.activeElement?.className), 'plot', 'its numbers pressed, the picture keeps the keys')
+  for (const [keys, length] of [['ControlOrMeta+Z', '0:08.000'], ['ControlOrMeta+Shift+Z', '0:12.000']]) {
+    await page.keyboard.press(keys)
+    await lengthIs(length)
+    await away()
+    assert.deepEqual(await before(), was, `${keys}: the picture before its place as it was`)
+  }
+  // (all of it in sight again, the panel beside it: a picture showing less is never fitted anew)
+  await tab('Edits')
+  await menu('View', 'Zoom', 'All of it')
+  await page.locator('.plot').focus()
   await away()
-  const there = await before()
-  await page.mouse.click(x(5), box.y + tall(box) * .25, { button: 'right' })
+  const narrow = await page.locator('.plot').boundingBox(), until = Math.round(4 / 12 * await spans(narrow)) - 3, edits = await before(until)
+  await page.locator('.step-on').nth(1).click()
+  await lengthIs('0:08.000')
+  await away()
+  assert.deepEqual(await before(until), edits, 'switched in the edits: the picture before its place as it was')
+  await tab('Code')
+  await chip.locator('button[value="1"]').click()
+  await lengthIs('0:12.000')
+  // the one heard deleted, the same, the sound going back to its own end (the caret there first: a right-click puts it)
+  await page.mouse.click(x(5), box.y + TOP + TRACK * .25)
+  await away()
+  const there = await before(until)
+  await page.mouse.click(x(5), box.y + TOP + TRACK * .25, { button: 'right' })
   await page.locator('.menu-row', { hasText: 'Delete take' }).click()
   await lengthIs('0:08.000')
   await away()
-  assert.deepEqual(await before(), there, 'the take deleted: the picture before its place as it was')
+  assert.deepEqual(await before(until), there, 'the take deleted: the picture before its place as it was')
 })
 
 // The picture held for a take ends as its output fails too: nothing waits on an output that will not come
@@ -495,7 +520,7 @@ test('editor: takes are marked in the strip under all they span, pressed there s
   assert.equal(await selected(), '0:01.000–0:09.000')
   // + adds an empty take there, as long as the place, heard, its place selected, recording nothing; + then off till it
   // is recorded into or deleted (Delete take, a right-click there: the one before heard again)
-  await page.mouse.click(x(5), box.y + tall(box) * .5)
+  await page.mouse.click(x(5), box.y + TOP + TRACK * .5)
   await chip.locator('button[value="add"]').click()
   await page.waitForFunction(() => scriptText().endsWith(`// .write(audio('birdsong.wav'), { at: 1 })\n  .write(audio.from(8), { at: 1 })`))
   assert.equal(await selected(), '0:01.000–0:09.000')
@@ -503,10 +528,10 @@ test('editor: takes are marked in the strip under all they span, pressed there s
   await page.locator('.plot .takes button[value="add"][aria-disabled="true"]').waitFor()
   await chip.locator('button[value="add"]').click({ force: true })
   assert.equal((await code()).match(/audio\.from\(8\)/g).length, 1, 'one empty take at a time')
-  await page.mouse.click(x(5), box.y + tall(box) * .5, { button: 'right' })
+  await page.mouse.click(x(5), box.y + TOP + TRACK * .5, { button: 'right' })
   await page.locator('.menu-row', { hasText: 'Delete take' }).click()
   await page.waitForFunction(() => scriptText().endsWith(`  .write(audio('birdsong.wav'), { at: 1 })`))
-  await page.mouse.click(x(5), box.y + tall(box) * .5)
+  await page.mouse.click(x(5), box.y + TOP + TRACK * .5)
   await page.reload()
   await wholeLevels().waitFor()
   for (const until = Date.now() + 5000; await line() !== 'pointer'; await page.waitForTimeout(100)) assert.ok(Date.now() < until, 'measured on the first run too')
@@ -769,7 +794,7 @@ test('editor: a take recorded as the others play is drawn where it will be, no s
 // Record pressed with Shift, as ⇧R: a new track, recorded into as the others play
 test('editor: Record with Shift records a new track', async () => {
   const { box, x } = await chime()
-  await page.mouse.click(x(1), box.y + 40)
+  await page.mouse.click(x(1), box.y + TOP + 40)
   await page.getByRole('button', { name: 'Record', exact: true }).click({ modifiers: ['Shift'] })
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
   await page.waitForFunction(() => /let track = audio\.from\(0\)$/.test(scriptText()))
@@ -783,7 +808,7 @@ test('editor: Record with Shift records a new track', async () => {
 // its place over the new start, the take written seconds late and the track ever longer)
 test('editor: a second take into a track goes where its caret was, after a first that ran on past it', async () => {
   const { box, x } = await chime()
-  await page.mouse.click(x(1), box.y + 40)
+  await page.mouse.click(x(1), box.y + TOP + 40)
   await page.keyboard.press('Shift+R')
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
   await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 3 }, null, { timeout: 15000 })
@@ -850,31 +875,30 @@ test('editor: a quiet take recorded into nothing is drawn at full scale', async 
     const p = await quiet.newPage()
     p.on('pageerror', e => errors.push(e.message))
     // how far up its lane the waveform reaches over the first fifth of the view, from the centre line: 1 at its top. Its
-    // one lane the picture's, TRACK px at least, but the room under it, kept as it records and once it is a sound (`room`,
-    // px), so its lane is the same as it comes and done
-    const reach = async (room = 0) => {
+    // one lane TRACK px under its head line, the same as it comes and done
+    const reach = async () => {
       const png = await p.locator('.plot').screenshot()
-      return p.evaluate(async ([b64, most, room]) => {
+      return p.evaluate(async ([b64, lane, head]) => {
         const img = new Image()
         img.src = 'data:image/png;base64,' + b64
         await img.decode()
         const c = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height }), g = c.getContext('2d')
         g.drawImage(img, 0, 0)
-        const d = g.getImageData(0, 0, c.width, c.height).data, mid = Math.max(most, c.height - 22 - 18 - room) / 2
+        const d = g.getImageData(0, 0, c.width, c.height).data, half = lane / 2, mid = head + half
         let top = mid
-        for (let y = 0; y < mid; y++) for (let x = Math.round(c.width * .04); x < c.width * .2; x++) { const i = (y * c.width + x) * 4; if (Math.max(d[i], d[i + 1], d[i + 2]) > 120 && y < top) top = y }
-        return (mid - top) / mid
-      }, [png.toString('base64'), TRACK, room])
+        for (let y = head; y < mid; y++) for (let x = Math.round(c.width * .04); x < c.width * .2; x++) { const i = (y * c.width + x) * 4; if (Math.max(d[i], d[i + 1], d[i + 2]) > 120 && y < top) top = y }
+        return (mid - top) / half
+      }, [png.toString('base64'), TRACK, TOP])
     }
     await p.goto(origin + '/playground/')
-    await p.locator('.empty').waitFor()
+    await p.locator('.plot[data-empty]').waitFor()
     await p.locator('button.record').click()
     await p.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 2.5 })
-    const taking = await reach(ROOM)
+    const taking = await reach()
     await p.getByRole('button', { name: 'Stop recording', exact: true }).click()
     await p.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
     await settled(p)
-    const taken = await reach(ROOM)
+    const taken = await reach()
     // 0.08 in ±1
     assert.ok(taking > .05 && taking < .15, `as it records: ${taking}`)
     assert.ok(taken > .05 && taken < .15, `recorded: ${taken}`)
@@ -885,13 +909,36 @@ test('editor: a quiet take recorded into nothing is drawn at full scale', async 
 // cell, here the take's own), the waveform in its fill and colour; stopped, the same pixels light the same. Within 10%:
 // the loudest cell is a beep's, and how loud depends on how that beep's frames align, so the take's levels can move a
 // little once it is whole (two runs' outputs differ by up to 6%; a slow runner's take gets more beeps before the stop)
+// The playhead of a take into nothing runs where what is drawn of it ends, never ahead of it, however the microphone's
+// blocks come (in bursts): each frame for a second and a half, its time against the drawn take's end
+test('editor: a take\'s playhead never runs ahead of what is drawn of it', async () => {
+  await open()
+  await write('')
+  await page.getByRole('button', { name: 'Record', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  await page.waitForFunction(() => /^0:00\.[3-9]/.test(document.querySelector('.time').textContent), null, { timeout: 15000 })
+  const ahead = await page.evaluate(async () => {
+    // (into nothing, from 0: what is drawn of it as long as what has come, state.recording.length)
+    const { v, state } = await import('/playground/editor/context.js'), out = []
+    for (const end = performance.now() + 1500; performance.now() < end;) {
+      await new Promise(requestAnimationFrame)
+      if (v.playhead != null && state.recording) out.push(v.playhead - state.recording.length)
+    }
+    return out
+  })
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
+  assert.ok(ahead.length > 40, `${ahead.length} frames`)
+  assert.ok(Math.max(...ahead) <= .002, `the most it ran ahead: ${(Math.max(...ahead) * 1000).toFixed(1)} ms`)
+  assert.ok(Math.min(...ahead) > -.25, `the most it lagged: ${(-Math.min(...ahead) * 1000).toFixed(1)} ms`)
+})
+
 test('editor: a take draws while it records as its output does after', async () => {
   const looks = [['spec'], ['wave'], ['wave', { Colour: 'Centroid', Fill: 'RMS' }]]
   for (const [view, wave] of looks) {
     await open()
     if (wave) for (const [group, name] of Object.entries(wave)) await settings(group, name)
     await write('')
-    await page.locator('.empty').waitFor()
+    await page.locator('.plot[data-empty]').waitFor()
     await page.getByRole('button', { name: 'Record', exact: true }).first().click()
     await show(view)
     await page.waitForFunction(() => /^0:0[3-9]/.test(document.querySelector('.time').textContent), null, { timeout: 15000 })
@@ -919,7 +966,7 @@ test('editor: a take draws while it records as its output does after', async () 
 test('editor: a recording is mono over nothing, as the sound under it over one, the config\'s channels stereo', async () => {
   await open()
   await write('')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   await recordFor(1)
   await page.locator('.plot').focus()
   await page.keyboard.press('Space')
@@ -936,7 +983,7 @@ test('editor: a recording is mono over nothing, as the sound under it over one, 
   assert.deepEqual(await page.evaluate(() => window.__ideal), [2], 'over a stereo sound')
   await open({ channels: 2 })
   await write('')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   await asked()
   await recordFor(.3)
   assert.deepEqual(await page.evaluate(() => window.__ideal), [2], 'the config\'s, over nothing')

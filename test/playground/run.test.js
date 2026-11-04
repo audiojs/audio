@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, readdir } from 'node:fs/promises'
 import { dirname, relative, resolve, sep } from 'node:path'
-import { root, browser, page, origin, errors, code, readout, wholeLevels, levelsTable, lengthText, open, settled, frames, poll, still, settings, selected, tab, menu, facts, noCues, write, drawn, tall, axis, drag, lengthIs, pixels, show, bursts, chime } from './page.js'
+import { TOP, TRACK, root, browser, page, origin, errors, code, readout, wholeLevels, levelsTable, lengthText, open, settled, frames, poll, still, settings, selected, tab, menu, facts, noCues, write, drawn, tall, axis, drag, lengthIs, pixels, show, bursts, chime } from './page.js'
 
 test('editor: opens on the chime with its script, drawn and measured', async () => {
   await open()
@@ -28,7 +28,7 @@ test('editor: an older output arriving while a newer edit is drawn ahead leaves 
   await noCues()
   await write(`for (const t = Date.now(); Date.now() - t < 1500;);\naudio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('Delete')
   // its run under way (1.5 s at least), said once it takes a moment
@@ -86,7 +86,7 @@ test('editor: a first visit opens on an empty tab, its ways in shown before the 
   await p.route(/\/(playground\/dist\/worker\.js|assets\/codemirror\.js|assets\/audio\.js)$/, async route => { await held; route.continue() })
   try {
     await p.goto(origin + '/playground/')
-    await p.locator('.empty').waitFor()
+    await p.locator('.plot[data-empty]').waitFor()
     assert.equal(await p.locator('#app').getAttribute('data-boot'), null, 'shown')
     assert.deepEqual(await p.locator('.files [role="tab"]').allInnerTexts(), ['untitled'])
     assert.equal(await p.locator('.cm-content').count(), 0, 'CodeMirror not come yet')
@@ -121,7 +121,7 @@ test('editor: an edit made before CodeMirror comes is undone and redone once it 
   const text = () => p.evaluate(() => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n'))
   try {
     await p.goto(origin + '/playground/')
-    await p.locator('.empty').waitFor()
+    await p.locator('.plot[data-empty]').waitFor()
     await p.locator('.menubar-item', { hasText: /^File$/ }).click()
     for (const name of ['Sample or generate', 'chime.wav']) await p.locator('.menubar-list .menu-row:visible').filter({ has: p.locator('.menu-label', { hasText: new RegExp(`^${name.replace('.', '\\.')}$`) }) }).last().click()
     await p.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
@@ -130,7 +130,7 @@ test('editor: an edit made before CodeMirror comes is undone and redone once it 
     await p.locator('.cm-content').waitFor({ state: 'attached' })
     assert.equal(await text(), `audio('chime.wav')`)
     await p.getByRole('button', { name: 'Undo', exact: true }).click()
-    await p.locator('.empty').waitFor()
+    await p.locator('.plot[data-empty]').waitFor()
     assert.equal(await text(), '')
     await p.getByRole('button', { name: 'Redo', exact: true }).click()
     await p.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
@@ -138,12 +138,12 @@ test('editor: an edit made before CodeMirror comes is undone and redone once it 
   } finally { release(); await p.close() }
 })
 
-test('editor: before the script runs, the intro shows nothing dead; while the first run renders, it stays away', async () => {
-  // no script at all: the conditional parts (intro, toolbar) stay hidden instead of showing inert buttons
+test('editor: before the script runs, nothing dead shows; while the first run renders, no empty track', async () => {
+  // no script at all: the conditional parts (the empty track, the toolbar) stay hidden instead of showing inert buttons
   await page.route('**/playground/editor.js', route => route.abort())
   await page.goto(origin + '/playground/')
   await still()
-  assert.equal(await page.locator('.empty').isVisible(), false, '.empty')
+  assert.equal(await page.locator('.plot[data-empty]').count(), 0, 'no empty track claimed')
   // and what does show takes no clicks yet: the File menu stays shut
   assert.equal(await page.locator('#app').evaluate(el => getComputedStyle(el).pointerEvents), 'none')
   await page.locator('.menubar-item', { hasText: /^File$/ }).click({ force: true, timeout: 2000 }).catch(() => {})
@@ -158,22 +158,22 @@ test('editor: before the script runs, the intro shows nothing dead; while the fi
   await page.locator('.cm-content').waitFor({ state: 'attached' })
   // its run asked and held a moment, said so
   await page.locator('.message', { hasText: /^(Decoding|Rendering)/ }).waitFor()
-  assert.equal(await page.locator('.empty').isVisible(), false, 'no intro while the first run renders')
+  assert.equal(await page.locator('.plot[data-empty]').count(), 0, 'no empty track while the first run renders')
   release()
   await wholeLevels().waitFor()
-  assert.equal(await page.locator('.empty').count(), 0)
+  assert.equal(await page.locator('.plot[data-empty]').count(), 0)
   assert.equal(await page.locator('#app').evaluate(el => getComputedStyle(el).pointerEvents), 'auto', 'taken over, it answers')
 })
 
 test('editor: an output of no samples shows the empty view; the next output replaces it', async () => {
   await open()
   await write(`audio('chime.wav').crop({ at: 0, duration: 0 })`)
-  await page.locator('.empty', { hasText: 'Drop audio here' }).waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   assert.equal(await readout(), '')
   assert.ok(await page.getByRole('button', { name: 'Play' }).isDisabled())
   await write(`audio('chime.wav').reverse()`)
   await wholeLevels().waitFor()
-  await page.locator('.empty').waitFor({ state: 'detached' })
+  await page.locator('.plot[data-empty]').waitFor({ state: 'detached' })
   assert.equal(await lengthText(), '0:08.000')
 })
 
@@ -271,7 +271,7 @@ test('editor: a sound longer than the page holds is drawn from its peaks and spe
   // zoomed in on the caret, 20 ms or so across, under a sample a pixel: the samples come, the line through them (the
   // peaks alone draw nothing there)
   const { box } = await axis(1820)
-  await page.mouse.click(box.x + box.width / 2, box.y + tall(box) * .3)
+  await page.mouse.click(box.x + box.width / 2, box.y + TOP + TRACK * .3)
   await page.locator('.plot').focus()
   for (let i = 0; i < 17; i++) await page.keyboard.press('=')
   // columns with ink off the silence line: the sine's, a twentieth of full scale either side; without its samples, at
@@ -315,7 +315,7 @@ test('editor: an error is said once, beside the time and at its line; the last o
   await tab('Code')
   await page.locator('.cm-lintRange-error').first().waitFor()
   assert.equal(await page.locator('.console .line.error').count(), 0, 'not again in the console')
-  // a file the page doesn't have (a script kept from before a reload) is named once, and the view invites a drop
+  // a file the page doesn't have (a script kept from before a reload) is named once, an empty track in its place
   await write(`audio('missing.wav').trim()`)
   await page.locator('.message.problem', { hasText: /^missing\.wav is not open here: open it, or drop it on the page$/ }).waitFor()
   await page.getByRole('button', { name: 'Open it…' }).waitFor()
@@ -324,7 +324,7 @@ test('editor: an error is said once, beside the time and at its line; the last o
   await page.reload()
   await page.locator('.message.problem', { hasText: 'missing.wav is not open' }).waitFor()
   assert.equal(await page.locator('.source').innerText(), 'missing.wav')
-  assert.match(await page.locator('.empty').innerText(), /^Drop audio here/)
+  await page.locator('.plot[data-empty]').waitFor()
   // the fix clears it and the figures return
   await write(`audio('chime.wav')`)
   await wholeLevels().waitFor()
@@ -375,9 +375,9 @@ test('editor: Stop while an edit renders undoes it, the caret still stepping by 
   assert.equal(await page.evaluate(() => scriptText()), bursts)
   await lengthIs('0:02.500')
   const { box, x } = await axis(2.5), step = async () => { await page.keyboard.press(process.platform === 'darwin' ? 'Alt+ArrowRight' : 'Control+ArrowRight'); return +(await page.locator('.time').innerText()).split(':')[1] }
-  await page.mouse.click(x(.1), box.y + tall(box) / 3)
+  await page.mouse.click(x(.1), box.y + TOP + TRACK / 3)
   let at = 0
-  for (const until = Date.now() + 5000; !(Math.abs(at - .4) < .03) && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.click(x(.1), box.y + tall(box) / 3); at = await step() }
+  for (const until = Date.now() + 5000; !(Math.abs(at - .4) < .03) && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.click(x(.1), box.y + TOP + TRACK / 3); at = await step() }
   assert.ok(Math.abs(at - .4) < .03, `to the next cue: ${at}`)
   assert.ok(Math.abs(await step() - .5) < .03, 'and the one after')
 })
@@ -402,7 +402,7 @@ test('editor: an edit made while a step holds the engine takes over at once', as
   assert.equal(await page.evaluate(() => scriptText()), `audio('chime.wav').gain(-3)`)
   const { box, x } = await axis(8), step = async () => { await page.keyboard.press(process.platform === 'darwin' ? 'Alt+ArrowRight' : 'Control+ArrowRight'); return +(await page.locator('.time').innerText()).split(':')[1] }
   let at = 0
-  for (const until = Date.now() + 8000; !(at > 1.5 && at < 2.5) && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.click(x(1.5), box.y + box.height / 3); at = await step() }
+  for (const until = Date.now() + 8000; !(at > 1.5 && at < 2.5) && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.click(x(1.5), box.y + TOP + TRACK / 3); at = await step() }
   assert.ok(at > 1.5 && at < 2.5, `to the next cue: ${at}`)
 })
 
@@ -422,7 +422,7 @@ test('editor: an output rendering in place of the one shown keeps the zoom, the 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await page.mouse.click(x(4), y)
   await page.locator('.plot').focus()
   for (let i = 0; i < 2; i++) await page.keyboard.press('=')
@@ -501,7 +501,7 @@ test('editor: an edit on the picture keeps the view where it is, at its scale, a
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   // the time at a pixel, from a click there (the caret's)
   const at = async px => { await page.mouse.click(px, y); return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0) }
   await drag([x(1), y], [x(2) - x(1), 0])

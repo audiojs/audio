@@ -32,7 +32,7 @@ export function wire() {
     c.run(event)
   })
   // Buttons around the picture act without taking focus: Space stays play, and the picture or the script keeps its keys
-  root.addEventListener('mousedown', event => { if (event.target.closest('.status button, .tabs button, .history button, .panel-head button, .files button, .add-step, .viewing')) event.preventDefault() })
+  root.addEventListener('mousedown', event => { if (event.target.closest('.status button, .tabs button, .history button, .panel-head button, .files button, .add-step, .viewing, .plot .takes button, .plot .fork')) event.preventDefault() })
   // A press in it gives it the keys, whatever took it: embedded, a frame a press doesn't focus (a button kept from taking
   // focus, as above) would leave Space to the page around it, and miss leaving when the next press is there (blur)
   addEventListener('pointerdown', () => document.hasFocus() || window.focus(), true)

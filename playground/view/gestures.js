@@ -90,8 +90,8 @@ export function edgeAt(px) {
   return best
 }
 // A press on a range's handles (the one under the pointer's, which becomes the one gestures act on): a fade from its
-// corner; its level, pitch, intonation or formants from its pill, dragged up or down; its length from its grip, trimmed, stretched or
-// sped. Each only clicked asks what it does (its curve, its mode). At a caret, silence opened. They come before
+// corner; its level, pitch, intonation or formants from its pill, dragged up or down (its length, ⌘ at its end:
+// endDown). Each only clicked asks what it does (its curve, its mode). At a caret, silence opened. They come before
 // anything else there, the gain line or the pitch curve under them included.
 export function gripDown(px, py, L, event) {
   const grip = gripAt(L, px, py)
@@ -102,9 +102,10 @@ export function gripDown(px, py, L, event) {
   const [a, b] = selection
   if (kind === 'level' || TOOLS.includes(kind)) return { pill: true, tool: kind, a, b, x: px, y: py, lane: L.all[0], moved: false }
   // each keeps the distance it was pressed at from the edge it moves
-  return kind === 'stretch' ? { stretch: true, a, b, to: b, x: px, offset: b - time(px), mode: gripMode } : { fade: kind, a, b, x: px, offset: (kind === 'in' ? a : b) - time(px) }
+  return { fade: kind, a, b, x: px, offset: (kind === 'in' ? a : b) - time(px) }
 }
-// ⌘ (Ctrl) at a range's end, any range's: its length, as its grip sets it (trimmed, stretched or sped)
+// ⌘ (Ctrl) at a range's end, any range's: its length, trimmed, stretched or sped (`gripMode`), a ⌘-click there turning
+// it to the next
 export function endDown(px, py, event) {
   const e = editing(event) && py <= floor() && edgeAt(px)
   if (!e || !e.edge) return null

@@ -114,7 +114,7 @@ test('editor: embedded, another page\'s script runs alone, its panel as asked, n
     assert.equal(await editor.evaluate(() => localStorage.getItem('audio-repl')), tabs)
     // no link, or one that does not read: an empty tab, its ways in, as a first visit's; no panel asked for, none
     await frames[0].goto(origin + '/playground/?embed&panel=none#code=@@')
-    await frames[0].locator('.empty').waitFor()
+    await frames[0].locator('.plot[data-empty]').waitFor()
     assert.equal(await frames[0].locator('.panes').getAttribute('data-side'), 'none')
   } finally { await context.close() }
   assert.deepEqual(errors, [])

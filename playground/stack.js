@@ -1,6 +1,6 @@
 import { ops, methods, format, fromManifest, reshapes, labelOf, icons } from './ops.js'
 import opIcons from './icons.js'
-import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing, unsplit, useTake } from './code.js'
+import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing, unsplit, useTake, takes } from './code.js'
 import { SLOP } from './view.js'
 
 // What each setting does and which come first (help.js), the largest text the page has: loaded with the first card's
@@ -25,7 +25,7 @@ const words = () => import('./help.js').then(m => ({ help, layout } = m))
 // folded: a press unfolds it to its steps, its switch bypasses them all and turns them back on, its × removes them all. What the output
 // shows, when it is not the whole chain, goes to `onview({ delta, back })`: `delta` the index of the live step whose
 // difference plays, `back` how many live steps are kept.
-export default function stack(root, { ed, describe = async () => null, duration = () => 1, source = () => null, oncall = () => {}, onview = () => {}, onchoose = () => {}, onpreview = () => {}, oncontext = () => {}, onflatten = () => {}, track = () => null, onuntrack = () => {}, keys = k => k }) {
+export default function stack(root, { ed, ontake = change => ed.change(change), describe = async () => null, duration = () => 1, source = () => null, oncall = () => {}, onview = () => {}, onchoose = () => {}, onpreview = () => {}, oncontext = () => {}, onflatten = () => {}, track = () => null, onuntrack = () => {}, keys = k => k }) {
   // the cards first, what adds to them after
   const list = root.insertBefore(document.createElement('ol'), root.firstChild)
   list.className = 'steps-list'
@@ -408,10 +408,12 @@ export default function stack(root, { ed, describe = async () => null, duration 
     if (!k) return null
     return { call: c.call.sound ? null : c.call, after: c.call.sound ? k.root.to : c.call.origin ? k.calls[0].to : c.call.to }
   }
-  // a take turned on is the one heard at its place, the others there turned off (code.js takes)
+  // a take turned on is the one heard at its place, the others there turned off (code.js takes); a take's switch, on
+  // or off, the page's (ontake)
   function onOff(c) {
+    const take = takes(ed.code).some(r => r.list.some(x => x.from === c.call.dot))
     const change = c.call.off ? useTake(ed.code, c.call.dot) ?? turnOn(ed.code, c.call) : turnOff(ed.code, c.call)
-    if (change) ed.change(change)
+    if (change) (take ? ontake : ed.change)(change)
   }
   function hear(c) {
     const i = live().indexOf(c)

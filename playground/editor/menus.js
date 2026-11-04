@@ -3,7 +3,7 @@ import { steps as stepsOf, dropStep } from '../code.js'
 import { builtins } from '../sources.js'
 import menubar from '../menu.js'
 import opIcons from '../icons.js'
-import { root, quickOf, QUICK, formats, icons, glyphs, displays, stored } from './config.js'
+import { root, EMBED, quickOf, QUICK, formats, icons, glyphs, displays, stored } from './config.js'
 import { command, snapshot, item, keysOf } from './commands.js'
 import { state, v, ed } from './context.js'
 import { editSelection, addOp } from './edits.js'
@@ -11,7 +11,7 @@ import { pickFiles, reopenable, useSample, NOTE, SOUND, exportFiles } from './fi
 import { keys } from './format.js'
 import { later } from './persist.js'
 import { toggleRecording, takesHere, takesMenu } from './recording.js'
-import { others } from './tracks.js'
+import { others, trackMenu } from './tracks.js'
 
 // Menus: the app menu, the context menu, the picture's dropdown and the palette, the menus a button opens, each
 // placed and closed
@@ -108,8 +108,11 @@ export function contextMenu() {
   const act = (label, type, when, icon) => ({ label, run: () => editSelection(type), disabled: !when, icon, op: type })
   const mark = label => item('mark', s, { label, tip: null, when: null, icon: glyphs.marker })
   const repair = [act(several || v.boxes.length > 1 ? 'Remove the clicks in each' : 'Remove the clicks here', 'declick', true, opIcons.declick), act('Rebuild from around it', 'repair', !several, opIcons.repair), act('Take this noise out everywhere', 'denoise', true, opIcons.denoise)]
+  // the track pressed in, a sound alone's too: its own menu, as its layer's (tracks.js trackMenu); embedded, a sound
+  // alone has no layer to name
+  const track = v.tracks || !EMBED ? [{ label: 'Track', icon: icons.track, items: trackMenu(v.focus) }] : []
   // what the press means to do with what is there, then every method under one Process, the last used first, none twice
-  const process = (own, leads = {}) => [...own, '-', { label: 'Process', icon: groupIcons.Level, items: [...recents(leads).slice(1), ...recents(leads).length ? ['-'] : [], ...kinds(leads, false, own.map(it => it.op)), '-', item('palette', s, { label: 'Find an edit…', when: null, icon: glyphs.find })] }]
+  const process = (own, leads = {}) => [...own, '-', { label: 'Process', icon: groupIcons.Level, items: [...recents(leads).slice(1), ...recents(leads).length ? ['-'] : [], ...kinds(leads, false, own.map(it => it.op)), '-', item('palette', s, { label: 'Find an edit…', when: null, icon: glyphs.find })] }, ...track]
   // a band has no pill: its level stays here
   if (v.band) return process([use('delete', { label: 'Delete the band', when: null, icon: opIcons.remove }), act('6 dB quieter', 'quieter', true, glyphs.down), act('6 dB louder', 'louder', true, glyphs.up)], { Repair: repair })
   if (!list.length) return process([

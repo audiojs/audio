@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import audio from '../../audio.js'
-import { browser, page, origin, errors, chimeLeft, sine, wavBytes, code, wholeLevels, open, settled, frames, menuRow, selected, tab, menu, noCues, write, tall, tracksAt, axis, drag, lengthIs, scriptOf, keyed, chime } from './page.js'
+import { TOP, TRACK, browser, page, origin, errors, chimeLeft, sine, wavBytes, code, wholeLevels, open, settled, frames, menuRow, selected, tab, menu, noCues, write, tall, tracksAt, axis, drag, lengthIs, scriptOf, keyed, chime } from './page.js'
 
 // A slice dragged up over the head onto the tabs goes to a tab of its own, this one's script cropped to it: copied (Alt),
 // this one as it was; moved (⌘), it leaves this one, the rest closing up as a cut's
@@ -84,7 +84,7 @@ test('editor: a new sound opens in a tab of its own, the script shown before it 
   await open()
   // a note alone: it stays, in its tab; the file in a tab after it
   await write('// my notes')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   const chooser = page.waitForEvent('filechooser')
   await menu('File', 'Open file…')
   await (await chooser).setFiles({ name: 'tone.wav', mimeType: 'audio/wav', buffer: bytes })
@@ -98,7 +98,7 @@ test('editor: a new sound opens in a tab of its own, the script shown before it 
   await page.locator('.cm-content').click()
   await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.press('Backspace')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   await menu('File', 'Sample or generate', 'Noise')
   await page.waitForFunction(() => /^audio\.from/.test(scriptText()))
   await menu('File', 'Sample or generate', 'chime.wav')
@@ -114,7 +114,7 @@ test('editor: an empty tab is an empty track; File › Open recent opens a close
   await open()
   await write(`audio('chime.wav').gain(-3)`)
   await menu('File', 'Close tab')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   await page.waitForFunction(() => ![...document.querySelectorAll('.view button')].some(b => b.checkVisibility()))
   // the time row's labels drawn, 0 to 9 s, as a take into it is first watched over
   await page.waitForFunction(() => document.querySelector('.plot canvas.row').style.opacity === '1')
@@ -133,7 +133,7 @@ test('editor: an empty tab is an empty track; File › Open recent opens a close
   await write(`audio.from(t => Math.sin(t * 2000), { duration: 1 })`)
   await menu('File', 'Close tab')
   await menu('File', 'Close tab')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   await page.locator('.menubar-item', { hasText: /^File$/ }).click()
   await menuRow('Open recent').click()
   await page.locator('.menubar-sub:popover-open .menu-row').first().waitFor()
@@ -196,7 +196,7 @@ test('editor: each sound opens in a tab of its own, with its own script and hist
   await page.getByRole('button', { name: 'Close handpan.wav' }).click()
   assert.deepEqual(await tabs(), ['untitled'])
   assert.equal(await shown(), '')
-  await page.getByText('Drop audio here').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   assert.deepEqual(errors, [])
 })
 
@@ -350,7 +350,7 @@ test('editor: each tab keeps where its sound was zoomed, switched away and back 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   // the time at the view's left edge, from a click there
   const left = async () => { await page.mouse.click(box.x + 1, y); return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0) }
   await page.mouse.click(x(4), y)
@@ -421,7 +421,7 @@ test('editor: a tab shown again shows its sound at once', async () => {
   assert.equal(await length(), '0:03.000', 'the tone at once')
   await page.getByRole('button', { name: 'New tab' }).click()
   assert.equal(await page.locator('.source').count(), 1)
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
 })
 
 // A tab shown again whose sound is what its script makes shows it as it was, nothing run again (the worker keeps each

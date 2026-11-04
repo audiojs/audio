@@ -8,7 +8,7 @@ import { drag, touch, hot } from './pointer.js'
 import { decibels, drawn, W, H, dpr, half, invalidate, tape, rolled, onTape, running, wash, caretColour, rgba, shades } from './render.js'
 import { paintRuler, layHead, awayOf, onAway, paintAway, THICK, paintBar, barLight } from './ruler.js'
 import { gutter, onBar, X, time, free, snapF, seen, stick, stuck, pitchLine, inside, fy, yf, rowOf, keyY, keyRows, ay, ampLanes, pitchLanes, ticks, hzMarks, noteMarks, levelMarks, reads, decibel, level, measured, probe, setRange } from './scales.js'
-import { paintMeasure, waveAt, placeFades, placeLook, paintRoom, paintLift, tag, accent, gauge, size, label, paintSelection, highlight, paintEdge, stamp, dragged, editing, paintCues, paintMarkers, TRI, strips, stripped, stripAt, paintStrips, naming, paintOvers } from './strips.js'
+import { paintMeasure, waveAt, placeFades, placeLook, paintRoom, paintLift, tag, accent, gauge, size, label, paintSelection, highlight, paintEdge, stamp, dragged, editing, paintCues, paintMarkers, REACH, strips, stripped, stripAt, paintStrips, naming, paintOvers } from './strips.js'
 
 // The overlay, over the reel: the axes, the pointer's readouts, what is measured; on the reel, the marks drawn in time
 // (markers, cues, carets, a range's edges) and its handles; the meters and the keys by the lanes' end
@@ -134,7 +134,7 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
   const edges = sel && !drag?.span ? sel.map((t, edge) => ({ t, fill: t === litEdge ? bright : caret, edge, of: sel })) : []
   const apart = t => !edges.some(m => X(m.t) === X(t))
   // in a band's strip ('band'), its labels giving way to the strip's ranges and takes
-  const strip = timeRow === 'band' ? rowBand(L) : null, clear = strip ? stripped(L).filter(m => m.y === strip.y).map(m => [m.x0 - TRI - 2, m.x1 + TRI + 2]) : []
+  const strip = timeRow === 'band' ? rowBand(L) : null, clear = strip ? stripped(L).filter(m => m.y === strip.y).map(m => [m.x0 - REACH - 2, m.x1 + REACH + 2]) : []
   onRow(() => paintRuler([
     ...(at && apart(pointed) ? [{ t: pointed, fill: caret }] : []),
     ...edges,
@@ -179,15 +179,15 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
   // for all that is there (a cue within ONTO px of a marker, as stick has it, with it). A cue there, where the line
   // meets the waveform in each lane, at the waveform's top and foot
   // (a sound's start, where it rises from nothing, one on the centre line), a lane with no waveform at its top and
-  // foot; a marker or the takes' place, centred on the line's foot, over its triangle in the strip, a marker's name by
+  // foot; a marker or the takes' place, centred on the line's foot, over its serif in the strip, a marker's name by
   // it. To the side the sound it went onto is, a faint wash fading from it
   const onto = dragged(), stuckTo = onto != null && stick(onto)
   if (stuckTo?.d < .5) {
     const rects = (allLanes ? L : T).all, px = X(onto), here = t => Math.abs(X(t) - px) < 1, { text, side } = snappedTo(stuckTo.t)
     const cue = seen().find(i => Math.abs(X(cues[i]) - px) <= ONTO), foot = ownMarks().some(here) ? strips(L).find(s => s.i === (tracks ? focus : null))?.y : null
-    // as thick as a clip's cross (paintOvers)
+    // as thin as a clip's cross looks (paintOvers: its middle off the pixel grid, so softer): a line a pixel wide
     c.strokeStyle = accent()
-    c.lineWidth = 1.5
+    c.lineWidth = 1
     if (foot != null) crossAt(px + .5, Math.round(foot) - .5)
     if (cue != null || foot == null) for (const rect of rects) {
       const [, y, , lh] = rect, top = waveAt(rect, onto, y), low = top && waveAt(rect, onto, y + lh)
@@ -392,10 +392,9 @@ function grips(L) {
   const fade = kind => drag?.fade === kind && drag.span ? X(drag.p) : kind === 'in' ? xa : xb
   if (xb - xa >= 2 * (BOX + INSET) + 8) out.push(['in', fade('in') + (cursor === a) + h, top + h], ['out', fade('out') - h, top + h])
   if (xb - xa >= 72 && !drag?.fade) out.push(['level', (xa + xb) / 2, top + 4], ...TOOLS.map((kind, i) => [kind, Math.round((xa + xb) / 2) + (i - 1) * (BOX + 2), bottom - h]))
-  if (xb - xa >= 20 && !drag?.fade) out.push(...lower(xb).map(p => ['stretch', ...p]))
   // each with the edge it works from (the level and the tools, the middle): none from one out of sight past the lanes'
   // end, under the meters
-  const from = { in: xa, out: xb, stretch: xb }
+  const from = { in: xa, out: xb }
   return out.filter(([kind, gx]) => gx >= 0 && (from[kind] ?? gx) < lanesEnd(L))
 }
 // a grip within reach of the pointer: a square and a little round it, the pill its shape, a tool its square alone
@@ -410,7 +409,7 @@ export const gripPointer = kind => kind === 'level' || TOOLS.includes(kind) ? 'n
 // Dark squares with no rim, each glyph in its own, soft lines on the screen's colour so they show over the waveform;
 // the one under the pointer, or dragged, bright, and it says what it does
 function paintGrips(L, at) {
-  const list = grips(L), under = at && !drag && gripAt(L, ...at), busy = drag?.fade ?? (drag?.stretch ? 'stretch' : drag?.lift ? 'level' : drag?.gap ? 'gap' : null)
+  const list = grips(L), under = at && !drag && gripAt(L, ...at), busy = drag?.fade ?? (drag?.lift ? 'level' : drag?.gap ? 'gap' : null)
   const [top, bottom] = extent(L.all), h = BOX / 2
   c.lineCap = c.lineJoin = 'round'
   for (const [kind, gx, gy] of list) {
@@ -429,12 +428,6 @@ function paintGrips(L, at) {
     else if (kind === 'formant') { c.moveTo(gx - 6, gy + 4); c.quadraticCurveTo(gx - 3, gy - 6, gx, gy + 4); c.quadraticCurveTo(gx + 3, gy - 6, gx + 6, gy + 4) }
     // silence opened at a caret: a bar where it is, an arrow out of it, |→, the time pushed on
     else if (kind === 'gap') { c.moveTo(gx - 5, gy - 5); c.lineTo(gx - 5, gy + 5); c.moveTo(gx - 5, gy); c.lineTo(gx + 5, gy); c.moveTo(gx + 2, gy - 3); c.lineTo(gx + 5, gy); c.lineTo(gx + 2, gy + 3) }
-    // trim, as Audacity's: a play triangle into a bracket, the end it moves
-    else if (gripMode === 'trim') { c.moveTo(gx - 5, gy - 4); c.lineTo(gx, gy); c.lineTo(gx - 5, gy + 4); c.closePath(); c.moveTo(gx + 2, gy - 5); c.lineTo(gx + 5, gy - 5); c.lineTo(gx + 5, gy + 5); c.lineTo(gx + 2, gy + 5) }
-    // speed, as Audacity's: a clock
-    else if (gripMode === 'speed') { c.arc(gx, gy, 5, 0, 2 * Math.PI); c.moveTo(gx, gy); c.lineTo(gx, gy - 3); c.moveTo(gx, gy); c.lineTo(gx + 2.5, gy) }
-    // stretch: a double arrow
-    else { c.moveTo(gx - 5, gy); c.lineTo(gx + 5, gy); c.moveTo(gx - 2.5, gy - 2.5); c.lineTo(gx - 5, gy); c.lineTo(gx - 2.5, gy + 2.5); c.moveTo(gx + 2.5, gy - 2.5); c.lineTo(gx + 5, gy); c.lineTo(gx + 2.5, gy + 2.5) }
     if (!boxed) { c.strokeStyle = color('--color-screen'); c.lineWidth = kind === 'level' ? 5 : 3.5; c.stroke() }
     c.strokeStyle = lit
     c.lineWidth = kind === 'level' ? 2.5 : 1.5

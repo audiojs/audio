@@ -87,6 +87,8 @@ export const GLIDE = .3                               // a playhead past the vie
 // What view() is given (editor.js), kept as it mounts: its element, its callbacks, its zoom's limits and overshoot
 export let root, onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow, cueOrder
 export const element = (tag, className, parent) => parent.appendChild(Object.assign(document.createElement(tag), { className }))
+// a button of the picture's own pressed: the picture keeps the keys (its own, Undo's), as a press anywhere in it gives them
+export const keep = () => root.focus({ preventScroll: true })
 const layer = (name, parent = root) => element('canvas', name, parent)
 export const color = name => style.getPropertyValue(name).trim()
 // A range pointed at in its strip, no takes from where it starts: a fork (⌥, a branch) at its end inside it, where
@@ -111,7 +113,7 @@ export let waves = [], specs = [], count = 0, rate = 44100, duration = 0, displa
 // what shows besides the sound; the pauses in it, for selecting and stepping as in a text
 export let show = { gain: true, meters: true, spectrum: true, keys: true, guides: true }, segments = { silences: [] }
 // the output's markers: [{ time, label }], a range's with its duration, in the strips under the lanes; with tracks,
-// each its track's (`track`, its name), its line in that track's lane alone, its triangle in that track's strip
+// each its track's (`track`, its name), its line in that track's lane alone, its serifs in that track's strip
 export let markers = []
 // an output arriving: { total, length, dim, fit }; total samples where known, `dim` while it is the file, not the output
 export let arriving = null
@@ -236,10 +238,10 @@ export let moving = null
 // where what it draws differs (kept.js): the one canvas drawn anew would draw as the same
 export let leavesOf = null, map = null
 export let ruled = '', under = null
-// Markers: a line of one shows only as a ghost of the caret, where a press would put it: a moment's, its triangle or
-// name pointed at in its strip, a range's end, its triangle; either's line neared in the lanes (markAt); a marker's
-// end dragged, where it goes. Its triangle and name are its band's strip's (paintStrips). With tracks, a marker's line
-// in its track's lane alone. A marker chosen, by a press on its triangle, lit in its strip: Delete takes it away
+// Markers: a line of one shows only as a ghost of the caret, where a press would put it: a moment's, its serif or
+// name pointed at in its strip, a range's end, its serif; either's line neared in the lanes (markAt); a marker's
+// end dragged, where it goes. Its serifs and name are its band's strip's (paintStrips). With tracks, a marker's line
+// in its track's lane alone. A marker chosen, by a press on its serif, lit in its strip: Delete takes it away
 // the marker chosen, { time, duration }, till the caret or the selection goes elsewhere
 export let chosen = null
 // Editing pitch, the spectrogram's frequencies framed on the voice, as Praat's pitch panel is: from half its lowest to
@@ -296,10 +298,11 @@ export function mount(el, given) {
   forkButton = element('button', 'fork', root)
   Object.assign(forkButton, { type: 'button', hidden: true, ariaLabel: 'Another take', title: 'Another take', innerHTML: FORK })
   for (const type of ['pointerdown', 'pointerup', 'contextmenu', 'dblclick']) forkButton.addEventListener(type, e => e.stopPropagation())
+  forkButton.addEventListener('pointerdown', keep)
   forkButton.addEventListener('click', e => { e.stopPropagation(); const m = markers[+forkButton.dataset.i]; if (m) onfork(m) })
   // A sound's look, a button in its foot under its axis, drawn as what it shows: pressed, how it shows opens by it
   // (onlook: '', and the button). A track's is in its layer (editor.js layers)
-  lookButton = Object.assign(element('button', 'lane-look', root), { type: 'button', hidden: true })
+  lookButton = Object.assign(element('button', 'lane-look', root), { type: 'button', hidden: true, title: 'How it shows' })
   lookButton.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path/></svg>'
   lookButton.setAttribute('aria-haspopup', 'dialog')
   lookButton.setAttribute('aria-expanded', 'false')

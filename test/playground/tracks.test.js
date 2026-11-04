@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import audio from '../../audio.js'
-import { page, origin, sine, wavBytes, code, readout, open, settled, frames, poll, still, choice, selected, tab, menu, noCues, write, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, axis, grab, drag, lengthIs, pixels, chime, contextRow } from './page.js'
+import { TOP, page, origin, sine, wavBytes, code, readout, open, settled, frames, poll, still, choice, selected, tab, menu, noCues, write, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, axis, grab, drag, lengthIs, pixels, chime, contextRow } from './page.js'
 
 // A file dropped under the lanes, in the room: a track of its own, named for it, from where it was let go
 test('editor: a file dropped under the lanes goes into a new track of its own there', async () => {
@@ -54,7 +54,7 @@ test('editor: a selection moved to a track of its own, a lane each, each edited 
   // in the sound's lanes before there are tracks; then each track's lane's middle, the edited one's tall, the other's a
   // strip, as their layers have them
   let { box, x } = await axis(8), mid = async i => (r => r.y + r.h / 2)((await tracksAt())[i])
-  await drag([x(2), box.y + tall(box) / 4], [x(3) - x(2), 0])
+  await drag([x(2), box.y + TOP + TRACK / 4], [x(3) - x(2), 0])
   await menu('Track', 'Move to a new track')
   await page.waitForFunction(() => scriptText().includes('let chime2 = '))
   assert.equal(await code(), `let chime = audio('chime.wav')\n  .gain(-Infinity, { at: 2, d: 1 })\n\nlet chime2 = audio('chime.wav')\n  .crop({ at: 2, d: 1 })\n  .pad(2, 0)`)
@@ -193,7 +193,7 @@ test('editor: the voice split to a track of its own, edited apart, undone in one
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
   const { box, x } = await axis(8)
-  await page.mouse.click(x(1), box.y + tall(box) * .3)
+  await page.mouse.click(x(1), box.y + TOP + TRACK * .3)
   await menu('Track', 'Split the voice to a new track')
   await page.waitForFunction(() => scriptText().includes('let voice = '))
   // headless Chromium's WebGPU is SwiftShader, on the CPU: the split takes SCNet-large there (Mel-RoFormer on a GPU)
@@ -773,4 +773,58 @@ test('editor: with tracks, the track\'s card deletes it', async () => {
   await card.hover()
   await card.getByRole('button', { name: 'Delete track tone', exact: true }).click()
   await left(B)
+})
+
+// A sound alone is a track as any (view.js banded): one layer on its head line, its tab's name, its lanes TRACK px all
+// told under it, the room for a new track under its foot; no mute or lock, one track being all there is. Its name
+// clicked names the tab; right-clicked, its menu: named anew, shown as a waveform, a spectrogram or its notes; in its
+// lanes, the same under Track
+test('editor: a sound alone is a track as any: one layer, its tab\'s name, renamed as the tab is', async () => {
+  await open()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  const layer = page.locator('.layer')
+  assert.equal(await layer.count(), 1)
+  assert.equal(await layer.locator('.layer-name').innerText(), 'chime.wav')
+  const [lane] = await tracksAt(), plot = await page.locator('.plot').boundingBox()
+  assert.deepEqual([lane.y - plot.y, lane.h], [HEAD, TRACK], 'under its head line, TRACK px')
+  assert.equal(await layer.locator(':is(.track-mute, .layer-lock)').count(), 0, 'no mute, no lock')
+  assert.ok(await layer.evaluate(e => e.classList.contains('on')), 'the one edited')
+  await layer.click({ button: 'right' })
+  assert.deepEqual(await page.locator('.menubar-menu .menu-label').allInnerTexts(), ['Rename…', 'Waveform', 'Spectrogram', 'Notes'])
+  await page.keyboard.press('Escape')
+  const { box, x } = await axis(8)
+  await page.mouse.click(x(4), box.y + TOP + TRACK * .3, { button: 'right' })
+  await contextRow('Track').hover()
+  await contextRow('Rename…').waitFor()
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  await layer.locator('.layer-name').click()
+  const field = page.locator('.layer-field')
+  await field.fill('Bell')
+  await field.press('Enter')
+  await page.locator('.file [role="tab"]', { hasText: /^Bell$/ }).waitFor()
+  assert.equal(await layer.locator('.layer-name').innerText(), 'Bell', 'its layer the tab\'s name')
+  assert.equal(await code(), `audio('chime.wav')`, 'the script as it was')
+})
+
+// A new tab is one empty track as any sound's, no words over it: its layer the tab's name, its lane TRACK px
+test('editor: a new tab is one empty track, nothing written over it', async () => {
+  await open()
+  await page.getByRole('button', { name: 'New tab' }).click()
+  await page.locator('.plot[data-empty]').waitFor()
+  assert.deepEqual((await page.locator('.layer-name').allInnerTexts()), ['untitled'])
+  assert.equal((await tracksAt())[0].h, TRACK)
+  assert.equal(await page.locator('.view').evaluate(v => v.innerText.includes('Drop audio')), false, 'no placeholder')
+})
+
+// With tracks, a right-click in a lane: the track's own menu under Track, as its layer's
+test('editor: right-clicked in a track\'s lane, its own menu under Track', async () => {
+  await open()
+  await write(`let a = audio('chime.wav')\nlet b = audio('rhodes.wav')`)
+  const [, second] = await poll(tracksAt, l => assert.equal(l.length, 2), 15000)
+  const { x } = await axis(9)
+  await page.mouse.click(x(2), second.y + second.h / 2, { button: 'right' })
+  await contextRow('Track').hover()
+  for (const name of ['Rename…', 'Solo', 'Lock']) await contextRow(name).waitFor()
 })

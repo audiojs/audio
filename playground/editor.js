@@ -16,11 +16,11 @@ import { wire as wireClipboard } from './editor/clipboard.js'
 import { command, shortcut, tip, scriptKeys, pressed } from './editor/commands.js'
 import { root, params, EMBED, UI, SHOWN, QUICK, GIVEN, formats, ENCODING, writtenDepth, DEPTH_USE, cutFormats, frameRates, KEEPS, LOOK, looks, specMethods, WAVE, waveLooks, levelList, curves, glyphs, gripModes, AGENT_ICON, RECIPES_ICON, displays, SHUTTLE, times, tenths, rates, layouts, specs, stored, oneOf, sideOf } from './editor/config.js'
 import { ed, rk, pl, output, incoming, rechoose, shown, carded, queued, assign } from './editor/context.js'
-import { remember, undoList, goTo, editSelection, warp, carry, toTab, addOp, spread, flatten } from './editor/edits.js'
+import { remember, undoList, goTo, editSelection, warp, carry, toTab, addOp, spread, flatten, switchTake } from './editor/edits.js'
 import { lengthOf, pickFiles, openFiles, taken, recover, useSample, useCode, useRecipe, openSearch, closeSearch, typeSearch, runSearch, preview, useResult, exportFiles, exportCuts, share, wire as wireFiles } from './editor/files.js'
 import { bytes, mac, keys, clock, stamp, ruled, label, note } from './editor/format.js'
 import { wire as wireKeys } from './editor/keys.js'
-import { paint, toggleShow, setDisplay, laneGroups, setScale, setLevels, setLook, resizePanel, flipView, wire as wireLook } from './editor/look.js'
+import { paint, setDisplay, laneGroups, setScale, setLevels, setLook, resizePanel, flipView, wire as wireLook } from './editor/look.js'
 import { bar, openDropdown, dropToggle, placeList, contextMenu, openTools, closePalette, quick, toolKey, soundMenu, opsMenu, saveMenu, closeMenus, wire as wireMenus } from './editor/menus.js'
 import { writing, store, later, wire as wirePersist } from './editor/persist.js'
 import { playerOf, toggleAB, toggleLoop, plays, playPress, playClick, togglePlay, toggleTabMute, onscrub, wire as wirePlay } from './editor/play.js'
@@ -74,7 +74,7 @@ const state = sprae(root, {
   get shuttleText() { return tenths(this.shuttle ?? this.speed) },
   get shuttleAt() { return SHUTTLE.at(this.shuttle ?? this.speed) },
   display: oneOf(stored.display, displays.map(d => d.name), 'wave'), scale: scales[stored.scale] ? stored.scale : 'log', rates, layouts, sound: null, viewing: '',
-  show: { meters: true, spectrum: stored.show?.meters ?? true, keys: true, ...stored.show, gain: true, guides: true }, units: oneOf(UI.units, UNITS.map(u => u[0]), 'clock'),
+  show: { meters: true, spectrum: true, keys: true, gain: true, guides: true }, units: oneOf(UI.units, UNITS.map(u => u[0]), 'clock'),
   embed: EMBED, quick: QUICK, made: 0, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
   // the commands' keys and tooltips, as the menus have them (commands.js)
   shortcut, tip,
@@ -117,9 +117,11 @@ const state = sprae(root, {
   // before `state` is: its own units)
   // The tracks' layers, a row each on its band's head line over its lane (layerPress): its look, its name, its mute and
   // its lock
+  // the tracks' layers; a sound alone, or none yet, one track as any (view.js banded), its name the tab's, the one
+  // edited, no mute or lock (embedded, none: its lanes fill the picture)
   get layers() {
-    const rows = this.layout?.rows ?? []
-    return (this.trackRows ?? []).map((t, i) => ({ ...t, i, band: t.name, top: rows[i]?.top ?? 0, h: rows[i] ? rows[i].y - rows[i].top : 0, lane: rows[i] ? `${rows[i].y} ${rows[i].h}` : '', on: t.name === this.track, kind: this.kinds[t.name] || this.display }))
+    const rows = this.layout?.rows ?? [], alone = !this.trackRows && !EMBED && rows.length ? [{ name: this.tabs.find(t => t.id === this.tab)?.name ?? '', muted: null, single: true }] : null
+    return (this.trackRows ?? alone ?? []).map((t, i) => ({ ...t, i, band: t.single ? '' : t.name, top: rows[i]?.top ?? 0, h: rows[i] ? rows[i].y - rows[i].top : 0, lane: rows[i] ? `${rows[i].y} ${rows[i].h}` : '', on: t.single || t.name === this.track, kind: (!t.single && this.kinds[t.name]) || this.display }))
   },
   layerIcon: kind => KINDS[kind][1], layerKind: kind => KINDS[kind][0],
   get lengthPending() { return !this.recording && !this.span && (this.loading || this.arriving || !this.ran) },
@@ -192,7 +194,7 @@ const state = sprae(root, {
   setScale,
   toggleSnap() { state.snapping = v.snapping = !state.snapping; store() },
   layerPress, layerName, layerLook, layerMenu, toggleLock, toggleMute, renameLayer, renamed, nameNewTrack, fitField,
-  toggleShow, setLevels, setLook,
+  setLevels, setLook,
   blankView: on => { if (v) v.blank = on }, setDisplay, dropToggle, placeList, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo, pickReading, pickHeard, markLevel, unmarkLevel,
   togglePlay, playPress, playClick, stop, redo: () => command('redo').run(), mac, share, exportFiles,
   switchTab, tabPress, tabRenamed, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
@@ -396,6 +398,7 @@ requestAnimationFrame(() => requestAnimationFrame(() => root.removeAttribute('da
 // (the chain up to the step chosen, what a step takes out) runs in place of the script.
 assign({ rk: stack(root.querySelector('.steps'), {
   ed,
+  ontake: switchTake,
   describe: name => eng.describe(name),
   duration: () => v.duration,
   // the sound the chain starts from; with tracks, the track's name before it

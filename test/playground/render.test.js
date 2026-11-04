@@ -1,7 +1,7 @@
 // The pictures drawn: lanes, ends, clipping, the selection, weighting; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { page, CHIME, code, open, settled, poll, still, settings, selected, noCues, write, drawn, LANES, tall, gutter, TAIL, spans, axis, boxDrag, drag, lengthIs, gridShown, pixels, show, chime, menu } from './page.js'
+import { TOP, TRACK, page, CHIME, code, open, settled, poll, still, settings, selected, noCues, write, drawn, LANES, tall, gutter, TAIL, spans, axis, boxDrag, drag, lengthIs, gridShown, pixels, show, chime, menu } from './page.js'
 
 // The sound's end, three quarters across the view zoomed out as far as it goes: where its centre line stops, its silence
 // drawn up to it as the level it is, and the grid with it; no rule over it, nothing past it
@@ -52,7 +52,7 @@ test('editor: zoomed in, the lanes fade at their end into the slab\'s own ground
   const box = await page.locator('.plot').boundingBox(), end = Math.round(await spans(box)) + TAIL, lane = tall(box)
   const same = ([a, b]) => Math.abs(a - b) <= 2
   await poll(() => pixels(`const at = (x, y) => d[(Math.round(y) * w + Math.round(x)) * 4], row = y => [at(arg.end - 2, y), at(arg.end - 100, y)]
-    return { top: row(3), foot: row(arg.lane - 6), under: row(arg.lane + 8), centre: row(arg.lane / 2) }`, { end, lane }), r => {
+    return { top: row(arg.top + 3), foot: row(arg.lane - 6), under: row(arg.lane + 8), centre: row(arg.top + (arg.lane - arg.top) / 2) }`, { end, lane, top: TOP }), r => {
     assert.ok(same(r.top) && same(r.foot) && same(r.under), `the ground's colour at the fade's end: ${JSON.stringify(r)}`)
     assert.ok(r.centre[0] < r.centre[1] - 40, `the centre line faded: ${JSON.stringify(r.centre)}`)
   })
@@ -74,7 +74,7 @@ test('editor: dragging a selection draws no picture of the sound again, only wha
   })
   await open()
   await settled()
-  const box = await page.locator('.plot').boundingBox(), y = box.y + tall(box) / 3, frame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+  const box = await page.locator('.plot').boundingBox(), y = box.y + TOP + TRACK / 3, frame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
   await page.mouse.move(box.x + 100, y)
   await page.mouse.down()
   await frame()
@@ -106,7 +106,7 @@ audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
   await lengthIs('0:01.000')
   await show('spec')
   await settled()
-  const box = await page.locator('.plot').boundingBox(), lh = (tall(box) - LANES) / 2, lanes = [[0, lh], [lh + LANES, 2 * lh + LANES]]
+  const box = await page.locator('.plot').boundingBox(), lh = (TRACK - LANES) / 2, lanes = [[TOP, TOP + lh], [TOP + lh + LANES, TOP + 2 * lh + LANES]]
   const mel = f => 2595 * Math.log10(1 + f / 700), at = { log: f => Math.log2(f / 20) / Math.log2(24000 / 20), mel: f => mel(f) / mel(24000) }
   // the brightest pixel down the middle of each lane: its height in CSS px, its level
   const brightest = async () => pixels(`const k = w / arg.width, x = Math.round(arg.x * k)
@@ -114,7 +114,7 @@ audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
   for (const scale of ['log', 'mel']) {
     // its frequencies on the next scale, octaves to mel
     if (scale === 'mel') await settings('Frequency scale', 'Mel')
-    const row1 = lh * (1 - at[scale](1000)), row4 = lanes[1][0] + lh * (1 - at[scale](4000))
+    const row1 = TOP + lh * (1 - at[scale](1000)), row4 = lanes[1][0] + lh * (1 - at[scale](4000))
     await poll(brightest, ([[y1, loud], [y4, quiet]]) => {
       assert.ok(Math.abs(y1 - row1) < 2 && Math.abs(y4 - row4) < 2, `${scale}: 1 kHz at ${y1.toFixed(1)} of ${row1.toFixed(1)}, 4 kHz at ${y4.toFixed(1)} of ${row4.toFixed(1)}`)
       assert.ok(loud > 200 && quiet > 90 && quiet < loud - 30, `${scale}: the loud tone ${loud}, the quiet ${quiet}`)
@@ -130,8 +130,8 @@ test('editor: a selection is the same highlight on a spectrogram full of noise, 
   await write(`audio.from(4).noise({ color: 'pink' }).gain(-20)`)
   await lengthIs('0:04.000')
   await show('spec')
-  const { box, x } = await axis(4), y = box.y + box.height / 2
-  const mean = (a, b) => pixels(`let s = 0, n = 0; for (let y = 20; y < h - 30; y++) for (let x = arg[0]; x < arg[1]; x++) { const i = (y * w + x) * 4; s += d[i] + d[i + 1] + d[i + 2]; n++ } return s / n`, [Math.round(a - box.x), Math.round(b - box.x)])
+  const { box, x } = await axis(4), y = box.y + TOP + TRACK / 2
+  const mean = (a, b) => pixels(`let s = 0, n = 0; for (let y = ${TOP}; y < ${TOP + TRACK}; y++) for (let x = arg[0]; x < arg[1]; x++) { const i = (y * w + x) * 4; s += d[i] + d[i + 1] + d[i + 2]; n++ } return s / n`, [Math.round(a - box.x), Math.round(b - box.x)])
   await page.mouse.click(x(3.9), y)
   await page.mouse.move(x(3.9), box.y + box.height + 40)
   const around = await mean(x(.2), x(1.2))
@@ -154,18 +154,18 @@ test('editor: a band taken out redraws only where it was, the rest of the pictur
   const { box, x } = await axis(240), lane = tall(box)
   // the left quarter of the lanes, as a fingerprint of its pixels
   const left = () => pixels(`let s = 0; for (let y = 10; y < h - 30; y += 3) for (let x = 0; x < arg; x += 2) { const i = (y * w + x) * 4; s = (s * 31 + d[i] + d[i + 1] * 7 + d[i + 2] * 13) % 1000000007 } return s`, Math.round(x(54) - box.x))
-  await page.mouse.click(x(180), box.y + lane * .5)
+  await page.mouse.click(x(180), box.y + TOP + (lane - TOP) * .5)
   await settled()
   // the spectrogram whole: zoomed out, it fills its columns over several renders, two readings in a row alike
   let last = await left()
   const before = (await poll(async () => [last, last = await left()], ([was, now]) => assert.equal(now, was, 'the spectrogram drawn whole'), 15000))[1]
-  await boxDrag([x(120), box.y + lane * .2], [x(144) - x(120), lane * .2])
+  await boxDrag([x(120), box.y + TOP + (lane - TOP) * .2], [x(144) - x(120), lane * .2])
   await page.keyboard.press('Escape')
   await settled()
   const held = await left()
   assert.equal(held, before, 'the box drawn, nothing else')
-  await page.mouse.click(x(180), box.y + lane * .5)
-  await boxDrag([x(120), box.y + lane * .2], [x(144) - x(120), lane * .2])
+  await page.mouse.click(x(180), box.y + TOP + (lane - TOP) * .5)
+  await boxDrag([x(120), box.y + TOP + (lane - TOP) * .2], [x(144) - x(120), lane * .2])
   await settled()
   const boxed = await left()
   await page.keyboard.press('Delete')
@@ -187,9 +187,9 @@ test('editor: where the output clips is underlined red on the time row; zoomed o
   const red = () => pixels(`const y = Math.round(arg + 1), xs = []; for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; if (d[i] - d[i + 2] > 80 && d[i] > 120) xs.push(x) } return xs.length ? [xs[0], xs.at(-1)] : []`, h)
   await poll(red, ([first, last]) => assert.ok(Math.abs(first / w - .5) < .03 && last / w > .95, `clipping from ${first / w} to ${last / w} of the width`))
   // zoomed out past full scale: a red tint over what lies beyond ±1
-  const tint = () => pixels(`const x = Math.round(arg), y = 3, i = (y * w + x) * 4; return d[i] - d[i + 2]`, w * .25)
+  const tint = () => pixels(`const x = Math.round(arg), y = ${TOP + 3}, i = (y * w + x) * 4; return d[i] - d[i + 2]`, w * .25)
   const flat = await tint()
-  await page.mouse.move(box.x + box.width - 26, box.y + tall(box) / 2)
+  await page.mouse.move(box.x + box.width - 26, box.y + TOP + TRACK / 2)
   for (let i = 0; i < 4; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, 60); await page.keyboard.up('Control') }
   await poll(tint, t => assert.ok(t > flat + 3, 'past full scale, red'))
 })
@@ -239,7 +239,7 @@ test('editor: the lanes fade out at an edge the sound runs on past', async () =>
   const { box, x } = await chime()
   const fades = () => page.evaluate(() => [...document.querySelectorAll('.plot .fade')].map(f => !f.hidden))
   assert.deepEqual(await fades(), [false, false], 'all of it shown')
-  await page.mouse.move(x(.5), box.y + 40)
+  await page.mouse.move(x(.5), box.y + TOP + 40)
   for (let i = 0; i < 4; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.waitForFunction(() => (([a, b]) => !a.hidden || !b.hidden)(document.querySelectorAll('.plot .fade')))
   const [, end] = await fades()
@@ -265,9 +265,9 @@ test('editor: the waveform weighted zoomed out, as heard, and as it is zoomed in
   await open()
   await lengthIs('0:12.000')
   await settled()
-  const box = await page.locator('.plot').boundingBox(), lane = tall(box)
+  const box = await page.locator('.plot').boundingBox(), lane = TRACK
   // the rows lit across most of 40 px about a share `x` of the way in: the waveform's height there, px
-  const high = x => pixels(`let n = 0; for (let y = 0; y < arg.lane; y++) { let m = 0; for (let dx = -20; dx < 20; dx++) { const i = (y * w + Math.round(w * arg.x) + dx) * 4; if (d[i] + d[i + 1] + d[i + 2] > 250) m++ } if (m > 30) n++ } return n`, { x, lane })
+  const high = x => pixels(`let n = 0; for (let y = arg.top; y < arg.top + arg.lane; y++) { let m = 0; for (let dx = -20; dx < 20; dx++) { const i = (y * w + Math.round(w * arg.x) + dx) * 4; if (d[i] + d[i + 1] + d[i + 2] > 250) m++ } if (m > 30) n++ } return n`, { x, lane, top: TOP })
   const heights = async () => [await high(.25), await high(.7)]
   const [low, mid] = await poll(heights, ([low, mid]) => assert.ok(Math.abs(low / lane - .8) < .06 && Math.abs(mid / lane - .8) < .06, `as it is, 0.8 of the lane: ${low}, ${mid} of ${lane}`))
   // the worker weighs it: the heights as it comes
@@ -282,7 +282,7 @@ test('editor: the waveform weighted zoomed out, as heard, and as it is zoomed in
   assert.ok(Math.abs(kLow - low * K[0]) <= 2.5, `K: 100 Hz ${kLow} px for ${(low * K[0]).toFixed(1)}`)
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').wave?.weighting === 'k')
   // zoomed in 16× on the 100 Hz sine, under 64 samples a px: the sine as it is
-  const [px, py] = [box.x + box.width * .25, box.y + lane / 2]
+  const [px, py] = [box.x + box.width * .25, box.y + TOP + lane / 2]
   await page.evaluate(([x, y]) => document.querySelector('.plot').dispatchEvent(new WheelEvent('wheel', { deltaY: 50 * Math.log(1 / 16), ctrlKey: true, clientX: x, clientY: y, bubbles: true, cancelable: true })), [px, py])
   await settled()
   // the rows the line lights across the middle of the view (its cycles' crests, a few px each, many), top to bottom

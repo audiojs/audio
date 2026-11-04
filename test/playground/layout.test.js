@@ -1,7 +1,7 @@
 // The page's layout: the panel, a phone's and a tablet's, the bar; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { browser, page, origin, errors, chimeLeft, code, wholeLevels, open, settled, still, tab, edits, noCues, write, tall, gutter, axis, drag, lengthIs, pixels, show, setPage } from './page.js'
+import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, wholeLevels, open, settled, still, tab, edits, noCues, write, tall, gutter, axis, drag, lengthIs, pixels, show, setPage } from './page.js'
 
 // Over the picture: its tabs; at its foot, in the bar, undo and redo after the length, before the rate; what it shows
 // chosen by its look, in the sound's foot under its axis; none moving as the picture turns. At the slab's top
@@ -9,7 +9,7 @@ import { browser, page, origin, errors, chimeLeft, code, wholeLevels, open, sett
 // settings. A panel docks beside the picture, part of the slab, a rule between them as the slab's own, no title over
 // it (its button says which); its button again closes it; its left edge drags its width; the choice and the width are
 // remembered. Undo is undo, nothing else
-test('editor: undo and redo after the length, a band\'s look in its foot, none moving; the panels\' buttons at the top right; a panel docks beside the picture', async () => {
+test('editor: undo and redo after the length, a band\'s look in its layer, none moving; the panels\' buttons at the top right; a panel docks beside the picture', async () => {
   await open()
   const box = name => page.locator(name).boundingBox()
   const [panes, view] = await Promise.all(['.panes', '.view-slab'].map(box))
@@ -28,7 +28,7 @@ test('editor: undo and redo after the length, a band\'s look in its foot, none m
   const [narrow, side, plot] = await Promise.all(['.view-slab', '.side-slab', '.plot'].map(box))
   assert.ok(narrow.width < view.width - 200 && side.x >= narrow.x + narrow.width - 1 && side.y >= buttons[0].y + buttons[0].height, 'docked beside the picture, under the buttons')
   // in the bar at the picture's foot: undo, redo, after the length, before the rate; what the picture shows, chosen by
-  // its look in the sound's foot under its axis, none of them moving as the picture turns
+  // its look in the sound's layer, at the picture's left on its head line, none of them moving as the picture turns
   const heads = () => Promise.all([page.getByRole('button', { name: 'Undo', exact: true }), page.getByRole('button', { name: 'Redo', exact: true }), page.locator(':is(.lane-look, .layer-look):visible')].map(b => b.boundingBox()))
   const [undo, redo, look] = await heads()
   const length = await box('.length'), rate = await box('.facts')
@@ -46,8 +46,7 @@ test('editor: undo and redo after the length, a band\'s look in its foot, none m
   const smaller = await baselines()
   assert.ok(Math.abs(smaller.time - wide.time) <= 1 && Math.abs(smaller.feet - wide.feet) <= 1, `the smaller time on the same baseline: ${JSON.stringify(smaller)}`)
   await page.setViewportSize(size)
-  const axis = plot.x + plot.width - await gutter(), foot = plot.y + tall(plot)
-  assert.ok(Math.abs(look.x - axis - 1) <= 1 && Math.abs(look.y - foot - 1) <= 1, `the look in the sound's foot, under its axis: ${look.x}, ${look.y}; ${axis}, ${foot}`)
+  assert.ok(look.x - plot.x < 12 && look.y >= plot.y && look.y + look.height <= plot.y + TOP, `the look in the sound's layer, on its head line: ${look.x}, ${look.y}; ${plot.x}, ${plot.y}`)
   await show('spec')
   assert.deepEqual((await heads()).map(b => b.x), [undo, redo, look].map(b => b.x), 'nothing moved as it turned')
   await show('wave')
@@ -158,7 +157,7 @@ for (const width of [1280, 880]) test(`repl: the status bar holds still as a sel
     const rect = s => { const r = document.querySelector(`#status ${s}`).getBoundingClientRect(); return [Math.round(r.left), Math.round(r.width)] }
     return { ...Object.fromEntries(['.play', '.record', '.loop', '.clock', '.readout', '.facts'].map(s => [s, rect(s)])), message: rect('.message')[0] }
   })
-  const idle = await still(), { box, x } = await axis(6.525), y = box.y + tall(box) / 2
+  const idle = await still(), { box, x } = await axis(6.525), y = box.y + TOP + TRACK / 2
   await page.mouse.move(x(1), y)
   await page.mouse.down()
   await page.mouse.move(x(3), y, { steps: 6 })

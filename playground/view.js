@@ -395,8 +395,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     // (worker.js notes); a pitch let go on them shown where it went till they come again
     set notes(by) { assign({ noted: by || {} }); assign({ landed: null }); invalidate() },
     get guides() { return guides },
-    // a tab with no sound, none coming: its empty track drawn (unwritten)
-    set blank(on) { if (on === empty) return; assign({ empty: on }); if (!duration) renew(); invalidate() },
+    // a tab with no sound, none coming: its empty track drawn (unwritten), the picture saying so (data-empty)
+    set blank(on) { if (on === empty) return; assign({ empty: on }); root.toggleAttribute('data-empty', on); if (!duration) renew(); layout(lanes()); invalidate() },
     set guides(list) { assign({ guides: list || [] }); invalidate() },
     // While playing, a zoomed view scrolls with the playhead held in the middle; at the ends the playhead walks. One
     // past the middle, played from a caret there, is drawn to it as the view glides: its lead on the middle a frame

@@ -1,7 +1,7 @@
 // Pitch: the pitch curve and line, the pitch tools, the notes lanes; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { page, CHIME, code, open, settled, poll, menuRow, menu, noCues, write, tall, gutter, axis, grab, drag, lengthIs, tap, heard, pixels, show, shown, chime, tools } from './page.js'
+import { TOP, TRACK, page, CHIME, code, open, settled, poll, menuRow, menu, noCues, write, tall, gutter, axis, grab, drag, lengthIs, tap, heard, pixels, show, shown, chime, tools } from './page.js'
 
 // Pitch is edited in its own context (View > Pitch curve), on the spectrogram, which the picture turns to: the pitch curve
 // drawn on the voice's harmonics, none over the waveform; dragged up or down, by cents as the pitch tool goes (12 (dy /
@@ -16,10 +16,11 @@ test('editor: dragging the pitch curve moves the whole pitch line, a voice\'s pi
   // the curve, wherever the spectrogram's scale puts 220 Hz: up its lane at 1 s
   const { box, x } = await axis(2), up = Array.from({ length: Math.floor(tall(box) / 3) }, (_, i) => [x(1), box.y + tall(box) - 3 * i])
   // none over the waveform, which has no pitch axis: where the tone's 220 Hz would be on a voice's range (60 Hz to 1 kHz
-  // on octaves, view.js VOICE), nothing to grab, the pitch line's 0 half a lane away from it
+  // on octaves, view.js VOICE) or anywhere off the pitch line's 0, nothing to grab
   await grab(up, 'ns-resize')
   await show('wave')
-  const f0y = box.y + tall(box) * (1 - Math.log(220 / 60) / Math.log(1000 / 60))
+  // (a quarter down the lane: clear of the pitch line's 0 at its middle)
+  const f0y = box.y + TOP + TRACK / 4
   for (let i = 0; i < 9; i++) { await page.mouse.move(x(1), f0y - 4 + i); assert.notEqual(await page.locator('.plot').evaluate(el => el.style.cursor), 'ns-resize') }
   // Pitch curve off: back to the waveform the spectrogram was turned to from; on again, the spectrogram
   await show('spec')
@@ -30,7 +31,7 @@ test('editor: dragging the pitch curve moves the whole pitch line, a voice\'s pi
   const at = await grab(up, 'ns-resize')
   await page.mouse.move(...at)
   await page.mouse.down()
-  const lh = tall(box)
+  const lh = TRACK
   await page.mouse.move(at[0], at[1] - lh * Math.sqrt(2.5 / 12), { steps: 6 })
   assert.match(await page.locator('.hint').innerText(), /^\+2st [3-6]\dct, A3([+−]\d+ct)? → .+, all of it$/)
   await page.mouse.up()
@@ -62,7 +63,7 @@ test('editor: a click on the pitch curve makes a point of the pitch line; dragge
   await heard()
   await page.mouse.move(...point)
   await page.mouse.down()
-  const lh = tall(box)
+  const lh = TRACK
   await page.mouse.move(point[0], point[1] - lh * Math.sqrt(1.5 / 12), { steps: 6 })
   await poll(() => page.locator('.hint').innerText(), hint => assert.match(hint, /^\+1st [3-6]\dct, A3([+−]\d+ct)? → /))
   await poll(heard, ({ peak }) => assert.ok(peak > .05, `heard as it goes: ${peak}`))
@@ -87,14 +88,14 @@ test('editor: the pitch curve\'s bends drag, bending the voice between the handl
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * (200 * t + 2 * Math.sin(2 * Math.PI * 2 * t))), { duration: 2 })`)
   await lengthIs('0:02.000')
   // the pitch tool at the waveform lane's foot; the spectrogram it turns to fills the plot (lh)
-  const { box, x } = await axis(2), lh = tall(box), pitch = tools(x, box, .5, 1.5).pitch
-  await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
+  const { box, x } = await axis(2), lh = TRACK, pitch = tools(x, box, .5, 1.5).pitch
+  await drag([x(.5), box.y + TOP + 80], [x(1.5) - x(.5), 0])
   await page.mouse.click(...await grab([pitch], 'ns-resize'))
   assert.equal(await shown(), 'Spectrogram')
   await page.keyboard.press('Escape')
   // a handle by the crest at 1 s (Praat's stylization keeps the points a straight line misses most, not the crests
   // themselves: here 0.95 s of a 10 ms track)
-  const scan = Array.from({ length: 21 }, (_, k) => .9 + k / 100).flatMap(t => Array.from({ length: Math.floor(lh / 2) }, (_, i) => [x(t), box.y + lh - 2 * i]))
+  const scan = Array.from({ length: 21 }, (_, k) => .9 + k / 100).flatMap(t => Array.from({ length: Math.floor(lh / 2) }, (_, i) => [x(t), box.y + TOP + lh - 2 * i]))
   const knot = await grab(scan, 'move')
   // a click alone changes nothing
   await page.mouse.click(...knot)
@@ -122,7 +123,7 @@ test('editor: Notes shows a sound\'s notes, a row a semitone; a note dragged up 
   const { box, x } = await chime()
   await menu('View', 'Notes')
   // the chime's C4 to C5, two rows past them either way, two octaves at least: MIDI 54 to 78, 25 rows filling the lane
-  const h = tall(box), row = h / 25, c4 = box.y + h - (60 - 54 + .5) * row
+  const h = tall(box), row = TRACK / 25, c4 = box.y + h - (60 - 54 + .5) * row
   const [px, py] = await grab([[x(.8), c4]], 'ns-resize')
   await drag([px, py], [0, -2 * row])
   await page.waitForFunction(() => /\.pitch\(2, \{ at: 0\.5\d*, d: 0\.5\d*, voice: true \}\)/.test(scriptText()))
@@ -134,7 +135,7 @@ test('editor: Notes shows a sound\'s notes, a row a semitone; a note dragged up 
 test('editor: a notes lane\'s rows are shaded as its keys, the white keys\' the lighter', async () => {
   const { box, x } = await chime()
   await menu('View', 'Notes')
-  const h = tall(box), row = h / 25, y = m => Math.round(h - (m - 54 + .5) * row), key = Math.round(box.width - await gutter() - 21 + 4), lane = Math.round(x(4) - box.x)
+  const h = tall(box), row = TRACK / 25, y = m => Math.round(h - (m - 54 + .5) * row), key = Math.round(box.width - await gutter() - 21 + 4), lane = Math.round(x(4) - box.x)
   const lum = () => pixels(`return arg.map(([x, y]) => { const i = (y * w + x) * 4; return d[i] + d[i + 1] + d[i + 2] })`, [[lane, y(55)], [lane, y(56)], [key, y(55)], [key, y(56)]])
   await poll(lum, ([laneWhite, laneBlack, keyWhite, keyBlack]) => assert.ok(laneWhite > laneBlack && keyWhite > keyBlack, `white rows and keys the lighter: lane ${laneWhite} > ${laneBlack}, keys ${keyWhite} > ${keyBlack}`))
 })
@@ -148,7 +149,7 @@ test('editor: a note sung apart, dragged, steps in the quiet either side', async
   await lengthIs('0:02.200')
   await menu('View', 'Notes')
   // A3 (MIDI 57) and E4 (64), two rows past them either way, two octaves at least: MIDI 49 to 73, 25 rows
-  const { box, x } = await axis(2.2), h = tall(box), row = h / 25, a3 = box.y + h - (57 - 49 + .5) * row
+  const { box, x } = await axis(2.2), h = tall(box), row = TRACK / 25, a3 = box.y + h - (57 - 49 + .5) * row
   const [px, py] = await grab([[x(.65), a3], [x(.65), a3 - row / 3], [x(.65), a3 + row / 3]], 'ns-resize')
   await drag([px, py], [0, -2 * row])
   await page.waitForFunction(() => /\.pitch\(\{ t: \[0\.3[5-9]\d*, 0\.3[5-9]\d*, 0\.9\d*, 0\.9\d*\], v: \[0, 2, 2, 0\] \}, \{ voice: true \}\)/.test(scriptText()))
@@ -168,7 +169,7 @@ test('editor: a notes lane\'s keys zoom about the key under the pointer, a row t
   const { box, x } = await chime()
   await menu('View', 'Notes')
   // 25 rows, MIDI 54 to 78 (as above); a notch of Ctrl and the wheel on the keys takes them to 25 × e^−0.4, C4 kept
-  const h = tall(box), c4 = box.y + h - (60 - 54 + .5) * h / 25, row = h / (25 * Math.exp(-.4))
+  const h = tall(box), c4 = box.y + h - (60 - 54 + .5) * TRACK / 25, row = TRACK / (25 * Math.exp(-.4))
   await grab([[x(.8), c4]], 'ns-resize')
   await page.mouse.move(box.x + box.width - 20, c4)
   await page.keyboard.down('Control')
@@ -204,12 +205,12 @@ test('editor: the pitch tool goes by cents near, semitones far, says the note it
   await show('wave')
   // the waveform's tools inside its lane's foot; selected off its centre line, where the pitch line is
   const { box, x } = await axis(2), pitch = [tools(x, box, .5, 1.5).pitch[0], box.y + tall(box) - 8]
-  await drag([x(.5), box.y + tall(box) * .3], [x(1.5) - x(.5), 0])
+  await drag([x(.5), box.y + TOP + TRACK * .3], [x(1.5) - x(.5), 0])
   const said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
   for (const until = Date.now() + 8000; Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.move(...pitch); if (/^Pitch A3/.test(await said())) break; await page.mouse.move(pitch[0] + 30, pitch[1] - 40) }
   assert.match(await said(), /^Pitch A3([+−][1-5]ct)?, by cents; a click hides the curve$/)
   // 12 semitones a lane's height away (view.js glide): st = 12 (dy / lh)²; the tool at the lane's foot, all of it over it
-  const lh = tall(box), at = st => pitch[1] - lh * Math.sqrt(st / 12)
+  const lh = TRACK, at = st => pitch[1] - lh * Math.sqrt(st / 12)
   await heard()
   await page.mouse.down()
   // pressed and moved a little: at 0, heard as it is
@@ -243,8 +244,8 @@ test('editor: the tools set a voice\'s intonation and its formants, heard as the
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * (200 * t + 2 * Math.sin(2 * Math.PI * 2 * t))), { duration: 2 })`)
   await lengthIs('0:02.000')
   await menu('View', 'Pitch curve')
-  const { box, x } = await axis(2), lh = tall(box), { intonation, formant } = tools(x, box, .5, 1.5), said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
-  await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
+  const { box, x } = await axis(2), lh = TRACK, { intonation, formant } = tools(x, box, .5, 1.5), said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
+  await drag([x(.5), box.y + TOP + 80], [x(1.5) - x(.5), 0])
   await page.mouse.move(...intonation)
   assert.equal(await said(), 'Intonation, wider or flatter')
   await heard()
@@ -284,7 +285,7 @@ test('editor: the pitch line, in the pitch context, edits a pitch() curve as the
   // the line on the waveform (the spectrogram, which the picture turns to, draws its points on the pitch curve)
   await show('wave')
   // its one lane, TRACK px tall
-  const { box, x } = await axis(2), lh = tall(box), mid = box.y + lh / 2, st = lh / 2 / 12
+  const { box, x } = await axis(2), lh = TRACK, mid = box.y + TOP + lh / 2, st = lh / 2 / 12
   const near = v => page.waitForFunction(v => { const m = scriptText().trim().match(/\.pitch\(\{ t: \[1\], v: \[([\d.]+)\] \}, \{ voice: true \}\)$/); return m && Math.abs(m[1] - v) < .1 }, v)
   await drag(await grab([[x(1), mid]], 'ns-resize'), [0, -3 * st])
   await near(3)

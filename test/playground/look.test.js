@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, menu, menuRow, write, LANES, tall, tracksAt, lengthIs, gridShown, pixels, show, shown, themed } from './page.js'
+import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, menu, menuRow, write, LANES, tall, tracksAt, lengthIs, gridShown, pixels, show, shown, themed } from './page.js'
 
 // The axis at the pictures' right is as wide as its labels and the pointer's value read out on it, five characters at
 // full scale: a sample value to a digit finer than the marks (−0.03), decibels to a tenth with no unit (−12.3), a
@@ -25,7 +25,7 @@ test('editor: the axis is five characters wide at full scale, the same for eithe
     const text = CanvasRenderingContext2D.prototype.fillText
     CanvasRenderingContext2D.prototype.fillText = function (s, x, y) { if (this.canvas.matches('.overlay')) window.__said.push({ s, x }); return text.call(this, s, x, y) }
   })
-  const lane = (tall(plot) - LANES) / 2, y = plot.y + lane / 2 - lane * .2
+  const lane = (TRACK - LANES) / 2, y = plot.y + TOP + lane / 2 - lane * .2
   const said = async () => {
     await page.evaluate(() => window.__said = [])
     await page.mouse.move(plot.x + plot.width / 3, y + (said.n = (said.n ?? 0) + 1) % 2 * 4)
@@ -80,7 +80,7 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   assert.ok(await blank(), 'bare by default: nothing ruled')
   await menu('View', 'Grid')
   // the layers laid again, each only as its drawing changes (view.js, kept.js): the pointer over the picture, then off it
-  await page.locator('.plot').hover({ position: { x: 10, y: 10 } })
+  await page.locator('.plot').hover({ position: { x: 10, y: TOP + 10 } })
   await frames()
   await page.evaluate(() => window.__ticks = [])
   await page.mouse.move(2, 2)
@@ -115,7 +115,7 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   // nor where there is no sound: a new tab, empty
   await menu('View', 'Grid')
   await page.getByRole('button', { name: 'New tab' }).click()
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   assert.ok(await blank(), 'nothing with no sound')
 })
 
@@ -163,7 +163,7 @@ test('editor: the spectrogram\'s frequency scale from its dropdown, snapping fro
   assert.equal(await page.locator(':is(.lane-look, .layer-look):visible').getAttribute('aria-expanded'), 'false')
   // a click on the frequencies switches nothing
   const box = await plot.boundingBox()
-  await page.mouse.click(box.x + box.width - 20, box.y + box.height * .1)
+  await page.mouse.click(box.x + box.width - 20, box.y + TOP + TRACK * .1)
   assert.equal(await now(), 'lin')
   await menu('View', 'Snap')
   await page.waitForFunction(() => (s => s.snap === false && s.scale === 'lin')(JSON.parse(localStorage.getItem('audio-repl'))))
@@ -195,7 +195,7 @@ test('editor: the waveform fill is as bright as the signal is often at that leve
 // Every setting kept comes back as it was kept; a value the page no longer has, its default; a store that does not read
 // is set aside, not written over
 test('editor: every setting comes back as it was kept; one the page no longer has, its default', async () => {
-  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { meters: false, spectrum: false, keys: false, gain: true, guides: true }, snap: false, curve: 'cos', levels: 'db', look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'bands' }, wave: { colour: 'centroid', lanes: 'one', fill: 'flat', map: 'magma', weighting: 'k' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, grip: 'speed' }
+  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', snap: false, curve: 'cos', levels: 'db', look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'bands' }, wave: { colour: 'centroid', lanes: 'one', fill: 'flat', map: 'magma', weighting: 'k' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, grip: 'speed' }
   await page.addInitScript(all => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ ...all, docs: [{ code: "audio('chime.wav')" }] })) } }, all)
   await open()
   const kept = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')))
@@ -209,7 +209,7 @@ test('editor: every setting comes back as it was kept; one the page no longer ha
   assert.deepEqual([fixed.scroll, fixed.format, fixed.look.map, fixed.look.gamma, fixed.spec, fixed.docs.length], ['hover', 'wav', 'grey', 1, '', 1])
   // unreadable, set aside: the page as a first visit finds it, an empty tab
   await seed('{"docs": [{"code": "audio(\'chime.wav\')"')
-  await page.locator('.empty').waitFor()
+  await page.locator('.plot[data-empty]').waitFor()
   assert.equal(await page.evaluate(() => localStorage.getItem('audio-repl-unread')), '{"docs": [{"code": "audio(\'chime.wav\')"')
 })
 
@@ -222,7 +222,7 @@ test('editor: the level axis reads in dB or sample values, and zooms', async () 
   await settled()
   await still()
   // the pointer on the axis at the lane's middle, 0: the levels zoom about it
-  const box = await page.locator('.plot').boundingBox(), ax = box.x + box.width - 26, ay = box.y + tall(box) / 2
+  const box = await page.locator('.plot').boundingBox(), ax = box.x + box.width - 26, ay = box.y + TOP + TRACK / 2
   // the waveform's height: bright pixels down the middle column
   const height = () => pixels(`const x = w >> 1; let n = 0; for (let y = 0; y < h - 48; y++) { const i = (y * w + x) * 4; if (d[i] > 120) n++ } return n`)
   const before = await height()
@@ -280,18 +280,11 @@ test('editor: a band\'s look in its layer opens how it shows: what it shows, the
   await look.click()
   assert.equal(await look.getAttribute('aria-expanded'), 'true')
   const [b, d] = await Promise.all([look.boundingBox(), dropdown.boundingBox()])
-  assert.ok(Math.abs(d.x + d.width - b.x - b.width) <= 1 && (d.y >= b.y + b.height || d.y + d.height <= b.y), 'by it, its right edge at its look\'s, under the axis')
-  assert.deepEqual(await groups(), ['Shows', 'Levels in', 'Weighting', 'Colour', 'Colormap', 'Fill', 'Channels', 'Meter'], 'what it shows, then the waveform\'s: its units, its weighting, its colour, its colormap, its fill, its channels, its meter')
-  // its meter its own: the level bar by the lanes' end, let go there, the waveform then running on to the labels
+  assert.ok(Math.abs(d.x - b.x) <= 1 && (d.y >= b.y + b.height || d.y + d.height <= b.y), 'by it, its left edge at its look\'s, in its layer at the picture\'s left')
+  assert.deepEqual(await groups(), ['Shows', 'Levels in', 'Weighting', 'Colour', 'Colormap', 'Fill', 'Channels'], 'what it shows, then the waveform\'s: its units, its weighting, its colour, its colormap, its fill, its channels, its meter')
+  // its meter always there, the level bar by the lanes' end, no choice of it
   const end = () => page.locator('.plot').evaluate(p => parseFloat(getComputedStyle(p).getPropertyValue('--end')))
-  assert.equal(await choice('Meter', 'Level').getAttribute('aria-pressed'), 'true')
-  const metered = await end()
-  await choice('Meter', 'Level').click()
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').show?.meters === false)
-  const ends = (m, less) => page.waitForFunction(([m, less]) => (e => less ? e < m : e === m)(parseFloat(getComputedStyle(document.querySelector('.plot')).getPropertyValue('--end'))), [m, less], { timeout: 2000 })
-  await ends(metered, true)
-  await choice('Meter', 'Level').click()
-  await ends(metered)
+  assert.ok(await end() > 0, 'the level\'s bar by the lanes\' end')
   assert.deepEqual(await dropdown.getByRole('group', { name: 'Shows', exact: true }).getByRole('button').allInnerTexts(), ['Waveform', 'Spectrogram', 'Notes'])
   assert.deepEqual(await dropdown.getByRole('group', { name: 'Fill', exact: true }).getByRole('button').allInnerTexts(), ['Density', 'Cloud', 'Body', 'RMS', 'Flat'], 'gl-waveform\'s three densities, its RMS band, its peaks')
   // what a choice does in its tooltip, no line under the group; a colour with its preview
@@ -315,8 +308,7 @@ test('editor: a band\'s look in its layer opens how it shows: what it shows, the
   await choice('Shows', 'Spectrogram').click()
   assert.equal(await shown(), 'Spectrogram')
   assert.equal(await opened(), 1, 'turned, the dropdown stays')
-  assert.deepEqual(await groups(), ['Shows', 'Frequency scale', 'Method', 'Colours', 'Gamma', 'Range', 'FFT size', 'Meter'], 'the spectrogram\'s')
-  assert.deepEqual(await dropdown.getByRole('group', { name: 'Meter', exact: true }).getByRole('button').allInnerTexts(), ['Spectrum'])
+  assert.deepEqual(await groups(), ['Shows', 'Frequency scale', 'Method', 'Colours', 'Gamma', 'Range', 'FFT size'], 'the spectrogram\'s')
   assert.deepEqual(await dropdown.getByRole('group', { name: 'Frequency scale', exact: true }).getByRole('button').allInnerTexts(), ['Hertz', 'Mel', 'ERB', 'Octaves'], 'plainest first')
   assert.deepEqual(await dropdown.getByRole('group', { name: 'Method', exact: true }).getByRole('button').allInnerTexts(), ['Frames', 'Reassigned', 'By band'])
   assert.deepEqual(await page.getByRole('listbox', { name: 'Colours', exact: true, includeHidden: true }).getByRole('option', { includeHidden: true }).allTextContents(), ['Grey', 'Magma', 'Inferno', 'Viridis', 'Temperature'], 'each colormap in a select, its preview, the waveform\'s list')
@@ -325,17 +317,9 @@ test('editor: a band\'s look in its layer opens how it shows: what it shows, the
   assert.deepEqual(await dropdown.locator('.option-ticks span').allInnerTexts(), ['0.5', '0.75', '1', '1.5'])
   await gamma.fill('0')
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').look?.gamma === .5)
-  // the notes: what it shows, then their meter, a piano's keys by the lanes' end, let go there as the level is
+  // the notes: what it shows alone, their piano's keys by the lanes' end always
   await choice('Shows', 'Notes').click()
-  assert.deepEqual(await groups(), ['Shows', 'Meter'], 'the notes\'')
-  assert.deepEqual(await dropdown.getByRole('group', { name: 'Meter', exact: true }).getByRole('button').allInnerTexts(), ['Keys'])
-  // (measured once the notes' lanes are drawn, their keys' column with them)
-  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
-  const keyed = await end()
-  await choice('Meter', 'Keys').click()
-  await ends(keyed, true)
-  await choice('Meter', 'Keys').click()
-  await ends(keyed)
+  assert.deepEqual(await groups(), ['Shows'], 'the notes\'')
   await choice('Shows', 'Spectrogram').click()
   await look.click()
   assert.equal(await opened(), 0, 'its look again closes it')

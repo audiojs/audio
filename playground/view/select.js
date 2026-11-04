@@ -196,7 +196,7 @@ export function key(event) {
   else if (dir && (k === 'ArrowUp' || k === 'ArrowDown') && (word || event.altKey && mac)) stepTo('sound', dir, event.shiftKey)
   else if (k === 'ArrowLeft' || k === 'ArrowRight') to(clamp((event.shiftKey ? head : cursor) + (k === 'ArrowLeft' ? -step : step)))
   else if (k === 'Home' || k === 'End' || line && (k === 'ArrowUp' || k === 'ArrowDown')) to(k === 'Home' || k === 'ArrowUp' ? 0 : duration)
-  // the marker chosen goes before what is selected: Esc lets it go, Delete takes it away (its triangle dragged leaves the
+  // the marker chosen goes before what is selected: Esc lets it go, Delete takes it away (its serif dragged leaves the
   // selection as it was)
   else if (k === 'Escape' && chosen) { assign({ chosen: null }); invalidate(true) }
   else if ((k === 'Delete' || k === 'Backspace') && chosen) unmark(chosen)
