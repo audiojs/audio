@@ -120,6 +120,6 @@ Each act is one entry in `editor/commands.js`: its label, keys, when it can run,
 | One browser tab edits at a time; the first stores and steps aside | `tabs.test.js` 'a second tab asks to be the editor' |
 | A tab shown again shows its sound at once | `tabs.test.js` 'a tab shown again shows its sound at once' |
 | Each setting comes back as it was kept | `look.test.js` 'every setting comes back' |
-| The bar stays one row, whole, at desktop, tablet and phone widths | `layout.test.js` '' |
+| The bar stays one row, whole, at desktop, tablet and phone widths | `layout.test.js` 'the bar on a desktop', 'tablet', 'phone' |
 
 Tests live in `test/playground/`, a file a feature over `page.js`. `test/scope.js` picks which run from the paths changed.
