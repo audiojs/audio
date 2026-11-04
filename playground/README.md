@@ -38,6 +38,7 @@ One JSON object, the `ui` attribute's, which the frame reads as `?ui=` (playgrou
 | `background` | the ground it sits on, a CSS colour; `page` (attribute only) reads the page's own colour under the element. The picture's edges fade into whatever is under them | the slab's |
 | `zoom` | how far time zooms: `in`, the fewest samples across the view; `out`, the most of the sound across it, as times its length (`1`: the sound exactly, never room after it) | `{ "in": 32, "out": 1.333 }` (4/3: a quarter of the view room after the sound) |
 | `overshoot` | how far the view scrolls past the sound's end, as a share of the view (`0.5`: the end at its middle; `0`: never past it) | `0.5` |
+| `cues` | which snap points show first where they crowd, zoomed out: `chunks` (the sound's start and end, and where each sound starts or falls quiet: a voice's phrases) or `onsets` (each hit within, as a sampler wants them) | `chunks` |
 | `scroll` | what scrolls the view, zoomed in: `bar` (a thin bar at the time row's foot), `hover` (the bar shown only while the pointer is over the picture, and for a second after the view is scrolled or zoomed by keys or touch) or `overview` (the whole sound in a strip under the time row) | `bar` |
 
 A picture with no empty room after its sound, as a page's hero: `{ "zoom": { "out": 1 }, "overshoot": 0 }`.

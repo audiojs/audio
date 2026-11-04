@@ -259,6 +259,8 @@ v = view(root.querySelector('.plot'), {
   keepRoom: !EMBED,
   zoom: UI.zoom,
   overshoot: UI.overshoot,
+  // which cues come first where they crowd, zoomed out (?ui= cues: README.md)
+  cues: UI.cues,
   // a trial, ?row=band: the time row in the strip of the band pointed at, not at the picture's foot
   timeRow: params.get('row') === 'band' ? 'band' : 'foot',
   // the axis as wide as its labels: the display switch under it (editor.css --axis)

@@ -159,10 +159,10 @@ export function paintEdge(L, sel) {
 // a time as the whole page writes it, in the units chosen (time.js): 0:05, 5.0s, 240000
 export const stamp = (t, d = digits()) => clock(t, units, { digits: d, rate })
 // Cues: shown only where they matter, never a forest over the sound, as Figma shows its guides as a thing is dragged:
-// dragged (the caret held, an edge, a range dragged out, a marker's triangle), the cues either side of where it is, faint
-// (beside); plain over the edited track's lanes, the main ones alone either side of the pointer (the sound's own start
-// and end, the markers' and the takes' ends: `main`); the one a press there would snap to brighter, with a short wash on
-// the side its sound is on (washFrom); held Alt (`all`), every cue, faint; held ⌘ (Ctrl), the one under the pointer a
+// dragged (the caret held, an edge, a range dragged out, a marker's triangle), what it snaps to either side of where it
+// is, faint: the cues, the markers' and the takes' ends; plain over the edited track's lanes, the main ones alone either
+// side of the pointer (the sound's own start and end, the markers' and the takes' ends); the one a press there would
+// snap to brighter, with a short wash on the side its sound is on (washFrom); held Alt (`all`), all of them, faint; held ⌘ (Ctrl), the one under the pointer a
 // press would take; the one dragged, bright where it will land; those an end measured to sits on (`lit`), lit
 const on = (lit, px) => lit.some(t => Math.abs(x(t) - px) < .5)
 // The time a drag moves, as the caret or a range's end: the caret held, an edge, a range dragged out (Shift held before
@@ -174,8 +174,8 @@ export const dragged = () => drag?.caret ? cursor : drag?.resizing || drag?.anch
 const aimedAt = () => dragged() ?? (!drag && hovered && snapping && !editing() && laneAt(own(lanes()), hovered[1]) >= 0 ? time(hovered[0]) : null)
 export const editing = (keys = held) => !!(mac ? keys.metaKey : keys.ctrlKey)
 export function paintCues(rects, lit, all = false) {
-  const t0 = aimedAt(), times = seen().map(i => cues[i]), lines = new Map()
-  const main = [...times.filter(t => bounds.has(t)), ...ownMarks()].sort((p, q) => p - q), pool = all || dragged() != null ? times : main
+  const t0 = aimedAt(), times = seen().map(i => cues[i]), marks = ownMarks(), lines = new Map()
+  const pool = (all || dragged() != null ? [...times, ...marks] : [...times.filter(t => bounds.has(t)), ...marks]).sort((p, q) => p - q)
   // a line at a time, as it is drawn (moved), the brightest asked for it; none on a dragged line (that line alone, white,
   // the crosses saying it snapped)
   const put = (t, a) => {

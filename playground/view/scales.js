@@ -2,7 +2,7 @@ import scales from '../scale.js'
 import { ownMarks, RECORD } from './data.js'
 import { plot, bandOf, lanes, BAR, THUMB, MAP } from './geometry.js'
 import { fine } from './gestures.js'
-import { GUTTER, EDGE, SNAP, STICK, ONTO, FINE, NOTES, midiOf, LEVELS, TICK, GAIN, root, onaxis, onprobe, closest, farthest, overshoot, color, c, rate, duration, show, meters, recording, start, end, fview, selection, cursor, playhead, nudge, steered, cues, ranks, contour, snapping, aview, levelUnits, pitching, scroll, zoomed, framed, unframed, pull, assign } from './model.js'
+import { cueKinds, cueOrder, bounds, GUTTER, EDGE, SNAP, STICK, ONTO, FINE, NOTES, midiOf, LEVELS, TICK, GAIN, root, onaxis, onprobe, closest, farthest, overshoot, color, c, rate, duration, show, meters, recording, start, end, fview, selection, cursor, playhead, nudge, steered, cues, ranks, contour, snapping, aview, levelUnits, pitching, scroll, zoomed, framed, unframed, pull, assign } from './model.js'
 import { linePoints } from './notes.js'
 import { reach, seenTo, fitTo, meterAt, metered } from './overlay.js'
 import { W, H, dpr, invalidate } from './render.js'
@@ -36,9 +36,11 @@ export const snap = t => clamp(free(t))
 // past the end too: where audio moved or silence opened takes the sound on to it
 export const free = t => { const u = unit(); return Math.max(0, +(Math.round(t / u) * u).toFixed(digits())) }
 export const snapF = (rect, py) => !fine() && marks().find(f => Math.abs(fy(rect, f) - py) <= SNAP) || yf(rect, py)
-// The cues at this scale, their indices: none within CROWD px of a plainer one (a pause's edge, a cue moved, then the
-// larger step), as a map names its larger towns first, so zoomed out the main ones show, each sound's start and end,
-// and zoomed in the rest come; in the view, the rank then the time deciding, the same each time. Zoom sets how many,
+// The cues at this scale, their indices: none within CROWD px of a plainer one, as a map names its larger towns first,
+// so zoomed out the main ones show and zoomed in the rest come. Plainer first: by the page's order (`cueOrder`, the ui
+// config's `cues`), 'chunks' (by default) the sound's own start and end and each chunk's, where a sound starts or falls
+// quiet, before the onsets within (a voice's phrases selectable before its syllables); 'onsets' the hits first, as a
+// sampler wants them; then the rank (a pause's edge, a cue moved, the larger step), then the time, the same each time. Zoom sets how many,
 // in time; how quiet a sound may be for its cues is the pauses' level, the same at any zoom (worker.js GROUND)
 const CROWD = 24
 let crowd = null
@@ -47,7 +49,8 @@ export function seen() {
   if (crowd?.cues === cues && crowd.key === key) return crowd.list
   const taken = new Uint8Array(Math.ceil(w) + 2 * CROWD), list = []
   const order = (cues ?? []).map((t, i) => i).filter(i => x(cues[i]) >= 0 && x(cues[i]) <= w)
-  order.sort((i, j) => (ranks.get(cues[j]) ?? Infinity) - (ranks.get(cues[i]) ?? Infinity) || i - j)
+  const edge = i => bounds.has(cues[i]) ? 2 : cueKinds[i] === 'hit' ? 0 : 1, first = i => cueOrder === 'onsets' ? -edge(i) : edge(i)
+  order.sort((i, j) => first(j) - first(i) || (ranks.get(cues[j]) ?? Infinity) - (ranks.get(cues[i]) ?? Infinity) || i - j)
   for (const i of order) {
     const px = Math.round(x(cues[i])) + CROWD
     if (taken.subarray(px - CROWD + 1, px + CROWD).some(Boolean)) continue

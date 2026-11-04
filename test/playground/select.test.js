@@ -273,6 +273,50 @@ test('editor: Shift and a double-click extend the selection to the fragment; Shi
   assert.ok(beside.length === 2 && edge(.9) && edge(1.5), `the cues either side of 1.2 s, where the pause before is: ${beside}`)
 })
 
+// Dragged, what it would snap to shows either side of it, a marker's line among the cues; held Alt, a marker's too
+test('editor: dragged, a marker shows as a snap line with the cues; held Alt, every marker\'s too', async () => {
+  await open()
+  await write(hits + `.mark(0.7, 'M')`)
+  await lengthIs('0:02.000')
+  const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
+  await poll(async () => (await handles()).length, n => assert.ok(n >= 5, `its cues: ${n}`), 8000)
+  const at = t => px => Math.abs(px - (x(t) - box.x)) < 2
+  // the caret held at 0.65 s, dragged to 0.75 s: the marker at 0.7 s the line before it
+  await page.mouse.move(x(.65), y)
+  await page.mouse.down()
+  await page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'ew-resize')
+  await page.mouse.move(x(.75), y, { steps: 3 })
+  const beside = await lit()
+  await page.mouse.up()
+  assert.ok(beside.some(at(.7)), `the marker's line either side: ${beside}`)
+  // plain hovered away from it, past the sound's middle: held Alt, every cue, the marker among them
+  await page.mouse.move(x(1.6), y)
+  await page.keyboard.down('Alt')
+  const all = await lit()
+  await page.keyboard.up('Alt')
+  assert.ok(all.some(at(.7)) && all.length >= 4, `held Alt, the marker too: ${all}`)
+})
+
+// Where they crowd, a chunk's edge shows before an onset by it however much plainer the onset (the ui config's cues,
+// 'chunks' by default): a phrase's start at 1 s, a strike 20 ms on, 12 px apart, ranked ten times its; held Alt, the start
+test('editor: where cues crowd, where a sound starts shows before an onset by it', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await open()
+  await write(hits)
+  await lengthIs('0:02.000')
+  const { box, x } = await axis(2), w = await spans(box)
+  await poll(async () => (await handles()).length, n => assert.ok(n >= 3, `its cues found: ${n}`), 8000)
+  await page.evaluate(() => { __view.cues = [{ t: 1, kind: 'start', rank: 1 }, { t: 1.02, kind: 'hit', rank: 10 }] })
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
+  await page.mouse.move(box.x + 30, box.y + 40)
+  await page.keyboard.down('Alt')
+  const shown = await lit()
+  await page.keyboard.up('Alt')
+  const at = t => shown.some(px => Math.abs(px - (x(t) - box.x)) < 2)
+  assert.ok(at(1) && !at(1.02), `the start, not the strike by it: ${shown}`)
+})
+
 // The third click of a triple-click, where the double one was, is a click: dragged a little on its way, never the audio
 // the double-click selected, which a press inside a selection otherwise carries
 test('editor: a triple-click\'s third press, nudged, moves no audio', async () => {
