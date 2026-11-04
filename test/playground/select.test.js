@@ -37,13 +37,14 @@ test('editor: the caret is where a drag left the selection\'s moving end; double
 
 // Cues stay out of sight, a forest over the sound otherwise: held Alt, every one, faint, as Figma shows what there is to
 // snap to; held ⌘ (Ctrl), only the one under the pointer, the one a press would take; away from them, none. Lit lines
-// are orange runs along a row 4 px under the lanes' top.
+// are orange ticks in the strip, runs along a row of it; held ⌘, its line down the lanes, along a row 4 px under their
+// top.
 test('editor: held Alt, every cue shows; held ⌘, only the one under the pointer', async () => {
   await open()
   await write(hits)
   await lengthIs('0:02.000')
   const { box, x } = await axis(2), y = box.y + 40
-  const lit = async () => pixels(`let n = 0, run = false; for (let x = 0; x < w - ${await gutter()}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) n++; run = on } return n`)
+  const lit = async (y = Math.round(tall(box)) + 3) => pixels(`let n = 0, run = false; for (let x = 0; x < w - ${await gutter()}; x++) { const i = (${y} * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) n++; run = on } return n`)
   const w = await spans(box)
   const cue = await poll(async () => (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02), cue => assert.equal(cue.length, 1), 8000)
   assert.equal(await lit(), 0, 'none shown')
@@ -54,8 +55,9 @@ test('editor: held Alt, every cue shows; held ⌘, only the one under the pointe
   assert.ok(all >= 3, `held Alt: every one, ${all}`)
   await page.keyboard.down('ControlOrMeta')
   assert.equal(await lit(), 0, 'held ⌘ away from them: none')
+  assert.equal(await lit(4), 0, 'nor a line')
   await page.mouse.move(x(cue[0]) + 1, y)
-  assert.equal(await lit(), 1, 'the one under the pointer')
+  assert.equal(await lit(4), 1, 'the one under the pointer, its line down the lanes, to take')
   await page.keyboard.up('ControlOrMeta')
 })
 
@@ -68,7 +70,7 @@ test('editor: zoomed out, only the plainer cues show, none within 24 px of anoth
   // the cues drawn, held Alt, across the lanes (the meter after them left out), the pointer's own line at 30 px too, and
   // what it measures there (the strikes past full scale: a triangle at the lane's top, 7 px across)
   const box = await page.locator('.plot').boundingBox(), y = box.y + 40
-  const runs = async () => (await pixels(`const out = []; let run = false; for (let x = 0; x < ${await spans(box)}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 40; if (on && !run) out.push(x); run = on } return out`)).filter(x => Math.abs(x - 30) > 5)
+  const runs = async () => (await pixels(`const out = []; let run = false; for (let x = 0; x < ${await spans(box)}; x++) { const i = (${Math.round(tall(box)) + 3} * w + x) * 4, on = d[i] - d[i + 2] > 40; if (on && !run) out.push(x); run = on } return out`)).filter(x => Math.abs(x - 30) > 5)
   await page.mouse.move(box.x + 30, y)
   const g = await gutter()
   await page.keyboard.down('Alt')
@@ -97,8 +99,8 @@ test('editor: held Alt, a press held takes the caret along, the cues showing; on
   await write(hits)
   await lengthIs('0:02.000')
   const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
-  // the runs of the cues' colour across the lanes' top row, [x, …] px
-  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) out.push(x); run = on } return out`)
+  // the runs of the cues' colour across the strip's ticks, [x, …] px
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (${Math.round(tall(box)) + 3} * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) out.push(x); run = on } return out`)
   const cue = await poll(async () => (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02), cue => assert.ok(cue.length, 'the cue at 1 s'), 8000)
   const clock = async () => +(await page.locator('.time').innerText()).split(':')[1]
   await page.mouse.move(x(.75), y)
@@ -214,7 +216,7 @@ test('editor: dragged, the caret or an edge shows the cues either side of it; wi
   await write(hits)
   await lengthIs('0:02.000')
   const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
-  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (${Math.round(tall(box)) + 3} * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
   const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.length >= 5, `its cues: ${cues}`), 8000)
   // the caret held at 0.7 s, between the cues at 0.5 s and where that hit falls quiet, a third of a second on
   const [before, after] = [cues.findLast(t => t < .7), cues.find(t => t > .7)]
@@ -261,7 +263,7 @@ test('editor: Shift and a double-click extend the selection to the fragment; Shi
   assert.ok(near(await range(), [1.2, 2.4]), `from the caret: ${await range()}`)
   // Shift held, a drag from the caret: the cues either side of where its end is
   await page.mouse.click(x(.2), y)
-  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (${Math.round(tall(box)) + 3} * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
   await page.keyboard.down('Shift')
   await page.mouse.move(x(1.1), y)
   await page.mouse.down()

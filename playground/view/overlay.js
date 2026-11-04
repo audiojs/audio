@@ -141,7 +141,7 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
     ...(playhead == null && apart(cursor) ? [{ t: cursor, fill: here }] : []),
     ...(dropped != null ? [{ t: dropped, fill: accent() }] : [])
   ].map(m => ends.has(m.t) ? { ...m, fill: gauge(), keep: true } : m), measure?.spans, true, clear))
-  if (show.hits || aiming) paintCues(mine, measure ? [...lit, measure.t] : lit, aiming)
+  if (show.hits || aiming) paintCues(L, mine, measure ? [...lit, measure.t] : lit, aiming)
   paintMarkers(all, lit, pointedAt)
   paintStrips(L, pointedAt, already)
   paintOvers(L)

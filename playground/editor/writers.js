@@ -1,6 +1,6 @@
-import { chain, number, setArg, focus } from '../code.js'
+import { append, between, chain, number, setArg, focus } from '../code.js'
 import { state, v, ed, rk, pl, output } from './context.js'
-import { lastEdit, amend, write } from './edits.js'
+import { lastEdit, amend, write, applied } from './edits.js'
 import { quote, note } from './format.js'
 import { shows, showAs } from './look.js'
 import { closeMenus } from './menus.js'
@@ -97,7 +97,7 @@ const unmarked = () => note('This marker comes from the file; no mark() in the s
 // A marker taken away (from its menu), or moved (a drag of its triangle): its mark() call gone, or its time moved
 // as much (a range's end dragged, its length too: `d`; a moment pulled apart, a range from then on, its time an options
 // object; a range's ends let go on each other, `d` 0, a moment, its time a number), the edits after it being what they
-// were
+// were, or, past an edit, written after it where it was let go (remark)
 export function unmark(marker) {
   const call = markCall(marker)
   if (!call) return unmarked()
@@ -113,9 +113,18 @@ export function relabel({ label, ...marker }) {
   return true
 }
 export function remark({ to, d, ...marker }) {
-  const arg = markCall(marker)?.args[0], [at, length] = arg?.kind === 'object' ? ['at', 'duration'].map(name => arg.props.find(p => p.name === name)) : [arg]
+  const call = markCall(marker), arg = call?.args[0], [at, length] = arg?.kind === 'object' ? ['at', 'duration'].map(name => arg.props.find(p => p.name === name)) : [arg]
   if (typeof at?.value !== 'number') return unmarked()
   const s = t => number(Math.max(0, t), v.unit), set = (p, t) => ({ from: p.valueFrom ?? p.from, to: p.valueTo ?? p.to, insert: s(t) })
+  // an edit after it: a mark's time is the audio's as it is there, before that edit (fn/meta.js), not the one let go on,
+  // which is the audio's at the chain's end: it goes there
+  const code = ed.code, long = d ?? marker.duration ?? 0, named = call.args[1] ? `, ${code.slice(call.args[1].from, call.args[1].to)}` : ''
+  focus(marker.track ?? state.track)
+  const past = chain(code)?.calls.some(k => k.to > call.to && k.name !== 'mark')
+  const out = past && applied(code, { from: call.dot ?? call.from, to: call.to, insert: '' })
+  const put = past && append(out, `mark(${long ? `{ at: ${s(to)}, d: ${s(long)} }` : s(to)}${named})`)
+  focus(state.track)
+  if (put) { ed.change(between(code, applied(out, put))); return true }
   if (arg.kind !== 'object' && d) ed.change({ from: arg.from, to: arg.to, insert: `{ at: ${s(at.value + to - marker.time)}, d: ${s(d)} }` })
   else if (arg.kind === 'object' && d === 0) ed.change({ from: arg.from, to: arg.to, insert: s(at.value + to - marker.time) })
   else ed.change([set(at, at.value + to - marker.time), d != null && typeof length?.value === 'number' && set(length, length.value + d - marker.duration)].filter(Boolean))

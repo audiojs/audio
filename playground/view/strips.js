@@ -158,12 +158,13 @@ export function paintEdge(L, sel) {
 }
 // a time as the whole page writes it, in the units chosen (time.js): 0:05, 5.0s, 240000
 export const stamp = (t, d = digits()) => clock(t, units, { digits: d, rate })
-// Cues: shown only where they matter, never as a forest over the sound: the one dragged, bright where it will land;
-// those a dragged edge or caret sits on (`lit`), and faint the ones either side of it (beside), as they are either side
-// of the pointer plain over the edited track's lanes, the one a press would snap to brighter; held ⌘ (Ctrl), the one
-// under the pointer a press would take; held Alt (`all`), every one, faint, as Figma shows what there is to snap to.
-// The one a press would snap to, a sound's start, a hit or its end, with a short wash on the side its sound is on
-// (washFrom)
+// Cues: shown only where they matter, never over the sound as what to snap to: ticks in the edited band's strip, CUED px
+// from the lanes' foot, under the names there: those a dragged edge or caret sits on (`lit`), and faint the ones either
+// side of it (beside), as they are either side of the pointer plain over the edited track's lanes, the one a press would
+// snap to brighter, a sound's start, a hit or its end with a short wash on the side its sound is on (washFrom); held Alt
+// (`all`), every one, faint, as Figma shows what there is to snap to. A line down the lanes only for what a press takes
+// hold of: held ⌘ (Ctrl), the one under the pointer; the one dragged, bright where it will land
+const CUED = 5
 const on = (lit, px) => lit.some(t => Math.abs(x(t) - px) < .5)
 // The time a drag moves, as the caret or a range's end: the caret held, an edge, a range dragged out (Shift held before
 // the press or after it), a marker's triangle moved (a range's end, the one held), else null
@@ -179,18 +180,19 @@ function beside() {
   return [before, after].filter(i => i != null)
 }
 export const editing = (keys = held) => !!(mac ? keys.metaKey : keys.ctrlKey)
-export function paintCues(rects, lit, all = false) {
+export function paintCues(L, rects, lit, all = false) {
   const hover = drag ? null : aimedAt(), onto = hover == null ? -1 : cues?.indexOf(stick(hover)?.t) ?? -1
   const near = !drag && hovered ? nearCue(...hovered, held) : -1, shown = new Set(all ? seen() : beside())
+  const strip = strips(L).find(s => s.i === (tracks ? focus : null))?.y, tick = strip == null ? [] : [[0, strip, 0, CUED]]
   for (const [i, t] of (cues ?? []).entries()) {
     const moving = drag?.cue === i, at = moving ? drag.to : moved(t), px = X(at)
     // a dragged line on it is that line alone, white, the crosses saying it snapped; held Alt, the time measured to lit
     if (at == null || px < 0 || px > plot().w || drag && on(lit, px) || !(moving || i === near || i === onto || on(lit, px) || shown.has(i))) continue
     const a = moving || on(lit, px) ? 1 : i === near || i === onto ? .7 : .4
-    if (i === onto) washFrom(px, snappedTo(t).side, rects, a * WASHED)
+    if (i === onto) washFrom(px, snappedTo(t).side, tick, a * WASHED)
     c.fillStyle = accent()
     c.globalAlpha = a
-    for (const [, ly, , lh] of rects) c.fillRect(px, ly, 1, lh)
+    for (const [, ly, , lh] of moving || i === near ? rects : tick) c.fillRect(px, ly, 1, lh)
     c.globalAlpha = 1
   }
 }
