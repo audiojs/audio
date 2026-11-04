@@ -4,7 +4,6 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, readdir } from 'node:fs/promises'
 import { dirname, relative, resolve, sep } from 'node:path'
-import { workers } from '../../.site-build.js'
 import { root, browser, page, origin, errors, code, readout, wholeLevels, levelsTable, lengthText, open, settled, frames, poll, still, settings, selected, tab, menu, facts, noCues, write, drawn, tall, axis, drag, lengthIs, pixels, show, bursts, chime } from './page.js'
 
 test('editor: opens on the chime with its script, drawn and measured', async () => {

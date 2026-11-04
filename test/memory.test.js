@@ -6,19 +6,18 @@ import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
-import { library } from '../.site-build.js'
+import { bundles } from '../.site-build.js'
 
 let server, browser, origin
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
 before(async () => {
-  // the library as assets/audio.js has it, made from the source as it is, the committed file left alone
-  const bundle = await library()
+  await bundles()
   server = createServer(async (req, res) => {
     const path = resolve(root, '.' + req.url.split('?')[0])
     if (!path.startsWith(root + sep)) return res.writeHead(403).end()
     if (req.url === '/api.html') return res.setHeader('content-type', 'text/html').end('<!doctype html><title>Memory tests</title>')
     try {
-      const body = path === root + '/audio.js' || path === root + '/assets/audio.js' ? bundle : await readFile(path)
+      const body = await readFile(path === root + '/audio.js' ? root + '/assets/audio.js' : path)
       res.setHeader('content-type', ({ '.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.svg': 'image/svg+xml' })[extname(path)] || 'application/octet-stream').end(body)
     } catch { res.writeHead(404).end() }
   })

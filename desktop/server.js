@@ -1,5 +1,6 @@
 /** Serve the playground and local media files for Audio.app on 127.0.0.1. */
 import { createServer } from 'node:http'
+import { execFileSync } from 'node:child_process'
 import { createReadStream, fstatSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -63,6 +64,9 @@ const server = createServer(async (req, res) => {
 const quit = () => process.exit(0)
 for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, quit)
 if (fstatSync(0).isFIFO()) process.stdin.resume().on('end', quit).on('error', quit)
+
+// the bundles as the repo is now (git holds none): one that can't be made leaves what was made last
+try { execFileSync(process.execPath, ['.site-build.js'], { cwd: root, stdio: 'ignore' }) } catch {}
 
 server.on('error', e => { console.error(e.code === 'EADDRINUSE' ? `port ${port} is in use` : e.message); process.exit(1) })
 server.listen(port, '127.0.0.1', () => console.log(`ready ${origin}`))

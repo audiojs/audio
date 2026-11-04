@@ -13,3 +13,17 @@ token.npm
 __pycache__/
 /models
 /.work/ui
+# made by node .site-build.js
+/assets/aiff.js
+/assets/audio.js
+/assets/codemirror.js
+/assets/flac.js
+/assets/gl-spectrogram.js
+/assets/gl-waveform.js
+/assets/lezer-chunk.js
+/assets/lezer.js
+/assets/mp3.js
+/assets/ogg.js
+/assets/periodic-function.js
+/assets/wav.js
+/assets/window-function.js

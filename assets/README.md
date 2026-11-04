@@ -1,7 +1,8 @@
 # Assets
 
 What the playground loads beside its own modules. `npm run serve` builds them and serves the repository; the playground
-is at `/playground/`.
+is at `/playground/`. The bundles below are not in git: `node .site-build.js` makes them, as Pages does before it deploys,
+the Mac app's server as it starts, and a test before it runs.
 
 - `audio.js`, `wav.js`, `mp3.js`, `flac.js`, `aiff.js`, and `ogg.js` are generated from this checkout and its installed encoders:
   the library whole, for a page that runs it itself (the memory suite's bare pages). The editor runs the library in its

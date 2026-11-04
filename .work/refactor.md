@@ -130,8 +130,9 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
       gone with the page's library, and the two atom bundles only it read (`assets/tune-curve.js`, `assets/stft.js`)
 - [x] (541e908) `npm run serve` builds and watches (esbuild context), clears its output first; a reload always runs the source as it is.
       Only serve clears: a test's build leaves the folder, as another session's suite may be serving it
-- [ ] generated bundles out of git (`assets/audio.js`, `codemirror.js`, `lezer*.js`, copied `gl-*.js`), built by CI for Pages and by
-      the Mac app's server on start: for the user (it changes what Pages deploys)
+- [x] generated bundles out of git (`assets/audio.js`, `codemirror.js`, `lezer*.js`, copied `gl-*.js`, the encoders, the logo's
+      functions): `.gitignore` names them; `bundles()` in `.site-build.js` makes them for Pages, `npm run serve`, the Mac
+      app's server as it starts and each browser suite. `library()` and the split `assets()`, `workers()` went with it
 - [ ] one serving module (types, COOP/COEP) for `.site-serve.js`, `desktop/server.js` and the tests; `sw.js` reads the same headers:
       (64047d1) `.site-serve.js` exports `serve()`, the Mac app's server uses it; the tests' servers left (playground.test.js
       holds uncommitted work of another session)

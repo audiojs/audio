@@ -9,10 +9,10 @@ import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import wav from '@audio/encode-wav'
-import { workers } from '../../.site-build.js'
+import { bundles } from '../../.site-build.js'
 
-// the playground's workers made from the source as it is (playground/dist, which git ignores); assets/ is committed
-await workers()
+// the bundles made from the source as it is (assets/ and playground/dist, which git ignores)
+await bundles()
 const root = fileURLToPath(new URL('../..', import.meta.url)).replace(/\/$/, '')
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.wasm': 'application/wasm' }
 let server, browser, page, origin, errors
