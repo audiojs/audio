@@ -17,7 +17,7 @@ test('editor: undo and redo after the length, a band\'s look in its foot, none m
   // the bar's last, Before, as far in from the slab's right edge as Play is from its left
   const before = await box('.before')
   assert.ok(panes.x + panes.width - before.x - before.width >= 12, `Before clear of the edge: ${panes.x + panes.width - before.x - before.width}`)
-  const buttons = await Promise.all(['Recipes', 'Agent', 'Edits', 'Code', 'Export', 'Settings'].map(name => page.getByRole('tab', { name, exact: true }).boundingBox()))
+  const buttons = await Promise.all(['Recipes', 'Agent', 'Edits', 'Code', 'Export'].map(name => page.getByRole('tab', { name, exact: true }).boundingBox()))
   assert.ok(buttons.every((b, i) => b.y < view.y && (!i || b.x > buttons[i - 1].x)) && buttons.at(-1).x > panes.x + panes.width * .8, 'the panels\' buttons in order at the slab\'s top right')
   assert.equal(await page.locator('.bar .history, .status .panels').count(), 0, 'none in the page\'s bar, none at the foot')
   await tab('Edits')
@@ -302,7 +302,7 @@ test('editor: a shared link restores the script; on a narrow screen the panel op
   const view = await page.locator('.view-slab').boundingBox(), chain = await page.locator('.side-slab').boundingBox(), bar = await page.locator('.status').boundingBox()
   assert.ok(chain.width >= view.width - 14 && chain.y >= bar.y + bar.height - 1 && bar.y >= view.y + view.height - 1, `under the output and its bar: ${JSON.stringify(chain)} under ${JSON.stringify(view)}`)
   assert.ok(Math.abs(chain.height - view.height) < 2, 'as tall as the picture')
-  for (const name of ['Code', 'Export', 'Settings']) assert.ok(await page.getByRole('tab', { name, exact: true }).isVisible(), name)
+  for (const name of ['Code', 'Export']) assert.ok(await page.getByRole('tab', { name, exact: true }).isVisible(), name)
   assert.ok(await page.getByRole('button', { name: 'Undo', exact: true }).isVisible())
 })
 

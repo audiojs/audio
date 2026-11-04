@@ -152,7 +152,7 @@ test('editor: markers: a press by a marker line puts the caret on it', async () 
     await page.mouse.click(x(t) + 4, y)
     assert.equal(await caret(), t)
   }
-  await menu('View', 'Snap to cues and markers')
+  await menu('View', 'Snap')
   await page.mouse.move(x(2) + 4, y)
   assert.notEqual(await page.locator('.plot').evaluate(el => el.style.cursor), 'pointer')
   await page.mouse.click(x(2) + 4, y)
@@ -301,13 +301,13 @@ test('editor: markers: a range\'s triangles drag its ends; a moment is one trian
   assert.ok(await marked([px(6) - 4, px(6)], [lane + 4, lane + 9]) > 3 && await marked([px(6) + 1, px(6) + 5], [lane + 4, lane + 9]) > 3, 'a moment ▲, either side of its line')
   assert.equal(await marked([px(6) + 2, px(6) + 8], [0, 7]), 0, 'no flag at the lanes\' top')
   // the range's ◢ ends with the caret's pixel at its start, as ◣ starts with the caret's at its end: a triangle clicked,
-  // the caret's column (the lanes' top rows) the last of ◢'s, the first of ◣'s
+  // the caret's column (the lanes' top rows) the last of ◢'s, the first of ◣'s (over its line, along their last row)
   const column = async t => { for (let d = -3; d <= 3; d++) if (await marked([px(t) + d, px(t) + d + 1], [2, 12]) >= 8) return px(t) + d; return null }
   for (const [t, edge, out] of [[2, -3, 1], [4, 3, -1]]) {
     await page.mouse.click(x(t) + edge, strip)
     await page.mouse.move(box.x + 5, box.y + box.height - 8)
     const c = await column(t)
-    assert.ok(c != null && await marked([c, c + 1], [lane + 5, lane + 9]) > 0 && await marked([c + out, c + out + 1], [lane + 1, lane + 9]) === 0, `the caret's pixel ${c} its triangle's edge at ${t} s`)
+    assert.ok(c != null && await marked([c, c + 1], [lane + 5, lane + 9]) > 0 && await marked([c + out, c + out + 1], [lane + 1, lane + 8]) === 0, `the caret's pixel ${c} its triangle's edge at ${t} s`)
   }
   await page.keyboard.press('Escape')
   // (the lanes' top rows, over the sound's quiet edge)
@@ -361,11 +361,11 @@ test('editor: markers: a named range\'s fork starts takes there; the take heard,
   const chip = page.locator('.plot .takes:not([hidden])')
   await chip.waitFor()
   const numbers = () => chip.locator('button').evaluateAll(b => b.map(x => [x.value === 'add' ? 'fork' : x.textContent, x.getAttribute('aria-pressed') ?? x.getAttribute('aria-disabled')]))
-  assert.deepEqual(await numbers(), [['1', 'false'], ['fork', 'true']])
+  assert.deepEqual(await numbers(), [['1', 'true'], ['2', 'false'], ['fork', 'true']], 'the sound as it was, heard, then the empty take')
   await page.mouse.move(x(4), strip)
   await frames()
   assert.ok(await fork.isHidden(), 'no fork where takes are')
-  await chip.locator('button[value="0"]').click()
+  await chip.locator('button[value="1"]').click()
   await page.waitForFunction(() => scriptText().endsWith(`\n  .write(audio.from(2), { at: 3 })`))
   await chip.locator('button[value="0"]').click()
   await page.waitForFunction(() => scriptText().endsWith(`// .write(audio.from(2), { at: 3 })`))
@@ -534,6 +534,12 @@ test('editor: the strip under the lanes marks a range ◢ named ◣, nothing ove
   // nothing of it in the strip (the end's triangle's ink, all its channels summed)
   const ink = () => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; n += d[i] + d[i + 1] + d[i + 2] } return n`, { a: px(4), b: px(4) + 6, y0: lane + 1, y1: lane + 10 })
   const resting = await ink()
+  // pointed at over the sound, its triangles lit as in the strip; past it, not
+  await page.mouse.move(x(3), box.y + lane / 2)
+  await poll(ink, lit => assert.ok(lit > resting * 1.1, `over its stretch, its triangles lit: ${resting} → ${lit}`), 2000)
+  await page.mouse.move(x(6), box.y + lane / 2)
+  await poll(ink, lit => assert.ok(lit < resting * 1.05, `past it, not: ${resting} → ${lit}`), 2000)
+  await page.mouse.move(box.x + 5, box.y + box.height - 8)
   await page.mouse.click(x(3), box.y + lane + FOOT / 2)
   assert.equal(await selected(), '0:02.000–0:04.000')
   await page.mouse.move(box.x + 5, box.y + box.height - 8)
@@ -550,6 +556,10 @@ test('editor: the strip under the lanes marks a range ◢ named ◣, nothing ove
   let near = []
   for (const until = Date.now() + 8000; near.length < 2 && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.move(x(5.3), box.y + lane / 3); near = await lines() }
   assert.ok(near.length === 2 && Math.abs(near[0] - px(4)) <= 1 && Math.abs(near[1] - px(8)) <= 1, `the range's end and the sound's either side of 5.3 s: ${near}`)
+  // in the gap between the sound's channels too, nothing going out as the pointer crosses it
+  await page.mouse.move(x(5.3), box.y + lane / 2)
+  await frames()
+  assert.deepEqual(await lines(), near, 'the same in the gap between its channels')
   // between them, no wash; on one (within 3 px, where a press would snap), the sound's start, a short wash after it,
   // gone within WASH (8) px
   const tint = (xs, dx) => pixels(`return arg.xs.map(x => { const i = (arg.y * w + x + arg.dx) * 4; return d[i] - d[i + 2] })`, { xs, y: 3, dx })
@@ -562,7 +572,7 @@ test('editor: the strip under the lanes marks a range ◢ named ◣, nothing ove
   await poll(lines, all => assert.ok(all.length > 2, `held Alt, ${all.length} lines`), 3000)
   await page.keyboard.up('Alt')
   // snapping off: none, a press going where it is
-  await menu('View', 'Snap to cues and markers')
+  await menu('View', 'Snap')
   await page.mouse.move(x(5.3), box.y + lane / 3)
   await poll(lines, near => assert.deepEqual(near, [], 'none with snapping off'), 3000)
   // the pointer gone from the lanes: none
@@ -613,4 +623,28 @@ test('editor: a marker dragged moves alone, the caret and what plays staying whe
   // clicked: the caret to it
   await page.mouse.click(...await grab([[x(5), row]], 'ew-resize'))
   assert.ok(Math.abs(await now() - 5) < .05, String(await now()))
+})
+
+// A range and the takes' place are one thing in the strip: the same faint line along their feet, the same when lit, and
+// nothing of it through a name or the numbers, their ground opaque
+test('editor: the strip draws a range and the takes\' place alike, the line stopped by the name and the numbers', async () => {
+  await open()
+  await write(`audio('chime.wav').mark({ at: 1, d: 2 }, 'Chorus')\n  .write(audio.from(2), { at: 5 })`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), lane = Math.round(tall(box)), px = t => Math.round(x(t) - box.x)
+  await page.locator('.plot .takes:not([hidden]) button').first().waitFor()
+  const line = t => pixels(`const i = (arg.y * w + arg.x) * 4; return [d[i], d[i + 1], d[i + 2]]`, { x: px(t), y: lane + 8 })
+  await page.mouse.move(box.x + 5, box.y + box.height - 8)
+  await poll(async () => [await line(2.7), await line(5.5)], ([range, takes]) => assert.deepEqual(takes, range, 'the same line, at rest'), 2000)
+  const faint = await line(2.7)
+  await page.mouse.move(x(2.7), box.y + lane + 4)
+  const lit = await poll(() => line(2.7), now => assert.notDeepEqual(now, faint, 'the range\'s lit'), 2000)
+  await page.mouse.move(x(5.5), box.y + lane + 4)
+  await poll(() => line(5.5), now => assert.deepEqual(now, lit, 'the takes\' lit the same'), 2000)
+  await page.mouse.move(box.x + 5, box.y + box.height - 8)
+  // the numbers' ground the picture's, no see-through; the name's a stretch of it, the line not going on under the letters
+  const opaque = await page.locator('.plot .takes:not([hidden])').evaluate(e => getComputedStyle(e).backgroundColor)
+  assert.ok(!/rgba\(0, 0, 0, 0\)|transparent/.test(opaque), `the numbers' ground: ${opaque}`)
+  const seen = await pixels(`let n = 0; for (let x = arg.a; x < arg.b; x++) { const i = (arg.y * w + x) * 4; if (d[i] === arg.c[0] && d[i + 1] === arg.c[1] && d[i + 2] === arg.c[2]) n++ } return n`, { a: px(1) + 4, b: px(1) + 34, y: lane + 8, c: faint })
+  assert.ok(seen < 12, `the line under the name: ${seen} of 30 columns`)
 })

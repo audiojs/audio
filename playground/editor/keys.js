@@ -1,6 +1,6 @@
 import { pressed } from './commands.js'
 import { root } from './config.js'
-import { pl } from './context.js'
+import { pl, state } from './context.js'
 import { closeMenus } from './menus.js'
 
 // The page's keys and presses: Esc, the commands' keys, the focus a press gives, the audio device opened on the first
@@ -19,6 +19,11 @@ export function wire() {
   // The window left (another app; embedded, a press on the page around it): whatever is open over the page closes, its
   // menus, lists and a look's dropdown, as on a press outside them (menu.js closes its own)
   addEventListener('blur', closeMenus)
+  // Alt or Shift held, for what Record would do then (index.html .record), from a pointer's moves too: pressed while the
+  // window had no focus, no key says so
+  const held = e => { state.held = e.altKey ? 'alt' : e.shiftKey ? 'shift' : null }
+  for (const type of ['keydown', 'keyup', 'pointermove']) addEventListener(type, held, true)
+  addEventListener('blur', () => { state.held = null })
   // The page's keys: the commands' (commands.js), where they are pressed
   document.addEventListener('keydown', event => {
     const c = pressed(event)

@@ -27,7 +27,7 @@ function menus() {
     { name: 'File', items: at('tab.new', 'file.open', 'file.recent', 'sound.find', 'sound.make', '-', 'export', 'export.as', 'check', 'link.copy', '-', 'tab.close', 'tab.reopen') },
     { name: 'Edit', items: at('undo', 'redo', 'history', '-', 'cut', 'copy', 'paste', 'delete', 'crop', '-', 'mark', '-', 'group', 'ungroup') },
     { name: 'Select', items: at('select.all', 'select.none', '-', 'select.fragment', 'select.sound', 'select.next', '-', 'caret') },
-    { name: 'View', items: at(...displays.map(d => `display.${d.name}`), 'look.wave', 'look.spec', 'grid', '-', 'show', 'snap', 'zoom', '-', 'panel', 'theme', 'units', '-', 'view.reset') },
+    { name: 'View', items: at(...displays.map(d => `display.${d.name}`), 'look.wave', 'look.spec', '-', 'minimap', 'grid', 'snap', 'pitch.curve', 'zoom', '-', 'panel', 'theme', '-', 'view.reset') },
     { name: 'Track', items: at('track.new', 'track.fromFile', 'track.move', 'track.voice', 'track.stems', '-', 'track.lineUp', 'track.match', 'track.duck', 'track.master', '-', 'track.toTab', 'track.delete') },
     { name: 'Process', items: [...at('recipes', '-'), ...kinds().map(k => ({ ...k, disabled: s.none })), ...at('-', 'palette')] },
     { name: 'Transport', items: at('play', 'loop', 'compare', 'speed', '-', 'record', 'record.track', 'record.take', 'takes') },

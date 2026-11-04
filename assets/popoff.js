@@ -8,7 +8,7 @@
 //   <dialog closedby="any">             a press on the backdrop closes it, where the browser doesn't yet
 // One set of listeners on the root, nothing per element; a place measured only as something shows.
 
-const TIP = 'popoff-tip'
+const TIP = 'popoff-tip', MODIFIERS = ['Alt', 'Shift', 'Control', 'Meta']
 
 // A title as pages write them: its name, its keys in brackets at its end, then what it does, after a colon or on the
 // lines after the first. { name, keys, body }
@@ -183,7 +183,8 @@ export default function popoff(root = document, { delay = 500, hide = 300, gap =
     listen(root, 'pointerout', e => { if (target && !target.contains(e.relatedTarget)) leave() })
     // a press: what it does is under way, the tag in its way
     listen(root, 'pointerdown', () => { pressed = target; clearTimeout(timer); conceal() })
-    for (const type of ['wheel', 'keydown']) listen(root, type, () => { clearTimeout(timer); conceal() }, { capture: true, passive: true })
+    // (a modifier alone does nothing: what it changes, a title set anew says)
+    for (const type of ['wheel', 'keydown']) listen(root, type, e => { if (MODIFIERS.includes(e.key)) return; clearTimeout(timer); conceal() }, { capture: true, passive: true })
     // the window left (another app, another tab); not an element's blur, which focus moving in a menu makes
     listen(win, 'blur', e => { if (e.target === win) leave() }, false)
   }

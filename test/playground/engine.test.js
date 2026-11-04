@@ -568,40 +568,9 @@ test('scrub: a steady tone dragged at its own speed plays at its pitch and level
 
 // At the edges nothing breaks: a sound shorter than a frame, silence, a caret before the start and past the end, and
 // one that jumps 20,000 samples a quantum all play finite samples
-test('scrub: short sounds, silence, a caret past either end or leaping stay finite, each way it sounds', async () => {
+test('scrub: short sounds, silence, a caret past either end or leaping stay finite', async () => {
   const cases = [[[Float32Array.from({ length: 100 }, (_, i) => Math.sin(i))], q => q * 10], [[new Float32Array(48000)], q => q * 128], [[clicked()], () => -5000], [[clicked()], () => 90000], [[clicked(), clicked()], q => (q * 20000) % 48000]]
-  for (const mode of ['hybrid', 'tape', 'loop', 'grains', 'bank', 'lines', 'random', 'vocoder']) for (const [x, caret] of cases) for (const c of await scrubbed(x, caret, .2, 48000, mode)) assert.ok(c.every(Number.isFinite), mode)
-})
-
-// Their names, all the page reads of them (scrub-names.js), the ways' own, as .scrub-vendor.js writes both
-test('scrub: the ways\' names the page reads are the ways\' own', async () => {
-  const [{ methods }, { default: names }] = await Promise.all([import('../../playground/scrub-methods.js'), import('../../playground/scrub-names.js')])
-  assert.deepEqual(names, Object.fromEntries(Object.entries(methods).map(([k, m]) => [k, m.name])))
-})
-
-// The other ways a held caret sounds, the lab's (the settings; scrub-methods.js). Held on the Rhodes' chord, its vocoder,
-// every bin's phase carried on, keeps more of what it plays in the chord's own partials (where the sound around the
-// caret is within 30 dB of its loudest) than the vocoder whose untonal bins turn at random. Its tape's head plays the
-// samples themselves at the caret's speed (after the head has caught up, the sound as recorded, a lag behind); held
-// still, silence.
-test('scrub: the lab\'s ways: its vocoder keeps a held chord in its partials; its tape plays the samples, silent when still', async () => {
-  const x = samples.rhodes.make(), at = 2 * SAMPLES, N = 8192
-  const power = y => Array.from({ length: N / 2 }, (_, k) => { let re = 0, im = 0; for (let i = 0; i < N; i += 2) { const w = .5 - .5 * Math.cos(2 * Math.PI * i / N), a = 2 * Math.PI * k * i / N; re += y[i] * w * Math.cos(a); im += y[i] * w * Math.sin(a) } return re * re + im * im })
-  const around = power(x[0].subarray(at - N / 2, at + N / 2)), top = Math.max(...around)
-  const share = async mode => { const y = await scrubbed(x, () => at, 1, SAMPLES, mode), p = power(y[0].subarray(y[0].length - N)); return p.reduce((a, v, k) => a + (around[k] > top / 1000 ? v : 0), 0) / p.reduce((a, b) => a + b, 0) }
-  const noise = await share('hybrid'), vocoder = await share('vocoder')
-  assert.ok(vocoder > noise + .05, `in the partials: vocoder ${vocoder.toFixed(3)}, vocoder + noise ${noise.toFixed(3)}`)
-  const still = (await scrubbed(x, () => at, 1, SAMPLES, 'tape'))[0].subarray(SAMPLES / 2)
-  assert.ok(Math.sqrt(still.reduce((a, v) => a + v * v, 0) / still.length) < 1e-3, 'a still tape: silence')
-  const Q = 128, y = (await scrubbed(x, q => at + q * Q, 1, SAMPLES, 'tape'))[0], from = SAMPLES / 2, n = SAMPLES / 4
-  // the lag that lines the two up best, and how alike they are there (normalised correlation)
-  let best = 0
-  for (let lag = 0; lag < 4000; lag += 4) {
-    let xy = 0, xx = 0, yy = 0
-    for (let i = from; i < from + n; i++) { const a = y[i], b = x[0][at + i - lag]; xy += a * b; xx += b * b; yy += a * a }
-    best = Math.max(best, xy / Math.sqrt(xx * yy))
-  }
-  assert.ok(best > .95, `drawn at its speed, the sound as recorded: correlation ${best.toFixed(3)}`)
+  for (const [x, caret] of cases) for (const c of await scrubbed(x, caret, .2)) assert.ok(c.every(Number.isFinite))
 })
 
 // ── Times and cues ─────────────────────────────────────────────

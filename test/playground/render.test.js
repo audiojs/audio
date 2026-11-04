@@ -1,7 +1,7 @@
 // The pictures drawn: lanes, ends, clipping, the selection, weighting; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { page, CHIME, code, open, settled, poll, still, settings, selected, noCues, write, drawn, LANES, tall, gutter, TAIL, spans, axis, boxDrag, drag, lengthIs, gridShown, pixels, show, chime } from './page.js'
+import { page, CHIME, code, open, settled, poll, still, settings, selected, noCues, write, drawn, LANES, tall, gutter, TAIL, spans, axis, boxDrag, drag, lengthIs, gridShown, pixels, show, chime, menu } from './page.js'
 
 // The sound's end, three quarters across the view zoomed out as far as it goes: where its centre line stops, its silence
 // drawn up to it as the level it is, and the grid with it; no rule over it, nothing past it
@@ -25,8 +25,8 @@ test('editor: the sound\'s end is where its centre line stops: no rule over it, 
   assert.ok(Math.abs(last - end) <= 1.5, `the centre line ends at the end: ${last} px, the end ${end} px`)
   assert.ok(silent > .95, `the silence before it drawn, its centre line: ${(silent * 100).toFixed(0)}% of its columns`)
   // the overlay, the grid: nothing at the end column or past it in the overlay; the grid where the sound is, not past it
-  await settings('Grid', 'Lines')
-  await gridShown('Lines')
+  await menu('View', 'Grid')
+  await gridShown()
   const { rule, inside, beyond } = await page.evaluate(([end, far]) => {
     const sum = (canvas, from, to) => { const k = canvas.width / canvas.clientWidth, { data, width, height } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height - Math.round(22 * k)); let s = 0; for (let x = Math.round(from * k); x < Math.round(to * k); x++) for (let y = 0; y < height; y++) s += data[(y * width + x) * 4 + 3]; return s }
     // what shows of it: a level apart or more (a canvas composited a fraction of a pixel over is a level off here and there)
@@ -197,7 +197,7 @@ test('editor: where the output clips is underlined red on the time row; zoomed o
 // Esc closes the fade menu, and nothing else: the selection it was opened from stays
 // The meters stand clear: the waveform, the cues and the pitch curve end before the level bar, never behind it
 test('editor: nothing is drawn behind the meters', async () => {
-  await page.addInitScript(code => localStorage.setItem('audio-repl', JSON.stringify({ code, side: null, show: { hits: true, pitch: true, gain: true, meters: true } })), CHIME)
+  await page.addInitScript(code => localStorage.setItem('audio-repl', JSON.stringify({ code, side: null, show: { pitch: true, gain: true, meters: true } })), CHIME)
   await open()
   await write(`audio.from(t => 0.8 * Math.sin(2 * Math.PI * 220 * t), { duration: 1 })`)
   await lengthIs('0:01.000')

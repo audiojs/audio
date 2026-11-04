@@ -113,7 +113,7 @@ async function engine(scripts, files = {}) {
 // channels `x` at `rate`, the caret at caret(q) samples in quantum q, for `seconds`
 // The scrub voice as the worklet runs it: its module imported with a worklet's globals, one class for every run
 let Scrubber
-async function scrubbed(x, caret, seconds, rate = 48000, mode) {
+async function scrubbed(x, caret, seconds, rate = 48000) {
   globalThis.sampleRate = rate
   if (!Scrubber) {
     Object.assign(globalThis, { AudioWorkletProcessor: class { constructor() { this.port = { onmessage: null, postMessage() {} } } }, registerProcessor: (_, cls) => { Scrubber = cls }, currentTime: 0 })
@@ -121,7 +121,7 @@ async function scrubbed(x, caret, seconds, rate = 48000, mode) {
   }
   const Proc = Scrubber
   const proc = new Proc(), send = data => proc.port.onmessage({ data }), Q = 128, n = Math.ceil(seconds * rate / Q)
-  send({ x, rate, mode })
+  send({ x, rate })
   send({ caret: caret(0), on: true })
   const out = x.map(() => new Float32Array(n * Q)), block = x.map(() => new Float32Array(Q))
   for (let q = 0; q < n; q++) { send({ caret: caret(q) }); proc.process([], [block]); out.forEach((o, c) => o.set(block[c], q * Q)) }
@@ -155,8 +155,9 @@ const levelsTable = () => page.locator('#levels').evaluate(el => [el.querySelect
 // The output's length, from the name's tooltip ("chime.wav · 0:06.525"): the axes show it, so the page doesn't repeat it
 const lengthText = () => page.evaluate(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop())
 const seconds = async () => { const [m, s] = (await lengthText()).split(':'); return +m * 60 + +s }
-async function open() {
-  await page.goto(origin + '/playground/')
+// (`ui`: the app's config, as the link gives it)
+async function open(ui = null) {
+  await page.goto(origin + '/playground/' + (ui ? `?ui=${encodeURIComponent(JSON.stringify(ui))}` : ''))
   // the whole sound's levels read, shown or not (a narrow bar gives them way)
   await wholeLevels().waitFor({ state: 'attached' })
 }
@@ -179,37 +180,27 @@ async function poll(read, check, ms = 5000, p = page) {
 const still = (p = page) => p.waitForFunction(() => !document.getAnimations().some(a => a instanceof CSSTransition && a.playState === 'running')).then(() => frames(2, p))
 // A row of the menu open, by its label, exactly
 const menuRow = label => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }) }).last()
-// The groups of how a picture draws, in the dropdown a band's look opens (playground/index.html .dropdown); the others are the
-// settings', in their panel
-const DRAWS = ['Levels in', 'Weighting', 'Colour', 'Colormap', 'Fill', 'Channels', 'Frequency scale', 'Method', 'Colours', 'Gamma', 'Range', 'FFT size', 'Meter']
-// A choice among the options open (a picture's dropdown, the settings' panel), by its group's name and its own: its
-// section unfolded first, where it is folded; a look's, in its select, the select opened first
+// A choice among the options of a picture's dropdown, by its group's name and its own; a look's, in its select, the
+// select opened first
 function choice(group, name) {
-  const open = page.locator('.dropdown:popover-open, .settings'), button = open.getByRole('group', { name: group, exact: true }).getByRole('button', { name, exact: true })
+  const button = page.locator('.dropdown:popover-open').getByRole('group', { name: group, exact: true }).getByRole('button', { name, exact: true })
   const option = page.getByRole('listbox', { name: group, exact: true }).getByRole('option', { name, exact: true })
-  const unfold = () => page.evaluate(g => { for (const d of document.querySelectorAll('.settings details:not([open])')) if (d.querySelector(`[aria-label="${g}"]`)) d.querySelector('summary').click() }, group)
   const listed = () => page.evaluate(g => !!document.querySelector(`.dropdown:popover-open [role="listbox"][aria-label="${g}"]`), group)
-  const pick = async () => { if (await listed()) { await page.locator(`.dropdown:popover-open .select-button[popovertarget="select-${group}"]`).click(); return option } await unfold(); return button }
+  const pick = async () => { if (await listed()) { await page.locator(`.dropdown:popover-open .select-button[popovertarget="select-${group}"]`).click(); return option } return button }
   return { click: async o => (await pick()).click(o), getAttribute: async a => (await pick()).getAttribute(a) }
 }
 // A choice made: how a picture draws in its dropdown, opened by the band's look in its layer (the last band's), and
-// closed again by it; else in the settings' panel, the panel as it was again after
+// closed again by it
 async function settings(group, name) {
-  if (DRAWS.includes(group)) {
-    const button = page.locator(':is(.lane-look, .layer-look):visible').last()
-    await button.click()
-    await choice(group, name).click()
-    return button.click()
-  }
-  const was = await page.evaluate(() => document.querySelector('.side-head [aria-selected="true"]')?.getAttribute('aria-label') ?? null)
-  await tab('Settings')
+  const button = page.locator(':is(.lane-look, .layer-look):visible').last()
+  await button.click()
   await choice(group, name).click()
-  if (was !== 'Settings') await page.getByRole('tab', { name: was ?? 'Settings', exact: true }).click()
+  return button.click()
 }
 // What is selected, as the clock's title says it ("0:01.000–0:03.000"; '' for none, or several ranges): the clock
 // itself reads the caret
 const selected = async () => (await page.locator('.clock').evaluate(tipOf)).match(/^Selected (\S+–\S+):/)?.[1] ?? ''
-// The panel on one of its buttons (the edits, the code, the export, the settings, at the top right); a click on the one
+// The panel on one of its buttons (the edits, the code, the export, at the top right); a click on the one
 // shown would close it
 async function tab(name) {
   const t = page.getByRole('tab', { name, exact: true })
@@ -245,7 +236,7 @@ async function palette(words) {
 }
 // The cues hidden and snapping off: a dragged edge goes where it is let go, not onto a cue near it, shown or not (a test
 // of snapping keeps them)
-const noCues = async () => { await menu('View', 'Show', 'Cues'); await menu('View', 'Snap to cues and markers') }
+const noCues = () => menu('View', 'Snap')
 // The script written in the code panel (over the picture, from the bar), the panel then as it was
 async function write(text) {
   const shown = await page.getByRole('tab', { name: 'Code', exact: true }).getAttribute('aria-selected') === 'true'
@@ -391,12 +382,12 @@ async function dragCue(points, by) {
 }
 
 // Colour in a screenshot of the plot: the largest spread between a pixel's channels, and brightness along a column.
-// The grid as it shows (window.__shown): the plot's screenshot with it less one with Grid: None, the grid being drawn in
+// The grid as it shows (window.__shown): the plot's screenshot with it less one without it, the grid being drawn in
 // the waveform's canvas, under the waveform (view.js paintGrid); { k (device px a CSS px), w, h, d (each pixel's largest
-// difference over its channels) }. `name`, the grid set now, set again after
-async function gridShown(name) {
-  // each shot of the page at rest: the settings' panel closed and gone, the plot its width again, nothing fading still
-  // (a hint going, a panel closing, faint over the picture)
+// difference over its channels) }. On before, on after
+async function gridShown() {
+  // each shot of the page at rest: the plot its width, nothing fading still (a hint going, a menu closing, faint over
+  // the picture)
   const width = await page.locator('.plot').evaluate(el => el.clientWidth)
   const rest = async () => {
     await page.mouse.move(2, 2)
@@ -405,9 +396,9 @@ async function gridShown(name) {
   }
   const shot = async () => { await rest(); return (await page.locator('.plot').screenshot()).toString('base64') }
   const on = await shot()
-  await settings('Grid', 'None')
+  await menu('View', 'Grid')
   const off = await shot()
-  await settings('Grid', name)
+  await menu('View', 'Grid')
   await rest()
   await page.evaluate(async ([a, b, width]) => {
     const read = async src => {
@@ -475,11 +466,11 @@ async function turn(at, key, name) {
   assert.equal(await way(key), name)
 }
 const keyed = async (keys, act) => { for (const k of keys) await page.keyboard.down(k); await act(); for (const k of [...keys].reverse()) await page.keyboard.up(k) }
-async function chime() {
-  await open()
+async function chime(ui) {
+  await open(ui)
   await noCues()
   await write(`audio('chime.wav')`)
-  await lengthIs('0:08.000')
+  await lengthIs(ui?.units === 'samples' ? '352800' : '0:08.000')
   const { box, x } = await axis(8)
   return { box, x, y: box.y + tall(box) * .3, ranges: async () => (await page.locator('.clock').evaluate(tipOf)).match(/^Selected (\d+) ranges: ([\d:.]+),/)?.slice(1) ?? [] }
 }

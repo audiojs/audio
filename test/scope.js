@@ -13,7 +13,7 @@ const SITE = ['index.html', 'logo/', 'assets/', '.site-build.js', 'package-lock.
 // the engine, and what the tests' helpers drive: the menus, the commands, the keys, the looks, the script editor, the
 // edits' panel), every one
 const FEATURES = {
-  engine: ['playground/meters.js', 'playground/scrub.js', 'playground/scrub-methods.js', 'playground/scrub-names.js', 'playground/sources.js', 'playground/heard.js', 'playground/jobs.js', 'playground/voices.js'],
+  engine: ['playground/meters.js', 'playground/scrub.js', 'playground/scrub-voice.js', 'playground/sources.js', 'playground/heard.js', 'playground/jobs.js', 'playground/voices.js'],
   code: ['playground/help.js', 'playground/icons.js', 'playground/time.js', 'playground/doing.js', 'playground/markdown.js', 'playground/recipes.js', 'bin/'],
   run: ['playground/editor/run.js', 'playground/view/data.js', 'playground/sw.js'],
   look: ['playground/theme.js', 'playground/tint.js', 'playground/themes/', 'playground/themes.html', 'playground/skin.css', 'playground/scale.js'],
@@ -27,7 +27,7 @@ const FEATURES = {
   zoom: ['playground/view/scales.js'],
   render: ['playground/view/render.js', 'playground/view/overlay.js'],
   readouts: ['playground/editor/readouts.js', 'playground/meters.js', 'playground/heard.js'],
-  play: ['playground/editor/play.js', 'playground/player.js', 'playground/scrub.js', 'playground/scrub-methods.js'],
+  play: ['playground/editor/play.js', 'playground/player.js', 'playground/scrub.js', 'playground/scrub-voice.js'],
   recording: ['playground/editor/recording.js', 'playground/sources.js', 'playground/keep.js'],
   tracks: ['playground/editor/tracks.js', 'playground/view/geometry.js'],
   files: ['playground/editor/files.js', 'playground/keep.js', 'playground/kept.js', 'playground/samples.js', 'playground/jobs.js'],

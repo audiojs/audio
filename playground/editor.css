@@ -378,6 +378,12 @@ svg { flex: none; }
 .record:hover .record-icon { opacity: 1; }
 /* Recording, a square to stop it, steady; armed, the microphone still opening, it blinks, as a deck's record key does */
 .record.on .record-icon { border-radius: 2px; opacity: 1; }
+/* what it would do, pointed at with Alt or Shift held, beside the dot as a menu's chevron is: a fork, a take; a plus, a
+   new track */
+.record { position: relative; }
+.record-how { position: absolute; top: 50%; left: 25px; display: none; width: 9px; height: 9px; translate: 0 -50%; }
+.record:hover:is(.forking, .adding) .record-how { display: block; }
+.record.forking .how-track, .record.adding .how-take { display: none; }
 .record.armed .record-icon { animation: armed .5s steps(1) infinite; }
 @keyframes armed { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { .record.armed .record-icon { animation: none; opacity: .5; } }
@@ -627,7 +633,7 @@ svg { flex: none; }
 /* the takes of a place (view.js placeTakes): its numbers in its strip, written as a range's name is (view.js NAMEH,
    label()), side by side, the one heard lit, … lit while its menu is open; the fork adds an empty take there, off while
    one is */
-.plot .takes { position: absolute; z-index: 1; display: flex; }
+.plot .takes { position: absolute; z-index: 1; display: flex; background: var(--color-screen); }
 .plot .takes[hidden] { display: none; }
 .plot .takes button { height: 14px; padding: 0 2px; border: 0; border-radius: 0; background: none; color: var(--color-screen-muted); font: var(--font-size-label) var(--font-mono); cursor: pointer; }
 .plot .takes button:hover:not([aria-disabled="true"]) { color: var(--color-screen-bright); }
@@ -637,7 +643,7 @@ svg { flex: none; }
 .plot .takes button svg { display: block; width: 12px; height: 12px; }
 .plot .takes .takes-add[aria-disabled="true"] { color: var(--color-screen-muted); cursor: default; }
 /* a range's fork (view.js placeFork), where takes' numbers stand: takes started there */
-.plot .fork { position: absolute; z-index: 1; display: grid; place-items: center; width: 14px; height: 14px; padding: 0; border: 0; background: none; color: var(--color-screen-muted); cursor: pointer; }
+.plot .fork { position: absolute; z-index: 1; display: grid; place-items: center; width: 14px; height: 14px; padding: 0; border: 0; background: var(--color-screen); color: var(--color-screen-muted); cursor: pointer; }
 .plot .fork[hidden] { display: none; }
 .plot .fork svg { width: 12px; height: 12px; }
 .plot .fork:hover { color: var(--color-screen-bright); }
@@ -693,8 +699,8 @@ svg { flex: none; }
 .dropdown .option-group + .option-group { margin-top: 14px; }
 .dropdown .option-label { color: var(--color-screen-ink); font-weight: 500; }
 /* The export: the checks, rule by rule, and the file; the settings, laid out as it is */
-:is(.export, .settings) { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: 0 14px 14px; container-type: inline-size; }
-.export > .panel-group:first-child, :is(.export, .settings) > .form:first-child > .panel-group:first-child { margin-top: 4px; }
+.export { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: 0 14px 14px; container-type: inline-size; }
+.export > .panel-group:first-child, .export > .form:first-child > .panel-group:first-child { margin-top: 4px; }
 .panel-group { display: flex; flex: none; align-items: baseline; gap: 8px; margin: 16px 0 8px; overflow: hidden; color: var(--color-screen-ink); font-size: 12px; font-weight: 500; white-space: nowrap; }
 /* what it is for, in a few words after it; its name a span of its own where the page writes it (the settings') */
 .panel-group span { min-width: 0; overflow: hidden; color: var(--color-screen-muted); font-weight: 400; text-overflow: ellipsis; }
@@ -707,17 +713,17 @@ svg { flex: none; }
 /* The export's forms, one after another, a rule between, each folded or open: the file (open), the edit list, the
    check (open while a spec is chosen). A field each: its name in a column of its own, its control, what it means. The
    settings' sections alike, a group of options each field */
-:is(.export, .settings) .form { padding-bottom: 6px; }
-:is(.export, .settings) .form + .form { border-top: 1px solid var(--color-screen-rule); }
-:is(.export, .settings) .form[open] { display: grid; gap: 14px; padding-bottom: 20px; }
+.export .form { padding-bottom: 6px; }
+.export .form + .form { border-top: 1px solid var(--color-screen-rule); }
+.export .form[open] { display: grid; gap: 14px; padding-bottom: 20px; }
 /* what a form holds lays out in its details' own box, which the grid above would take as one item: the fields' gap is
    that box's */
-:is(.export, .settings) .form[open]::details-content { display: grid; gap: 14px; }
-:is(.export, .settings) .form > summary { margin: 12px 0 6px; list-style: none; cursor: pointer; }
-:is(.export, .settings) .form > summary::-webkit-details-marker { display: none; }
-:is(.export, .settings) .form > summary::before { content: '›'; width: 8px; color: var(--color-screen-muted); transition: rotate var(--dur-micro) var(--ease-out); }
-:is(.export, .settings) .form[open] > summary::before { rotate: 90deg; }
-:is(.export, .settings) .form > summary:hover { color: var(--color-screen-bright); }
+.export .form[open]::details-content { display: grid; gap: 14px; }
+.export .form > summary { margin: 12px 0 6px; list-style: none; cursor: pointer; }
+.export .form > summary::-webkit-details-marker { display: none; }
+.export .form > summary::before { content: '›'; width: 8px; color: var(--color-screen-muted); transition: rotate var(--dur-micro) var(--ease-out); }
+.export .form[open] > summary::before { rotate: 90deg; }
+.export .form > summary:hover { color: var(--color-screen-bright); }
 .export .choices.wide { width: 100%; }
 /* each as wide as its label, the room left shared out: a long label is never broken to make them even */
 .export .choices.wide { flex-wrap: nowrap; }

@@ -1,8 +1,7 @@
-import { hold as holdInput } from '../sources.js'
 import scales from '../scale.js'
 import { load, parse, skin, fonts, wear, webview, webviewFonts } from '../theme.js'
 import { temperature, rgb, MAPS } from '../tint.js'
-import { root, DESKTOP, GIVEN, APART, rulers, scrolls, grids, LOOK, looks, specMethods, mapNames, WAVE, waveLooks, levelList, scaleNames, displays, scrubs } from './config.js'
+import { root, GIVEN, APART, LOOK, looks, specMethods, mapNames, WAVE, waveLooks, levelList, scaleNames, displays } from './config.js'
 import { state, v, pl } from './context.js'
 import { stamp, note } from './format.js'
 import { store } from './persist.js'
@@ -63,10 +62,10 @@ export function openTheme() {
   input.click()
 }
 // The options, group by group: each its choices, what the chosen one does said under them. How each picture draws, in
-// its dropdown (its tab pressed again): the waveform's level units, colour, fill and lanes, the spectrogram's frequency scale,
-// method, colours, gamma, range and FFT size; the settings', a section of them by kind (settingSections): what shows
-// over the sound and how time reads; how an edit steps and joins; how a held caret sounds and a take records. Of the
-// state handed in (`s`): the page's, or, drawn as the page is wired, the one being made
+// its dropdown (its tab pressed again): the waveform's level units, colour, fill and lanes, the spectrogram's frequency
+// scale, method, colours, gamma, range and FFT size; the rest is the View menu's and the app's config (config.js UI). Of
+// the state handed in (`s`): the page's, or, drawn as the page is wired, the
+// one being made
 function optionGroups(kind, s = state) {
   const group = (label, list, now, set, more = {}) => ({ label, ...more, options: list.map(([value, name, hint, swatch]) => ({ label: name, hint, swatch, on: now === value, run: () => set(value), value })) })
   if (kind === 'wave') return [
@@ -91,37 +90,10 @@ function optionGroups(kind, s = state) {
   if (kind === 'notes') return [
     meterGroup('keys', 'Keys', 'A piano\'s keys by the lane\'s right end, the note where it plays, or the caret is, lit', s)
   ]
-  if (kind === 'edit') return [
-    group('Level steps', s.steps.map(db => [db, `${db}dB`, `A selection's level, dragged by its pill, goes ${db} dB a step`]), s.levelStep, setStep),
-    group('Splices', s.splices.map(ms => [ms, ms ? `${ms}ms` : 'Off', ms ? `An edit's seams crossfaded over ${ms} ms, so they make no click` : 'At a seam, either side meets as it is']), s.splice, setSplice)
-  ]
-  if (kind === 'play') return [
-    group('Scrub', scrubs.map(m => [m.name, m.label, m.text]), s.scrub, setScrub),
-    group('Record in', [[1, 'Mono', 'One channel, the input\'s first: a voice, one microphone'], [2, 'Stereo', 'Two channels, as the input gives them: a stereo pair, an interface\'s two inputs']], s.recordIn, setRecordIn)
-  ]
-  return [
-    { label: 'Show over the sound', options: [
-      ...s.overlayList.map(o => ({ label: o.label, hint: o.title, on: !!s.show[o.name], run: () => toggleShow(o.name) })),
-      { label: 'Snap', hint: 'To cues and markers; hold Alt to see them', on: s.snapping, run: () => state.toggleSnap() }
-    ] },
-    group('Times in', s.unitList.map(u => [u.name, u.short, `${u.label}: ${u.example}`]), s.units, setUnits),
-    group('Time row', rulers.map(r => [r.name, r.label, r.name === 'none' ? 'Only the times that matter now' : r.name === 'ticks' ? 'Ticks along the time row, no labels' : 'The times along the row, labelled']), s.ruler, setRuler),
-    group('Scroll', scrolls, s.scroll, setScroll),
-    group('Grid', grids, s.grid, setGrid)
-  ]
+  return []
 }
 // A look's meter, by the lanes' right end: one key, pressed while it shows
 function meterGroup(name, label, hint, s) { return { label: 'Meter', options: [{ label, hint, on: !!s.show[name], run: () => toggleShow(name) }] } }
-// The settings' sections, each its name and in a few words what it holds, open till a press folds it, kept so (`folds`)
-export function settingSections(s = state) {
-  return [['view', 'View', 'over the sound, and time'], ['edit', 'Editing', 'steps and seams'], ['play', 'Scrub and record', 'a held caret, a take']]
-    .map(([kind, label, text]) => ({ kind, label, text, groups: optionGroups(kind, s), open: s.folds[kind] ?? true }))
-}
-export function fold(kind, open) {
-  if ((state.folds[kind] ?? true) === open) return
-  state.folds = { ...state.folds, [kind]: open }
-  store()
-}
 // the View menu's submenus, the same groups (commands.js look.wave, look.spec)
 export function lookMenu(kind) {
   return optionGroups(kind).map(g => ({ label: g.label, items: g.options.map(o => ({ label: o.label, hint: o.hint, checked: o.on, run: o.run })) }))
@@ -129,11 +101,9 @@ export function lookMenu(kind) {
 export function resetView() {
   v.fit()
   setDisplay('wave')
-  state.show = { hits: true, gain: true, meters: true, spectrum: true, keys: true, guides: true }
-  setUnits('clock')
+  state.show = { gain: true, meters: true, spectrum: true, keys: true, guides: true }
   setLevels('linear')
-  setRuler('labels')
-  setGrid('marks')
+  setGrid('none')
   state.look = { ...LOOK }
   v.spectrogram = paint(state.look)
   state.wave = { ...WAVE }
@@ -184,20 +154,9 @@ export const showAs = (kind, name = state.track) => name ? setKind(name, kind) :
 export function setScale(name) { state.scale = v.scale = name; store() }
 function setWave(key, value) { state.wave = { ...state.wave, [key]: value }; v.waveform = state.wave; store() }
 // How a held caret sounds (scrub.js), one of the lab's ways
-export function setScrub(name) { state.scrub = name; for (const d of docs) if (d.player) d.player.scrubMode = name; store() }
-function setRecordIn(n) { state.recordIn = n; if (DESKTOP) holdInput(n); store() }
-export function setUnits(name) {
-  state.units = v.units = name
-  state.time = stamp(pl.playing ? pl.time : v.cursor)
-  describe()
-  store()
-}
 export function setLevels(name) { state.levels = v.levels = name; store() }
-export function setRuler(mode) { state.ruler = v.ruler = mode; store() }
-function setScroll(mode) { state.scroll = v.scroll = mode; store() }
+export function setScroll(mode) { state.scroll = v.scroll = mode; store() }
 export function setGrid(name) { state.grid = v.grid = name; store() }
-export function setStep(db) { state.levelStep = v.levelStep = db; store() }
-export function setSplice(ms) { state.splice = ms; store() }
 export function setLook(key, value) { state.look = { ...state.look, [key]: value }; v.spectrogram = paint(state.look); store() }
 // The panel's left edge, dragged: its width, from 280 px to two thirds of the output's, kept in this browser
 export function resizePanel(event) {

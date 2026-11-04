@@ -256,31 +256,31 @@ test('editor: the pointer on its way to a submenu crosses the rows between, whic
   const subs = () => page.locator('.menubar-sub:popover-open').count()
   const frame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
   await page.locator('.menubar-item', { hasText: /^View$/ }).click()
-  const show = await menuRow('Show').boundingBox(), zoom = await menuRow('Zoom').boundingBox()
+  const show = await menuRow('Spectrogram options').boundingBox(), zoom = await menuRow('Zoom').boundingBox()
   await page.mouse.move(show.x + 30, show.y + show.height / 2)
   await page.locator('.menubar-sub:popover-open').waitFor()
   const sub = await page.locator('.menubar-sub:popover-open').boundingBox()
-  assert.ok(sub.y + sub.height > zoom.y + zoom.height, 'the Show submenu reaches past Zoom, two rows down')
-  // down and right over Snap and onto Zoom's far end, by the submenu's edge
+  assert.ok(sub.y + sub.height > zoom.y + zoom.height, 'the submenu reaches past Zoom, rows down')
+  // down and right over the rows between and onto Zoom's far end, by the submenu's edge
   await page.mouse.move(zoom.x + zoom.width - 4, zoom.y + zoom.height / 2, { steps: 12 })
   await frame()
-  assert.equal(await lit(), 'Show', 'the row crossed lets it pass')
-  assert.equal(await subs(), 1, 'Show\'s submenu still open')
+  assert.equal(await lit(), 'Spectrogram options', 'the row crossed lets it pass')
+  assert.equal(await subs(), 1, 'its submenu still open')
   // gone out of the menus from there and resting: nothing, the row it last crossed taking nothing
   await page.mouse.move(zoom.x + zoom.width - 4, zoom.y + zoom.height + 400)
   // resting past the 300 ms a row takes the pointer in (menu.js REST)
   await page.waitForTimeout(500)
-  assert.equal(await lit(), 'Show', 'out of the menus, nothing changes')
+  assert.equal(await lit(), 'Spectrogram options', 'out of the menus, nothing changes')
   assert.equal(await subs(), 1)
   await page.mouse.move(show.x + 30, show.y + show.height / 2)
   await page.mouse.move(zoom.x + zoom.width - 4, zoom.y + zoom.height / 2, { steps: 12 })
   // rested there: Zoom's, its own submenu opening a moment on
   await page.waitForFunction(() => document.activeElement.querySelector?.('.menu-label')?.textContent === 'Zoom')
   await page.locator('.menubar-sub:popover-open .menu-row', { hasText: /^In/ }).waitFor()
-  // straight up a row: Snap's at once, Zoom's submenu gone
+  // straight up a row: that row's at once, Zoom's submenu gone
   await page.mouse.move(zoom.x + zoom.width - 4, zoom.y - zoom.height / 2, { steps: 4 })
   await frame()
-  assert.equal(await lit(), 'Snap to cues and markers')
+  assert.equal(await lit(), 'Pitch curve')
   assert.equal(await subs(), 0)
   await page.keyboard.press('Escape')
 })
@@ -308,7 +308,7 @@ test('desktop: the app is told the panels and the menus with the page\'s own ico
     }
   })
   assert.deepEqual(told.toolbar, panels, 'each panel, its button\'s icon')
-  assert.ok(panels.length >= 6 && panels.every(p => /<path d="[^"]+"/.test(p.icon)))
+  assert.ok(panels.length >= 5 && panels.every(p => /<path d="[^"]+"/.test(p.icon)))
   assert.deepEqual(told.menus, drawn, 'each item\'s icon as the page\'s menus draw it, none where it has none')
   const icons = told.menus.flat(Infinity).flatMap(function all(it) { return [it, ...(it.items ?? []).flatMap(all)] }).filter(it => it.icon)
   assert.ok(icons.length >= 11, 'the Process menu\'s kinds at least, an icon each')

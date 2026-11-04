@@ -78,7 +78,7 @@ export function placeTakes(L) {
       el.ariaLabel = 'Takes'
       // FOLD of them about the one heard (from the first, none heard), … either side for those past them
       const n = t.names.length, a = n > FOLD + 1 ? Math.max(0, Math.min(n - FOLD, t.on - 1)) : 0, b = n > FOLD + 1 ? a + FOLD : n
-      const take = k => `<button type="button" value="${k}" aria-pressed="${k === t.on}" title="Take ${k + 1}, ${t.names[k] || 'empty: R records into it'}${k === t.on ? ', heard' : ''}">${k + 1}</button>`
+      const take = k => `<button type="button" value="${k}" aria-pressed="${k === t.on}" title="Take ${k + 1}, ${k ? t.names[k] || 'empty: R records into it' : 'the sound as it was'}${k === t.on ? ', heard' : ''}">${k + 1}</button>`
       const more = `<button type="button" value="more" class="takes-more" aria-haspopup="menu" aria-expanded="false" aria-label="All ${n} takes" title="All ${n} takes">…</button>`
       el.innerHTML = (a > 0 ? more : '') + Array.from({ length: b - a }, (_, k) => take(a + k)).join('') + (b < n ? more : '')
         + `<button type="button" value="add" class="takes-add" ${t.open ? 'aria-disabled="true" title="An empty take is there: R records into it"' : 'title="Another take"'} aria-label="Another take">${FORK}</button>`
@@ -167,6 +167,8 @@ export const inRoom = (py, L) => { const r = roomOf(L); return !!r && py >= r.y 
 // the lanes the edited track's own things go in: its lane, with tracks; else all of them. The lane at a height, or -1
 export const own = L => tracks ? sorted(L.all.filter(r => r.i === focus), L.spectral) : L
 export const laneAt = (L, py) => L.all.findIndex(([, y, , lh]) => py >= y && py <= y + lh)
+// whether a height is over `rects`, the gaps between them too
+export const inLanes = (rects, py) => { const [top, bottom] = extent(rects); return py >= top && py <= bottom }
 // a track's lane at a height, the gap under it too; -1 for none (the time row)
 export const trackAt = (L, py) => py > plot().h ? -1 : L.all.findIndex(([, y, , lh]) => py >= y - headOf() && py < y + lh + FOOT)
 // A band's foot under its lanes: its name ('' a sound's), or null

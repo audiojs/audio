@@ -610,11 +610,6 @@ test('editor: a selection\'s dragged edge, or the caret, snaps to a cue near it'
   await page.mouse.click(box.x + at + 2, box.y + box.height - 8)
   const caret = +(await page.locator('.time').innerText()).split(':')[1]
   assert.ok(Math.abs(caret - end) < 1e-3, `the caret on the hit: ${caret}, the edge was ${end}`)
-  // the cues hidden, an edge still goes onto them
-  await menu('View', 'Show', 'Cues')
-  await page.mouse.click(x(1.8), y)
-  await drag([x(.7), y], [box.x + at + 2 - x(.7), 0])
-  assert.ok(Math.abs(+(await selected()).split('–')[1].split(':')[1] - end) < .012, 'snapped, hidden')
 })
 
 // A dragged edge goes onto a marked range's ends, and onto the ends of the place takes went in, as onto a marker

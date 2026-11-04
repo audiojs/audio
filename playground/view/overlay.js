@@ -2,7 +2,7 @@ import { CURVES } from '../ops.js'
 import { lightness } from '../tint.js'
 import { ownMarks, snappedTo, SIDES, unwritten } from './data.js'
 import { frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, plot, merged, spare, lanes, extent, own, laneAt, rowBand, MAP, veils, placeFrozen, roomLane } from './geometry.js'
-import { ONTO, INSET, FOOT, midiOf, noteOf, STRETCH, TICK, root, hint, timeRow, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, pitching, levelStep, picked, tracks, focus, allLanes, scroll, noted, held, assign } from './model.js'
+import { ONTO, INSET, FOOT, midiOf, noteOf, STRETCH, TICK, root, hint, timeRow, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, pitching, LEVEL_STEP, picked, tracks, focus, allLanes, scroll, noted, held, assign } from './model.js'
 import { pitchRange, semis, pitchSays, intonationSays, median, pitched, clampY, paintGuide, BLACK, paintRoll, paintLine, bent, toneAt, paintContour } from './notes.js'
 import { drag, touch, hot } from './pointer.js'
 import { decibels, drawn, W, H, dpr, half, invalidate, tape, rolled, onTape, running, wash, caretColour, rgba, shades } from './render.js'
@@ -141,7 +141,7 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
     ...(playhead == null && apart(cursor) ? [{ t: cursor, fill: here }] : []),
     ...(dropped != null ? [{ t: dropped, fill: accent() }] : [])
   ].map(m => ends.has(m.t) ? { ...m, fill: gauge(), keep: true } : m), measure?.spans, true, clear))
-  if (show.hits || aiming) paintCues(mine, measure ? [...lit, measure.t] : lit, aiming)
+  paintCues(mine, measure ? [...lit, measure.t] : lit, aiming)
   paintMarkers(all, lit, pointedAt)
   paintStrips(L, pointedAt, already)
   paintOvers(L)
@@ -404,7 +404,7 @@ export const gripAt = (L, px, py) => grips(L).find(([k, gx, gy]) => { const [x0,
 // what each does, as its way is now (a click on it turns it to the next)
 const CURVE_WORDS = { linear: 'linear', exp: 'exponential', log: 'logarithmic', cos: 'S-curve' }
 // the pill's level in steps; the pitch in semitones, from the note the range has where the pitch curve has one
-const gripName = kind => ({ in: `Fade in, ${CURVE_WORDS[fadeCurve]}`, out: `Fade out, ${CURVE_WORDS[fadeCurve]}`, level: `Level, by ${levelStep}dB`, pitch: `${pitchName()}; a click ${pitching ? 'hides' : 'shows'} the curve`, intonation: 'Intonation, wider or flatter', formant: 'Formants, by cents', stretch: { trim: 'Trim', stretch: 'Stretch', speed: 'Speed' }[gripMode], gap: 'Insert silence' })[kind]
+const gripName = kind => ({ in: `Fade in, ${CURVE_WORDS[fadeCurve]}`, out: `Fade out, ${CURVE_WORDS[fadeCurve]}`, level: `Level, by ${LEVEL_STEP}dB`, pitch: `${pitchName()}; a click ${pitching ? 'hides' : 'shows'} the curve`, intonation: 'Intonation, wider or flatter', formant: 'Formants, by cents', stretch: { trim: 'Trim', stretch: 'Stretch', speed: 'Speed' }[gripMode], gap: 'Insert silence' })[kind]
 const pitchName = () => { const f = selection && median({ at: selection[0], duration: selection[1] - selection[0] }); return `Pitch${f ? ` ${noteOf(f)}` : ''}, by cents` }
 export const gripPointer = kind => kind === 'level' || TOOLS.includes(kind) ? 'ns-resize' : kind === 'stretch' && gripMode !== 'trim' ? STRETCH : 'ew-resize'
 // Dark squares with no rim, each glyph in its own, soft lines on the screen's colour so they show over the waveform;

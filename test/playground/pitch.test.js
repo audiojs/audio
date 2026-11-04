@@ -11,7 +11,7 @@ test('editor: dragging the pitch curve moves the whole pitch line, a voice\'s pi
   await open()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t) * (t > 0.5 && t < 1.5), { duration: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Show', 'Pitch curve')
+  await menu('View', 'Pitch curve')
   assert.equal(await shown(), 'Spectrogram')
   // the curve, wherever the spectrogram's scale puts 220 Hz: up its lane at 1 s
   const { box, x } = await axis(2), up = Array.from({ length: Math.floor(tall(box) / 3) }, (_, i) => [x(1), box.y + tall(box) - 3 * i])
@@ -23,9 +23,9 @@ test('editor: dragging the pitch curve moves the whole pitch line, a voice\'s pi
   for (let i = 0; i < 9; i++) { await page.mouse.move(x(1), f0y - 4 + i); assert.notEqual(await page.locator('.plot').evaluate(el => el.style.cursor), 'ns-resize') }
   // Pitch curve off: back to the waveform the spectrogram was turned to from; on again, the spectrogram
   await show('spec')
-  await menu('View', 'Show', 'Pitch curve')
+  await menu('View', 'Pitch curve')
   assert.equal(await shown(), 'Waveform')
-  await menu('View', 'Show', 'Pitch curve')
+  await menu('View', 'Pitch curve')
   assert.equal(await shown(), 'Spectrogram')
   const at = await grab(up, 'ns-resize')
   await page.mouse.move(...at)
@@ -49,7 +49,7 @@ test('editor: a click on the pitch curve makes a point of the pitch line; dragge
   await open()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t) * (t > 0.5 && t < 1.5), { duration: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Show', 'Pitch curve')
+  await menu('View', 'Pitch curve')
   const { box, x } = await axis(2), up = t => Array.from({ length: Math.floor(tall(box) / 3) }, (_, i) => [x(t), box.y + tall(box) - 3 * i])
   await page.mouse.click(...await grab(up(.7), 'ns-resize'))
   await page.waitForFunction(() => /\.pitch\(\{ t: \[0\.7\], v: \[0\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
@@ -112,7 +112,6 @@ test('editor: pitch editing is off when the page opens', async () => {
   await page.addInitScript(code => localStorage.setItem('audio-repl', JSON.stringify({ code, pitch: true })), CHIME)
   await open()
   await page.locator('.menubar-item', { hasText: /^View$/ }).click()
-  await menuRow('Show').click()
   assert.equal(await menuRow('Pitch curve').getAttribute('aria-checked'), 'false')
   await page.keyboard.press('Escape')
 })
@@ -201,7 +200,7 @@ test('editor: the pitch tool goes by cents near, semitones far, says the note it
   await noCues()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t), { duration: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Show', 'Pitch curve')
+  await menu('View', 'Pitch curve')
   await show('wave')
   // the waveform's tools inside its lane's foot; selected off its centre line, where the pitch line is
   const { box, x } = await axis(2), pitch = [tools(x, box, .5, 1.5).pitch[0], box.y + tall(box) - 8]
@@ -243,7 +242,7 @@ test('editor: the tools set a voice\'s intonation and its formants, heard as the
   // a voice whose pitch rises and falls, ±2 semitones about 200 Hz twice a second
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * (200 * t + 2 * Math.sin(2 * Math.PI * 2 * t))), { duration: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Show', 'Pitch curve')
+  await menu('View', 'Pitch curve')
   const { box, x } = await axis(2), lh = tall(box), { intonation, formant } = tools(x, box, .5, 1.5), said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
   await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
   await page.mouse.move(...intonation)
@@ -281,7 +280,7 @@ test('editor: the pitch line, in the pitch context, edits a pitch() curve as the
   await noCues()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t), { d: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Show', 'Pitch curve')
+  await menu('View', 'Pitch curve')
   // the line on the waveform (the spectrogram, which the picture turns to, draws its points on the pitch curve)
   await show('wave')
   // its one lane, TRACK px tall

@@ -109,7 +109,7 @@ export let forkButton
 export let lookButton
 export let waves = [], specs = [], count = 0, rate = 44100, duration = 0, display = 'wave', units = 'clock', hovered = null
 // what shows besides the sound; the pauses in it, for selecting and stepping as in a text
-export let show = { hits: true, gain: true, meters: true, spectrum: true, keys: true, guides: true }, segments = { silences: [] }
+export let show = { gain: true, meters: true, spectrum: true, keys: true, guides: true }, segments = { silences: [] }
 // the output's markers: [{ time, label }], a range's with its duration, in the strips under the lanes; with tracks,
 // each its track's (`track`, its name), its line in that track's lane alone, its triangle in that track's strip
 export let markers = []
@@ -173,7 +173,7 @@ export let ruler = 'labels'
 // how the lanes are ruled (paintGrid): 'marks', 'crosses', 'dots', 'lines' or 'none'
 export let grid = 'none'
 // the steps a selection's level goes up or down in, dB, as the pill is dragged
-export let levelStep = 1
+export const LEVEL_STEP = 1
 export let look = {}, picked = null
 // how the waveform draws, as the lab's waveforms do (audiojs.github.io, lab/waveform): `colour` 'none', or for what it
 // holds in frequency, a stretch at a time (tint.js coloured): 'bands', 'layers', 'centroid' or 'dominant', in the
@@ -327,7 +327,7 @@ const set = {
   cues: x => cues = x, ahead: x => ahead = x, landed: x => landed = x, shaded: x => shaded = x, ranks: x => ranks = x,
   asking: x => asking = x, dropped: x => dropped = x, droppedNew: x => droppedNew = x, waveLook: x => waveLook = x,
   show: x => show = x, snapping: x => snapping = x, fadeCurve: x => fadeCurve = x, units: x => units = x,
-  ruler: x => ruler = x, scroll: x => scroll = x, grid: x => grid = x, levelStep: x => levelStep = x,
+  ruler: x => ruler = x, scroll: x => scroll = x, grid: x => grid = x,
   look: x => look = x, levelUnits: x => levelUnits = x, meters: x => meters = x, segments: x => segments = x,
   clips: x => clips = x, sections: x => sections = x, bounds: x => bounds = x, cueKinds: x => cueKinds = x,
   gripMode: x => gripMode = x, pitching: x => pitching = x, envelope: x => envelope = x, shift: x => shift = x,

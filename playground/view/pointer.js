@@ -1,6 +1,6 @@
 import { lockedAt, haunt, unghost, pointers, plot, spare, tallOf, lanes, floor, inRoom, own, laneAt, trackAt, footAt, bands, resized, refocus, freeze, own0, frozenAt } from './geometry.js'
 import { selectDown, origin, current, caretAt, edgeAt, gripDown, endDown, lifting, lock, aimed, fine, scrub, unscrub, nearCue, cueDown, penDown, toneDown, pitchDown, noteDown, tapped, heardAround } from './gestures.js'
-import { EDGE, ONTO, FINE, HOLD, SLOP, EXTEND, ADD, root, onedit, onmode, onscrub, onaudition, onheight, duration, show, markers, more, pieces, start, end, fview, selection, band, cursor, playhead, steered, cues, envelope, shift, contour, fadeCurve, aview, levelStep, tracks, focus, allLanes, sections, heights, lift, held, assign } from './model.js'
+import { EDGE, ONTO, FINE, HOLD, SLOP, EXTEND, ADD, root, onedit, onmode, onscrub, onaudition, onheight, duration, show, markers, more, pieces, start, end, fview, selection, band, cursor, playhead, steered, cues, envelope, shift, contour, fadeCurve, aview, LEVEL_STEP, tracks, focus, allLanes, sections, heights, lift, held, assign } from './model.js'
 import { hear, pitchRange, noteAt, linePoints, curveOf, onLine, pointOn, knotOn } from './notes.js'
 import { lanesEnd, gripAt, gripPointer, glide } from './overlay.js'
 import { arrange, faded, crossed, invalidate } from './render.js'
@@ -74,7 +74,7 @@ export function down(event) {
   // begun there snapped from its start; held ⌘, where it is (aims finely, nothing snapping)
   const t = markAt(px, py) ?? (editing(event) ? snap(time(px)) : stuck(snap(time(px))))
   const L = own(lanes())
-  drag = gripDown(px, py, L, event) || endDown(px, py, event) || (show.hits && cueDown(px, py, event)) || (show.gain && !pitchLine() && penDown(px, py, L)) || (pitchLine() && (toneDown(px, py, L) || penDown(px, py, L, true) || pitchDown(px, py, L) || penDown(px, py, L))) || noteDown(px, py, L, event) || selectDown(event, px, py, t, L)
+  drag = gripDown(px, py, L, event) || endDown(px, py, event) || cueDown(px, py, event) || (show.gain && !pitchLine() && penDown(px, py, L)) || (pitchLine() && (toneDown(px, py, L) || penDown(px, py, L, true) || pitchDown(px, py, L) || penDown(px, py, L))) || noteDown(px, py, L, event) || selectDown(event, px, py, t, L)
   // ⌘ aims finely, but not what it took hold of: a box, audio carried, an end stretched, a cue
   drag.aim = { px, py, ex: px, ey: py, on: editing(event), k: editing(event) && !drag.box && !drag.carry && !drag.end && drag.cue == null ? FINE : 1 }
   // a plain press held still, Alt's too: the caret, dragged, no selection (no caret added)
@@ -218,7 +218,7 @@ export function drags(event, px, py) {
   // the lane's height is 24 dB, in half-dB steps, from −24 to +12
   else if (drag.lift === 'gain') {
     const was = drag.db
-    drag.db = Math.max(-24, Math.min(12, +(Math.round((drag.y - py) / drag.rect[3] * 24 / levelStep) * levelStep).toFixed(1)))
+    drag.db = Math.max(-24, Math.min(12, +(Math.round((drag.y - py) / drag.rect[3] * 24 / LEVEL_STEP) * LEVEL_STEP).toFixed(1)))
     assign({ pieces: arrange('gain', drag.a, drag.b, drag.a, drag.db) })
     // heard at the level it goes to, as a pitch dragged is
     hear(drag, drag.db !== was, { at: drag.a, duration: drag.b - drag.a, gain: drag.db })
@@ -332,7 +332,7 @@ export function hover(px, py, keys = held) {
   const aim = (editing(keys) || keys.altKey) && L.all.some(r => inside(r, px, py))
   const tone = pitchLine() && contour?.f0.length && pitchLanes(L).find(r => inside(r, px, py))
   const handle = gripAt(L, px, py)?.[0], end = !handle && editing(keys) && py <= floor() && edgeAt(px)?.edge === 1
-  const cue = !handle && !end && show.hits && nearCue(px, py, keys) >= 0
+  const cue = !handle && !end && nearCue(px, py, keys) >= 0
   const note = !handle && !end && !cue && !keys.shiftKey && !keys.altKey && L.notes.some(r => inside(r, px, py) && noteAt(r, px, py))
   const within = selection && !band && py <= floor() && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE && !caretAt(px, py) && !thirdAt(px, py)
   const other = handle ? gripPointer(handle)

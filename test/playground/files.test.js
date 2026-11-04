@@ -287,8 +287,6 @@ test('editor: a view kept for a file no longer here gives way to the drop', asyn
 test('editor: a file arriving on the spectrogram draws its spectrogram as it comes', async () => {
   await open()
   await show('spec')
-  // no grid, which is drawn in the waveform's canvas (view.js paintGrid): what that canvas shows is a waveform's
-  await settings('Grid', 'None')
   // an edit that waits for the whole file (normalize): what shows meanwhile is the file itself. Slower than the other
   // slow files (8 KB every 300 ms, 6.6 s in all), so a slow machine's first draw still finds it arriving
   await write(`audio('${origin}/slow/test/fixture.wav?ms=300').normalize()`)

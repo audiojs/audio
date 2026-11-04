@@ -238,10 +238,10 @@ test('editor: a sound longer than the page holds is drawn from its peaks and spe
   assert.ok(used < 150e6, `the page holds ${(used / 1e6).toFixed(0)} MB, its samples would be ${(1820 * 48000 * 4 / 1e6).toFixed(0)}`)
   assert.ok(await drawn() > .02, 'all of it drawn from its peaks')
   // the overview of all of it, from its leaves: ink all along it
-  await settings('Scroll', 'Overview')
+  await menu('View', 'Minimap')
   const w0 = (await page.locator('.plot').boundingBox()).width
   assert.ok(await pixels(`let n = 0; for (let x = 0; x < w * .9; x++) for (let y = h - 26; y < h - 4; y++) { const i = (y * w + x) * 4; if (d[i] > 60) n++ } return n`) > w0 * 2, 'the overview drawn from its leaves')
-  await settings('Scroll', 'Bar')
+  await menu('View', 'Minimap')
   // the spectrogram of all of it, from its spectra: the tone a bright row, at 220 Hz
   await show('spec')
   await poll(() => page.locator('.plot canvas.spectrum').screenshot().then(png => page.evaluate(async b64 => {

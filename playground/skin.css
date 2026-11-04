@@ -89,7 +89,7 @@
   --shadow-lifted: 0 2px 8px oklch(0% 0 0 / .4);
   /* the size of the picture's words (its axes' numbers, its tags) and of the script's, in the mono font */
   --font-size-label: 10px;
-  --font-size-code: 13px;
+  --font-size-code: 11px;
   /* the page's bar, and the paper round the slab */
   --bar: 56px;
   --gutter: 14px;

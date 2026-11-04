@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, menu, write, LANES, tall, tracksAt, lengthIs, gridShown, pixels, show, shown, themed } from './page.js'
+import { page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, menu, menuRow, write, LANES, tall, tracksAt, lengthIs, gridShown, pixels, show, shown, themed } from './page.js'
 
 // The axis at the pictures' right is as wide as its labels and the pointer's value read out on it, five characters at
 // full scale: a sample value to a digit finer than the marks (−0.03), decibels to a tenth with no unit (−12.3), a
@@ -78,7 +78,7 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
     return !await page.evaluate(() => window.__ruled)
   }
   assert.ok(await blank(), 'bare by default: nothing ruled')
-  await settings('Grid', 'Lines')
+  await menu('View', 'Grid')
   // the layers laid again, each only as its drawing changes (view.js, kept.js): the pointer over the picture, then off it
   await page.locator('.plot').hover({ position: { x: 10, y: 10 } })
   await frames()
@@ -95,7 +95,7 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
     return points.map(([x, y]) => { let m = 0; for (let j = Math.floor((y - 1) * k); j < Math.floor((y - 1) * k) + Math.ceil(3 * k); j++) for (let i = Math.floor((x - 1) * k); i < Math.floor((x - 1) * k) + Math.ceil(3 * k); i++) m = Math.max(m, d[j * w + i]); return m })
   }, points)
   const mid = [(c0 + c1) / 2, (r5 + r0) / 2]
-  await gridShown('Lines')
+  await gridShown()
   const [down, across, between, behind] = await lit([[c0, mid[1]], [mid[0], r5], mid, [hit, r0]])
   assert.ok(down && across, 'a line down from 2.5 s and across from 0.5')
   assert.equal(between, 0, 'none between the ticks')
@@ -107,27 +107,23 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   await settled()
   const db = await page.evaluate(() => window.__ticks), r6 = db.find((c, i) => c.w && c.h === 1 && db[i + 1]?.s === '−6')?.y
   assert.ok(Number.isFinite(r6), 'a tick at −6 dB')
-  await gridShown('Lines')
+  await gridShown()
   assert.ok((await lit([[mid[0], r6]]))[0], 'a line across from −6 dB')
-  await settings('Grid', 'Lines')
   assert.ok(!await blank(), 'its rects drawn')
-  await settings('Grid', 'None')
+  await menu('View', 'Grid')
   assert.ok(await blank(), 'nothing with None')
   // nor where there is no sound: a new tab, empty
-  await settings('Grid', 'Lines')
+  await menu('View', 'Grid')
   await page.getByRole('button', { name: 'New tab' }).click()
   await page.locator('.empty').waitFor()
   assert.ok(await blank(), 'nothing with no sound')
 })
 
-// Three faders lying down for the settings, a spark for the agent, an open book for the recipes, the switches joined
+// A spark for the agent, an open book for the recipes, the switches joined
 // (raised keys in one bezel), the export's icon an arrow down onto a tray; a band's look opens on a click alone
 test('editor: the settled icons; the switches are keys in a bezel; a band\'s look right-clicked opens nothing', async () => {
   await open()
   const icon = name => page.getByRole('tab', { name, exact: true }).locator('path').getAttribute('d')
-  const faders = await icon('Settings')
-  assert.equal(faders.match(/a2\.25 2\.25 0 1 1 0-4\.5/g).length, 3, 'three faders, their round knobs, 4.5 units across')
-  assert.deepEqual(faders.match(/M4 \d+h/g), ['M4 6h', 'M4 12h', 'M4 18h'], 'lying down, one over another, 16 units across')
   assert.equal(await icon('Agent'), 'M12 3c.6 4.7 4.3 8.4 9 9-4.7.6-8.4 4.3-9 9-.6-4.7-4.3-8.4-9-9 4.7-.6 8.4-4.3 9-9Z', 'a spark, four curved points')
   assert.equal(await icon('Export'), 'M12 4v11m-5-5 5 5 5-5M4 19h16', 'an arrow down onto a tray')
   assert.equal(await icon('Recipes'), 'M3 5h5a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H3Zm18 0h-5a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h6Z', 'an open book')
@@ -169,10 +165,7 @@ test('editor: the spectrogram\'s frequency scale from its dropdown, snapping fro
   const box = await plot.boundingBox()
   await page.mouse.click(box.x + box.width - 20, box.y + box.height * .1)
   assert.equal(await now(), 'lin')
-  await tab('Settings')
-  assert.equal(await choice('Show over the sound', 'Snap').getAttribute('aria-pressed'), 'true')
-  await choice('Show over the sound', 'Snap').click()
-  assert.equal(await choice('Show over the sound', 'Snap').getAttribute('aria-pressed'), 'false')
+  await menu('View', 'Snap')
   await page.waitForFunction(() => (s => s.snap === false && s.scale === 'lin')(JSON.parse(localStorage.getItem('audio-repl'))))
   await page.reload()
   await wholeLevels().waitFor()
@@ -202,7 +195,7 @@ test('editor: the waveform fill is as bright as the signal is often at that leve
 // Every setting kept comes back as it was kept; a value the page no longer has, its default; a store that does not read
 // is set aside, not written over
 test('editor: every setting comes back as it was kept; one the page no longer has, its default', async () => {
-  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { hits: false, gain: false, meters: false, spectrum: false, keys: false, guides: false }, units: 'samples', snap: false, curve: 'cos', levels: 'db', ruler: 'ticks', step: 3, look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'bands' }, wave: { colour: 'centroid', lanes: 'one', fill: 'flat', map: 'magma', weighting: 'k' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, splice: 20, scrub: 'grains', grip: 'speed' }
+  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { meters: false, spectrum: false, keys: false, gain: true, guides: true }, snap: false, curve: 'cos', levels: 'db', look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'bands' }, wave: { colour: 'centroid', lanes: 'one', fill: 'flat', map: 'magma', weighting: 'k' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, grip: 'speed' }
   await page.addInitScript(all => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ ...all, docs: [{ code: "audio('chime.wav')" }] })) } }, all)
   await open()
   const kept = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')))
@@ -210,10 +203,10 @@ test('editor: every setting comes back as it was kept; one the page no longer ha
   for (const [key, value] of Object.entries(all)) assert.deepEqual(now[key], value, key)
   // written from another page of the site, so the editor's own store as it closes doesn't write over it
   const seed = async value => { await page.goto(origin + '/blank.html'); await page.evaluate(v => localStorage.setItem('audio-repl', v), value); await page.goto(origin + '/playground/') }
-  await seed(JSON.stringify({ units: 'bogus', ruler: 7, step: 'x', format: 'wma', look: { map: 'nope', gamma: 2 }, spec: 'radio', docs: [{ code: 5 }, { code: "audio('chime.wav')" }] }))
+  await seed(JSON.stringify({ scroll: 'bogus', format: 'wma', look: { map: 'nope', gamma: 2 }, spec: 'radio', docs: [{ code: 5 }, { code: "audio('chime.wav')" }] }))
   await wholeLevels().waitFor()
   const fixed = await kept()
-  assert.deepEqual([fixed.units, fixed.ruler, fixed.step, fixed.format, fixed.look.map, fixed.look.gamma, fixed.spec, fixed.docs.length], ['clock', 'labels', 1, 'wav', 'grey', 1, '', 1])
+  assert.deepEqual([fixed.scroll, fixed.format, fixed.look.map, fixed.look.gamma, fixed.spec, fixed.docs.length], ['hover', 'wav', 'grey', 1, '', 1])
   // unreadable, set aside: the page as a first visit finds it, an empty tab
   await seed('{"docs": [{"code": "audio(\'chime.wav\')"')
   await page.locator('.empty').waitFor()
@@ -360,32 +353,18 @@ test('editor: a band\'s look in its layer opens how it shows: what it shows, the
   assert.equal(await opened(), 0, 'Esc closes it')
 })
 
-// The settings, the panels' last: a section each, as the export's forms, open at first, a press folding one, kept so:
-// its groups, their choices, what the chosen one does said under them. How a held caret sounds is one of the lab's
-// eight ways (scrub-methods.js), kept. How the pictures draw is theirs, in their dropdown, none of it here
-test('editor: the settings are a panel of sections, what holds everywhere, the pictures\' looks not among them', async () => {
+// The view's few, checks in the View menu, kept, no panel of settings: the minimap, the grid, snapping; the rest is the
+// app's config (?ui=). How the pictures draw is theirs, in their dropdown
+test('editor: the View menu checks the minimap, the grid and snapping, kept', async () => {
   await open()
-  const groups = () => page.locator('.settings .option-label:visible').allInnerTexts()
-  const sections = () => page.locator('.settings .panel-name').allInnerTexts(), fold = name => page.locator('.settings summary', { hasText: name }).click()
-  await tab('Settings')
-  assert.equal(await page.locator('.side-slab').getAttribute('aria-label'), 'Settings')
-  assert.deepEqual(await sections(), ['View', 'Editing', 'Scrub and record'])
-  assert.deepEqual(await groups(), ['Show over the sound', 'Times in', 'Time row', 'Scroll', 'Grid', 'Level steps', 'Splices', 'Scrub', 'Record in'], 'all open at first')
-  const ways = page.locator('.settings').getByRole('group', { name: 'Scrub', exact: true }).getByRole('button')
-  assert.deepEqual(await ways.allInnerTexts(), ['Vocoder + noise', 'Vocoder', 'Random phase', 'Noisc bank', 'Noisc lines', 'Grains', 'Loop', 'Tape'])
-  assert.match(await choice('Scrub', 'Vocoder + noise').getAttribute('title'), /^Tones keep their phase/, 'what each does, in its tooltip')
-  await choice('Scrub', 'Tape').click()
-  assert.equal(await choice('Scrub', 'Tape').getAttribute('aria-pressed'), 'true')
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').scrub === 'tape')
-  // folded, kept so
-  for (const name of ['View', 'Scrub and record']) await fold(name)
-  assert.deepEqual(await groups(), ['Level steps', 'Splices'])
-  await page.waitForFunction(() => Object.values(JSON.parse(localStorage.getItem('audio-repl')).folds ?? {}).filter(open => !open).length === 2)
+  assert.equal(await page.getByRole('tab', { name: 'Settings', exact: true }).count(), 0, 'no panel of settings')
+  const checked = async name => { await page.locator('.menubar-item', { hasText: /^View$/ }).click(); const on = await menuRow(name).getAttribute('aria-checked'); await page.keyboard.press('Escape'); return on }
+  assert.deepEqual([await checked('Minimap'), await checked('Grid'), await checked('Snap')], ['false', 'false', 'true'])
+  for (const name of ['Minimap', 'Grid', 'Snap']) await menu('View', name)
+  await page.waitForFunction(() => (s => s.scroll === 'overview' && s.grid === 'lines' && s.snap === false)(JSON.parse(localStorage.getItem('audio-repl') || '{}')))
   await page.reload()
   await wholeLevels().waitFor()
-  await tab('Settings')
-  assert.deepEqual(await groups(), ['Level steps', 'Splices'], 'what was folded, kept')
-  assert.equal(await page.locator('.settings').getByRole('group', { name: 'Frequency scale', exact: true }).count(), 0, 'no picture\'s look')
+  assert.deepEqual([await checked('Minimap'), await checked('Grid'), await checked('Snap')], ['true', 'true', 'false'], 'kept')
 })
 
 // How the spectrogram draws its frames (gl-spectrogram's methods): each a picture of its own, kept for the next visit;

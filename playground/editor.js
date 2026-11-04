@@ -14,13 +14,13 @@ import md from './markdown.js'
 import { connectAgent, pickAgent, partsOf, showChat, newChat, openChat, dropChat, visit, elapsed, sendChat, chatKey, wire as wireChat } from './editor/chat.js'
 import { wire as wireClipboard } from './editor/clipboard.js'
 import { command, shortcut, tip, scriptKeys, pressed } from './editor/commands.js'
-import { root, params, EMBED, UI, SHOWN, QUICK, GIVEN, formats, ENCODING, writtenDepth, DEPTH_USE, cutFormats, frameRates, KEEPS, overlays, rulers, scrolls, grids, LOOK, looks, specMethods, WAVE, waveLooks, levelList, curves, glyphs, gripModes, SETTINGS_ICON, AGENT_ICON, RECIPES_ICON, displays, SHUTTLE, times, tenths, scrubs, rates, layouts, specs, stored, oneOf, sideOf } from './editor/config.js'
+import { root, params, EMBED, UI, SHOWN, QUICK, GIVEN, formats, ENCODING, writtenDepth, DEPTH_USE, cutFormats, frameRates, KEEPS, LOOK, looks, specMethods, WAVE, waveLooks, levelList, curves, glyphs, gripModes, AGENT_ICON, RECIPES_ICON, displays, SHUTTLE, times, tenths, rates, layouts, specs, stored, oneOf, sideOf } from './editor/config.js'
 import { ed, rk, pl, output, incoming, rechoose, shown, carded, queued, assign } from './editor/context.js'
 import { remember, undoList, goTo, editSelection, warp, carry, toTab, addOp, spread, flatten } from './editor/edits.js'
 import { lengthOf, pickFiles, openFiles, taken, recover, useSample, useCode, useRecipe, openSearch, closeSearch, typeSearch, runSearch, preview, useResult, exportFiles, exportCuts, share, wire as wireFiles } from './editor/files.js'
 import { bytes, mac, keys, clock, stamp, ruled, label, note } from './editor/format.js'
 import { wire as wireKeys } from './editor/keys.js'
-import { paint, settingSections, fold, toggleShow, setDisplay, laneGroups, setScale, setScrub, setUnits, setLevels, setRuler, setStep, setSplice, setLook, resizePanel, flipView, wire as wireLook } from './editor/look.js'
+import { paint, toggleShow, setDisplay, laneGroups, setScale, setLevels, setLook, resizePanel, flipView, wire as wireLook } from './editor/look.js'
 import { bar, openDropdown, dropToggle, placeList, contextMenu, openTools, closePalette, quick, toolKey, soundMenu, opsMenu, saveMenu, closeMenus, wire as wireMenus } from './editor/menus.js'
 import { writing, store, later, wire as wirePersist } from './editor/persist.js'
 import { playerOf, toggleAB, toggleLoop, plays, playPress, playClick, togglePlay, toggleTabMute, onscrub, wire as wirePlay } from './editor/play.js'
@@ -56,16 +56,15 @@ wireClipboard()
 // the mark in the bar, drawn live (play.js)
 wirePlay()
 
+// a time in samples of the sound, as a number reads
+const samples = t => Math.round(t * (output?.sampleRate || 44100)).toLocaleString('en')
 const state = sprae(root, {
-  format: oneOf(stored.format, formats.map(f => f.name), 'wav'), encoding: { markers: true, ...stored.encoding }, snapping: stored.snap ?? true, fadeCurve: oneOf(stored.curve, curves.map(c => c.name), 'linear'), gripMode: ['trim', 'speed'].includes(stored.grip) ? stored.grip : 'stretch', pitch: false, settingsIcon: SETTINGS_ICON, recipesIcon: RECIPES_ICON, agentIcon: AGENT_ICON,
-  overlayList: overlays.map(([name, label, title]) => ({ name, label, title })),
-  unitList: UNITS.map(([name, label, example, short]) => ({ name, label, example, short })), levelList, levels: oneOf(stored.levels, ['db'], 'linear'),
-  rulers, ruler: SHOWN.length && !SHOWN.includes('ruler') ? 'off' : oneOf(stored.ruler, rulers.map(r => r.name), 'labels'), scroll: oneOf(stored.scroll, scrolls.map(s => s[0]), 'bar'), grid: oneOf(stored.grid, grids.map(g => g[0]), 'none'), splices: [0, 5, 10, 20], splice: oneOf(stored.splice, [0, 5, 10, 20], 10), steps: [.1, 1, 3], levelStep: oneOf(stored.step, [.1, 1, 3], 1), look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
-  scrubs, scrub: scrubs.some(s => s.name === stored.scrub) ? stored.scrub : 'hybrid', recordIn: stored.record === 2 ? 2 : 1,
+  format: oneOf(stored.format, formats.map(f => f.name), 'wav'), encoding: { markers: true, ...stored.encoding }, snapping: stored.snap ?? true, fadeCurve: oneOf(stored.curve, curves.map(c => c.name), 'linear'), gripMode: ['trim', 'speed'].includes(stored.grip) ? stored.grip : 'stretch', pitch: false, recipesIcon: RECIPES_ICON, agentIcon: AGENT_ICON,
+  levelList, levels: oneOf(stored.levels, ['db'], 'linear'),
+  ruler: SHOWN.length && !SHOWN.includes('ruler') ? 'off' : 'labels', scroll: oneOf(UI.scroll ?? stored.scroll, ['bar', 'hover', 'overview'], 'hover'), grid: oneOf(stored.grid, ['none', 'lines'], 'none'), splice: Number.isFinite(UI.splice) ? UI.splice : 10, look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
   reads: oneOf(SHOWN.find(w => ['peak', 'rms', 'loudness'].includes(w)) ?? stored.reads, ['peak', 'rms', 'loudness'], 'peak'), hears: oneOf(stored.hears, ['note', 'key', 'tempo'], 'note'),
-  // the settings' sections while their panel shows, each folded or not as it was left (`folds`); the picture's groups
+  // the picture's groups
   // while its dropdown is open
-  get settingSections() { return this.side === 'settings' ? settingSections(this) : [] }, folds: stored.folds && typeof stored.folds === 'object' ? stored.folds : {},
   // how a band shows, the dropdown its look opens: the band's name (a sound's ''), what each track shows, its own
   dropdown: false, dropLane: '', kinds: {}, get displayGroups() { return this.dropdown ? laneGroups(this.dropLane, this) : [] },
   get dropTitle() { const kind = (this.dropLane && this.kinds[this.dropLane]) || this.display; return `${this.dropLane ? `${this.dropLane}: ` : ''}${displays.find(d => d.name === kind).label}` },
@@ -75,13 +74,13 @@ const state = sprae(root, {
   get shuttleText() { return tenths(this.shuttle ?? this.speed) },
   get shuttleAt() { return SHUTTLE.at(this.shuttle ?? this.speed) },
   display: oneOf(stored.display, displays.map(d => d.name), 'wave'), scale: scales[stored.scale] ? stored.scale : 'log', rates, layouts, sound: null, viewing: '',
-  show: { hits: true, gain: true, meters: true, spectrum: stored.show?.meters ?? true, keys: true, guides: true, ...stored.show }, units: oneOf(stored.units, UNITS.map(u => u[0]), 'clock'),
+  show: { meters: true, spectrum: stored.show?.meters ?? true, keys: true, ...stored.show, gain: true, guides: true }, units: oneOf(UI.units, UNITS.map(u => u[0]), 'clock'),
   embed: EMBED, quick: QUICK, made: 0, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
   // the commands' keys and tooltips, as the menus have them (commands.js)
   shortcut, tip,
   tabs: [], marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, trackRows: null, ghost: false, renaming: null, renamingTab: null,
   progress: '', figure: '', arrived: null, working: false, loading: false, arriving: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
-  time: '0:00.000', span: 0, readout: '', reading: { of: '', head: '', rows: [] }, heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
+  time: '0:00.000', held: null, span: 0, readout: '', reading: { of: '', head: '', rows: [] }, heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
   // the ring in Play's place (status), unless it plays or records
   get halting() { return this.working && !this.playing && !this.recording },
   specs, spec: oneOf(stored.spec, specs.map(s => s.key), ''), report: null, checking: false, ab: false, abGain: 0, canCompare: false,
@@ -108,7 +107,7 @@ const state = sprae(root, {
   get checkRows() { return (this.report?.rules || []).map(ruled) },
   setSpec(key) { state.spec = key; store(); scheduleCheck(0) },
   toggleAB,
-  // The clock, in the units the settings choose: the playhead, or the caret, one time always, the ranges being on the
+  // The clock, in the config's units: the playhead, or the caret, one time always, the ranges being on the
   // time row; after it how long all that is selected is, between bars as a length is marked. What is selected, in full, when
   // pointed at
   get timeText() { return this.time },
@@ -130,8 +129,9 @@ const state = sprae(root, {
   // a click on the time brings the view to it; on the length, the selection shown whole, then all of it
   bringTime() { v.bring() },
   frameLength() { v.frameSelected() },
-  get lengthTitle() { return this.recording ? 'Take' : this.lengthPending ? `Length\n${this.arrived == null ? 'On its way' : `${Math.floor(this.arrived * 100)}% here`}` : !this.span && !this.hasOutput ? 'Length\nNo sound' : `${this.span ? 'Selection' : 'Length'}\nClick to fit` },
-  get timeTip() { return `${this.playing ? 'Playhead' : 'Caret'}\nClick to show` },
+  // pointed at, in samples
+  get lengthTitle() { return this.recording ? 'Take' : this.lengthPending ? `Length\n${this.arrived == null ? 'On its way' : `${Math.floor(this.arrived * 100)}% here`}` : !this.span && !this.hasOutput ? 'Length\nNo sound' : `${this.span ? 'Selection' : 'Length'}\n${samples(this.span || this.duration)} samples` },
+  get timeTip() { this.time; return `${this.playing ? 'Playhead' : 'Caret'}\nSample ${samples(v && this.playing ? pl.time : v?.cursor ?? 0)}` },
   get timeTitle() {
     const sel = this.selection
     if (this.playing || this.recording || !this.span) return ''
@@ -144,7 +144,7 @@ const state = sprae(root, {
   // a tab opens the panel on it; the tab shown, again, closes it (its tabs stay, to open it again)
   setSide(name) { state.side = state.side === name ? null : name; store() },
   toggleSide() { state.side = state.side ? null : 'edits'; store() },
-  get sideTitle() { return { recipes: 'Recipes', chat: 'Agent', edits: 'Edits', code: 'Code', export: 'Export', settings: 'Settings' }[this.side] ?? 'Panel' },
+  get sideTitle() { return { recipes: 'Recipes', chat: 'Agent', edits: 'Edits', code: 'Code', export: 'Export' }[this.side] ?? 'Panel' },
   // The recipes by group, those whose words have every word typed
   scenarioQuery: '',
   get scenarioGroups() {
@@ -192,8 +192,8 @@ const state = sprae(root, {
   setScale,
   toggleSnap() { state.snapping = v.snapping = !state.snapping; store() },
   layerPress, layerName, layerLook, layerMenu, toggleLock, toggleMute, renameLayer, renamed, nameNewTrack, fitField,
-  toggleShow, setUnits, setLevels, setRuler, setStep, setLook, setSplice, setScrub,
-  blankView: on => { if (v) v.blank = on }, setDisplay, dropToggle, placeList, fold, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo, pickReading, pickHeard, markLevel, unmarkLevel,
+  toggleShow, setLevels, setLook,
+  blankView: on => { if (v) v.blank = on }, setDisplay, dropToggle, placeList, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo, pickReading, pickHeard, markLevel, unmarkLevel,
   togglePlay, playPress, playClick, stop, redo: () => command('redo').run(), mac, share, exportFiles,
   switchTab, tabPress, tabRenamed, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
   openSearch, closeSearch, runSearch, typeSearch, preview, useResult
@@ -297,12 +297,12 @@ v = view(root.querySelector('.plot'), {
     if (!run) return
     if (run.track != null && run.track !== state.track) focusOn(run.track)
     if (k === 'more') return bar.at(takeList(run), 0, 0, button)
-    if (k !== 'add') return useTakeOf(run, k)
+    if (k !== 'add') return useTakeOf(run, k - 1)
     const [a, b] = reach(run), change = addTake(ed.code, run, b - a, lengthOf), [p, q] = span(run)
     if (!change) return note('An empty take is there already: R records into it')
     ed.change(change)
     v.select(p, Math.min(q, v.duration))
-    note(`Take ${run.list.length + 1} added, empty: R records into it`)
+    note(`Take ${run.list.length + 2} added, empty: R records into it`)
   },
   // a named range's fork pressed: takes start there
   onfork: forkRange,
@@ -372,10 +372,8 @@ v.levels = state.levels
 v.ruler = state.ruler
 v.scroll = state.scroll
 v.grid = state.grid
-v.levelStep = state.levelStep
 v.spectrogram = paint(state.look)
 v.waveform = state.wave
-pl.scrubMode = state.scrub
 // the speed kept from before
 pl.rate = state.speed
 // the panel as wide as it was left

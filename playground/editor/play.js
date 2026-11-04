@@ -16,7 +16,7 @@ import { laneIndex } from './tracks.js'
 
 // Each tab plays on its own, as a browser's tabs do: one left as it plays plays on, heard with the one shown, its speaker
 // on its tab muting it (toggleTabMute). `pl`, the shown tab's player (switchTab), each tab's made as it is first shown
-export const playerOf = doc => doc.player ??= Object.assign(player({ onend: () => ended(doc) }), { scrubMode: state.scrub })
+export const playerOf = doc => doc.player ??= player({ onend: () => ended(doc) })
 // the frame that draws the playhead (chase); the file as it opened, level-matched, heard before the edits (toggleAB)
 export let ticker = 0, original = null
 // the caret is where playback ends, as it is where it pauses; a tab not shown, its speaker goes

@@ -1,7 +1,7 @@
 // The time row, the overview, the scrollbar, the caret out of sight; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { browser, page, origin, errors, tipOf, wholeLevels, open, settled, frames, poll, settings, selected, noCues, write, FOOT, tall, tracksAt, gutter, spans, axis, lengthIs, tap, heard, pixels, keyed } from './page.js'
+import { browser, page, origin, errors, tipOf, wholeLevels, open, settled, frames, poll, settings, selected, noCues, write, FOOT, tall, tracksAt, gutter, spans, axis, lengthIs, tap, heard, pixels, keyed, menu } from './page.js'
 
 // The caret, the selection or the playhead out of sight, past the lanes' end under the meters too: it stays at the edge
 // of the lanes it is past, its line as opaque as in sight, and on the time row under it its tick with a chevron pointing
@@ -120,7 +120,7 @@ test('editor: the overview shows the whole sound under the time row; pressed or 
   await noCues()
   await write(`audio.from(t => t < 10 ? Math.sin(2 * Math.PI * 220 * t) * .5 : 0, { duration: 20 })`)
   await lengthIs('0:20.000')
-  await settings('Scroll', 'Overview')
+  await menu('View', 'Minimap')
   const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), foot = box.y + box.height - 12
   const range = () => page.evaluate(() => __view.range)
   // drawn where there is sound, its first half; a line where it is silent
@@ -154,7 +154,7 @@ test('editor: with tracks, the overview shows the track edited', async () => {
   await write(`let a = audio.from(t => t < 5 ? Math.sin(2 * Math.PI * 220 * t) * .5 : 0, { duration: 10 })\n\nlet b = audio.from(t => t < 5 ? 0 : Math.sin(2 * Math.PI * 220 * t) * .5, { duration: 10 })`)
   await lengthIs('0:10.000')
   await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
-  await settings('Scroll', 'Overview')
+  await menu('View', 'Minimap')
   const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter())
   // (lit in any channel: a track's own colour, its waveform's)
   const ink = f => pixels(`const x = Math.round(arg); let n = 0; for (let y = h - 26; y < h - 4; y++) { const i = (y * w + x) * 4; if (Math.max(d[i], d[i + 1], d[i + 2]) > 60) n++ } return n`, w * f)
@@ -173,7 +173,7 @@ test('editor: the overview draws the sound as its lanes do, its body brightest a
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .5, { duration: 4 })`)
   await lengthIs('0:04.000')
-  await settings('Scroll', 'Overview')
+  await menu('View', 'Minimap')
   const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter())
   // a column at the middle: the brightest of each row of the strip, its lit rows' middle and a fifth of the way in
   const shades = () => pixels(`const x = Math.round(arg), rows = []; for (let y = h - 26; y < h - 4; y++) { const i = (y * w + x) * 4; rows.push(Math.max(d[i], d[i + 1], d[i + 2])) } return rows`, w / 2)
@@ -315,7 +315,7 @@ test('editor: zoomed in, the scrollbar at the time row\'s top moves the view, th
   await page.mouse.click(box.x + 4, foot)
   assert.ok(await left() < .05, 'pressed at its start, the view from the start')
 })
-// On hover (the settings' Scroll, or the ui config's `scroll`), the scrollbar as an overlay scrollbar is (view.js
+// By default (the app's config's `scroll`: `hover`), the scrollbar as an overlay scrollbar is (view.js
 // barLight): shown while the pointer is over the picture, and for a second after the view is zoomed or scrolled; its
 // layer faded out otherwise. Bar, always shown
 test('editor: on hover, the scrollbar shows only while the pointer is over the picture or a second after a zoom', async () => {
@@ -323,7 +323,6 @@ test('editor: on hover, the scrollbar shows only while the pointer is over the p
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  await settings('Scroll', 'Bar on hover')
   const shows = on => page.waitForFunction(o => document.querySelector('.plot canvas.scrollbar').style.opacity === o, on ? '1' : '0')
   const box = await page.locator('.plot').boundingBox()
   await page.mouse.move(1, 1)
@@ -346,8 +345,9 @@ test('editor: on hover, the scrollbar shows only while the pointer is over the p
   await page.mouse.move(1, 1)
   await shows(false)
   assert.ok(Date.now() - left < 500, `held after the pointer left: ${Date.now() - left} ms`)
-  // Bar: shown with the pointer away
-  await settings('Scroll', 'Bar')
+  // the config's bar: shown with the pointer away
+  await open({ scroll: 'bar' })
+  await page.mouse.move(1, 1)
   await shows(true)
   // embedded, the ui config's scroll its start
   const src = await page.evaluate(async () => {

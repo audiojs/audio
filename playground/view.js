@@ -333,8 +333,6 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     set scroll(mode) { assign({ scroll: ['hover', 'overview'].includes(mode) ? mode : 'bar' }); invalidate() },
     // how the lanes are ruled: 'marks', 'crosses', 'dots', 'lines', 'none'
     set grid(name) { assign({ grid: name }); invalidate(true) },
-    // the steps, dB, a selection's level goes in as its pill is dragged
-    set levelStep(db) { assign({ levelStep: +db || 1 }) },
     // how the spectrogram draws: { map, gamma, depth, size } (repl.js spectrogram settings), as gl-spectrogram takes them
     set spectrogram(o) { assign({ look: o }); assign({ shaded: null, palette: null }); for (const sg of [...specs, ...recording?.specs ?? []]) sg.update({ ...look, color: shades() }); assign({ leveled: false }); invalidate() },
     // the skin changed (a theme worn, theme.js): every colour read from it read again, the pictures drawn again in them

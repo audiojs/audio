@@ -1,11 +1,10 @@
 import { ops, CURVES, labelOf, format, icons as groupIcons } from '../ops.js'
 import opIcons from '../icons.js'
 import { keep as keepFile } from '../keep.js'
-import scrubNames from '../scrub-names.js'
 import { MAPS } from '../tint.js'
 
 // The editor as the page is given it: its root, the link's parameters, what this browser stored, and the lists and
-// constants its menus, settings and exports offer
+// constants its menus and exports offer
 
 export const root = document.querySelector('#app')
 // Embedded in another page (embed.js, <audio-repl>): one script, the link's; nothing read from this browser or kept in
@@ -13,12 +12,14 @@ export const root = document.querySelector('#app')
 export const params = new URLSearchParams(location.search), EMBED = params.has('embed')
 // In the Mac app (?desktop, index.html): the input held as a DAW holds it (below, sources.js hold)
 export const DESKTOP = params.has('desktop')
-// Embedded, all the page asks of the picture and its parts, as one JSON (?ui=, embed.js builds it): panel, display,
-// controls (the parts shown, index.html and editor.css name them; a level among them what the readout reads, and
-// without ruler, no time row), ops (the edits a press away, as `stretch(1.25)`), background (the page's ground, to
-// sit on and to fade into), zoom and overshoot (how far time zooms, and scrolls past the sound's end), scroll (what
-// scrolls it: `scrolls`): README.md. A link from before it, ?panel= and ?display=, reads the same.
-export const UI = !EMBED ? {} : (() => { try { return { panel: params.get('panel') ?? undefined, display: params.get('display') ?? undefined, ...JSON.parse(params.get('ui') || '{}') } } catch { return {} } })()
+// The app's one config, a JSON (?ui=, embed.js builds it; README.md): what the View menu leaves out, as a page or a link
+// asks it, embedded or not. panel, display, controls (the parts shown, index.html and editor.css name them; a level among
+// them what the readout reads, and without ruler, no time row), ops (the edits a press away, as `stretch(1.25)`),
+// background (the page's ground, to sit on and to fade into), zoom and overshoot (how far time zooms, and scrolls past
+// the sound's end), scroll (what scrolls it: `bar`, `hover`, `overview`), cues (what shows first where they crowd),
+// units (how time reads: time.js UNITS), splice (the ms an edit's seams crossfade over), channels (of a take over
+// nothing). A link from before it, ?panel= and ?display=, reads the same.
+export const UI = (() => { try { return { ...EMBED && { panel: params.get('panel') ?? undefined, display: params.get('display') ?? undefined }, ...JSON.parse(params.get('ui') || '{}') } } catch { return {} } })()
 export const SHOWN = Array.isArray(UI.controls) ? UI.controls : []
 // each quick edit: its call, with its own arguments or, as the menus write it, the defaults the library can't do
 // without; its icon; its arguments as the edit's own settings read, each in its unit (none where one is not a plain
@@ -78,11 +79,6 @@ export const KEEPS = { wav: 'as cue points', mp3: 'as chapters' }
 // Icons of acts no method is (a method's own are icons.js's): a lane with a gap where a piece left it, the piece gone
 // down to a lane of its own
 export const icons = { track: 'M3 7h5m8 0h5M3 17h18M12 5v8m-3-3 3 3 3-3' }
-// What the picture shows besides the sound, each a thing to grab where it is, none a mode: the cues (with ⌘ held, a
-// drag of one moves it and the audio around it stretches), the pitch curve (dragged, the whole pitch line), the gain
-// line (its points drag; a press on the line adds one). The meters at the right are each look's own (optionGroups):
-// the waveform's level (`meters`), the spectrogram's spectrum (`spectrum`)
-export const overlays = [['hits', 'Cues', 'Where sounds start, end and hit'], ['gain', 'Gain line', 'While its step is chosen in the edits: drag its points'], ['guides', 'Guides', 'What the hovered edit sets']]
 // The cues (worker.js), both kinds as one, [{ t, rank, kind }]: the edges of the pauses, where a voice's words or a solo's
 // phrases start and end, and the hits, where the level jumps up (a strike, a struck or plucked note, a word struck);
 // one of each within 30 ms is one place, the edge's, which its attack placed
@@ -90,18 +86,6 @@ export function cueTimes(edges, hits) {
   const near = t => edges.some(e => Math.abs(e.t - t) < .03)
   return [...edges, ...hits.filter(h => !near(h.t))].sort((a, b) => a.t - b.t)
 }
-// How the time row marks time: labels and their ticks, ticks alone, or nothing but the times that matter now (the caret's,
-// the pointer's, a selection's)
-export const rulers = [['labels', 'Labels'], ['ticks', 'Ticks'], ['none', 'None']].map(([name, label]) => ({ name, label }))
-// what scrolls the view, zoomed in: a bar at the time row's foot, always or only when reached for, or the whole sound
-// under it, as a minimap
-export const scrolls = [['bar', 'Bar', 'A thin bar at the time row\'s foot, the part of the sound in view'], ['hover', 'Bar on hover', 'The bar shown only while the pointer is over the picture, and for a second after the view is scrolled or zoomed by keys or touch'], ['overview', 'Overview', 'The whole sound in a strip under the time row, the part in view lit: pressed, the view goes there; dragged, it moves']]
-// How the lanes are ruled (view.js paintGrid), behind the waveform and over the spectrogram, by the time row's ticks and
-// the axis' on the right: bare, or a faint line from each tick
-export const grids = [
-  ['none', 'None', 'The lanes bare'],
-  ['lines', 'Lines', 'A faint line from each tick across the lanes']
-]
 // The spectrogram's look: grey, the screen to its ink (white, or a theme's foreground), so the page shows through where
 // the sound is quiet and the louder is the inkier; or a colormap (tint.js MAPS, the waveform's too: matplotlib's magma,
 // inferno and viridis, and the colour of light); bent by a gamma (a level's share of the range raised to it: under 1
@@ -148,7 +132,7 @@ export const waveLooks = {
 // How the waveform's level axis writes levels: decibels from full scale, mirrored about the centre line, or the sample
 // values themselves, signed
 export const levelList = [['db', 'Decibels', '−6dB', 'dB'], ['linear', 'Sample values', '0.5', '±1']].map(([name, label, example, short]) => ({ name, label, example, short }))
-// The frequency scales the settings choose between (scale.js)
+// The frequency scales a lane's look chooses between (scale.js)
 export const scaleNames = { log: 'Octaves', mel: 'Mel', erb: 'ERB', lin: 'Hertz' }
 // A fade's curves, as the library names them (audio.op('fade').curves), each drawn as it fades in, as its handle on the picture draws
 // it; out, the other way
@@ -160,9 +144,7 @@ export const glyphs = { up: 'M12 19V5m-6 6 6-6 6 6', down: 'M12 5v14m-6-6 6 6 6-
 // (remove, insert), stretches it, the pitch kept (fn/stretch.js), or speeds it, the pitch following, as a tape
 // (fn/speed.js)
 export const gripModes = [['trim', 'Trim', 'Cut back, or silence added'], ['stretch', 'Stretch', 'The pitch kept'], ['speed', 'Speed', 'The pitch follows, as a tape’s']].map(([name, label, text]) => ({ name, label, text }))
-// The settings' icon, on the 24 grid of the others: three faders lying down, as a phone's settings draw them, 16 units
-// across as the others' weight is, their knobs 4.5 across, staggered; the agent's, a spark; the recipes', an open book
-export const SETTINGS_ICON = 'M4 6h7.75m4.5 0H20M4 12h2.75m4.5 0H20M4 18h8.75m4.5 0H20M14 8.25a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Zm-5 6a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Zm6 6a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Z'
+// The agent's icon, on the 24 grid of the others, a spark; the recipes', an open book
 export const AGENT_ICON = 'M12 3c.6 4.7 4.3 8.4 9 9-4.7.6-8.4 4.3-9 9-.6-4.7-4.3-8.4-9-9 4.7-.6 8.4-4.3 9-9Z'
 export const RECIPES_ICON = 'M3 5h5a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H3Zm18 0h-5a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h6Z'
 // What a band shows: the waveform, the spectrogram or the notes, one at a time (each zooms its own way), chosen by its
@@ -184,10 +166,6 @@ SHUTTLE.span = SHUTTLE.px * (SHUTTLE.max - SHUTTLE.min)
 // a speed as the line's ticks say it, and as its mark does: a tenth always, so the mark keeps its width as it moves
 export const times = r => r ? `${r < 0 ? '−' : ''}${+Math.abs(r).toFixed(2)}×` : '0'
 export const tenths = r => `${r < 0 ? '−' : ''}${Math.abs(r).toFixed(1)}×`
-// How a held caret sounds: the lab's eight ways (scrub-methods.js, which the audio thread alone loads; their names its
-// own, scrub-names.js), the closest first
-export const scrubs = [['hybrid', 'Tones keep their phase, the rest turns at random: the closest to the sound'], ['vocoder', 'Every bin keeps its phase: the moment frozen'], ['random', 'Every bin a new random phase each hop, as Paulstretch'], ['bank', 'A noise oscillator for each band, 40 Hz to 16 kHz'], ['lines', 'The tonal peaks as lines of noise'], ['grains', 'Grains of 80 ms, one every 20 ms'], ['loop', 'The 80 ms around the caret, again and again'], ['tape', 'A reel\'s head chasing the caret: the pitch follows its speed, silent when still']]
-  .map(([name, text]) => ({ name, label: scrubNames[name], text }))
 // Rates a sound resamples to, from the facts on the display: the standard ones, each with what it is for, in a few words
 // (audiojs/sample-rate, after Wikipedia's Sampling (signal processing) table)
 export const rates = [[8000, 'Telephone, walkie-talkie'], [11025, 'Low-quality PCM'], [16000, 'VoIP, wideband speech'], [22050, 'Low-quality MPEG'], [44100, 'Audio CD, MP3'], [48000, 'Video, professional audio'], [88200, 'Pro recording for CD'], [96000, 'DVD-Audio, Blu-ray'], [176400, 'HDCD, CD production'], [192000, 'Pro video, Blu-ray'], [352800, 'DXD, SACD editing'], [384000, 'Highest in common software']]
@@ -210,4 +188,4 @@ export const stored = EMBED ? { side: UI.panel === 'none' ? null : UI.panel || '
 export const oneOf = (value, list, fallback) => list.includes(value) ? value : fallback
 export const docsOf = list => Array.isArray(list) ? list.filter(d => typeof d?.code === 'string') : []
 // the panel's tabs; one stored under a name it no longer has opens on the edits, and a closed panel stays closed
-export const sides = ['recipes', 'chat', 'edits', 'code', 'export', 'settings'], sideOf = name => name == null ? null : sides.includes(name) ? name : 'edits'
+export const sides = ['recipes', 'chat', 'edits', 'code', 'export'], sideOf = name => name == null ? null : sides.includes(name) ? name : 'edits'

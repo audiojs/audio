@@ -153,14 +153,9 @@ test('editor: the caret goes where the pointer presses; Play starts on its press
   assert.match(await page.locator('.clock').evaluate(tipOf), /^Selected 0:02\.000–0:03\.000: 0:01\.000, 44100 samples/)
   assert.equal(await facts(), '44.1kHz stereo 16-bit')
   assert.match(await readout(), /^−/)
-  await settings('Times in', 's')
-  assert.equal(await page.locator('.time').innerText(), '3.000s')
-  assert.equal(await length(), '1.000s')
-  await settings('Times in', 'samples')
-  assert.equal(await selected(), '88200–132300')
-  assert.equal(await length(), '44100')
-  await settings('Times in', 'm:s')
-  assert.equal(await selected(), '0:02.000–0:03.000')
+  // pointed at, in samples
+  assert.match(await page.locator('.length').evaluate(tipOf), /^Selection\n44,100 samples$/)
+  assert.match(await page.locator('.time').evaluate(tipOf), /^Caret\nSample 132,300$/)
   // the press alone plays; the release changes nothing
   const play = await page.locator('button.play').boundingBox()
   await page.mouse.move(play.x + play.width / 2, play.y + play.height / 2)
@@ -1082,35 +1077,12 @@ test('editor: a range pressed in its strip, or a note, plays while held, from it
   assert.equal((await heard()).at(-1), null, 'let go: none')
 })
 
-// How a held caret sounds, chosen in the settings: the lab's tape (scrub-methods.js), its head chasing the caret, plays
-// the chime while the caret is dragged across it, and is silent held still
-test('editor: the tape scrub, chosen in the settings, plays the sound as the caret is dragged, silent held still', async () => {
-  await page.addInitScript(tap)
-  await open()
-  await settings('Scrub', 'Tape')
-  const { box, x } = await axis(6.525), y = box.y + box.height - 8
-  await page.mouse.move(x(.2), y)
-  await page.mouse.down()
-  await heard()
-  // dragged at a pace: a step each 40 ms
-  for (let t = .2; t < 1.4; t += .05) { await page.mouse.move(x(t), y); await page.waitForTimeout(40) }
-  const moving = (await heard()).peak
-  // the tape come to rest, then what it plays held still a while
-  await page.waitForTimeout(400)
-  await heard()
-  await page.waitForTimeout(400)
-  const still = (await heard()).peak
-  await page.mouse.up()
-  assert.ok(moving > .05 && still < moving / 10, `dragged ${moving}, held still ${still}`)
-})
-
 // With tracks, a scrub hears the track edited alone, as its lane shows it, not their mix: the quiet one quiet, the loud
 // one loud. A track's mute, beside its name: its lane dim, the mix without it, kept with the tab; the heads part the
 // bands with no rule between them, nor say how many channels each has
 test('editor: with tracks, a scrub hears the track edited alone; a muted track leaves the mix', async () => {
   await page.addInitScript(tap)
   await open()
-  await settings('Scrub', 'Tape')
   await write(`const tone = (f, a) => Float32Array.from({ length: 48000 }, (_, i) => a * Math.sin(2 * Math.PI * f * i / 48000))
 let quiet = audio.from([tone(220, .1)], { sampleRate: 48000 })
 

@@ -23,7 +23,7 @@ export default function player({ onend = () => {} } = {}) {
   // are needed (set's `fetching` and `lanes`); the tracks' lanes the page holds
   let fetched = null, lanes = null, laneWindow = null
   // the track a scrub hears (its lane's index), none for the output
-  let scrubbing = null, scrubbed = null, solo = null, loaded = null, heldBy = null, mode = 'hybrid', speed = 1
+  let scrubbing = null, scrubbed = null, solo = null, loaded = null, heldBy = null, speed = 1
   // a moment heard as an edit being dragged will leave it (audition), and how many were asked for
   let hearing = null, auditions = 0
   // the latest of play and pause wins: a play still opening the device when a pause comes stays paused
@@ -94,7 +94,6 @@ export default function player({ onend = () => {} } = {}) {
       scrubbing?.node.disconnect()
       const node = new AudioWorkletNode(ctx, 'scrub', { outputChannelCount: [n] })
       node.connect(ctx.destination)
-      node.port.postMessage({ mode })
       scrubbing = { node, channels: n, of: null }
     }
     if (w && scrubbing.of !== w.x[0]) {
@@ -180,8 +179,6 @@ export default function player({ onend = () => {} } = {}) {
     set rate(r) { speed = r; if (voice) voice.playbackRate = r },
     // looping switched while it plays: at once, within the span it plays
     set loop(on) { if (voice?.playing) voice.loop = on },
-    // how a held caret sounds (scrub.js): 'hybrid', the vocoder with noise, or one of the lab's (scrub-methods.js)
-    set scrubMode(m) { mode = m; scrubbing?.node.port.postMessage({ mode }) },
     seek(time) {
       at = Math.max(0, Math.min(time, duration()))
       if (voice?.playing && !voice.paused) calm(voice.seek(at))

@@ -1,4 +1,4 @@
-import { plot, floor } from './geometry.js'
+import { plot, floor, lanes } from './geometry.js'
 import { EDGE, STICK, FINE, root, oncursor, onscrub, onaudition, duration, more, selection, band, cursor, cues, bounds, contour, gripMode, anchor, noted, assign } from './model.js'
 import { median, noteAt, linePoints, valueAt, onLine, toneOf, toneAt, pointOn, knotOn } from './notes.js'
 import { TOOLS, handled, gripAt } from './overlay.js'
@@ -157,7 +157,7 @@ export function unscrub() {
 }
 // A cue's line, held ⌘ (Ctrl): pressed and let go, the caret on the cue; dragged, the cue moves, the audio either side
 // stretching to meet it. Not the sound's own start or end (bounds), which warp holds
-export const nearCue = (px, py, keys) => editing(keys) && py <= floor() ? seen().find(i => !bounds.has(cues[i]) && Math.abs(x(cues[i]) - px) <= STICK) ?? -1 : -1
+export const nearCue = (px, py, keys) => editing(keys) && py <= floor() && !lanes().spec.some(r => inside(r, px, py)) ? seen().find(i => !bounds.has(cues[i]) && Math.abs(x(cues[i]) - px) <= STICK) ?? -1 : -1
 export function cueDown(px, py, keys) {
   const i = nearCue(px, py, keys)
   if (i < 0) return null

@@ -353,8 +353,7 @@ test('editor: Denoise learns the noise where it is selected and takes it out eve
 // A stretch dragged to anywhere, not a round factor: the output it makes ends the stretched range where the drag let go,
 // to the sample, so nothing after it moves when it comes (the library's length, round(n × factor), fn/stretch.js)
 test('editor: a stretch dragged anywhere ends where it was let go, to the sample', async () => {
-  const { box, x, y } = await chime(), lh = (tall(box) - LANES) / 2
-  await settings('Times in', 'samples')
+  const { box, x, y } = await chime({ units: 'samples' }), lh = (tall(box) - LANES) / 2
   await page.mouse.click(x(7.5), y)
   await drag([x(1), y], [x(1.7) - x(1), 0])
   assert.equal(await selected(), '44100–74970')
@@ -500,8 +499,8 @@ test('editor: held ⌘, a range\'s end stretches it, as its grip does', async ()
 })
 
 // Delete closes up the audio either side of what goes, crossfaded over 10 ms so the seam makes no click (remove(),
-// fn/remove.js); the settings set it, or turn it off
-test('editor: Delete crossfades the seam it leaves, as long as the settings say', async () => {
+// fn/remove.js); the config's `splice` sets it, or turns it off
+test('editor: Delete crossfades the seam it leaves, 10 ms unless the config says', async () => {
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
@@ -511,11 +510,10 @@ test('editor: Delete crossfades the seam it leaves, as long as the settings say'
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => /\.remove\(\{ at: 1, d: 1, xfade: 0\.01 \}\)$/.test(scriptText()))
   await lengthIs('0:07.000')
-  await page.keyboard.press('ControlOrMeta+Z')
-  await lengthIs('0:08.000')
-  await settings('Splices', 'Off')
-  // the selection Undo brought back, gone first: a press on its edge would drag the edge
-  await page.mouse.click(x(6), y)
+})
+
+test('editor: the config\'s splice 0 leaves a Delete\'s seam as it is', async () => {
+  const { x, y } = await chime({ splice: 0 })
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => /\.remove\(\{ at: 1, d: 1 \}\)$/.test(scriptText()))

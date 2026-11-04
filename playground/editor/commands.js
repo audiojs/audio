@@ -1,14 +1,13 @@
 import recipes from '../recipes.js'
 import { tracks as tracksOf, master as masterOf } from '../code.js'
 import { builtins } from '../sources.js'
-import { UNITS } from '../time.js'
 import { THEMES } from '../theme.js'
-import { root, generators, formats, overlays, grids, displays, SPEEDS, specs } from './config.js'
+import { root, generators, formats, displays, SPEEDS, specs } from './config.js'
 import { state, v, ed, rk, output, steps } from './context.js'
 import { undoList, goTo, editSelection } from './edits.js'
 import { pickFiles, shelved, unshelve, useSample, useCode, useRecipe, openSearch, exportFiles, share } from './files.js'
 import { keys } from './format.js'
-import { worn, dress, setTheme, openTheme, lookMenu, resetView, toggleShow, setDisplay, setUnits, setGrid } from './look.js'
+import { worn, dress, setTheme, openTheme, lookMenu, resetView, setDisplay, setGrid, setScroll } from './look.js'
 import { openTools } from './menus.js'
 import { toggleAB, toggleLoop, setSpeed, togglePlay } from './play.js'
 import { retakeHere, startRecording, stopRecording, takeList, deletion } from './recording.js'
@@ -95,12 +94,10 @@ export const commands = [
   ...displays.map(d => ({ id: `display.${d.name}`, label: d.label, checked: () => state.display === d.name, run: () => setDisplay(d.name) })),
   { id: 'look.wave', label: 'Waveform options', items: () => lookMenu('wave') },
   { id: 'look.spec', label: 'Spectrogram options', items: () => lookMenu('spec') },
-  { id: 'grid', label: 'Grid', items: () => grids.map(([name, label, hint]) => check(label, state.grid === name, () => setGrid(name), { hint })) },
-  { id: 'show', label: 'Show', items: () => [
-    ...overlays.map(([name, label, tip]) => check(label, state.show[name], () => toggleShow(name), { tip })),
-    check('Pitch curve', state.pitch, () => setPitch(!state.pitch), { tip: 'The voice\'s pitch on the spectrogram, dragged whole or by its bends; a click on a selection\'s pitch tool shows it too' })
-  ] },
-  { id: 'snap', label: 'Snap to cues and markers', tip: 'Hold Alt to see them', checked: () => state.snapping, run: () => state.toggleSnap() },
+  { id: 'minimap', label: 'Minimap', tip: 'The whole sound under the time row, to scroll by', checked: () => state.scroll === 'overview', run: () => setScroll(state.scroll === 'overview' ? 'hover' : 'overview') },
+  { id: 'grid', label: 'Grid', tip: 'A faint line from each tick across the lanes', checked: () => state.grid === 'lines', run: () => setGrid(state.grid === 'lines' ? 'none' : 'lines') },
+  { id: 'snap', label: 'Snap', tip: 'Onto onsets, markers and takes, the lines shown as a thing is dragged; Alt shows them all', checked: () => state.snapping, run: () => state.toggleSnap() },
+  { id: 'pitch.curve', label: 'Pitch curve', tip: 'The voice\'s pitch on the spectrogram, dragged whole or by its bends; a click on a selection\'s pitch tool shows it too', checked: () => state.pitch, run: () => setPitch(!state.pitch) },
   { id: 'zoom', label: 'Zoom', items: s => ['zoom.in', 'zoom.out', 'zoom.selection', 'zoom.all'].map(id => item(id, s)), when: s => !s.none },
   // the keys about the playhead, else the selection's middle or the caret (out: the playhead or the caret); a menu, about
   // the view's middle
@@ -112,7 +109,7 @@ export const commands = [
   { id: 'panel', label: 'Panel', items: () => [
     check('Shown', !!state.side, () => state.toggleSide()),
     '-',
-    ...[['recipes', 'Recipes'], ['chat', 'Agent'], ['edits', 'Edits'], ['code', 'Code'], ['export', 'Export'], ['settings', 'Settings']].map(([name, label]) => check(label, state.side === name, () => state.setSide(name)))
+    ...[['recipes', 'Recipes'], ['chat', 'Agent'], ['edits', 'Edits'], ['code', 'Code'], ['export', 'Export']].map(([name, label]) => check(label, state.side === name, () => state.setSide(name)))
   ] },
   { id: 'theme', label: 'Theme', items: () => [
     check('The screen', !worn, () => dress(null), { hint: 'Grey on black, as the site draws it' }),
@@ -121,7 +118,6 @@ export const commands = [
     '-',
     { label: 'Open a VS Code theme…', hint: 'Any theme\'s .json file', run: openTheme }
   ] },
-  { id: 'units', label: 'Times in', items: () => UNITS.map(([name, label, example]) => check(label, state.units === name, () => setUnits(name), { hint: example })) },
   { id: 'view.reset', label: 'Reset the view', run: () => resetView() },
 
   // Track: the sounds side by side, one made, split off, set against another, mixed, taken away
@@ -150,9 +146,9 @@ export const commands = [
   { id: 'speed', label: 'Speed', hint: 'Pitch kept', items: () => SPEEDS.list.map(r => check(`${r}×`, state.speed === r, () => setSpeed(r))) },
   // R, ⇧R (with nothing to record over, R) and ⌥R (recording.js toggleRecording, Record's button)
   { id: 'record', label: () => state.whole ? 'Record at the caret' : 'Record', keys: 'R', scope: 'page', press: e => rKey(e) && !e.altKey && !(e.shiftKey && state.whole), when: () => !state.recording, run: recorded(() => startRecording()) },
-  { id: 'record.track', label: 'Record a new track', hint: 'The others playing', keys: '⇧R', scope: 'page', press: e => rKey(e) && !e.altKey && e.shiftKey && state.whole, when: s => !state.recording && !s.none, run: recorded(() => startRecording(true)) },
-  { id: 'record.take', label: 'Record another take', hint: 'Of the recording at the caret', keys: '⌥R', scope: 'page', press: e => rKey(e) && e.altKey, when: s => !state.recording && !s.none, run: recorded(() => retakeHere()) },
-  { id: 'takes', label: 'Takes', hint: s => s.here ? `${s.here.list.length} here` : 'Record again where a take went in, or with the loop on', items: s => s.here ? [...takeList(s.here), '-', deletion(s.here)] : undefined, when: s => !!s.here },
+  { id: 'record.track', label: 'Record in a new track', hint: 'The others playing', keys: '⇧R', scope: 'page', press: e => rKey(e) && !e.altKey && e.shiftKey && state.whole, when: s => !state.recording && !s.none, run: recorded(() => startRecording(true)) },
+  { id: 'record.take', label: 'Record a take', hint: 'Over the selection, a range or the takes at the caret', keys: '⌥R', scope: 'page', press: e => rKey(e) && e.altKey, when: s => !state.recording && !s.none, run: recorded(() => retakeHere()) },
+  { id: 'takes', label: 'Takes', hint: s => s.here ? `${s.here.list.length + 1} here` : 'Record again where a take went in, or with the loop on', items: s => s.here ? [...takeList(s.here), '-', deletion(s.here)] : undefined, when: s => !!s.here },
 
   // Help
   { id: 'help.keys', label: 'Mouse and keys', run: () => root.querySelector('dialog.help').showModal() },

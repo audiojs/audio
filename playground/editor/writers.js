@@ -30,7 +30,7 @@ function retune(name, value, now) {
   if (value !== now) write(`${name}(${value})`)
 }
 // Where an edit makes a seam (audio taken out and what is either side meets, audio or silence put in, a range moved
-// over): an equal-power crossfade that long across it, so it makes no click (the settings; none, 5, 10 or 20 ms, 10 by
+// over): an equal-power crossfade that long across it, so it makes no click (the app's config, `splice`; 10 ms by
 // default), the length as it would be without it (fn/remove.js, fn/insert.js, fn/move.js); in an options object, or
 // after a paste's time
 export const splice = () => state.splice ? `, xfade: ${state.splice / 1000}` : ''

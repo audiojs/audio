@@ -1,15 +1,14 @@
 // The scrub voice, an AudioWorklet: while a caret is held or dragged it plays the sound under it, every channel its
-// own, by one of the ways of hearing a moment (@audio/scrub, vendored as scrub-methods.js by .scrub-vendor.js). By
-// default 'hybrid', vocoder + noise: a phase vocoder whose tonal peaks carry their phase on and whose other bins take a
-// new random phase each hop, the channels turning together as far as they are alike, an attack played once as
-// recorded; of eight ways compared in the lab's "Hearing a moment" (audiojs.github.io/lab/scrub) the closest to the
-// sound around the caret. The settings choose another (`mode`: tape, loop, grains, bank, lines, random, vocoder). A
+// own, by @audio/scrub's vocoder + noise (vendored as scrub-voice.js by .scrub-vendor.js): a phase vocoder whose tonal
+// peaks carry their phase on and whose other bins take a new random phase each hop, the channels turning together as far
+// as they are alike, an attack played once as recorded; of the eight ways compared in the lab's "Hearing a moment"
+// (audiojs.github.io/lab/scrub, where the others are) the closest to the sound around the caret. A
 // still caret sustains the moment; a moving one plays the sound at the caret's speed. A band [low, high] in Hz keeps
 // only its bins (the spectral ways). It fades in and out over 10 ms. Nothing allocates while it plays.
 // The sound comes at its own rate; the voice runs at that rate, a block at a time, and is read at the context's,
 // between its samples.
-// Messages in: { x, rate } the sound's channels and rate; { caret } in samples of it; { band }; { on }; { mode }.
-import { methods } from './scrub-methods.js'
+// Messages in: { x, rate } the sound's channels and rate; { caret } in samples of it; { band }; { on }.
+import { Voice } from './scrub-voice.js'
 const BLOCK = 128
 
 class Scrub extends AudioWorkletProcessor {
@@ -20,7 +19,6 @@ class Scrub extends AudioWorkletProcessor {
     this.caret = 0
     this.band = null
     this.on = false
-    this.mode = 'hybrid'
     this.voice = null
     this.gain = 0
     // the voice's block, the next of its samples to read, its last two samples of each channel, and where the
@@ -32,9 +30,8 @@ class Scrub extends AudioWorkletProcessor {
     this.at = 1
     this.port.onmessage = ({ data }) => this.receive(data)
   }
-  receive({ x, rate, caret, band, on, mode }) {
+  receive({ x, rate, caret, band, on }) {
     if (x) { this.x = x; this.rate = rate || sampleRate; this.voice = null; this.gain = 0 }
-    if (mode && mode !== this.mode) { this.mode = mode; this.voice = null; this.gain = 0 }
     if (caret != null) this.caret = caret
     if (band !== undefined) this.band = band
     if (on != null) this.on = on
@@ -42,7 +39,7 @@ class Scrub extends AudioWorkletProcessor {
   process(inputs, outputs) {
     const out = outputs[0]
     if (this.on && !this.voice && this.x) {
-      this.voice = (methods[this.mode] || methods.hybrid).make(this.x, this.rate, this.caret)
+      this.voice = new Voice(this.x, this.rate, this.caret, undefined, true)
       this.gain = 0
       this.block = this.x.map(() => new Float32Array(BLOCK))
       this.k = BLOCK

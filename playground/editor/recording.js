@@ -1,9 +1,9 @@
-import { append, number, between, steps as stepsOf, turnOff, tracks as tracksOf, focus, takes, carried, useTake, dropTake, raise } from '../code.js'
+import { append, number, between, steps as stepsOf, turnOff, tracks as tracksOf, focus, takes, carried, useTake, addTake, dropTake, raise } from '../code.js'
 import { builtins, sample, microphone, hold as holdInput, unique } from '../sources.js'
 import opIcons from '../icons.js'
 import { tape } from '../keep.js'
 import { item } from './commands.js'
-import { root, DESKTOP, keep } from './config.js'
+import { root, DESKTOP, UI, keep } from './config.js'
 import { state, eng, v, ed, pl, output } from './context.js'
 import { write, applied, changed } from './edits.js'
 import { lengths, lengthOf, shelf, restoring, saving, taken, place } from './files.js'
@@ -22,12 +22,27 @@ import { focusOn, laneIndex, fetches, lanesOf, newTrack } from './tracks.js'
 export let placed = []
 // Record pressed: with Shift (⇧R), into a new track as the others play
 export function toggleRecording(event) { state.recording ? stopRecording() : event?.altKey ? retakeHere() : startRecording(!!event?.shiftKey && state.whole) }
-// Another take of the recording at the caret (⌥R, Alt adds): into its place, from where it goes in to where it ends,
-// one more take there; with none there, a recording from the caret, the first
+// A take (⌥R, Alt adds), made as it is pressed, its place and its number on the picture from the first: of the takes at
+// the caret, an empty one more there; none there, over what is selected or the range at the caret, takes started there
+// (forkRange); recorded into, to its place's end. Over neither, from the caret, as long as it is recorded, its place
+// kept with it (`d`), one take or more
 export function retakeHere() {
-  const run = state.whole && takesHere(true)
-  return run && reach(run)[1] > run.at ? startRecording(false, run) : startRecording()
+  if (!state.whole) return startRecording()
+  const run = takesHere(true)
+  if (run && reach(run)[1] > run.at) {
+    const [a, b] = reach(run), more = !run.list.some(x => x.empty != null) && addTake(ed.code, run, b - a, lengthOf)
+    if (more) ed.change(more)
+    return startRecording(false, takesHere(true), true)
+  }
+  const m = !v.selection && output?.markers?.find(k => k.duration && (k.track ?? null) === (output.tracks ? state.track : null) && v.cursor >= k.time && v.cursor < k.time + k.duration)
+  const [a, b] = v.band ? [] : v.selection ?? (m ? [m.time, m.time + m.duration] : [])
+  if (!(b > a)) return startRecording(false, null, true)
+  forkRange({ time: a, duration: b - a })
+  return startRecording(false, takesHere(true), true)
 }
+// The channels a take records: those of the track or the sound it goes over, a mono one's one, a stereo one's two; over
+// nothing (a new sound, `fresh` a new track), one, a voice (a laptop's twin the same), or the ui config's `channels`
+const inputs = fresh => (!fresh && (output?.tracks ? output.tracks.find(t => t.name === state.track)?.channels : output?.channels.length)) || (UI.channels === 2 ? 2 : 1)
 // Recording goes into the waveform as it comes, as a dictaphone's. Over the output, from the caret or the selection's
 // start, what it covers is replaced, as a tape records on (a punch-in), and extended past the end: one write() step,
 // undone as any edit. A selection ends it at its end; with the loop on, each pass starts over there and replaces the
@@ -44,11 +59,11 @@ export let recorder = null
 let arming = null, unarm = 0, allowed = false
 export function armRecording(event) {
   if (event.button || recorder || state.recording || arming) return
-  arming = microphone({ channels: state.recordIn })
+  arming = microphone({ channels: inputs(event.shiftKey) })
   arming.catch(() => {})
   unarm = setTimeout(() => { arming?.then(mic => mic.cancel(), () => {}); arming = null }, 2000)
 }
-export async function startRecording(fresh = false, run = null) {
+export async function startRecording(fresh = false, run = null, place = false) {
   closeMenus()
   if (recorder || state.recording) return
   // the caret in the room under the lanes: a new track's, whatever starts the take (R, the button, the menu)
@@ -58,8 +73,9 @@ export async function startRecording(fresh = false, run = null) {
   // a place (`run`), into it, as into a selection
   const out = output, into = state.whole, sel = into && run ? span(run) : into && !v.band ? v.selection : null
   if (fresh === true && into && !newTrack()) return
-  const t = take = { into, at: into ? (sel ? sel[0] : v.cursor) : 0, until: sel ? sel[1] : null, samples: 0, pass: 0, passes: [], queue: [], frame: 0, started: false, over: into && !!state.track && out }
-  const asked = arming ?? microphone({ channels: state.recordIn })
+  const t = take = { into, at: into ? (sel ? sel[0] : v.cursor) : 0, until: sel ? sel[1] : null, samples: 0, pass: 0, passes: [], queue: [], frame: 0, started: false, over: into && !!state.track && out, place }
+  if (place) liveTakes(t)
+  const asked = arming ?? microphone({ channels: inputs(fresh) })
   clearTimeout(unarm)
   arming = null
   // until the microphone answers, Record blinks, armed, as a deck's does; a click on it then lets go
@@ -123,6 +139,7 @@ function flush(t, frame = performance.now()) {
     v.grow(block)
   }
   t.t0 ??= recorder.time - t.samples / t.rate
+  if (t.place) liveTakes(t)
   if (t.heard && pl.playing && t.heard.length < 32) t.heard.push(pl.time - recorder.time)
   // played over, the take drawn lined up as its output will be, from where the others' clock is heard: no shift as it
   // stops and its output comes
@@ -137,7 +154,7 @@ function flush(t, frame = performance.now()) {
 }
 export async function stopRecording() {
   const rec = recorder, t = take
-  if (!rec) { state.recording = null; take = null; return }
+  if (!rec) { state.recording = null; take = null; places(); return }
   recorder = take = null
   cancelAnimationFrame(t.frame)
   rec.stop()
@@ -152,7 +169,7 @@ export async function stopRecording() {
   const rate = rec.sampleRate, { lead, at: from } = aligned(t, rec), room = t.until == null ? Infinity : Math.round((t.until - t.at) * rate)
   const length = Math.min(t.samples - t.pass - lead, room), cut = t.passes.length > 0 && length < room
   const parts = [...t.passes.map(p => [p + lead, room]), ...cut ? [] : [[t.pass + lead, length]]]
-  if (!(parts[0][1] > 0)) { t.tape.drop(); if (t.into) v.take(null); return note('Nothing was recorded.') }
+  if (!(parts[0][1] > 0)) { t.tape.drop(); if (t.into) v.take(null); places(); return note('Nothing was recorded.') }
   // the caret at once where the take ends: what follows waits on the tape and the engine, frames in which it would
   // show where the take began
   if (t.into) v.setCursor(from + parts.at(-1)[1] / rate)
@@ -179,7 +196,8 @@ export async function stopRecording() {
   if (!t.into) { note(`Recorded ${clock(end - from)}`); place(names, 'new'); docs.find(d => d.id === state.tab).view = { selection: null, band: null, more: [], cursor: end, anchor: end }; return }
   // to the microphone's sample, so a take recorded on from where this one ended meets it, no gap nor overlap between;
   // where takes went in before, one more of them (code.js retake), the newest heard
-  if (!write(...names.map(name => `write(audio(${quote(name)}), { at: ${number(from, 1e-6)} })`))) return v.take(null)
+  const long = t.place && t.until == null ? `, d: ${number(parts.at(-1)[1] / rate, 1e-6)}` : ''
+  if (!write(...names.map(name => `write(audio(${quote(name)}), { at: ${number(from, 1e-6)}${long} })`))) return v.take(null)
   v.setCursor(end)
   const here = takes(ed.code).findLast(r => Math.abs(r.at - from) < 1e-6)?.list.length ?? 1
   note(`Recorded ${names.length > 1 ? `${names.length} takes of ` : ''}${clock(end - from)}${here > names.length ? `, ${here} takes here` : ''}${here > 1 ? ', the last heard: their numbers under the lanes switch them' : ': ⌥R records another take of it'}${cut ? '. The last pass, cut short, is left out' : ''}`)
@@ -222,8 +240,9 @@ export function places() {
       for (const r of takes(code)) {
         const run = { ...r, track, lane, shown: carried(code, r, reach(r)) }
         all.push(run)
-        // two or more, or one empty (forked: forkRange) for a recording to go into
-        if ((r.list.length > 1 || r.list.some(x => x.empty != null)) && run.shown) shown.push(run)
+        // two or more, or one with a place of its own: empty (forkRange) for a recording to go into, or recorded with
+        // Alt (`d`: retakeHere)
+        if ((r.list.length > 1 || r.list.some(x => x.empty != null || x.d != null)) && run.shown) shown.push(run)
       }
     }
   } finally { focus(state.track) }
@@ -241,14 +260,17 @@ export function places() {
   v.takes = placed.map(section)
   return all.filter(r => r.track === (names.length ? state.track : null))
 }
-// a place of takes as the picture has it (view.js takes)
-const section = r => ({ at: r.shown[0], end: r.shown[1], on: r.list.findIndex(x => x.on), names: r.list.map(x => x.name), lane: r.lane, open: r.list.some(x => x.empty != null) })
-// Recording pass after pass over a selection (the loop on), its passes are takes of that place as they are done: with
-// the takes there before, those done, the one recording lit, + off till it stops; the script takes them up then (places)
+// a place of takes as the picture has it (view.js takes): the first of them the sound as it was there, none heard, no
+// take of the script's
+const section = r => ({ at: r.shown[0], end: r.shown[1], on: r.list.findIndex(x => x.on) + 1, names: [null, ...r.list.map(x => x.name)], lane: r.lane, open: r.list.some(x => x.empty != null) })
+// Recording pass after pass over a selection (the loop on), or a take (`place`: retakeHere), its passes are takes of
+// that place as they are done: with the takes there before, those done, the one recording lit, the fork off till it
+// stops, a place of no end yet as far as it has come; the script takes them up then (places)
 function liveTakes(t) {
   const lane = output?.tracks ? laneIndex() ?? null : null, run = placed.find(r => Math.abs(r.shown[0] - t.at) < 1e-6 && r.lane === lane)
-  const names = [...(run?.list ?? []).filter(x => x.empty == null).map(x => x.name), ...t.passes.map((_, k) => `pass ${k + 1}`), 'recording']
-  v.takes = [...placed.filter(r => r !== run).map(section), { at: t.at, end: Math.max(t.until, run ? run.shown[1] : 0), on: names.length - 1, names, lane, open: true }]
+  const names = [null, ...(run?.list ?? []).filter(x => x.empty == null).map(x => x.name), ...t.passes.map((_, k) => `pass ${k + 1}`), 'recording']
+  const end = t.until ?? t.at + (t.rate ? (t.samples - t.pass) / t.rate : 0)
+  v.takes = [...placed.filter(r => r !== run).map(section), { at: t.at, end: Math.max(end, run ? run.shown[1] : 0), on: names.length - 1, names, lane, open: true }]
 }
 // The place the selection starts in, or the playhead or the caret is in (to where its takes end, the end too), of two
 // takes or more, or `alone` of one too, in the track edited: the last there; else, of two or more, the last before it,
@@ -258,18 +280,26 @@ export function takesHere(alone = false) {
   const many = all.filter(r => r.list.length > 1)
   return within.findLast(r => alone || r.list.length > 1) ?? (alone ? null : many.findLast(r => span(r)[0] <= t + 1e-6) ?? many[0] ?? null)
 }
+// Another take heard, the picture held till its output comes (no change of level, over all of it): one past the sound's
+// end makes it longer or shorter, and all but the take's place stays where it is, the view at its scale
+function hear(change) {
+  v.expect('gain', [0, v.duration])
+  ed.change(change)
+}
 // A take there heard, the others turned off, as a take folder's are switched (Logic's): playing, it takes over where it
-// plays; the one heard, turned off, the sound heard there as it was without them. One step, which Undo takes back
+// plays; none (k -1), the sound as it was, the first of them as the picture counts. One step, which Undo takes back
 export function useTakeOf(run, k) {
-  const heard = run.list[k].on, change = heard ? turnOff(ed.code, stepsOf(ed.code)[run.list[k].i].call) : onTop(run, useTake(ed.code, run.list[k].from))
-  if (change) ed.change(change)
-  note(heard ? 'No take heard here: the sound as it was' : `Take ${k + 1} of ${run.list.length}, ${run.list[k].name || 'empty'}`)
+  const heard = run.list.findIndex(x => x.on)
+  if (k === heard) return
+  const change = k < 0 ? turnOff(ed.code, stepsOf(ed.code)[run.list[heard].i].call) : onTop(run, useTake(ed.code, run.list[k].from))
+  if (change) hear(change)
+  note(`Take ${k + 2} of ${run.list.length + 1}, ${k < 0 ? 'as it was' : run.list[k].name || 'empty'}`)
 }
 // A named range forked (its fork, view.js placeFork): takes start there, an empty take over it, turned off, the sound
 // heard there as it was; Record records into it (retake), heard from then on, its place selected for that. One step,
 // which Undo takes back
 export function forkRange({ time, duration, track }) {
-  if (state.recording) return
+  if (state.recording || take) return
   if (track != null && track !== state.track) focusOn(track)
   const code = ed.code, call = `write(audio.from(${number(duration, v.unit)}), { at: ${number(time, v.unit)} })`, put = append(code, call)
   if (!put) return note('Open or generate a sound first.')
@@ -283,8 +313,8 @@ export function forkRange({ time, duration, track }) {
 function deleteTake(run) {
   const k = Math.max(0, run.list.findLastIndex(x => x.on)), change = dropTake(ed.code, run.list[k].from)
   if (!change) return
-  ed.change(run.list.length > 1 ? onTop(run, change) : change)
-  note(run.list.length > 1 ? `Take ${k + 1} deleted, ${run.list.length - 1} left here` : 'The take deleted')
+  hear(run.list.length > 1 ? onTop(run, change) : change)
+  note(run.list.length > 1 ? `Take ${k + 2} deleted, ${run.list.length} left here` : 'The take deleted')
 }
 // The takes there as a menu lists them, the one heard checked; the one heard, deleted; the context menu's, both
 // A change to the takes of a place (`run`), they then brought over what is laid on their place after them (code.js
@@ -294,16 +324,16 @@ function onTop(run, change) {
   const up = i >= 0 && takes(out)[i] && raise(out, takes(out)[i], lengthOf) || out
   return up === code ? null : between(code, up)
 }
-export const takeList = run => run.list.map((x, k) => ({ label: `Take ${k + 1}`, hint: x.name || 'empty', checked: x.on, run: () => useTakeOf(run, k) }))
-export const deletion = run => ({ label: 'Delete take', hint: `Take ${Math.max(0, run.list.findLastIndex(x => x.on)) + 1}`, run: () => deleteTake(run), icon: opIcons.remove })
+export const takeList = run => [{ label: 'Take 1', hint: 'As it was', checked: !run.list.some(x => x.on), run: () => useTakeOf(run, -1) }, ...run.list.map((x, k) => ({ label: `Take ${k + 2}`, hint: x.name || 'empty', checked: x.on, run: () => useTakeOf(run, k) }))]
+export const deletion = run => ({ label: 'Delete take', hint: `Take ${Math.max(0, run.list.findLastIndex(x => x.on)) + 2}`, run: () => deleteTake(run), icon: opIcons.remove })
 export const takesMenu = run => [item('takes', { here: run }, { items: () => takeList(run) }), deletion(run)]
 
 export function wire() {
   navigator.permissions?.query({ name: 'microphone' }).then(p => { allowed ||= p.state === 'granted' }, () => {})
   // in the Mac app, as a DAW: the input open from the start, its permission asked as the app opens, a take on the next block
-  if (DESKTOP) holdInput(state.recordIn)
+  if (DESKTOP) holdInput(inputs())
   root.querySelector('button.record')?.addEventListener('pointerenter', () => {
     if (!allowed || recorder || state.recording || arming) return
-    microphone({ channels: state.recordIn }).then(mic => mic.cancel(), () => {})
+    microphone({ channels: inputs() }).then(mic => mic.cancel(), () => {})
   })
 }
