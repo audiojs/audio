@@ -10,7 +10,6 @@ import scales from './scale.js'
 import time, { UNITS } from './time.js'
 import opIcons from './icons.js'
 import hint from './hint.js'
-import { methods as scrubbers } from './scrub-methods.js'
 import md from './markdown.js'
 import { connectAgent, pickAgent, partsOf, showChat, newChat, openChat, dropChat, visit, elapsed, sendChat, chatKey, wire as wireChat } from './editor/chat.js'
 import { wire as wireClipboard } from './editor/clipboard.js'
@@ -62,7 +61,7 @@ const state = sprae(root, {
   overlayList: overlays.map(([name, label, title]) => ({ name, label, title })),
   unitList: UNITS.map(([name, label, example, short]) => ({ name, label, example, short })), levelList, levels: oneOf(stored.levels, ['db'], 'linear'),
   rulers, ruler: SHOWN.length && !SHOWN.includes('ruler') ? 'off' : oneOf(stored.ruler, rulers.map(r => r.name), 'labels'), scroll: oneOf(stored.scroll, scrolls.map(s => s[0]), 'bar'), grid: oneOf(stored.grid, grids.map(g => g[0]), 'none'), splices: [0, 5, 10, 20], splice: oneOf(stored.splice, [0, 5, 10, 20], 10), steps: [.1, 1, 3], levelStep: oneOf(stored.step, [.1, 1, 3], 1), look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
-  scrubs, scrub: scrubbers[stored.scrub] ? stored.scrub : 'hybrid', recordIn: stored.record === 2 ? 2 : 1,
+  scrubs, scrub: scrubs.some(s => s.name === stored.scrub) ? stored.scrub : 'hybrid', recordIn: stored.record === 2 ? 2 : 1,
   reads: oneOf(SHOWN.find(w => ['peak', 'rms', 'loudness'].includes(w)) ?? stored.reads, ['peak', 'rms', 'loudness'], 'peak'), hears: oneOf(stored.hears, ['note', 'key', 'tempo'], 'note'),
   // the settings' sections while their panel shows, each folded or not as it was left (`folds`); the picture's groups
   // while its dropdown is open

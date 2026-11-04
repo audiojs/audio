@@ -573,6 +573,12 @@ test('scrub: short sounds, silence, a caret past either end or leaping stay fini
   for (const mode of ['hybrid', 'tape', 'loop', 'grains', 'bank', 'lines', 'random', 'vocoder']) for (const [x, caret] of cases) for (const c of await scrubbed(x, caret, .2, 48000, mode)) assert.ok(c.every(Number.isFinite), mode)
 })
 
+// Their names, all the page reads of them (scrub-names.js), the ways' own, as .scrub-vendor.js writes both
+test('scrub: the ways\' names the page reads are the ways\' own', async () => {
+  const [{ methods }, { default: names }] = await Promise.all([import('../../playground/scrub-methods.js'), import('../../playground/scrub-names.js')])
+  assert.deepEqual(names, Object.fromEntries(Object.entries(methods).map(([k, m]) => [k, m.name])))
+})
+
 // The other ways a held caret sounds, the lab's (the settings; scrub-methods.js). Held on the Rhodes' chord, its vocoder,
 // every bin's phase carried on, keeps more of what it plays in the chord's own partials (where the sound around the
 // caret is within 30 dB of its loudest) than the vocoder whose untonal bins turn at random. Its tape's head plays the

@@ -1,7 +1,7 @@
 import { ops, CURVES, labelOf, format, icons as groupIcons } from '../ops.js'
 import opIcons from '../icons.js'
 import { keep as keepFile } from '../keep.js'
-import { methods as scrubbers } from '../scrub-methods.js'
+import scrubNames from '../scrub-names.js'
 import { MAPS } from '../tint.js'
 
 // The editor as the page is given it: its root, the link's parameters, what this browser stored, and the lists and
@@ -184,9 +184,10 @@ SHUTTLE.span = SHUTTLE.px * (SHUTTLE.max - SHUTTLE.min)
 // a speed as the line's ticks say it, and as its mark does: a tenth always, so the mark keeps its width as it moves
 export const times = r => r ? `${r < 0 ? '−' : ''}${+Math.abs(r).toFixed(2)}×` : '0'
 export const tenths = r => `${r < 0 ? '−' : ''}${Math.abs(r).toFixed(1)}×`
-// How a held caret sounds: the lab's eight ways (scrub-methods.js, their names its own), the closest first
+// How a held caret sounds: the lab's eight ways (scrub-methods.js, which the audio thread alone loads; their names its
+// own, scrub-names.js), the closest first
 export const scrubs = [['hybrid', 'Tones keep their phase, the rest turns at random: the closest to the sound'], ['vocoder', 'Every bin keeps its phase: the moment frozen'], ['random', 'Every bin a new random phase each hop, as Paulstretch'], ['bank', 'A noise oscillator for each band, 40 Hz to 16 kHz'], ['lines', 'The tonal peaks as lines of noise'], ['grains', 'Grains of 80 ms, one every 20 ms'], ['loop', 'The 80 ms around the caret, again and again'], ['tape', 'A reel\'s head chasing the caret: the pitch follows its speed, silent when still']]
-  .map(([name, text]) => ({ name, label: scrubbers[name].name, text }))
+  .map(([name, text]) => ({ name, label: scrubNames[name], text }))
 // Rates a sound resamples to, from the facts on the display: the standard ones, each with what it is for, in a few words
 // (audiojs/sample-rate, after Wikipedia's Sampling (signal processing) table)
 export const rates = [[8000, 'Telephone, walkie-talkie'], [11025, 'Low-quality PCM'], [16000, 'VoIP, wideband speech'], [22050, 'Low-quality MPEG'], [44100, 'Audio CD, MP3'], [48000, 'Video, professional audio'], [88200, 'Pro recording for CD'], [96000, 'DVD-Audio, Blu-ray'], [176400, 'HDCD, CD production'], [192000, 'Pro video, Blu-ray'], [352800, 'DXD, SACD editing'], [384000, 'Highest in common software']]
