@@ -79,13 +79,17 @@ export function addMarker() {
 }
 // The time a mark() call marks: its number, or its range's start
 const markedAt = call => call.name === 'mark' ? call.args[0]?.kind === 'object' ? call.args[0].value?.at : call.args[0]?.value : undefined
-// The mark() call that set a marker: the one of its kind, a moment or a range, nearest its time and length; of two
-// alike, the later. With tracks, in its track's chain
+// The mark() call that set a marker, of its kind, a moment or a range; with tracks, in its track's chain. An edit after
+// them moves their times, not their order: as far along the calls as it is along the output's of its kind, where they
+// are as many; else (one just made or taken away, one the file's) the nearest its time and length, of two alike the later
 function markCall({ time, duration = 0, track }) {
   focus(track ?? state.track)
   const all = chain(ed.code)?.calls || []
   focus(state.track)
   const calls = all.filter(k => typeof markedAt(k) === 'number' && !duration === (k.args[0].kind === 'number'))
+  const shown = (output?.markers ?? []).filter(m => !m.duration === !duration && (m.track ?? null) === (track ?? null)).sort((p, q) => p.time - q.time)
+  const i = shown.findIndex(m => Math.abs(m.time - time) < 5e-4)
+  if (i >= 0 && shown.length === calls.length) return [...calls].sort((p, q) => markedAt(p) - markedAt(q))[i]
   const far = k => Math.abs(markedAt(k) - time) + Math.abs((k.args[0].value?.duration ?? 0) - duration)
   return calls.reduce((a, k) => !a || far(k) <= far(a) ? k : a, null)
 }

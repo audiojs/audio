@@ -343,7 +343,7 @@ v = view(root.querySelector('.plot'), {
     ;({ curve: () => setCurve(next(curves, state.fadeCurve)), grip: () => setGrip(next(gripModes, state.gripMode)), pitch: () => setPitch(!state.pitch) })[kind]()
   },
   // a marker's own menu: its name, its going; else the edits for what is under the pointer
-  oncontext({ x, y, marker, room, track }) { bar.at(room ? roomMenu() : track != null ? trackMenu(track) : marker ? [{ label: 'Name…', hint: marker.label || '', run: marker.rename, icon: glyphs.marker }, { label: 'Delete the marker', run: () => unmark(marker), icon: opIcons.remove }] : contextMenu(), x, y) },
+  oncontext({ x, y, marker, room, track }) { bar.at(room ? roomMenu() : track != null ? trackMenu(track) : marker ? [{ label: 'Name…', hint: marker.label || '', run: marker.rename, icon: glyphs.marker }, { label: 'Delete the marker', run: marker.remove, icon: opIcons.remove }] : contextMenu(), x, y) },
   // a key the picture doesn't take itself (its caret, the marker chosen, a paste): the command for it there, if any
   onkey(event) { const c = pressed(event, true); c?.run(event); return !!c },
   onscrub,

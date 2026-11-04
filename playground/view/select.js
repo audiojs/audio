@@ -146,6 +146,12 @@ export function addNext() {
   if (next && next[1] > next[0]) { add(...next); reveal(next[1]) }
 }
 export function setCursor(t) { assign({ chosen: null }); assign({ cursor: clamp(t) }); oncursor(cursor); invalidate(true) }
+// A marker taken away, by its menu or by Delete: gone from the picture at once, before the output without it comes
+function unmark(m) {
+  if (chosen && same(chosen, m)) assign({ chosen: null })
+  if (onedit('unmark', m)) assign({ markers: markers.filter(n => !same(n, m)) })
+  invalidate(true)
+}
 // A right-click, as in a text: outside what is selected it takes the caret there first, the selection gone; inside it,
 // with several carets, or on what a press would grab (a caret, an edge, a handle: the pointer says so), all stays.
 // Then the page's menu for it (`oncontext`), at the pointer
@@ -157,7 +163,7 @@ export function context(event) {
   if (inRoom(py)) return oncontext({ x: event.clientX, y: event.clientY, room: true })
   // on a marker's place in its strip, its own: name it, take it away
   const mark = stripAt(px, py), flag = mark?.kind === 'mark' ? mark.i : -1
-  if (flag >= 0) return oncontext({ x: event.clientX, y: event.clientY, marker: { ...markers[flag], rename: () => rename(flag) } })
+  if (flag >= 0) { const m = markers[flag]; return oncontext({ x: event.clientX, y: event.clientY, marker: { ...m, rename: () => rename(flag), remove: () => unmark(m) } }) }
   // in another track's lane, that track's: it is the one edited
   const was = focus
   refocus(lanes(), py)
@@ -193,7 +199,7 @@ export function key(event) {
   // the marker chosen goes before what is selected: Esc lets it go, Delete takes it away (its triangle dragged leaves the
   // selection as it was)
   else if (k === 'Escape' && chosen) { assign({ chosen: null }); invalidate(true) }
-  else if ((k === 'Delete' || k === 'Backspace') && chosen) { const m = chosen; assign({ chosen: null }); if (onedit('unmark', m)) assign({ markers: markers.filter(n => !same(n, m)) }); invalidate(true) }
+  else if ((k === 'Delete' || k === 'Backspace') && chosen) unmark(chosen)
   // ⌘V: the browser's paste, its clipboard with it (pasted)
   else if (mod && k.toLowerCase() === 'v') { pasted(); pasting = atCarets(); return }
   else if (!onkey(event)) return

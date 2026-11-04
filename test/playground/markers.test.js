@@ -231,6 +231,40 @@ test('editor: markers: Delete takes away the marker whose triangle was pressed',
   await lengthIs('0:08.000')
 })
 
+// A marker's menu takes it from the picture at once, before the output without it comes, and it stays gone; the next
+// the same. An edit after the marks moves their times, not their order: each menu takes its own mark(), by the order of
+// the output's, not the nearest time in the script (here 4 s, the nearer 5 than 2)
+test('editor: markers: Delete the marker takes it at once, its own mark() however far an edit moved it', async () => {
+  await open()
+  await write(`audio('chime.wav').mark(2, 'A').mark(5, 'B').stretch(2)`)
+  await lengthIs('0:16.000')
+  const { box, x } = await axis(16), strip = box.y + tall(box) + FOOT / 2
+  const at = async t => { await page.mouse.move(x(t), strip); return page.locator('.plot').evaluate(el => el.style.cursor) }
+  await page.mouse.click(...await grab([[x(4), strip]], 'ew-resize'), { button: 'right' })
+  await contextRow('Delete the marker').click()
+  assert.notEqual(await at(4), 'ew-resize', 'gone from the picture at once')
+  await page.waitForFunction(() => scriptText() === `audio('chime.wav').mark(5, 'B').stretch(2)`)
+  await frames()
+  assert.notEqual(await at(4), 'ew-resize', 'and stays gone')
+  await page.mouse.click(...await grab([[x(10), strip]], 'ew-resize'), { button: 'right' })
+  await contextRow('Delete the marker').click()
+  assert.notEqual(await at(10), 'ew-resize', 'the next, at once')
+  await page.waitForFunction(() => scriptText() === `audio('chime.wav').stretch(2)`)
+})
+
+// So too a marker named: its own mark(), past an edit that moved it
+test('editor: markers: an edit after them moved, a marker named is its own mark()', async () => {
+  await open()
+  await write(`audio('chime.wav').mark(2, 'A').mark(5, 'B').stretch(2)`)
+  await lengthIs('0:16.000')
+  const { box, x } = await axis(16), strip = box.y + tall(box) + FOOT / 2
+  await page.mouse.dblclick(...await grab([[x(4), strip]], 'ew-resize'))
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.type('Intro')
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(() => scriptText() === `audio('chime.wav').mark(2, 'Intro').mark(5, 'B').stretch(2)`)
+})
+
 // A range's triangles in its strip drag its ends, as a moment's drags it: its start, its end staying; its end, its
 // length; as far as the other, let go there one moment. A moment is one triangle there, ▲ on its line, nothing of it at
 // the lanes' top nor down them, but the caret's ghost where a press would put it as its triangle is pointed at; held
