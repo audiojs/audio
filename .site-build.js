@@ -236,11 +236,11 @@ async function page(dir) {
 }
 /** The site as Pages deploys it, in `dir`: the repository's files as they are served (none hidden, no node_modules), the
  *  bundles made before, and the playground's page as deployed (page) */
+/** Whether folder `dir` is `root` or holds it: a folder the site is built into is cleared first, and never such a one */
+export const holds = (dir, root = ROOT) => { const up = relative(resolve(dir), root); return !up.startsWith('..') && !isAbsolute(up) }
 export async function site(dir) {
   dir = resolve(dir)
-  // cleared first: never the repository, nor a folder that holds it
-  const up = relative(dir, ROOT)
-  if (!up.startsWith('..') && !isAbsolute(up)) throw new Error(`.site-build.js: ${dir} holds the repository; the site goes to a folder of its own`)
+  if (holds(dir)) throw new Error(`.site-build.js: ${dir} holds the repository; the site goes to a folder of its own`)
   await rm(dir, { recursive: true, force: true })
   await cp(ROOT, dir, { recursive: true, mode: constants.COPYFILE_FICLONE, filter: src => resolve(src) !== dir && !/(^|\/)(\.[^/]*|node_modules)$/.test(relative(ROOT, src)) })
   await page(dir)

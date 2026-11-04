@@ -86,3 +86,10 @@ test('fix package.json — audio.d.ts declares every op the library registers', 
   let ops = Object.keys(audio.op()).filter(k => !audio.op(k).hidden)
   is(ops.filter(k => !new RegExp(`^\\s+${k}\\(`, 'm').test(dts)), [], 'ops without a method in audio.d.ts')
 })
+
+// the deployed site is built into a folder cleared first (node .site-build.js _site): never the repository nor one above it
+test('fix package.json — the site\'s build clears no folder that holds the repository', async () => {
+  let { holds } = await import('../.site-build.js'), root = '/a/repo/'
+  is(['/a/repo', '/a/repo/', '/a', '/'].filter(d => !holds(d, root)), [], 'the repository and the folders above it refused')
+  is(['/a/repo/_site', '/tmp/audio-site-x', '/a/other'].filter(d => holds(d, root)), [], 'a folder of its own allowed')
+})
