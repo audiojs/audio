@@ -12,7 +12,7 @@ import { openTools } from './menus.js'
 import { toggleAB, toggleLoop, setSpeed, togglePlay } from './play.js'
 import { retakeHere, startRecording, stopRecording, takeList, deletion } from './recording.js'
 import { closed, newTab, closeTab, reopenTab } from './tabs.js'
-import { newTrack, mastering, lineUp, matchUp, duckUnder, masterOut, untrack, detach } from './tracks.js'
+import { nameNewTrack, mastering, lineUp, matchUp, duckUnder, masterOut, untrack, detach } from './tracks.js'
 import { addMarker, setPitch } from './writers.js'
 
 // The page's commands: each act the menus offer, its keys, its tooltip, the help's line, the agent's tool and the Mac's
@@ -97,7 +97,7 @@ export const commands = [
   { id: 'minimap', label: 'Minimap', tip: 'The whole sound under the time row, to scroll by', checked: () => state.scroll === 'overview', run: () => setScroll(state.scroll === 'overview' ? 'hover' : 'overview') },
   { id: 'grid', label: 'Grid', tip: 'A faint line from each tick across the lanes', checked: () => state.grid === 'lines', run: () => setGrid(state.grid === 'lines' ? 'none' : 'lines') },
   { id: 'snap', label: 'Snap', tip: 'Onto onsets, markers and takes, the lines shown as a thing is dragged; Alt shows them all', checked: () => state.snapping, run: () => state.toggleSnap() },
-  { id: 'pitch.curve', label: 'Pitch curve', tip: 'The voice\'s pitch on the spectrogram, dragged whole or by its bends; a click on a selection\'s pitch tool shows it too', checked: () => state.pitch, run: () => setPitch(!state.pitch) },
+  { id: 'pitch.curve', label: 'Pitch curve', tip: 'The voice\'s pitch on the spectrogram, dragged whole or by its bends', checked: () => state.pitch, run: () => setPitch(!state.pitch) },
   { id: 'zoom', label: 'Zoom', items: s => ['zoom.in', 'zoom.out', 'zoom.selection', 'zoom.all'].map(id => item(id, s)), when: s => !s.none },
   // the keys about the playhead, else the selection's middle or the caret (out: the playhead or the caret); a menu, about
   // the view's middle
@@ -121,7 +121,7 @@ export const commands = [
   { id: 'view.reset', label: 'Reset the view', run: () => resetView() },
 
   // Track: the sounds side by side, one made, split off, set against another, mixed, taken away
-  { id: 'track.new', label: 'New track', hint: 'Or double-click under the lanes', when: s => !s.none && !mastering(), run: () => newTrack() },
+  { id: 'track.new', label: 'New track', hint: 'Or double-click under the lanes', when: s => !s.none && !mastering(), run: () => nameNewTrack() },
   { id: 'track.fromFile', label: 'New track from a file…', hint: 'Under the one edited, played with it', when: s => !s.none, run: () => pickFiles('', true) },
   { id: 'track.move', label: 'Move to a new track', edit: 'track', when: s => s.sel && !s.band && state.ranges < 2, run: () => editSelection('track') },
   { id: 'track.voice', label: 'Split the voice to a new track', hint: 'The rest stays here', edit: 'voice', when: s => !s.none && !mastering(), run: () => editSelection('voice') },

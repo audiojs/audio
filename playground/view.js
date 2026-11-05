@@ -11,7 +11,7 @@ import { dpr, resize, arrange, invalidate, tints, tonesOf, twinOf, unheard, resh
 import { steer, slide, unslide, bring, fitAll, frameSelected } from './view/ruler.js'
 import { scale, x, time, clamp, unit, snap, stuck, local, setRange, setFreqs, frameVoice, zoom, whole, scrollLevels, setScale, reveal } from './view/scales.js'
 import { around, stepTo, wheel, select, told, ranges, carets, boxes, addNext, setCursor, context, key, wire as wireSelect } from './view/select.js'
-import { same, rename } from './view/strips.js'
+import { same, rename, askName } from './view/strips.js'
 export { KINDS, NOTES, noteOf, stylize, HOLD, SLOP } from './view/model.js'
 
 // The output as a picture: the waveform, the spectrogram or the notes, a sound's lanes alike, each track's its own
@@ -354,6 +354,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     set markers(list) { assign({ markers: list || [] }); invalidate(true) },
     // the places of takes, [{ at, end, on, names }] (placeTakes): drawn again only as they change
     set takes(list) { if (JSON.stringify(list || []) !== JSON.stringify(sections)) { assign({ sections: list || [] }); invalidate(true) } },
+    // a first marker's name asked for at `t` in the edited band's head (a track just made): written only if named
+    ask(t = 0) { askName(t) },
     // a marker just made, { time, duration? }: drawn at once, before the output that has it comes, its name asked for
     name(m) {
       m = { ...m, ...tracks && { track: tracks[focus]?.name } }

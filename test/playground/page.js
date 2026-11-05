@@ -521,9 +521,9 @@ async function renameTrack(i, to) {
   await page.keyboard.press('Enter')
 }
 
-// A selection's tools inside its foot, flush with it, side by side from its middle (view.js BOX, 16 px, 2 apart): pitch,
-// intonation, formants; the pill on its top edge its level alone
-const tools = (x, box, a, b) => Object.fromEntries(['pitch', 'intonation', 'formant'].map((name, i) => [name, [(x(a) + x(b)) / 2 + (i - 1) * 18, box.y + tall(box) - 8]]))
+// A selection's tools inside its foot, flush with it, side by side from its middle (view.js BOX, 16 px, 2 apart), where
+// its notes show: intonation, formants; the pill on its top edge its level alone
+const tools = (x, box, a, b) => Object.fromEntries(['intonation', 'formant'].map((name, i) => [name, [Math.round((x(a) + x(b)) / 2 + (i - .5) * 18), box.y + tall(box) - 8]]))
 
 // VS Code's colour themes (theme.js), read from its own files (playground/themes, as microsoft/vscode ships them): each
 // part of the editor in the colour of the part of VS Code it stands for (theme.js MAP), as the theme writes it, or VS

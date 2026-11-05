@@ -45,7 +45,7 @@ export function layout(L) {
 }
 // the band pointed at, from its head to its foot, told as it changes (onband), for its look to show: its index (a
 // sound's, 0), or -1
-let pointedBand = -2
+export let pointedBand = -2
 export function hotBand(L) {
   const [top, bottom] = L.all.length ? extent(L.all) : [0, -1], py = hovered?.[1]
   const i = py == null ? -1 : tracks ? trackAt(L, py) : py >= top - headOf() && py < bottom + FOOT ? 0 : -1
@@ -159,7 +159,8 @@ export function lanes() {
   spare = Math.max(0, all + roomy() - h)
   assign({ lift: Math.max(0, Math.min(lift, spare)) })
   let y = -lift
-  return sorted(each.map((lh, i) => { if (tracks || !i) y += hd; const r = Object.assign([0, y, w, lh], { kind: kind[i], i, keys: kind[i] === 'notes' ? keysOf(i) : null }); y += lh + (tracks ? FOOT : GAP); return r }))
+  // `open`: nothing right under it (a track's lane, a sound's last channel's), where its axis' last label may go
+  return sorted(each.map((lh, i) => { if (tracks || !i) y += hd; const r = Object.assign([0, y, w, lh], { kind: kind[i], i, keys: kind[i] === 'notes' ? keysOf(i) : null, open: !!tracks || i === n - 1 }); y += lh + (tracks ? FOOT : GAP); return r }))
 }
 const sorted = (all, spectral = all.some(r => r.kind === 'spec')) => ({ all, wave: all.filter(r => r.kind === 'wave'), spec: all.filter(r => r.kind === 'spec'), notes: all.filter(r => r.kind === 'notes'), spectral })
 const keyed = new WeakMap()
@@ -230,11 +231,16 @@ export function refocus(L, py, px) {
 // middle); none with that foot out of sight. Embedded ('foot'): at the picture's foot, level with the bar's edge, the scrollbar between it and the lanes,
 // its ticks TICK long from `tickTop` down
 export const tickTop = () => timeRow === 'band' ? rowBand()?.y ?? -H : plot().h + rowH() - TICK - 2, row = () => tickTop() + 7
-// the foot the time row is in ('band'): the band pointed at's, else the edited one's; or none, out of sight
+// the foot the time row is in ('band'): the band pointed at's (as a drag goes, the edited one's); none pointed at, none,
+// the picture a player's then, nothing ruled over it, as an embedded one is (as its level axis, overlay.js); or none,
+// out of sight
 export function rowBand(L = lanes()) {
-  const i = tracks && hovered && !drag ? trackAt(L, hovered[1]) : -1, s = feet(L).find(s => s.i === (tracks ? i >= 0 ? i : focus : null))
+  const i = drag ? focus : pointedBand, s = i >= 0 && feet(L).find(s => s.i === (tracks ? i : null))
   return s && s.y >= 0 && s.y + FOOT <= plot().h ? s : null
 }
+// where what is underlined on the time row is ('band'): the foot it is in, else, pointed nowhere, the edited band's, so
+// a clip stays marked under its sound with the row away
+export const underRow = (L = lanes()) => rowBand(L) ?? feet(L).find(s => s.i === (tracks ? focus : null)) ?? null
 // Zoomed in, the scrollbar at the time row's top, over its ticks, above its labels, as an overlay scrollbar is: the
 // whole sound across the row (or as far as the view goes past its end), the thumb what shows, at least THUMB px. A
 // press on it drags the view; beside it, the view centres there first. { x0, x1, total }, or null showing all of it

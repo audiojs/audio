@@ -226,7 +226,7 @@ test('editor: a script that opens with gain() loads, its gain line drawn', async
 // crossfaded as a delete's, or silence added), stretched with the pitch kept, or sped with the pitch following, a click
 // on it turning it to the next; a stretch just made changes with it. Its pill sets its level; the first of the tools at
 // the lanes' foot, its pitch. Each is one step.
-test('editor: ⌘ at a selection\'s end trims, stretches or speeds it, its pill sets its level and its pitch tool its pitch', async () => {
+test('editor: ⌘ at a selection\'s end trims, stretches or speeds it, its pill sets its level', async () => {
   const { box, x, y } = await chime(), lh = (TRACK - LANES) / 2
   const select = async (a, b) => { await page.mouse.click(x(7.5), y); await drag([x(a), y], [x(b) - x(a), 0]) }
   const last = async pattern => { await page.waitForFunction(p => new RegExp(p).test(scriptText()), pattern.source); return code() }
@@ -259,11 +259,11 @@ test('editor: ⌘ at a selection\'s end trims, stretches or speeds it, its pill 
   await drag(await pill(1, 2), [0, -box.height / 10])
   const text = await last(/\.gain\(/), [, v] = text.match(/\.gain\(\{ t: \[1, 1\.005, 1\.995, 2\], v: \[0, ([\d.]+), [\d.]+, 0\] \}\)$/) || [, text]
   assert.ok(+v > 0, v)
+  // over the waveform no voice's tools inside its foot: those are where its notes show
   await undo()
   await select(1, 2)
-  // the tools inside its foot, side by side from its middle (view.js BOX, 16 px, 2 apart): pitch, intonation, formants
-  await drag(await grab([[(x(1) + x(2)) / 2 - 18, box.y + tall(box) - 8]], 'ns-resize'), [0, -box.height / 10])
-  await last(/\.pitch\(/)
+  await page.mouse.move((x(1) + x(2)) / 2 - 9, box.y + tall(box) - 8)
+  assert.notEqual(await page.locator('.plot').evaluate(e => e.style.cursor), 'ns-resize', 'no tool over a waveform')
 })
 
 // A selection's top corners, each drawn as the fade it makes, fade it: inward, in from its start or out to its end;

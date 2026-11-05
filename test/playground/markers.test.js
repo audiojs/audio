@@ -590,11 +590,11 @@ test('editor: a marker dragged moves alone, the caret and what plays staying whe
   assert.ok(Math.abs(await now() - 5) < .05, String(await now()))
 })
 
-// Naming is marking: pointed at in a band's head where no marker is, the pointer a marker's, the name a marker there
-// would have, faint (the next number among the band's); a click there a field, Enter writes the marker with the name
-// (Enter on nothing, the number), Escape nothing: over the selection a range of it, elsewhere a moment where a press
-// would put the caret. The selection's fork at its end inside it, on the names' row: pressed, takes start there
-test('editor: a name written in a band\'s head marks the selection, or a moment; the selection\'s fork under it starts takes', async () => {
+// Naming is marking: pointed at in a band's head where no marker is, the pointer a marker's; a click puts one there at
+// once, over the selection a range of it, elsewhere a moment where a press would put the caret (the caret there), and
+// asks its name, which it may go without (Enter or Escape on nothing: none, its number shown). The selection's fork at
+// its end inside it, on the names' row: pressed, takes start there
+test('editor: a click in a band\'s head puts a marker, the selection\'s range or a moment, its name asked for; the selection\'s fork starts takes', async () => {
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
@@ -605,33 +605,28 @@ test('editor: a name written in a band\'s head marks the selection, or a moment;
   await page.mouse.move(x(3), head)
   await page.waitForFunction(() => /, copy$/.test(document.querySelector('.plot').style.cursor))
   await page.mouse.click(x(3), head)
+  await page.waitForFunction(() => /\.mark\(\{ at: 2, d: 2 \}\)$/.test(scriptText()))
   await field.waitFor()
-  assert.equal(await field.getAttribute('placeholder'), '1', 'its number to write over')
-  assert.ok(await field.evaluate(e => document.activeElement === e), 'focused')
+  assert.ok(await field.evaluate(e => document.activeElement === e), 'its name asked for')
+  assert.equal(await field.getAttribute('placeholder'), null, 'no number to write over')
   await page.keyboard.type('Verse')
   await page.keyboard.press('Enter')
-  await page.waitForFunction(() => /\.mark\(\{ at: 2, d: 2 \}, 'Verse'\)/.test(scriptText()))
-  // another, Enter on nothing: its number
+  await page.waitForFunction(() => /\.mark\(\{ at: 2, d: 2 \}, 'Verse'\)$/.test(scriptText()))
+  // another, Escape: put, no name
   await drag([x(5), y], [x(6) - x(5), 0])
   await page.mouse.click(x(5.5), head)
   await field.waitFor()
-  assert.equal(await field.getAttribute('placeholder'), '2')
-  await page.keyboard.press('Enter')
-  await page.waitForFunction(() => /\.mark\(\{ at: 5, d: 1 \}, '2'\)/.test(scriptText()))
-  // Escape: nothing
-  await drag([x(6.5), y], [x(7) - x(6.5), 0])
-  await page.mouse.click(x(6.75), head)
-  await page.keyboard.type('x')
   await page.keyboard.press('Escape')
-  await frames()
-  assert.equal(await marks(), 2, 'Escape writes nothing')
-  // away from the selection, a moment where a press puts the caret, named
+  await page.waitForFunction(() => /\.mark\(\{ at: 5, d: 1 \}\)$/.test(scriptText()))
+  // away from the selection, a moment where a press puts the caret, the caret there
   await page.mouse.click(x(.5), head)
+  await page.waitForFunction(() => /\.mark\(0\.5\)$/.test(scriptText()))
+  assert.equal(await page.locator('.time').innerText(), '0:00.500', 'the caret at it')
   await field.waitFor()
-  assert.equal(await field.getAttribute('placeholder'), '3')
   await page.keyboard.type('Hit')
   await page.keyboard.press('Enter')
-  await page.waitForFunction(() => /\.mark\(0\.5, 'Hit'\)/.test(scriptText()))
+  await page.waitForFunction(() => /\.mark\(0\.5, 'Hit'\)$/.test(scriptText()))
+  assert.equal(await marks(), 3)
   // its fork, at its end inside it, over the lanes, starts takes there
   await drag([x(6), y], [x(7) - x(6), 0])
   const fork = page.locator('.plot .fork')

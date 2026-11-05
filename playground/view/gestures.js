@@ -113,10 +113,9 @@ export function endDown(px, py, event) {
   const [a, b] = selection
   return { stretch: true, end: true, a, b, to: b, x: px, offset: b - time(px), mode: gripMode }
 }
-// what its pill or a tool sets, up or down: its level; its pitch, its intonation (about the range's median pitch) or
-// its formants
+// what its pill or a tool sets, up or down: its level; its intonation (about the range's median pitch) or its formants
 export const lifting = (rect, py, tool) => {
-  const [a, b] = selection, ways = { pitch: { lift: 'pitch', ratio: 1, st: 0 }, intonation: { lift: 'intonation', k: 1, mid: median({ at: a, duration: b - a }) }, formant: { lift: 'formant', st: 0 } }
+  const [a, b] = selection, ways = { intonation: { lift: 'intonation', k: 1, mid: median({ at: a, duration: b - a }) }, formant: { lift: 'formant', st: 0 } }
   return { a, b, rect, y: py, ...ways[tool] ?? { lift: 'gain', db: 0 } }
 }
 // Shift held while dragging a gain point keeps to one axis: the one the drag has gone further along from its press

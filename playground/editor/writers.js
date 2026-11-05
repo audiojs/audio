@@ -104,12 +104,14 @@ export function unmark(marker) {
   ed.change({ from: call.dot ?? call.from, to: call.to, insert: '' })
   return true
 }
-// A marker named where none was (a name written in a band's head): a mark() with the name, of a range (the selection's)
-// or a moment
+// A marker put from a band's head: a mark() of a range (the selection's) or a moment; with a name (a first one asked
+// for), so named, else its name asked for as M asks it (v.name)
 export function nameMarker({ time, duration, label }) {
   if (!state.whole) return false
-  const s = t => number(t, v.unit)
-  return write(`mark(${duration > 0 ? `{ at: ${s(time)}, d: ${s(duration)} }` : s(time)}, ${quote(label)})`)
+  const s = t => number(t, v.unit), at = duration > 0 ? `{ at: ${s(time)}, d: ${s(duration)} }` : s(time)
+  const made = write(`mark(${at}${label ? `, ${quote(label)}` : ''})`)
+  if (made && !label) v.name({ time: +s(time), ...duration > 0 && { duration: +s(duration) } })
+  return made
 }
 // A marker named, or its name taken away: its mark() call's label
 export function relabel({ label, ...marker }) {

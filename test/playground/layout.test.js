@@ -230,6 +230,8 @@ test('repl: the status bar never runs past its end, from a wide window to a phon
 // frames were, before the view drew in its resize callback). The panel's width is the view's to give up.
 test('editor: resizing the panes never shows a blank frame', async () => {
   await open()
+  // pointed at, its axes drawn: the overlay never all blank
+  await page.locator('.plot').hover({ position: { x: 200, y: TOP + 40 } })
   const blank = await page.evaluate(async () => {
     const panes = document.querySelector('.panes'), overlay = document.querySelector('.plot canvas.overlay'), g = overlay.getContext('2d')
     let empty = 0

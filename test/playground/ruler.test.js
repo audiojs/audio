@@ -412,8 +412,7 @@ test('editor: past the sound\'s end, its centre line on to the view\'s end', asy
   assert.ok(await line() > w * .07 - 4, `its centre line on past its end: ${await line()}`)
 })
 
-// The time row in the foot of the track pointed at, under its sound, not at the picture's foot; pointed elsewhere,
-// under the edited track's
+// The time row in the foot of the track pointed at, under its sound, not at the picture's foot; pointed at none, none
 test('editor: the time row is in the foot of the track pointed at', async () => {
   await open()
   await noCues()
@@ -434,6 +433,6 @@ test('editor: the time row is in the foot of the track pointed at', async () => 
   assert.ok(a0 > 30 && a1 < 5 && af < 5, `pointed at a: under a, ${a0}; under b, ${a1}; at the foot, ${af}`)
   const [b0, b1, bf] = await rowAt(box.x + box.width / 2, lanes[1].y + lanes[1].h / 2, [false, true, false])
   assert.ok(b0 < 5 && b1 > 30 && bf < 5, `pointed at b: under a, ${b0}; under b, ${b1}; at the foot, ${bf}`)
-  const [r0, r1] = await rowAt(box.x + box.width / 2, box.y + box.height - 4, [false, true, false])
-  assert.ok(r0 < 5 && r1 > 30, `pointed under them: under the edited one, b: ${r0}, ${r1}`)
+  const [r0, r1] = await rowAt(box.x + box.width / 2, box.y + box.height - 4, [false, false, false])
+  assert.ok(r0 < 5 && r1 < 5, `pointed under them: none, the picture a player's: ${r0}, ${r1}`)
 })

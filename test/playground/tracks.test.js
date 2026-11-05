@@ -446,7 +446,7 @@ test('editor: a paste into the room under the tracks makes a track as tall as th
 })
 
 // Under the tracks, where a new one's title would be, + New track, only while the room is pointed at: pressed, the
-// track made, empty, its name in hand, written and Enter, the track so named. The caret in the room a plus by its top;
+// track made, empty, its first marker's name asked for, written and Enter, a marker so named at its start. The caret in the room a plus by its top;
 // the meters by the lanes read nothing there, nothing being there yet
 test('editor: under the tracks, New track where its title would be: pressed, made and named', async () => {
   await open()
@@ -468,10 +468,11 @@ test('editor: under the tracks, New track where its title would be: pressed, mad
   await poll(lit, n => assert.equal(n, 0, 'in the room, no meters'))
   await placeholder.click()
   await page.waitForFunction(() => /\n\nlet track = audio\.from\(0\)$/.test(scriptText()))
-  await page.waitForFunction(() => document.activeElement?.classList.contains('layer-field'))
+  // its first marker's name asked for at its start, the name a track has
+  await page.waitForFunction(() => document.activeElement?.classList.contains('marker-name'))
   await page.keyboard.type('drums')
   await page.keyboard.press('Enter')
-  await page.waitForFunction(() => /\n\nlet drums = audio\.from\(0\)$/.test(scriptText()))
+  await page.waitForFunction(() => /\n\nlet track = audio\.from\(0\)\n  \.mark\(0, 'drums'\)$/.test(scriptText()))
 })
 
 // The room's caret let go (Esc): back in the sound's lanes, a paste there the sound's own, no track made

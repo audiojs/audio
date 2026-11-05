@@ -7,7 +7,7 @@ import { arrange, faded, crossed, invalidate } from './render.js'
 import { steer, onAway, bring } from './ruler.js'
 import { bar, onBar, x, time, clamp, snap, free, snapF, stick, stuck, pitchLine, snapV, local, inside, uy, ya, fold, pointAt, lineLanes, pitchLanes, setRange, setFreqs, zoomSpan, onFreqs, onLevels, zoomLevels } from './scales.js'
 import { around, select, told, addCaret, setCursor } from './select.js'
-import { thumb, liftAt, editing, markAt, notch, stripAt, rename, nameAt, nameMarker } from './strips.js'
+import { thumb, liftAt, editing, markAt, notch, stripAt, rename, nameAt, placeMarker } from './strips.js'
 
 // The pointer: down, move, the drags, hover and leave, up, clicks and the context menu, on the picture and its time row
 
@@ -405,7 +405,7 @@ export function up(event) {
     // in its own lane: what it moves frozen till the output comes (a copy put in, all after it)
     else { freeze([{ lane: own0(), a: d.carry === 'copy' ? d.to : Math.min(d.a, d.to), b: d.carry === 'copy' ? d.to + length : Math.max(d.b, d.to + length) }]); select(d.to, d.to + length, null, true) }
   }
-  else if ((d.stretch || d.pill) && !d.moved) { if (d.stretch) onmode('grip'); else if (d.tool === 'pitch') onmode('pitch') }
+  else if ((d.stretch || d.pill) && !d.moved) { if (d.stretch) onmode('grip') }
   else if (d.stretch && d.mode === 'trim') {
     if (Math.abs(d.to - d.b) < 1e-9 || !onedit('trim', { at: d.a, end: d.b, to: d.to })) assign({ pieces: null })
     else { freeze([{ lane: own0(), a: Math.min(d.b, d.to), b: Math.max(d.b, d.to) }]); d.to > d.a ? select(d.a, d.to, null, true) : (select(0, 0), setCursor(d.a)) }
@@ -450,10 +450,10 @@ export function up(event) {
 // what a press over the selection in its head is to name (down), till the click it makes
 let blank = null
 export function clicked(event) {
-  // pressed in a band's head where no marker is: a name written there, a marker named (nameMarker)
+  // pressed in a band's head where no marker is: a marker put there, its name asked for (placeMarker)
   const named = blank
   blank = null
-  if (named && !event.button && event.detail === 1) return nameMarker(named)
+  if (named && !event.button && event.detail === 1) return placeMarker(named)
   // a marker's name double-clicked: named anew where its name is (the takes' place, its press alone)
   const mark = !gripAt(own(lanes()), ...local(event)) && stripAt(...local(event))
   if (mark) return mark.kind === 'mark' && event.detail === 2 && rename(mark.i)

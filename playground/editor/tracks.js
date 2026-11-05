@@ -71,9 +71,9 @@ export function renamed(event, l) {
   if (l.single) renameTab(state.tab, to)
   else renameTrackTo({ from: l.name, to })
 }
-// The title a new track would have, under the last (index.html .layer-new): pressed, the track made, empty, its name in
-// hand to write, as a layer named as it is made
-export function nameNewTrack() { if (newTrack()) renameLayer(tracksOf(ed.code).at(-1)?.name) }
+// A track made empty (Track › New track, the room's + New track): its first marker's name asked for at its start, the
+// name a track has (none written, none)
+export function nameNewTrack() { if (newTrack()) v.ask(0) }
 // Under the tracks, a track to make: empty, or recorded as the others play
 export const roomMenu = () => [item('track.new', snapshot(), { hint: null, when: null, icon: icons.track }), item('record.track', snapshot(), { when: () => !state.recording })]
 // The tracks as their lanes show them, each muted or not, locked or not; none muted with a master, which mixes them as

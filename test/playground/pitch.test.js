@@ -87,10 +87,9 @@ test('editor: the pitch curve\'s bends drag, bending the voice between the handl
   // a voice swinging ±2.2 semitones about 200 Hz twice a second: highest at 0.5, 1 and 1.5 s (200 + 8π cos 4πt Hz)
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * (200 * t + 2 * Math.sin(2 * Math.PI * 2 * t))), { duration: 2 })`)
   await lengthIs('0:02.000')
-  // the pitch tool at the waveform lane's foot; the spectrogram it turns to fills the plot (lh)
-  const { box, x } = await axis(2), lh = TRACK, pitch = tools(x, box, .5, 1.5).pitch
-  await drag([x(.5), box.y + TOP + 80], [x(1.5) - x(.5), 0])
-  await page.mouse.click(...await grab([pitch], 'ns-resize'))
+  // View › Pitch curve: the spectrogram it turns to fills the plot (lh)
+  const { box, x } = await axis(2), lh = TRACK
+  await menu('View', 'Pitch curve')
   assert.equal(await shown(), 'Spectrogram')
   await page.keyboard.press('Escape')
   // a handle by the crest at 1 s (Praat's stylization keeps the points a straight line misses most, not the crests
@@ -192,47 +191,6 @@ test('editor: a notes lane\'s keys zoom about the key under the pointer, a row t
   await grab([[x(.8), c4]], 'ns-resize')
 })
 
-// The pitch tool: dragged up, by the square of how far, a few cents near where it was pressed, semitones further, 12 a
-// picture's height away; the note it goes to said by it (a 220 Hz tone is A3, A4 being 440 Hz, ISO 16), the range heard
-// as it will sound while it moves, from the first move on (the library's pitch(), a voice's), one pitch() step let go
-test('editor: the pitch tool goes by cents near, semitones far, says the note it goes to and is heard as it goes', async () => {
-  await page.addInitScript(tap)
-  await open()
-  await noCues()
-  await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t), { duration: 2 })`)
-  await lengthIs('0:02.000')
-  await menu('View', 'Pitch curve')
-  await show('wave')
-  // the waveform's tools inside its lane's foot; selected off its centre line, where the pitch line is
-  const { box, x } = await axis(2), pitch = [tools(x, box, .5, 1.5).pitch[0], box.y + tall(box) - 8]
-  await drag([x(.5), box.y + TOP + TRACK * .3], [x(1.5) - x(.5), 0])
-  const said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
-  for (const until = Date.now() + 8000; Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.move(...pitch); if (/^Pitch A3/.test(await said())) break; await page.mouse.move(pitch[0] + 30, pitch[1] - 40) }
-  assert.match(await said(), /^Pitch A3([+−][1-5]ct)?, by cents; a click hides the curve$/)
-  // 12 semitones a lane's height away (view.js glide): st = 12 (dy / lh)²; the tool at the lane's foot, all of it over it
-  const lh = TRACK, at = st => pitch[1] - lh * Math.sqrt(st / 12)
-  await heard()
-  await page.mouse.down()
-  // pressed and moved a little: at 0, heard as it is
-  await page.mouse.move(pitch[0], pitch[1] - 4)
-  await poll(heard, h => assert.ok(h.peak > .05, 'at 0 semitones, heard as it is'))
-  // a fifth of a semitone: cents alone
-  await page.mouse.move(pitch[0], at(.2), { steps: 6 })
-  await poll(said, t => assert.match(t, /^\+(1\d|2\d)ct, A3([+−][1-5]ct)? → A3\+\d+ct$/))
-  await poll(heard, ({ peak }) => assert.ok(peak > .05, `heard as it goes: ${peak}`))
-  // two and a half semitones, then most of the lane's height: ten and more
-  // the words where it was pressed, the pointer hidden: only what they say changes
-  const place = () => page.locator('.hint').evaluate(e => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)] })
-  const was = await place()
-  await page.mouse.move(pitch[0], at(2.5), { steps: 6 })
-  assert.match(await said(), /^\+2st [3-6]\dct, A3/)
-  await page.mouse.move(pitch[0], pitch[1] - lh * .95, { steps: 6 })
-  assert.match(await said(), /^\+10st [6-9]\dct, /)
-  assert.deepEqual(await place(), was, 'the words stay where it was pressed')
-  await page.mouse.up()
-  await page.waitForFunction(() => /\.pitch\(10\.\d\d?, \{ at: 0\.5, d: 1, voice: true \}\)$/.test(scriptText()))
-})
-
 // The tools beside it: a voice's intonation, its rises and falls wider up and flatter down (half a lane twice as wide,
 // or a monotone), by 0.05; its formants, as the pitch tool its pitch. Each heard as it goes, from the first
 // move, and one step over the selection; the same again over it sets the same step again
@@ -243,9 +201,12 @@ test('editor: the tools set a voice\'s intonation and its formants, heard as the
   // a voice whose pitch rises and falls, ±2 semitones about 200 Hz twice a second
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * (200 * t + 2 * Math.sin(2 * Math.PI * 2 * t))), { duration: 2 })`)
   await lengthIs('0:02.000')
+  // where its notes show, its tools: intonation and formants (its pitch the notes themselves); its pitch curve read
+  await menu('View', 'Notes')
   await menu('View', 'Pitch curve')
   const { box, x } = await axis(2), lh = TRACK, { intonation, formant } = tools(x, box, .5, 1.5), said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
-  await drag([x(.5), box.y + TOP + 80], [x(1.5) - x(.5), 0])
+  // selected from the time row, under the notes
+  await drag([x(.5), box.y + tall(box) + 8], [x(1.5) - x(.5), 0])
   await page.mouse.move(...intonation)
   assert.equal(await said(), 'Intonation, wider or flatter')
   await heard()

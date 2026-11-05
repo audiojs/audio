@@ -1035,3 +1035,23 @@ test('editor: a press held still, then dragged, takes the caret along without se
   await drag([x(5), y], [x(6) - x(5), 0])
   assert.equal(await selected(), '0:05.000–0:06.000')
 })
+
+// The lines a drag or held Alt shows, each named faintly by its top in a word or two, as a hint: the sound's own start
+// and end, where a sound starts after a pause, a hit, a marker's name
+test('editor: held Alt, each cue line named by its top: Start, End, a sound\'s start, a hit, a marker', async () => {
+  await open()
+  await write(`audio('chime.wav').mark(5.5, 'Bell')`)
+  await lengthIs('0:08.000')
+  await settled()
+  await page.evaluate(() => {
+    window.__named = new Set()
+    const text = CanvasRenderingContext2D.prototype.fillText
+    CanvasRenderingContext2D.prototype.fillText = function (s, x, y) { if (this.canvas.matches('.marks, .overlay')) window.__named.add(s); return text.call(this, s, x, y) }
+  })
+  const { box, x } = await axis(8)
+  await page.mouse.move(x(3), box.y + TOP + TRACK / 3)
+  await page.keyboard.down('Alt')
+  await poll(() => page.evaluate(() => [...window.__named]), named => assert.ok(['Start', 'End', 'Bell'].every(n => named.includes(n)) && named.some(n => /^(Hit|Sound start)$/.test(n)), `named: ${named.join(', ')}`), 3000)
+  await page.keyboard.up('Alt')
+})
+

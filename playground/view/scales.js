@@ -130,12 +130,13 @@ export function room(rect, list, placed = [], gap = size() + 4) {
   }
   return out
 }
-// Marks [y, text] by a lane: each with room, its tick at its height, its label under it (over it only where that would
-// leave the lane, its foot's, so no label runs into the lane under it), clear of the pointer's value (`taken`, its y)
-export const beside = (rect, ty) => ty + size() - 1 + size() / 2 <= rect[1] + rect[3] ? ty + size() - 1 : ty - size() + 2
+// Marks [y, text] by a lane: each with room, its tick at its height, its label under it (over it only where another
+// lane lies right under it, a channel's, so no label runs into it: `open`, the lane's own, false then); those clear of
+// the pointer's value (`taken`, its y), each alone, its mirror staying
+export const beside = (rect, ty) => rect.open !== false || ty + size() - 1 + size() / 2 <= rect[1] + rect[3] ? ty + size() - 1 : ty - size() + 2
 export function ticks(rect, list, taken) {
-  const w = plot().w
-  for (const [ly, text] of room(rect, list, taken == null ? [] : [beside(rect, taken)])) {
+  const w = plot().w, clear = ([ly]) => taken == null || Math.abs(beside(rect, Math.round(ly)) - beside(rect, taken)) >= size() + 4
+  for (const [ly, text] of room(rect, list).filter(clear)) {
     const ty = Math.round(ly)
     c.fillStyle = color('--color-screen-rule')
     c.fillRect(w + 1, ty, TICK, 1)

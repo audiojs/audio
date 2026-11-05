@@ -45,8 +45,7 @@ export function paintRuler(marks, spans = [], labels = true) {
   }
   for (const [p, q] of spans) taken.push([X(p), X(q)])
   if (labels && ruler !== 'none') {
-    // in a band's foot, a ruler's: a tick between each two labelled too
-    if (timeRow === 'band') paintTicks(tickTop())
+    const words = []
     for (let i = first; i * step <= end + 1e-9; i++) {
       const t = i * step, px = X(t), text = stamp(t, digits), tw = c.measureText(text).width
       if (px + 4 + tw > w) break
@@ -54,8 +53,10 @@ export function paintRuler(marks, spans = [], labels = true) {
       if (taken.some(([a, b]) => px + tw + 8 > a && px - 4 < b)) continue
       c.fillStyle = color('--color-screen-rule')
       c.fillRect(px, tickTop(), 1, TICK)
-      if (ruler === 'labels') { c.fillStyle = color('--color-screen-line-number'); c.fillText(text, px + 4, y) }
+      if (ruler === 'labels') { c.fillStyle = color('--color-screen-line-number'); c.fillText(text, px + 4, y); words.push([px + 2, px + 6 + tw]) }
     }
+    // in a band's foot, a ruler's: ticks between the labelled too, none through a time written on it
+    if (timeRow === 'band') paintTicks(tickTop(), [...words, ...taken])
   }
   c.fillStyle = gauge()
   for (const [p, q] of spans) c.fillRect(X(p), Math.round(y), X(q) - X(p), 1)
@@ -69,14 +70,15 @@ export function paintRuler(marks, spans = [], labels = true) {
   // the playhead's, where the ruler has room for it, for its own layer to show (layHead)
   return shown.find(m => m.head) ?? null
 }
-// A band's foot as a ruler, from `top` down: a tick TICK px long (a label's line) at each time the row labels and one
-// halfway between
-function paintTicks(top) {
-  const { w } = plot(), { step, first } = labelled(), end0 = lanesEnd(lanes())
+// A band's foot as a ruler, from `top` down: a tick TICK px long (a label's line) at each round time between the
+// labelled ones, the grid's finer step (labelled's minor: a second between every 5, a tenth between every half), as
+// the grid's lines fall (render.js rule); none within `clear` ([[x0, x1], …] px: a time written there)
+function paintTicks(top, clear) {
+  const { w } = plot(), { minor } = labelled(), end0 = lanesEnd(lanes())
   c.fillStyle = color('--color-screen-rule')
-  for (let i = first - 1; i * step <= end + 1e-9; i++) for (const k of [0, .5]) {
-    const px = X((i + k) * step)
-    if (px >= 0 && px < Math.min(w, end0)) c.fillRect(px, top, 1, TICK)
+  for (let i = Math.ceil(start / minor - 1e-9); i * minor <= end + 1e-9; i++) {
+    const px = X(i * minor)
+    if (px >= 0 && px < Math.min(w, end0) && !clear.some(([a, b]) => px >= a && px <= b)) c.fillRect(px, top, 1, TICK)
   }
 }
 // The playhead's layer laid out as the overlay is: its line down the lanes, through the band alone with one selected on

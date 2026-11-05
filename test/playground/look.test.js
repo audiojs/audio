@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, menu, menuRow, write, LANES, tall, tracksAt, lengthIs, gridShown, pixels, show, shown, themed } from './page.js'
+import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, menu, menuRow, write, LANES, FOOT, tall, gutter, tracksAt, lengthIs, gridShown, pixels, show, shown, themed } from './page.js'
 
 // The axis at the pictures' right is as wide as its labels and the pointer's value read out on it, five characters at
 // full scale: a sample value to a digit finer than the marks (−0.03), decibels to a tenth with no unit (−12.3), a
@@ -84,16 +84,18 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   }
   assert.ok(await blank(), 'bare by default: nothing ruled')
   await menu('View', 'Grid')
-  // the layers laid again, each only as its drawing changes (view.js, kept.js): the window a pixel narrower and back
+  // the layers laid again, each only as its drawing changes (view.js, kept.js): the window a pixel narrower and back,
+  // the pointer on the band's head (its axes drawn, none read out)
+  await page.locator('.plot').hover({ position: { x: 10, y: TOP / 2 } })
   await page.evaluate(() => window.__ticks = [])
   await blank()
   const calls = await page.evaluate(() => window.__ticks), at = {}
   calls.forEach((c, i) => { if (c.w && calls[i + 1]?.s) at[calls[i + 1].s] ??= c.h === 1 ? c.y : c.x })
   const [hit, c0, c1, r5, r0] = [at['0:00.5'], at['0:02.5'], at['0:03.0'], at['0.5'], at['0']]
   assert.ok([hit, c0, c1, r5, r0].every(Number.isFinite), `ticks at 0.5 s, 2.5 s, 3 s, 0.5 and 0: ${JSON.stringify(at)}`)
-  // each level's label under its tick, but the lane's foot one, over it, in the lane (none runs into the lane under)
+  // each level's label under its tick, the lane's foot one too (one lane: nothing under it to run into)
   const label = text => calls.find(c => c.s === text)?.y, foot = calls.find((c, i) => c.w && calls[i + 1]?.s === '−1')?.y
-  assert.ok(label('0.5') > r5 && label('0') > r0 && label('−1') < foot, `labels under their ticks, the foot's over: 0.5 at ${label('0.5')} by ${r5}, −1 at ${label('−1')} by ${foot}`)
+  assert.ok(label('0.5') > r5 && label('0') > r0 && label('−1') > foot, `labels under their ticks: 0.5 at ${label('0.5')} by ${r5}, −1 at ${label('−1')} by ${foot}`)
   // the most a 3 × 3 px square round each point is lit by the grid as it shows (gridShown), CSS px
   const lit = points => page.evaluate(points => {
     const { k, w, d } = window.__shown
@@ -103,12 +105,14 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   await gridShown()
   const [down, across, between, behind] = await lit([[c0, mid[1]], [mid[0], r5], mid, [hit, r0]])
   assert.ok(down && across, 'a line down from 2.5 s and across from 0.5')
+  // and from each tick between the labelled ones: 2.6 s, a fifth of the way on
+  assert.ok((await lit([[c0 + (c1 - c0) / 5, mid[1]]]))[0], 'a line down from 2.6 s, as its tick')
   assert.equal(between, 0, 'none between the ticks')
   assert.equal(behind, 0, 'none behind the waveform')
   // the levels in decibels: a line across from −6 dB's tick
   await page.evaluate(() => window.__ticks = [])
   await settings('Levels in', 'Decibels')
-  await page.mouse.move(2, 2)
+  await page.locator('.plot').hover({ position: { x: 10, y: TOP / 2 } })
   await settled()
   const db = await page.evaluate(() => window.__ticks), r6 = db.find((c, i) => c.w && c.h === 1 && db[i + 1]?.s === '−6')?.y
   assert.ok(Number.isFinite(r6), 'a tick at −6 dB')
@@ -778,3 +782,18 @@ test('editor: in a VS Code webview, the theme VS Code wears', async () => {
   await open()
   assert.deepEqual(await page.evaluate(() => ['--color-screen', '--color-screen-line-number', '--color-screen-ink', '--color-screen-grid', '--font-mono', '--font-body', '--font-size-label'].map(k => document.documentElement.style.getPropertyValue(k))), ['rgb(255 255 254)', 'rgb(35 120 147)', 'rgb(32 32 32)', 'rgb(10 20 30 / 0.502)', 'Fira Code', 'Inter', '15px'])
 })
+
+// Pointed nowhere on the picture, no axes: the time row and the levels gone, a player's picture; pointed at the sound,
+// both there, of its band
+test('editor: the axes show only while the band is pointed at', async () => {
+  await open()
+  await settled()
+  const box = await page.locator('.plot').boundingBox(), g = await gutter()
+  // light text in the axis' column and along the time row, from the overlay and the row as they show
+  const ink = () => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; if ((x > w - arg.g || y >= arg.row) && d[i] > 90 && Math.abs(d[i] - d[i + 2]) < 20) n++ } return n`, { y0: TOP, y1: TOP + TRACK + FOOT, g, row: TOP + TRACK })
+  await page.mouse.move(box.x + 200, box.y + TOP + TRACK / 3)
+  await poll(ink, n => assert.ok(n > 200, `pointed at, its axes: ${n}`), 3000)
+  await page.mouse.move(2, 2)
+  await poll(ink, n => assert.ok(n < 20, `pointed nowhere, none: ${n}`), 3000)
+})
+
