@@ -10,6 +10,7 @@ import { marks, meter, describe } from './readouts.js'
 import { places } from './recording.js'
 import { docs, docOf, soundName, badges } from './tabs.js'
 import { lanesShown, showTracks, lane, hears, fetches, lanesOf } from './tracks.js'
+import { numbered } from './writers.js'
 
 // Running the script: a change scheduled, evaluated and sent to the engine; its reply shown, its output arriving and
 // settled, what is waited on (ran, settled), what the status bar says it does, the check against a spec
@@ -368,7 +369,7 @@ export function settle(out, draw = true, behind = false) {
   v.clips = out?.clips
   // the markers as the script has them: an older script's output, the newer one on its way, leaves those the view
   // drew ahead of it (made, named, moved) as they are
-  if (!behind) v.markers = out?.markers
+  if (!behind) v.markers = numbered(out?.markers)
   // a tab shown again whose player plays its output already plays on as it is
   if (pl.out !== out || !has) lend(out)
   if (!has && pl.playing) togglePlay()

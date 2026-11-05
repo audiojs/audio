@@ -4,14 +4,14 @@ import { CURVES } from './ops.js'
 import { RECORD, taking, ended, put, lay, fill, renew, grown, replace } from './view/data.js'
 import { frozen, untrack, ghost, unghost, layout, CHUNK, HELD, plot, lanes, inRoom, resized, freeze, own0 } from './view/geometry.js'
 import { aimed } from './view/gestures.js'
-import { stylize, GLIDE, color, runway, gl, sgl, waves, specs, count, rate, duration, display, hovered, markers, arriving, more, dropped, droppedNew, recording, empty, asking, pieces, start, end, fview, selection, band, cursor, playhead, played, speed, guides, nudge, steered, aview, pitching, look, waveLook, data, tracks, focus, allLanes, sections, windows, windowsOf, anchor, moving, unframed, held, mount, assign } from './view/model.js'
+import { stylize, GLIDE, color, runway, gl, sgl, waves, specs, count, rate, duration, display, hovered, markers, arriving, more, dropped, droppedNew, recording, empty, asking, pieces, start, end, fview, selection, band, cursor, playhead, played, speed, guides, nudge, steered, aview, pitching, look, waveLook, data, tracks, focus, across, sections, windows, windowsOf, anchor, moving, unframed, held, mount, assign } from './view/model.js'
 import { reach, seenTo, fitTo, metered } from './view/overlay.js'
 import { drag, down, move, drags, hover, leave, up, clicked } from './view/pointer.js'
 import { dpr, resize, arrange, invalidate, tints, tonesOf, twinOf, unheard, reshow, snapshot, shades } from './view/render.js'
 import { steer, slide, unslide, bring, fitAll, frameSelected } from './view/ruler.js'
 import { scale, x, time, clamp, unit, snap, stuck, local, setRange, setFreqs, frameVoice, zoom, whole, scrollLevels, setScale, reveal } from './view/scales.js'
 import { around, stepTo, wheel, select, told, ranges, carets, boxes, addNext, setCursor, context, key, wire as wireSelect } from './view/select.js'
-import { same, rename, askName } from './view/strips.js'
+import { same, rename, askName, nextOf } from './view/strips.js'
 export { KINDS, NOTES, noteOf, stylize, HOLD, SLOP } from './view/model.js'
 
 // The output as a picture: the waveform, the spectrogram or the notes, a sound's lanes alike, each track's its own
@@ -295,10 +295,10 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     },
     // What is selected, whole, as the history keeps it beside a step: the selection, its band, the others beside it,
     // the caret, where the selection was begun; set, all of it back as it was
-    get state() { return { selection: selection && [...selection], band: band && [...band], more: more.map(r => [...r]), cursor, anchor, across: allLanes } },
+    get state() { return { selection: selection && [...selection], band: band && [...band], more: more.map(r => [...r]), cursor, anchor, across: across && [...across] } },
     set state(s) {
       assign({ cursor: s.cursor, anchor: s.anchor })
-      assign({ selection: s.selection && [...s.selection] }); assign({ band: s.band && [...s.band] }); assign({ more: s.more.map(r => [...r]) }); assign({ allLanes: !!s.across })
+      assign({ selection: s.selection && [...s.selection] }); assign({ band: s.band && [...s.band] }); assign({ more: s.more.map(r => [...r]) }); assign({ across: Array.isArray(s.across) ? [...s.across] : s.across && tracks ? tracks.map((_, i) => i) : null })
       if (!selection) oncursor(cursor)
       told()
       invalidate()
@@ -354,12 +354,12 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     set markers(list) { assign({ markers: list || [] }); invalidate(true) },
     // the places of takes, [{ at, end, on, names }] (placeTakes): drawn again only as they change
     set takes(list) { if (JSON.stringify(list || []) !== JSON.stringify(sections)) { assign({ sections: list || [] }); invalidate(true) } },
-    // a first marker's name asked for at `t` in the edited band's head (a track just made): written only if named
+    // a first marker's name asked for at `t` in the edited band's foot (a track just made): written only if named
     ask(t = 0) { askName(t) },
     // a marker just made, { time, duration? }: drawn at once, before the output that has it comes, its name asked for
     name(m) {
       m = { ...m, ...tracks && { track: tracks[focus]?.name } }
-      if (!markers.some(n => same(n, m))) assign({ markers: [...markers, { ...m, label: '' }].sort((p, q) => p.time - q.time) })
+      if (!markers.some(n => same(n, m))) assign({ markers: [...markers, { ...m, label: '', n: nextOf(tracks ? focus : null) }].sort((p, q) => p.time - q.time) })
       rename(markers.findIndex(n => same(n, m)))
     },
     // the cues found, [{ t, rank }] (s, how plain: the larger shown first where they crowd); null till they are
@@ -467,11 +467,11 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     // whether an edit is still being made over part of the picture (frozen)
     get busy() { return frozen.length > 0 },
     // every range selected, in time order, and every caret; addNext() adds the next like the selection (⌘D); `across`,
-    // with tracks, whether the ranges run through every track's lane, an edit of them every track's
+    // with tracks, the names of the tracks the ranges run through, an edit of them each one's (none: the edited one's)
     get ranges() { return ranges() }, get carets() { return carets() }, get boxes() { return boxes() }, addNext,
     // whether anything is selected but the caret: a range, a box, another caret (Esc lets them go)
     get selected() { return !!selection || more.length > 0 },
-    get across() { return !!tracks && allLanes },
+    get across() { return tracks && across ? across.map(i => tracks[i]?.name).filter(n => n != null) : null },
     select, setCursor, around, step: stepTo,
     zoom, zoomTo: (a, b) => { const pad = (b - a) * .05; steer(); fitTo(a - pad, b + pad) }, fit: fitAll, frameSelected, bring,
     // the picture of a range, for an agent; a range or a time brought into sight

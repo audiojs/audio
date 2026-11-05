@@ -1,5 +1,5 @@
 import measure, { coloured } from '../tint.js'
-import { LINGER, plot, lanes, extent, own, tickTop, row, rowBand, MAP } from './geometry.js'
+import { LINGER, plot, lanes, extent, own, tickTop, row, roof, MAP } from './geometry.js'
 import { TICK, timeRow, color, barStrip, runway, head, headLines, headTick, headTime, oc, c, rate, duration, hovered, start, end, selection, band, cursor, playhead, ruler, waveLook, data, tracks, focus, scroll, reached, moving, leavesOf, map, assign } from './model.js'
 import { labelled } from './notes.js'
 import { say, lanesEnd, seenTo, fitTo, away } from './overlay.js'
@@ -16,7 +16,7 @@ export const steer = () => { assign({ steered: playhead != null }); assign({ mov
 export let barOn = null, barTimer = 0
 // `labels`: the time row's own times and ticks too (on the reel), or only these marks' (the playhead's)
 export function paintRuler(marks, spans = [], labels = true) {
-  if (ruler === 'off' || timeRow === 'band' && !rowBand()) return null
+  if (ruler === 'off') return null
   // the tick and chevron of what is out of sight (away) taken first: the labels give way to them
   const { w } = plot(), y = row(), { step, digits, first } = labelled(), taken = away && c === oc ? [[away.x0 - 2, away.x1 + 2]] : []
   c.textAlign = 'left'
@@ -54,8 +54,8 @@ export function paintRuler(marks, spans = [], labels = true) {
       c.fillRect(px, tickTop(), 1, TICK)
       if (ruler === 'labels') { c.fillStyle = color('--color-screen-line-number'); c.fillText(text, px + 4, y) }
     }
-    // in a band's foot, a ruler's: ticks between the labelled too, none through a time written on it
-    if (timeRow === 'band') paintTicks(tickTop(), taken)
+    // ticks between the labelled too, none through a time written on it
+    paintTicks(taken)
   }
   c.fillStyle = gauge()
   for (const [p, q] of spans) c.fillRect(X(p), Math.round(y), X(q) - X(p), 1)
@@ -69,11 +69,12 @@ export function paintRuler(marks, spans = [], labels = true) {
   // the playhead's, where the ruler has room for it, for its own layer to show (layHead)
   return shown.find(m => m.head) ?? null
 }
-// A band's foot as a ruler, from `top` down: a tick half a label's long at each round time between the labelled ones,
-// the grid's finer step (labelled's minor: a second between every 5, where a label leaves room for it), as the grid's
-// lines fall (render.js rule); none within `clear` ([[x0, x1], …] px: a time the pointer or the selection writes there)
-function paintTicks(top, clear) {
-  const { w } = plot(), { minor } = labelled(), end0 = lanesEnd(lanes())
+// A tick half a label's long at each round time between the labelled ones, by the lanes as theirs are (up from the
+// roof, down from the row's top at the picture's foot), the grid's finer step (labelled's minor: a second between every
+// 5, where a label leaves room for it), as the grid's lines fall (render.js rule); none within `clear` ([[x0, x1], …]
+// px: a time the pointer or the selection writes there)
+function paintTicks(clear) {
+  const { w } = plot(), { minor } = labelled(), end0 = lanesEnd(lanes()), top = tickTop() + (timeRow === 'top' ? TICK / 2 : 0)
   if (!minor) return
   c.fillStyle = color('--color-screen-rule')
   for (let i = Math.ceil(start / minor - 1e-9); i * minor <= end + 1e-9; i++) {
@@ -88,7 +89,7 @@ let laid = ''
 export function layHead(L, m) {
   const { w, h } = plot(), lh = size() + 4
   // with tracks, the edited one's line bright, the others' as their names are, so the track edited reads at a glance
-  const segs = (band ? L.spec.map(r => [Math.max(r[1], fy(r, band[1])), Math.min(r[1] + r[3], fy(r, band[0])), r.i]) : L.all.map(r => [r[1], r[1] + r[3], r.i])).map(([a, b, i]) => [Math.max(0, a), Math.min(h, b), !!tracks && i !== focus]).filter(([a, b]) => b > a)
+  const segs = (band ? L.spec.map(r => [Math.max(r[1], fy(r, band[1])), Math.min(r[1] + r[3], fy(r, band[0])), r.i]) : L.all.map(r => [r[1], r[1] + r[3], r.i])).map(([a, b, i]) => [Math.max(roof(), a), Math.min(h, b), !!tracks && i !== focus]).filter(([a, b]) => b > a)
   const key = `${w} ${h} ${row()} ${label()} ${segs.join(' ')}`
   if (key !== laid) {
     laid = key

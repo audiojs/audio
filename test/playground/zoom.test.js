@@ -83,7 +83,7 @@ test('editor: a pinch zooms the axis under the pointer, the frequencies or the t
   // on the times, Ctrl and the wheel zoom time
   await page.locator('.plot').focus()
   await page.keyboard.press('0')
-  await pinch(x(1), box.y + box.height - 8)
+  await pinch(x(1), box.y + TOP / 2)
   const [, ruler] = await band()
   assert.notEqual(ruler, span)
   await page.locator('.plot').focus()

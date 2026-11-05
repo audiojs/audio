@@ -4,7 +4,7 @@ import { CURVES, CROSSFADES } from '../ops.js'
 import measure, { coloured, hue, temperature, colormap, inked, lightness, MAPS } from '../tint.js'
 import { unwritten, takes } from './data.js'
 import { CHUNK, WAVE, SPAN, HELD, plot, merged, kindOf, lanes, laneOf, carried, roomLane, spans } from './geometry.js'
-import { timeRow, root, onsamples, onheard, color, reel, selectCanvas, specCanvas, waveCanvas, rowStrip, marksCanvas, meterStrip, barStrip, overlay, gl, sgl, waves, specs, rate, duration, display, units, hovered, arriving, more, recording, pieces, guest, start, end, fview, band, fadeCurve, aview, levelUnits, grid, look, waveLook, data, tracks, focus, windows, windowsOf, leveled, scroll, kinds, pictures, cruise, cruised, palette, moving, ruled, under, shaded, assign } from './model.js'
+import { root, onsamples, onheard, color, reel, selectCanvas, specCanvas, waveCanvas, rowStrip, marksCanvas, meterStrip, barStrip, overlay, gl, sgl, waves, specs, rate, duration, display, units, hovered, arriving, more, recording, pieces, guest, start, end, fview, band, fadeCurve, aview, levelUnits, grid, look, waveLook, data, tracks, focus, windows, windowsOf, leveled, scroll, kinds, pictures, cruise, cruised, palette, moving, ruled, under, shaded, assign } from './model.js'
 import { labelled } from './notes.js'
 import { paint, lanesEnd, fitTo } from './overlay.js'
 import { barOn, moveOn } from './ruler.js'
@@ -494,8 +494,8 @@ function underlay() {
 function rule(L) {
   const all = L.all, stop = lanesEnd(L), lines = []
   if (grid === 'none' || !duration) return []
-  // the time row's ticks' times ('band', its foot a ruler's: the finer step), else its labels'
-  const { step, minor } = labelled(), by = timeRow === 'band' ? minor ?? step : step, cols = []
+  // the time row's ticks' times, the finer step between its labels where there is one
+  const { step, minor } = labelled(), by = minor ?? step, cols = []
   for (let i = Math.ceil(start / by - 1e-9); i * by <= end + 1e-9; i++) { const px = X(i * by); if (px >= 1 && px < stop) cols.push(px) }
   all.forEach((rect, i) => {
     const [, y, , lh] = rect, right = Math.min(stop, X(tracks?.[i]?.end ?? duration))

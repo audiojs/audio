@@ -1,14 +1,14 @@
 import { markLane } from './data.js'
-import { lockedAt, haunt, unghost, pointers, plot, spare, tallOf, lanes, floor, inRoom, own, laneAt, trackAt, footAt, bands, resized, refocus, freeze, own0, frozenAt } from './geometry.js'
+import { lockedAt, haunt, unghost, pointers, plot, spare, tallOf, lanes, inRoom, own, onOwn, laneAt, trackAt, footAt, bands, resized, refocus, freeze, own0, frozenAt } from './geometry.js'
 import { selectDown, origin, current, caretAt, edgeAt, gripDown, endDown, gapDown, take, lifting, lock, aimed, fine, scrub, unscrub, nearCue, cueDown, penDown, toneDown, pitchDown, noteDown, tapped, heardAround } from './gestures.js'
-import { EDGE, ONTO, FINE, HOLD, SLOP, EXTEND, ADD, OPEN, root, onedit, onmode, onscrub, onaudition, onheight, duration, show, markers, more, pieces, start, end, fview, selection, band, cursor, playhead, steered, cues, envelope, shift, contour, fadeCurve, aview, LEVEL_STEP, tracks, focus, allLanes, sections, heights, lift, held, assign } from './model.js'
+import { EDGE, ONTO, FINE, HOLD, SLOP, EXTEND, ADD, OPEN, root, onedit, onmode, onscrub, onaudition, onheight, duration, show, markers, more, pieces, start, end, fview, selection, band, cursor, playhead, steered, cues, envelope, shift, contour, fadeCurve, aview, LEVEL_STEP, tracks, focus, across, sections, heights, lift, chosen, held, assign } from './model.js'
 import { hear, pitchRange, noteAt, linePoints, curveOf, onLine, pointOn, knotOn } from './notes.js'
 import { lanesEnd, gripAt, gripPointer, glide } from './overlay.js'
 import { arrange, faded, crossed, invalidate } from './render.js'
 import { steer, onAway, bring } from './ruler.js'
 import { bar, onBar, x, time, clamp, snap, free, snapF, stick, stuck, pitchLine, snapV, local, inside, uy, ya, fold, pointAt, lineLanes, pitchLanes, setRange, setFreqs, zoomSpan, onFreqs, onLevels, zoomLevels } from './scales.js'
 import { around, select, told, addCaret, setCursor } from './select.js'
-import { thumb, liftAt, editing, caretTo, notch, stripAt, rename, nameAt, placeMarker } from './strips.js'
+import { thumb, liftAt, editing, caretTo, notch, stripAt, kin, same, rename, nameAt, placeMarker } from './strips.js'
 
 // The pointer: down, move, the drags, hover and leave, up, clicks and the context menu, on the picture and its time row
 
@@ -46,9 +46,10 @@ export function down(event) {
   unghost()
   // in a band's strip, the band then the one edited: a moment's name or a range's end takes hold of it (a range's,
   // that end), the caret and what plays staying where they are, dragged, it moves, let go unmoved, the caret goes to it
-  // (up); in a locked track's, nothing. A range's name or the takes' place: its stretch selected at once and heard
-  // from its start while held, as it is; nothing more (dragged on, nothing moves)
-  // in the edited band's head where no marker is, a name to write as the press is let go (clicked): nothing more
+  // and to every other of its name (up); in a locked track's, nothing. A range's name or the takes' place: its stretch
+  // selected at once, every other of its name with it, and heard from its start while held, as it is; nothing more
+  // (dragged on, nothing moves)
+  // a marker to be, under a caret or a range, a name to write as the press is let go (clicked): nothing more
   blank = nameAt(lanes(), [px, py])
   if (blank) return
   const mark = !gripAt(own(lanes()), px, py) && stripAt(px, py)
@@ -63,7 +64,8 @@ export function down(event) {
     }
     if (m && !m.duration) return invalidate(true)
     const t = m ? null : sections[mark.i], a = m ? m.time : t.at, b = m ? m.time + m.duration : Math.min(t.end, duration)
-    select(a, b)
+    if (m) marked(mark.i)
+    else select(a, b)
     // its own track's alone, as it is, with tracks (the mix would be every track's)
     onaudition({ at: a, duration: b - a, whole: true, track: tracks ? m ? markLane(m) : t.lane ?? focus : null })
     drag = { preview: true }
@@ -77,10 +79,11 @@ export function down(event) {
   if (lockedAt(py)) return
   // where the caret's ghost was (caretTo): on what the band pressed in has by it, a range begun there snapped from its
   // start; held ⌘, where it is (aims finely, nothing snapping)
-  const t = caretTo(px, tracks ? Math.max(0, trackAt(lanes(), py)) : null, event)
+  const t = caretTo(px, tracks ? Math.max(0, trackAt(lanes(), py)) : null, event), was = chosen
   refocus(lanes(), py, px)
   const L = own(lanes())
   drag = gripDown(px, py, L, event) || endDown(px, py, event) || gapDown(px, py, event) || cueDown(px, py, event) || (show.gain && !pitchLine() && penDown(px, py, L)) || (pitchLine() && (toneDown(px, py, L) || penDown(px, py, L, true) || pitchDown(px, py, L) || penDown(px, py, L))) || noteDown(px, py, L, event) || selectDown(event, px, py, t, L)
+  drag.bound = boundOf(drag, was)
   // ⌘ aims finely, but not what it took hold of: a box, audio carried, an end stretched, a cue
   drag.aim = { px, py, ex: px, ey: py, on: editing(event), k: editing(event) && !drag.box && !drag.carry && !drag.end && drag.cue == null ? FINE : 1 }
   // a plain press held still, Alt's too: the caret, dragged, no selection (no caret added)
@@ -197,8 +200,8 @@ export function drags(event, px, py) {
     // down or up into another track's lane, it goes to that track (`into`), over what is there, as a clip dropped on
     // another track; none for a selection through every lane, which moves in each, nor into a locked track
     // under the last, into a new track there ('room'), as a clip dropped under a DAW's tracks
-    const L = lanes(), lane = tracks && !allLanes && !drag.out ? trackAt(L, py) : -1
-    drag.into = !allLanes && !drag.out && inRoom(py, L) ? 'room' : lane >= 0 && lane !== focus && !tracks?.[lane]?.locked ? lane : null
+    const L = lanes(), lane = tracks && !across && !drag.out ? trackAt(L, py) : -1
+    drag.into = !across && !drag.out && inRoom(py, L) ? 'room' : lane >= 0 && lane !== focus && !tracks?.[lane]?.locked ? lane : null
     root.style.cursor = drag.out ? (drag.carry === 'copy' ? 'copy' : 'grabbing') : 'none'
     const d = drag.b - drag.a, to = free(drag.a + time(px) - time(drag.x)), s = stick(to), e = drag.carry === 'move' && stick(to + d)
     drag.to = Math.max(0, Math.min(drag.carry === 'move' || drag.into != null ? Infinity : duration, s && (!e || s.d <= e.d) ? s.t : e ? e.t - d : to))
@@ -274,7 +277,7 @@ export function drags(event, px, py) {
     // a range starts on the cue its press was by, and its other end goes onto the one it comes near
     if (!drag.moved && !drag.caret) drag.anchor = stuck(drag.anchor)
     drag.moved = true
-    if (drag.row && tracks) assign({ allLanes: true })
+    if (drag.row && tracks) assign({ across: tracks.map((_, i) => i) })
     drag.hear = stuck(snap(time(px) + drag.offset))
     // a caret dragged with Shift held becomes a range, from where it was pressed, still sounding as it goes
     if (drag.caret && event.shiftKey) { drag.caret = false; drag.anchor = drag.from }
@@ -304,9 +307,33 @@ export function drags(event, px, py) {
       assign({ anchor: drag.anchor })
       scrub(drag)
     }
-    else { select(drag.anchor, drag.hear, drag.keep ? band : null, !!drag.keep, drag.hear); assign({ anchor: drag.anchor }); scrub(drag) }
+    else { select(drag.anchor, drag.hear, drag.keep ? band : null, !!drag.keep, drag.hear); assign({ anchor: drag.anchor }); if (!drag.row) spanned(py); scrub(drag) }
   }
   invalidate(pieces === was)
+}
+// A range dragged out from a lane down or up into another track's: through the tracks from the one edited to that one,
+// as a DAW's selection across tracks; back in its own, its alone
+function spanned(py) {
+  const i = tracks && selection ? trackAt(lanes(), py) : -1
+  if (i >= 0) assign({ across: i === focus ? null : Array.from({ length: Math.abs(i - focus) + 1 }, (_, k) => Math.min(i, focus) + k) })
+}
+// A marker's name pressed (`i`): its place selected, every other of its name in its band with it, as a text's
+// occurrences are: a range, the selection, a moment, the caret; the others beside it, as Alt adds them. The one pressed
+// chosen: the selection or the caret made from it (bound)
+function marked(i) {
+  const m = markers[i], others = kin(i).filter(j => j !== i).map(j => markers[j]).map(n => [n.time, n.time + (n.duration ?? 0)])
+  if (m.duration) select(m.time, m.time + m.duration)
+  else { select(0, 0); setCursor(m.time) }
+  if (others.length) { assign({ more: others }); told() }
+  assign({ chosen: m })
+}
+// The marker a drag takes with it: the one chosen (or one of its name), where the selection's edge dragged or the
+// caret dragged was made from it, as a saved selection is reshaped with the selection; null where none was, or the
+// drag made something new
+function boundOf(d, was) {
+  if (!was || !(d.resizing || d.caret)) return null
+  const [a, b] = d.resizing ? selection ?? [] : [d.from, d.from], i = markers.findIndex(m => same(m, was))
+  return i < 0 || a == null ? null : kin(i).map(j => markers[j]).find(m => Math.abs(x(m.time) - x(a)) < 1 && Math.abs(x(m.time + (m.duration ?? 0)) - x(b)) < 1) ?? null
 }
 // A drag that takes the sound on past its end (audio moved, silence opened or added, a stretch), out at the picture's
 // right edge with what it moves (`reach`, the time it takes it to): the view widens to show where it reaches, a frame
@@ -338,28 +365,28 @@ export function hover(px, py, keys = held) {
   // the room under the lanes, a new track's caret, as a lane's
   if (liftAt(px, py)) { hot = null; grabbing = true; root.style.cursor = 'default'; return }
   if (inRoom(py)) { hot = null; grabbing = false; root.style.cursor = ''; return }
-  // in a band's head: a name to write there (the arrow, the marker to be shown in its place: placeholder); a range's
-  // end to drag; a name to press; in its foot, the band's height to drag (where a selection's tools are not)
+  // in a band's foot: a marker to be, its name to write (the arrow, its number lit: placeholders); a range's end to
+  // drag; a name to press; at its bottom, the band's height to drag (where a selection's tools are not)
   if (nameAt(lanes(), [px, py])) { hot = null; grabbing = false; root.style.cursor = 'default'; return }
   const mark = !gripAt(own(lanes()), px, py) && stripAt(px, py)
   if (mark) { hot = null; grabbing = notch(mark, px) >= 0; root.style.cursor = grabbing ? 'ew-resize' : 'pointer'; return }
   if (footAt(py) != null && !gripAt(own(lanes()), px, py)) { hot = null; grabbing = true; root.style.cursor = 'row-resize'; return }
-  // in another track's lane, nothing to take hold of but a selection through every lane: a press there makes it the
-  // one edited, the caret where its ghost is
-  const through = allLanes && selection && !band && px >= x(selection[0]) - EDGE && px <= x(selection[1]) + EDGE, li = laneAt(lanes(), py)
-  if (tracks && py <= plot().h && li !== focus && !through) {
+  // in another track's band, nothing to take hold of but a selection through it: a press there makes it the one
+  // edited, the caret where its ghost is
+  const bi = trackAt(lanes(), py), through = across?.includes(bi) && selection && !band && px >= x(selection[0]) - EDGE && px <= x(selection[1]) + EDGE
+  if (tracks && bi >= 0 && bi !== focus && !through) {
     hot = null; grabbing = false; root.style.cursor = ''
-    if (li >= 0 && !lockedAt(py)) caretGhost = { i: li }
+    if (!lockedAt(py)) caretGhost = { i: bi }
     return
   }
   const L = own(lanes()), rect = (show.gain || pitchLine()) && lineLanes(L).find(r => inside(r, px, py)), spectral = L.spec.some(r => inside(r, px, py)) && editing(keys)
-  const aim = editing(keys) && L.all.some(r => inside(r, px, py)), other = !keys.shiftKey && keys.altKey && py <= floor()
+  const aim = editing(keys) && L.all.some(r => inside(r, px, py)), other = !keys.shiftKey && keys.altKey && onOwn(py)
   const tone = pitchLine() && contour?.f0.length && pitchLanes(L).find(r => inside(r, px, py))
   const handle = gripAt(L, px, py)?.[0], e = !handle && other && edgeAt(px), end = e?.edge === 1 ? e : null
   opening = !handle && !end && other && !editing(keys) && !!caretAt(px, py)
   const cue = !handle && !end && !opening && nearCue(px, py, keys) >= 0
   const note = !handle && !end && !cue && !keys.shiftKey && !keys.altKey && L.notes.some(r => inside(r, px, py) && noteAt(r, px, py))
-  const within = selection && !band && py <= floor() && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE && !caretAt(px, py) && !thirdAt(px, py)
+  const within = selection && !band && onOwn(py) && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE && !caretAt(px, py) && !thirdAt(px, py)
   const taken = handle ? gripPointer(handle)
     : end ? gripPointer('stretch')
     : opening ? OPEN
@@ -370,10 +397,10 @@ export function hover(px, py, keys = held) {
     : tone && pitchDown(px, py, L) || rect && onLine(rect, px, py) ? 'ns-resize' : null
   // Shift or Alt held, a press sums or adds wherever it is, an edge's or a caret's line too
   const plain = !keys.shiftKey && !keys.altKey, caret = plain && caretAt(px, py)
-  hot = end || taken == null && !spectral && plain && py <= floor() ? edgeAt(px) : null
+  hot = end || taken == null && !spectral && plain && onOwn(py) ? edgeAt(px) : null
   grabbing = taken != null || !!hot || !!caret
-  // over the lanes, where a press puts the caret, a range begun there or a caret added: its ghost
-  if (!grabbing && !spectral && li >= 0) caretGhost = { i: tracks ? focus : null }
+  // over the band, its foot too, where a press puts the caret, a range begun there or a caret added: its ghost
+  if (!grabbing && !spectral && bi >= 0) caretGhost = { i: tracks ? focus : null }
   root.style.cursor = taken ?? (keys.shiftKey && !keys.altKey ? EXTEND[time(px) < origin() ? 1 : 0] : grabbing ? 'ew-resize' : aim ? 'crosshair' : keys.altKey ? ADD : '')
 }
 // (a touch leaves as it lifts: the bar it scrolled by stays its LINGER)
@@ -397,7 +424,8 @@ export function up(event) {
       assign({ markers: markers.with(d.marker, { ...m, time: d.to, duration: length || undefined }) })
       onedit('remark', { time: m.time, duration: m.duration, track: m.track, to: d.to, ...(length || m.duration) && { d: length } })
     }
-    else if (!d.moved) { select(0, 0); setCursor(d.edge ? m.time + m.duration : m.time) }
+    else if (!d.moved && !d.edge) marked(d.marker)
+    else if (!d.moved) { select(0, 0); setCursor(m.time + m.duration) }
     assign({ chosen: markers[d.marker] })
   }
   else if (d.cue != null) {
@@ -464,19 +492,31 @@ export function up(event) {
   // a range a drag made or reshaped, let go: the caret at its start, where it reads and plays from (as it went, at the
   // end it moved, heard there)
   if ((d.anchor != null || d.resizing) && d.moved && !d.caret && selection && cursor !== selection[0]) { assign({ cursor: selection[0] }); told() }
+  // the marker it was made from, where it went: a range's ends the selection's (onto each other, a moment), a moment the
+  // caret's; chosen still
+  if (d.bound && d.moved) rebound(d.bound, d.resizing && selection ? selection : [cursor, cursor])
   // the moment under it falls silent once what the press did is done: playback, paused for it, goes on from there
   if (d.scrubbing) { d.scrubbing = false; onscrub(null) }
   // the pointer back, as what is under it would have it
   hover(...local(event), event)
   invalidate()
 }
+function rebound(m, [a, b]) {
+  const i = markers.indexOf(m), length = b - a
+  if (i < 0) return
+  if (Math.abs(a - m.time) > 1e-6 || Math.abs(length - (m.duration ?? 0)) > 1e-6) {
+    assign({ markers: markers.with(i, { ...m, time: a, duration: length || undefined }) })
+    onedit('remark', { time: m.time, duration: m.duration, track: m.track, to: a, ...(length || m.duration) && { d: length } })
+  }
+  assign({ chosen: markers[i] })
+}
 // Clicks counted: a click on a marker's name, or a double-click on its place, names it; a double-click takes away the
 // line's point under it (the pitch line's on the pitch curve too), or selects between the cues around it (or the
 // pause it is in); a triple-click, the sound between the pauses either side
-// what a press over the selection in its head is to name (down), till the click it makes
+// the marker to be a press was on (down), till the click it makes
 let blank = null
 export function clicked(event) {
-  // pressed in a band's head where no marker is: a marker put there, its name asked for (placeMarker)
+  // pressed on a marker to be: its name asked for there, the markers put with it (placeMarker)
   const named = blank
   blank = null
   if (named && !event.button && event.detail === 1) return placeMarker(named)

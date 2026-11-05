@@ -1,7 +1,7 @@
 import { CURVES, CROSSFADES } from '../ops.js'
 import { lightness } from '../tint.js'
-import { plot, underRow } from './geometry.js'
-import { EDGE, NOTES, timeRow, midiOf, noteOf, VOICE, onaudition, color, c, rate, duration, units, pieces, start, end, envelope, shift, contour, landed, clips, data, tracks, focus, noted } from './model.js'
+import { plot, rowEdge } from './geometry.js'
+import { EDGE, NOTES, midiOf, noteOf, VOICE, onaudition, color, c, rate, duration, units, pieces, start, end, envelope, shift, contour, landed, clips, data, tracks, focus, noted } from './model.js'
 import { lanesEnd } from './overlay.js'
 import { drag } from './pointer.js'
 import { moved, rgba } from './render.js'
@@ -47,8 +47,8 @@ export function paintGuide(g, L) {
   c.strokeStyle = c.fillStyle = accent()
   c.lineWidth = 1
   if (g.range && !g.band) {
-    const a = X(g.range[0]), b = X(g.range[1]), under = timeRow === 'band' ? underRow()?.y : h
-    if (under != null) c.fillRect(a, under, Math.max(1, b - a), 2)
+    const a = X(g.range[0]), b = X(g.range[1])
+    c.fillRect(a, rowEdge(), Math.max(1, b - a), 2)
     // what the range is to the call (denoise's noise)
     if (g.label) { c.textAlign = 'left'; c.fillText(g.label, a + 5, all[0][1] + 10) }
   }

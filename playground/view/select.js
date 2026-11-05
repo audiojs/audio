@@ -6,7 +6,7 @@ import { drag, grabbing, hover } from './pointer.js'
 import { moved, invalidate } from './render.js'
 import { steer } from './ruler.js'
 import { x, time, clamp, unit, snap, seen, stuck, local, inside, uy, rowOf, yKey, ya, setRange, setFreqs, zoom, zoomFreqs, zoomKeys, setKeys, onFreqs, onKeys, onLevels, zoomLevels, scrollLevels, reveal } from './scales.js'
-import { same, stripAt, rename } from './strips.js'
+import { same, kin, stripAt, rename } from './strips.js'
 
 // The selection: put, extended, added to, stepped through by its cues and pauses; the wheel; the picture's keys;
 // the paste at the carets
@@ -108,9 +108,9 @@ export function select(a, b, f = null, keep = false, head = null) {
   told()
   invalidate(true)
 }
-// nothing selected, nothing runs through every lane
+// nothing selected, nothing runs through other tracks' lanes
 export function told() {
-  if (!selection && !more.some(r => r[1] > r[0])) assign({ allLanes: false })
+  if (!selection && !more.some(r => r[1] > r[0])) assign({ across: null })
   onselect(selection, band, ranges(), boxes())
 }
 // Every range selected, in time order; every caret, the one there is when nothing is selected and those beside it
@@ -146,10 +146,13 @@ export function addNext() {
   if (next && next[1] > next[0]) { add(...next); reveal(next[1]) }
 }
 export function setCursor(t) { assign({ chosen: null }); assign({ cursor: clamp(t) }); oncursor(cursor); invalidate(true) }
-// A marker taken away, by its menu or by Delete: gone from the picture at once, before the output without it comes
-function unmark(m) {
-  if (chosen && same(chosen, m)) assign({ chosen: null })
-  if (onedit('unmark', m)) assign({ markers: markers.filter(n => !same(n, m)) })
+// A marker taken away, by its menu or by Delete (with Delete, every other of its name selected with it: at a caret
+// there, or a range over it): gone from the picture at once, before the output without it comes
+function unmark(m, alike = false) {
+  const at = (p, q) => Math.abs(x(p) - x(q)) < 1, held = n => [...ranges(), ...carets().map(t => [t, t])].some(([a, b]) => at(a, n.time) && at(b, n.time + (n.duration ?? 0)))
+  const all = alike ? kin(markers.findIndex(n => same(n, m))).map(i => markers[i]).filter(n => same(n, m) || held(n)) : [m]
+  if (chosen && all.some(n => same(chosen, n))) assign({ chosen: null })
+  for (const n of all.length ? all : [m]) if (onedit('unmark', n)) assign({ markers: markers.filter(o => !same(o, n)) })
   invalidate(true)
 }
 // A right-click, as in a text: outside what is selected it takes the caret there first, the selection gone; inside it,
@@ -199,7 +202,7 @@ export function key(event) {
   // the marker chosen goes before what is selected: Esc lets it go, Delete takes it away (its serif dragged leaves the
   // selection as it was)
   else if (k === 'Escape' && chosen) { assign({ chosen: null }); invalidate(true) }
-  else if ((k === 'Delete' || k === 'Backspace') && chosen) unmark(chosen)
+  else if ((k === 'Delete' || k === 'Backspace') && chosen) unmark(chosen, true)
   // ⌘V: the browser's paste, its clipboard with it (pasted)
   else if (mod && k.toLowerCase() === 'v') { pasted(); pasting = atCarets(); return }
   else if (!onkey(event)) return

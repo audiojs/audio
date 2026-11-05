@@ -18,8 +18,9 @@ export const markLane = m => { if (!tracks) return null; const i = tracks.findIn
 // without tracks
 const ours = m => !tracks || markLane(m) === focus
 // and the ends of the places takes went in there (sections), as a range marker's: what a dragged edge or a caret snaps to
-// (a marker dragged, not to where it was); a band's (a track's index, null the sound's), the edited one's (ownMarks)
-export const marksOf = i => [...markers.filter((m, j) => (!tracks || markLane(m) === i) && j !== drag?.marker).flatMap(marked), ...takesOf(i).flatMap(t => [t.at, Math.min(t.end, duration)])]
+// (a marker dragged, or one a drag takes with it, not to where it was); a band's (a track's index, null the sound's),
+// the edited one's (ownMarks)
+export const marksOf = i => [...markers.filter((m, j) => (!tracks || markLane(m) === i) && j !== drag?.marker && m !== drag?.bound).flatMap(marked), ...takesOf(i).flatMap(t => [t.at, Math.min(t.end, duration)])]
 export const ownMarks = () => marksOf(tracks ? focus : null)
 const takesOf = i => sections.filter(t => t.lane == null || !tracks || t.lane === i)
 // What a time went onto (stick): a marker's place or the takes', `strip`; the side its sound is on, as a soft wash shows

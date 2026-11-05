@@ -1,4 +1,4 @@
-import { floor, lanes, rulerAt } from './geometry.js'
+import { lanes, rulerAt, onOwn } from './geometry.js'
 import { EDGE, STICK, FINE, root, oncursor, onscrub, onaudition, duration, more, selection, band, cursor, cues, bounds, contour, gripMode, anchor, noted, tracks, assign } from './model.js'
 import { median, noteAt, linePoints, valueAt, onLine, toneOf, toneAt, pointOn, knotOn } from './notes.js'
 import { TOOLS, handled, gripAt } from './overlay.js'
@@ -22,7 +22,7 @@ import { editing } from './strips.js'
 export function selectDown(event, px, py, t, L) {
   const row = rulerAt(py), spec = !row && L.spec.find(rect => inside(rect, px, py))
   // inside the selection, but on a caret's line there (the time row put it there), the caret's
-  const within = selection && !band && !row && py <= floor() && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE && !caretAt(px, py) && !thirdAt(px, py)
+  const within = selection && !band && !row && onOwn(py) && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE && !caretAt(px, py) && !thirdAt(px, py)
   const box = spec && !within && (editing(event) || event.altKey && band) ? spec : null
   if (event.shiftKey && !event.altKey) {
     if (!again(before, px, py)) before = { at: performance.now(), px, py, range: selection && !band ? [...selection] : [cursor, cursor] }
@@ -34,7 +34,7 @@ export function selectDown(event, px, py, t, L) {
   const [a, b] = selection ?? []
   if (within) return { carry: event.altKey ? 'copy' : 'move', a, b, x: px, y: py, to: a, moved: false, alt: event.altKey }
   // a range's edge, Alt held or not, its own: dragged as the caret held is, Alt showing every cue meanwhile
-  const e = !row && !box && py <= floor() && edgeAt(px)
+  const e = !row && !box && onOwn(py) && edgeAt(px)
   if (e) {
     if (e.r) take(e.r)
     return { anchor: selection[1 - e.edge], edge: e.edge, offset: selection[e.edge] - t, moved: true, resizing: true, keep: true, hear: selection[e.edge] }
@@ -75,7 +75,7 @@ export const current = () => selection ? band ? [...selection, ...band] : [...se
 // A caret's line within reach, { r } (null r: the caret, inside a selection too, which it keeps; on the selection's
 // edge, as a selection puts it, the edge's), and a range's edge, the nearest: { r (null: the selection), edge, 0 or 1, t }
 export function caretAt(px, py) {
-  if (py > floor()) return null
+  if (!onOwn(py)) return null
   const clear = !selection || selection.every(t => Math.abs(x(t) - x(cursor)) > EDGE)
   if (clear && Math.abs(x(cursor) - px) <= EDGE) return { r: null }
   const r = more.find(r => r.length === 2 && r[0] === r[1] && Math.abs(x(r[0]) - px) <= EDGE)
@@ -107,7 +107,7 @@ export function gripDown(px, py, L, event) {
 // there turning it to the next, as Logic's Option and REAPER's Alt stretch a region's end; on a caret's line, silence
 // pulled open there, the time after it pushed on
 export function endDown(px, py, event) {
-  const e = event.altKey && !event.shiftKey && py <= floor() && edgeAt(px)
+  const e = event.altKey && !event.shiftKey && onOwn(py) && edgeAt(px)
   if (!e || !e.edge) return null
   if (e.r) take(e.r)
   const [a, b] = selection
@@ -164,7 +164,7 @@ export function unscrub() {
 }
 // A cue's line, held ⌘ (Ctrl): pressed and let go, the caret on the cue; dragged, the cue moves, the audio either side
 // stretching to meet it. Not the sound's own start or end (bounds), which warp holds
-export const nearCue = (px, py, keys) => editing(keys) && py <= floor() && !lanes().spec.some(r => inside(r, px, py)) ? seen().find(i => !bounds.has(cues[i]) && Math.abs(x(cues[i]) - px) <= STICK) ?? -1 : -1
+export const nearCue = (px, py, keys) => editing(keys) && onOwn(py) && !lanes().spec.some(r => inside(r, px, py)) ? seen().find(i => !bounds.has(cues[i]) && Math.abs(x(cues[i]) - px) <= STICK) ?? -1 : -1
 export function cueDown(px, py, keys) {
   const i = nearCue(px, py, keys)
   if (i < 0) return null

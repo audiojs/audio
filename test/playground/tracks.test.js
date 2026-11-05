@@ -100,8 +100,8 @@ test('editor: a range on the time row is every track\'s; a selection ⌘-dragged
   await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
-  // the lanes' middles, as their layers have them; the time row under the last
-  const { box, x } = await axis(8), mid = async i => (r => r.y + r.h / 2)((await tracksAt())[i]), row = (r => r.y + r.h + 8)((await tracksAt())[1])
+  // the lanes' middles, as their layers have them; the time row over them
+  const { box, x } = await axis(8), mid = async i => (r => r.y + r.h / 2)((await tracksAt())[i]), row = box.y + TOP / 2
   await drag([x(2), row], [x(3) - x(2), 0])
   assert.equal(await selected(), '0:02.000–0:03.000')
   await page.keyboard.press('Backspace')
@@ -400,7 +400,7 @@ test('editor: the room under the tracks is a new track\'s lane as tall as the la
   await drag([box.x + 300, b.y + b.h + FOOT - 2], [0, -40])
   await page.waitForFunction(h => document.querySelectorAll('.layer')[1].dataset.lane.split(' ')[1] === String(h), short)
   ;[, b] = await tracksAt()
-  const top = b.y + b.h + FOOT + HEAD, x = 300
+  const top = b.y + b.h + FOOT, x = 300
   await page.mouse.click(box.x + x, top + short / 2)
   // the pointer off it, over a's lane: none of the room's words over the caret
   await page.mouse.move(box.x + 40, b.y - 60)
@@ -646,8 +646,8 @@ test('editor: a track\'s view goes with its name; a silent track shows no notes'
   assert.deepEqual(await kinds(), {})
 })
 
-// The tracks' layers, each over its band, its head line over its lane, its foot under it, the picture as wide as
-// without them. Rename in its menu, a field at its head's left, Enter names the track, as a script names a sound. Each
+// The tracks' layers, each over its band, its lane and its foot under it, the picture as wide as without them. Rename
+// in its menu, a field at its foot's left, Enter names the track, as a script names a sound. Each
 // lane as tall as its foot's grip was dragged (with Alt, every one), none grown for being edited; a locked one's taken
 // by no press, the edited one locked giving way to the next. More tracks than the picture holds scroll up and down
 // through it, their layers with them, as a DAW's, the room under them always in reach
@@ -659,9 +659,9 @@ test('editor: the layers over each band name and lock the tracks; a foot dragged
   await lengthIs('0:09.000')
   await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
   assert.equal((await page.locator('.plot').boundingBox()).width, wide, 'the picture as wide as with one sound')
-  // over its band: its head line over its lane, its foot under it
+  // over its band: its lane, its foot under it
   const [a0] = await tracksAt(), band0 = await page.locator('.layer').first().boundingBox()
-  assert.ok(Math.abs(band0.y + HEAD - a0.y) <= 1 && Math.abs(band0.height - HEAD - a0.h - FOOT) <= 1, `over its band: ${band0.y}, ${band0.height}, ${a0.y}`)
+  assert.ok(Math.abs(band0.y - a0.y) <= 1 && Math.abs(band0.height - a0.h - FOOT) <= 1, `over its band: ${band0.y}, ${band0.height}, ${a0.y}`)
   await renameTrack(1, 'Lead vocal')
   await page.waitForFunction(() => scriptText() === "let a = audio('chime.wav')\n\nlet leadVocal = audio('rhodes.wav')")
   // each TRACK px, the edited one too; a's foot dragged 60 px down, a 60 px taller, kept with the tab; double-clicked,
@@ -712,7 +712,7 @@ test('editor: the layers over each band name and lock the tracks; a foot dragged
   assert.match(await card(), /^leadVocal /, 'a locked, a press in its lane edits nothing there')
   assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].locked, ['a'])
   // a range dragged on the time row, through every track, deleted: a, locked, untouched
-  await drag([box.x + 300, (r => r.y + r.h + 8)((await tracksAt())[1])], [100, 0])
+  await drag([box.x + 300, box.y + TOP / 2], [100, 0])
   await page.keyboard.press('Backspace')
   await page.waitForFunction(() => /let leadVocal = audio\('rhodes\.wav'\)\n  \.remove\(/.test(scriptText()))
   assert.match(await code(), /^let a = audio\('chime\.wav'\)\n\n/, 'a as it was')
@@ -732,7 +732,7 @@ test('editor: the layers over each band name and lock the tracks; a foot dragged
   assert.equal(await page.locator('.plot').evaluate(el => el.style.cursor), '', 'the room in reach')
   // the scrollbar at the right edge, its thumb dragged to the top: the first in sight again
   await drag([box.x + box.width - 2, time - 30], [0, -(box.height - 22)])
-  assert.ok(Math.abs((await tracksAt())[0].y - box.y - HEAD) < 1, 'the first at the top again, under its head line')
+  assert.ok(Math.abs((await tracksAt())[0].y - box.y - TOP) < 1, 'the first at the top again, under the time row')
 })
 
 // With tracks, the first card of the edits is the track's: its ×, or its right-click, deletes the track, as a DAW's track
@@ -834,13 +834,14 @@ test('editor: the caret\'s ghost over any track goes onto its markers and its en
   assert.notEqual(await clock(), '0:05.000')
 })
 
-// The time row under a track says the times of what is selected in it alone: pointed at another track, its row has
-// the pointer's time and no selection's
-test('editor: a selection\'s times on its own track\'s time row, not on another\'s', async () => {
+// One time row over the tracks says the selection's times wherever the pointer is. A range dragged from a lane down
+// into another runs through both, as a DAW's selection across tracks: Delete takes it out of each, one step; dragged
+// back into its own lane, its alone
+test('editor: the selection\'s times on the one time row; a range dragged down into another track runs through both', async () => {
   await open()
   await noCues()
-  await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
-  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')\n  .gain(-6)\n\nlet c = audio('chime.wav')`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '3')
   await lengthIs('0:08.000')
   await settled()
   const { x } = await axis(8), [a, b] = await tracksAt()
@@ -853,6 +854,27 @@ test('editor: a selection\'s times on its own track\'s time row, not on another\
   // the times written on the row as the pointer comes to (t, y)
   const row = async (t, y) => { await page.evaluate(() => window.__row = new Set()); await page.mouse.move(x(t), y); await page.mouse.move(x(t) + 1, y); await frames(); return page.evaluate(() => [...window.__row]) }
   const edges = list => list.filter(s => /^0:0[24]\.\d+$/.test(s))
-  await poll(() => row(6, a.y + a.h / 2), list => assert.equal(edges(list).length, 2, `under a, its selection's start and end: ${list}`))
-  await poll(() => row(6, b.y + b.h / 2), list => assert.deepEqual(edges(list), [], `under b, none of them: ${list}`))
+  await poll(() => row(6, a.y + a.h / 2), list => assert.equal(edges(list).length, 2, `over a, its start and end: ${list}`))
+  await poll(() => row(6, b.y + b.h / 2), list => assert.equal(edges(list).length, 2, `over b, the same: ${list}`))
+  // from a down into b: through both, c as it is
+  await page.mouse.move(x(5), a.y + a.h / 2)
+  await page.mouse.down()
+  await page.mouse.move(x(5.5), a.y + a.h / 2, { steps: 3 })
+  await page.mouse.move(x(6), b.y + b.h / 2, { steps: 5 })
+  await page.mouse.up()
+  assert.equal(await selected(), '0:05.000–0:06.000')
+  await page.keyboard.press('Backspace')
+  await page.waitForFunction(() => (scriptText().match(/\.remove\(\{ at: 5, d: 1(, xfade: [\d.]+)? \}\)/g) || []).length === 2)
+  assert.match(await code(), /let c = audio\('chime.wav'\)$/, 'c as it was')
+  await page.keyboard.press('ControlOrMeta+Z')
+  await page.waitForFunction(() => !scriptText().includes('remove'))
+  // down into b and back into a: a's alone
+  await page.mouse.click(x(7.5), a.y + a.h / 2)
+  await page.mouse.move(x(5), a.y + a.h / 2)
+  await page.mouse.down()
+  await page.mouse.move(x(6), b.y + b.h / 2, { steps: 5 })
+  await page.mouse.move(x(6), a.y + a.h / 2, { steps: 5 })
+  await page.mouse.up()
+  await page.keyboard.press('Backspace')
+  await page.waitForFunction(() => (scriptText().match(/\.remove\(/g) || []).length === 1 && /let a = audio\('chime.wav'\)\n {2}\.remove/.test(scriptText()))
 })

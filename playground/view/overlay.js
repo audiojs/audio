@@ -1,14 +1,14 @@
 import { CURVES } from '../ops.js'
 import { lightness } from '../tint.js'
 import { ownMarks, snappedTo, SIDES, unwritten } from './data.js'
-import { frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, hotBand, pointedBand, plot, merged, spare, lanes, extent, own, rowBand, MAP, veils, placeFrozen, roomLane } from './geometry.js'
-import { ONTO, INSET, FOOT, midiOf, noteOf, STRETCH, TICK, root, hint, timeRow, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, LEVEL_STEP, picked, tracks, focus, allLanes, scroll, noted, held, assign } from './model.js'
+import { frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, hotBand, pointedBand, plot, merged, spare, lanes, extent, own, through, roof, MAP, veils, placeFrozen, roomLane } from './geometry.js'
+import { ONTO, INSET, midiOf, noteOf, STRETCH, TICK, root, hint, timeRow, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, LEVEL_STEP, picked, tracks, focus, across, scroll, noted, held, assign } from './model.js'
 import { pitchRange, semis, pitchSays, intonationSays, median, pitched, clampY, paintGuide, BLACK, paintRoll, paintLine, bent, toneAt, paintContour } from './notes.js'
 import { drag, touch, hot, opening } from './pointer.js'
 import { decibels, drawn, W, H, dpr, half, invalidate, tape, rolled, onTape, running, wash, caretColour, rgba, shades } from './render.js'
 import { paintRuler, layHead, awayOf, onAway, paintAway, THICK, paintBar, barLight } from './ruler.js'
 import { gutter, onBar, X, time, free, snapF, seen, stick, stuck, pitchLine, inside, fy, yf, rowOf, keyY, keyRows, ay, ampLanes, pitchLanes, ticks, beside, hzMarks, noteMarks, levelMarks, levelTicks, reads, decibel, level, measured, probe, setRange } from './scales.js'
-import { paintMeasure, waveAt, ghostOf, placeFades, placeLook, paintRoom, paintLift, tag, accent, gauge, size, label, paintSelection, highlight, paintEdge, stamp, dragged, editing, paintCues, paintMarkers, heads, stripped, stripAt, paintStrips, naming, paintOvers } from './strips.js'
+import { paintMeasure, waveAt, ghostOf, placeFades, placeLook, paintRoom, paintLift, tag, accent, gauge, hinted, size, label, paintSelection, highlight, paintEdge, stamp, dragged, editing, paintCues, paintMarkers, feet, stripped, stripAt, kin, paintStrips, naming, paintOvers, paintClipped } from './strips.js'
 
 // The overlay, over the reel: the axes, the pointer's readouts, what is measured; on the reel, the marks drawn in time
 // (markers, cues, carets, a range's edges) and its handles; the meters and the keys by the lanes' end
@@ -50,10 +50,10 @@ function onStrip(strip, x0, y0, x1, y1, fn) {
   assign({ c: strip.g })
   try { strip.draw(() => { c.setTransform(dpr, 0, 0, dpr, -px, -py); fn() }) } finally { assign({ c: oc }) }
 }
-// The time row on the reel, from the lanes' foot down (in a band's strip, 'band': that strip), the tape's width (laid
-// as the marks are, paint): drawn on in the tape's geometry, as the marks are
+// The time row on the reel, over the bands ('top') or from the lanes' foot down, the tape's width (laid as the marks
+// are, paint): drawn on in the tape's geometry, as the marks are
 function onRow(fn) {
-  const strip = timeRow === 'band' ? rowBand() : null, top = strip ? strip.y : timeRow === 'band' ? H : plot().h, bottom = strip ? top + FOOT : H
+  const top = timeRow === 'top' ? 0 : plot().h, bottom = timeRow === 'top' ? roof() : H
   const canvas = rowStrip.g.canvas, py = Math.floor(top * dpr), cw = marksCanvas.width, ch = Math.max(0, Math.round(bottom * dpr) - py)
   if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
   if (rowStrip.at !== py) { rowStrip.at = py; Object.assign(canvas.style, { top: `${py / dpr}px`, height: `${ch / dpr}px` }) }
@@ -112,14 +112,17 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
   // between two, which holds no sound
   const across = (px, width, rects = all) => { for (const [, y, , lh] of rects) c.fillRect(px, y, width, lh) }
   // selection: a time range in every lane, or a box on the spectrogram
-  paintSelection(allLanes ? L : T, sel)
+  paintSelection(through(L), sel)
   // a range or the takes' place pointed at in the strip (or their numbers), its stretch as a press would select it,
   // but where it is selected already; a range whose end is dragged, as it goes
   const selected = rect => wash(L.spec.includes(rect)), hotTake = takeHot(L), hotMark = drag || !hovered ? null : stripAt(...hovered, L)
   const pointedAt = hotTake >= 0 ? stripped(L).find(m => m.kind === 'takes' && m.i === hotTake) : drag?.marker != null ? stripped(L).find(m => m.kind === 'mark' && m.i === drag.marker) : hotMark
-  const already = p => sel && !band && Math.abs(X(sel[0]) - p.x0) < 1 && Math.abs(X(sel[1]) - p.x1) < 1 && (allLanes || p.rects.every(r => T.all.includes(r)))
-  // (a moment is a time, no stretch: its line, as the caret's would be, paintMarkers)
-  if (pointedAt && !pointedAt.moment && !already(pointedAt)) highlight(pointedAt.rects, pointedAt.x0, pointedAt.x1, selected)
+  const S = through(L), over = (r, p) => !!r && Math.abs(X(r[0]) - p.x0) < 1 && Math.abs(X(r[1]) - p.x1) < 1
+  const already = p => !band && over(sel, p) && p.rects.every(r => S.all.includes(r))
+  // (a moment is a time, no stretch: its line, as the caret's would be, paintMarkers); every range of its name with it
+  const group = pointedAt?.kind === 'mark' && !drag ? kin(pointedAt.i) : []
+  const alike = pointedAt ? [pointedAt, ...stripped(L).filter(m => m.kind === 'mark' && m.i !== pointedAt.i && group.includes(m.i))] : []
+  for (const p of alike) if (!p.moment && !already(p) && !more.some(r => over(r, p))) highlight(p.rects, p.x0, p.x1, selected)
   // audio carried into another track's lane: where it lands there, its length lit, edged as a clip
   if (drag?.carry && drag.moved && drag.into != null && all[drag.into]) {
     const [, y, , lh] = all[drag.into], p = Math.max(0, X(drag.to)), q = Math.min(lanesEnd(L), X(drag.to + drag.b - drag.a))
@@ -136,17 +139,18 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
   // own layer's); a file held over the picture, where it goes in; an end measured from in the measuring red
   const caret = color('--color-screen-caret'), bright = color('--color-screen-bright'), here = caretColour()
   const litEdge = drag?.resizing && sel ? sel[sel[0] === drag.anchor ? 1 : 0] : !drag && hot ? hot.t : null
-  // (the selection's on the edited band's row alone, or every band's through every lane: another's says nothing of it)
-  const ours = !tracks || allLanes || rowBand(L)?.i === focus
-  const edges = sel && !drag?.span && ours ? sel.map((t, edge) => ({ t, fill: t === litEdge ? bright : caret, edge, of: sel })) : []
+  const edges = sel && !drag?.span ? sel.map((t, edge) => ({ t, fill: t === litEdge ? bright : caret, edge, of: sel })) : []
   const apart = t => !edges.some(m => X(m.t) === X(t))
-  onRow(() => paintRuler([
-    ...(at && apart(pointed) ? [{ t: pointed, fill: drag ? bright : caret }] : []),
-    ...edges,
-    ...(dropped != null ? [{ t: dropped, fill: accent() }] : [])
-  ].map(m => ends.has(m.t) ? { ...m, fill: gauge(), keep: true } : m), measure?.spans, true))
-  paintCues(mine, measure ? [...lit, measure.t] : lit, aiming)
-  paintMarkers(all, lit, pointedAt)
+  onRow(() => {
+    paintRuler([
+      ...(at && apart(pointed) ? [{ t: pointed, fill: drag ? bright : caret }] : []),
+      ...edges,
+      ...(dropped != null ? [{ t: dropped, fill: accent() }] : [])
+    ].map(m => ends.has(m.t) ? { ...m, fill: gauge(), keep: true } : m), measure?.spans, true)
+    paintClipped()
+  })
+  const hints = paintCues(mine, measure ? [...lit, measure.t] : lit, aiming)
+  paintMarkers(L, lit, pointedAt, hints)
   paintStrips(L, pointedAt, already)
   paintOvers(L)
   // what is edited over the sound: its level (the gain line) or, editing pitch, its pitch (the pitch line on the
@@ -178,19 +182,19 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
   if (room) { c.fillStyle = here; c.fillRect(X(cursor) + 4, room[1] + 5, 7, 1); c.fillRect(X(cursor) + 7, room[1] + 2, 1, 7) }
   for (const r of more) if (r.length === 2 && r[0] === r[1]) line(r[0], here)
   if (!ghost) paintGrips(T, at)
-  paintEdge(allLanes ? L : T, sel)
+  paintEdge(S, sel)
   // what is dragged gone onto a cue or a marker: a small cross where it went, the line itself its own colour, one snap
   // for all that is there (a cue within ONTO px of a marker, as stick has it, with it). A cue there, where the line
   // meets the waveform in each lane, at the waveform's top and foot
   // (a sound's start, where it rises from nothing, one on the centre line), a lane with no waveform at its top and
-  // foot; a marker or the takes' place, centred on the lanes' edge, its name lit in the head (paintStrips). To the
-  // side the sound it went onto is, a faint wash fading from it
+  // foot; a marker or the takes' place, centred on the lanes' edge, its name lit in the foot (paintStrips). To the
+  // side the sound it went onto is, a faint wash fading from it. Grey, as the cues' lines are: hints
   const onto = dragged(), stuckTo = onto != null && stick(onto)
   if (stuckTo?.d < .5) {
-    const rects = (allLanes ? L : T).all, px = X(onto), here = t => Math.abs(X(t) - px) < 1, { side } = snappedTo(stuckTo.t)
-    const cue = seen().find(i => Math.abs(X(cues[i]) - px) <= ONTO), foot = ownMarks().some(here) ? heads(L).find(s => s.i === (tracks ? focus : null))?.edge : null
+    const rects = S.all, px = X(onto), here = t => Math.abs(X(t) - px) < 1, { side } = snappedTo(stuckTo.t)
+    const cue = seen().find(i => Math.abs(X(cues[i]) - px) <= ONTO), foot = ownMarks().some(here) ? feet(L).find(s => s.i === (tracks ? focus : null))?.edge : null
     // a clip's cross alike (paintOvers): a line a pixel wide, on pixels' middles
-    c.strokeStyle = accent()
+    c.strokeStyle = hinted()
     c.lineWidth = 1
     if (foot != null) crossAt(px + .5, Math.round(foot) - .5)
     if (cue != null || foot == null) for (const rect of rects) {
@@ -200,14 +204,14 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
     washFrom(px, cue != null ? SIDES[cueKinds[cue]] : side, rects, WASHED)
   }
 }
-// to the side the sound is of a line at `px` (`side`: 1 after it, -1 before, none: no wash), a wash of the accent
+// to the side the sound is of a line at `px` (`side`: 1 after it, -1 before, none: no wash), a wash of the hints' grey
 // fading from `a` to nothing WASH px off, a pixel clear of the line, so the line is its own colour whole. Each
 // gradient kept by where it is and how strong: a frame drawn as the last is then the same list (kept.js), the marks
 // not laid again as the reel follows the playhead under a pointer at rest
 export const WASH = 8, WASHED = .25, washes = new Map()
 export function washFrom(px, side, rects, a) {
   if (!side) return
-  const from = px + (side > 0 ? 2 : -1), to = from + side * WASH, fill = accent(), key = `${from} ${to} ${a} ${fill}`
+  const from = px + (side > 0 ? 2 : -1), to = from + side * WASH, fill = hinted(), key = `${from} ${to} ${a} ${fill}`
   let g = washes.get(key)
   if (!g) {
     if (washes.size > 64) washes.clear()
@@ -247,7 +251,7 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
   // what is drawn of the lanes ends at the time row: a band scrolled past it, cut there
   c.save()
   c.beginPath()
-  c.rect(0, 0, W, plot().h)
+  c.rect(0, roof(), W, plot().h - roof())
   c.clip()
   try { lanesOver() } finally { c.restore() }
   function lanesOver() {
@@ -278,11 +282,10 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
     c.textAlign = 'left'
     // the labels give way to the value read where it is written: at the waveform's level read, else the pointer's
     const near = rect => rect === lane ? Math.round(read?.y ?? at[1]) : null
-    // with tracks, the levels of the band pointed at (its head and foot too, as its time row is), else of the edited
-    // one: one scale in sight, not every lane's
-    // ('band') with none pointed at, none at all, the picture a player's then, as the time row is (rowBand)
-    const bands = timeRow !== 'band' ? all : pointedBand < 0 ? [] : tracks ? [all[pointedBand]] : all
-    for (const rect of tracks || timeRow === 'band' ? bands.filter(r => r.kind === 'wave') : L.wave) ticks(rect, levelMarks(rect), near(rect), levelTicks(rect))
+    // with tracks, the levels of the band pointed at (its foot too): one scale in sight, not every lane's; with none
+    // pointed at, none at all, the picture a player's then (the time row at the picture's foot, embedded: always)
+    const bands = timeRow !== 'top' ? all : pointedBand < 0 ? [] : tracks ? [all[pointedBand]] : all
+    for (const rect of tracks || timeRow === 'top' ? bands.filter(r => r.kind === 'wave') : L.wave) ticks(rect, levelMarks(rect), near(rect), levelTicks(rect))
     for (const rect of bands.filter(r => r.kind === 'spec')) ticks(rect, hzMarks(rect), near(rect))
     for (const rect of bands.filter(r => r.kind === 'notes')) ticks(rect, noteMarks(rect), near(rect))
     // the pointer's values; what a drag does, in a few words by it
@@ -346,11 +349,12 @@ const TAIL = 4
 export const reach = () => W > gutter + 1 ? Math.max(.5, (lanesEnd(lanes()) - TAIL) / plot().w) : 1
 export const seenTo = () => start + (end - start) * reach()
 export const fitTo = (a, b) => setRange(a, a + (b - a) / reach())
-let ends = null, footing = null
+let ends = null, footing = null, roofed = null
 function endLanes(L) {
   const end = lanesEnd(L)
   if (W - end !== ends) { ends = W - end; root.style.setProperty('--end', `${ends}px`) }
   if (H - plot().h !== footing) { footing = H - plot().h; root.style.setProperty('--foot', `${footing}px`) }
+  if (roof() !== roofed) { roofed = roof(); root.style.setProperty('--top', `${roofed}px`) }
   if (root.hasAttribute('data-deep') !== spare > 0) root.toggleAttribute('data-deep', spare > 0)
   c.save()
   c.globalCompositeOperation = 'destination-out'
@@ -453,7 +457,7 @@ export const SPACE = 6, meterAt = w => plot().w + 1 - SPACE - w
 export const metered = L => Math.max(L.spectral && show.spectrum ? METER : 0, L.notes.length && show.keys ? KEYS : 0, L.wave.length && show.meters ? 3 : 0)
 const meterX = (left, v, [lo, hi] = decibels ?? [-90, 0]) => left + Math.max(0, Math.min(1, (v - lo) / (hi - lo))) * METER
 function paintMeters(L) {
-  // with tracks, the band pointed at (its head and foot too, as the axis has it), else the edited one's
+  // with tracks, the band pointed at (its foot too, as the axis has it), else the edited one's
   const bar = meterAt(metered(L)), shown = rect => !tracks || rect.i === (pointedBand >= 0 ? pointedBand : focus)
   for (const rect of show.keys ? L.notes : []) paintKeys(rect, bar)
   if (show.meters && meters) L.wave.forEach(rect => {

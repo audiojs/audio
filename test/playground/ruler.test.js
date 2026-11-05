@@ -61,8 +61,8 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at 
     done(lit)
   }))), [py, opaque])
   const cols = async (py, opaque) => Object.keys(await columns(py, opaque)).map(Number)
-  // (the pointer on the band's time row: its axes shown, no ghost of a caret in the lanes)
-  await page.mouse.move(box.x + 40, box.y + TOP + TRACK + 6)
+  // (the pointer on the time row: no ghost of a caret in the lanes)
+  await page.mouse.move(box.x + 40, box.y + TOP / 2)
   let opacity = null
   for (const px of [e - 1, e, e + 2, w]) {
     await page.evaluate(t => __view.setCursor(t), await timeAt(px))
@@ -186,7 +186,7 @@ test('editor: the overview draws the sound as its lanes do, its body brightest a
 test('editor: the caret drags like an edge from its line, a press on the time row puts it there, and the moment under it sounds while held', async () => {
   await page.addInitScript(tap)
   await open()
-  const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + TOP + TRACK / 2
+  const { box, x } = await axis(6.525), row = box.y + TOP / 2, lane = box.y + TOP + TRACK / 2
   // the mark in the bar: the logo at rest, the wave under the caret while it sounds, turned by the caret's travel
   const markShot = () => page.locator('.bar .wordmark .logo > canvas').screenshot()
   // how far apart two shots are, gray levels a pixel: a turn that ends back at the pose leaves a hair's width of it
@@ -251,7 +251,7 @@ test('editor: the caret drags like an edge from its line, a press on the time ro
 test('editor: a drag on the time row selects, a click there moves the caret alone, held it drags the caret', async () => {
   await open()
   await noCues()
-  const { box, x } = await axis(6.525), row = box.y + box.height - 8
+  const { box, x } = await axis(6.525), row = box.y + TOP / 2
   const caret = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
   // pressed, held still `wait` ms (past HOLD, it drags the caret), then dragged
   const along = async (a, b, wait = 0) => { await page.mouse.move(x(a), row); await page.mouse.down(); await page.waitForTimeout(wait); for (let i = 1; i <= 8; i++) await page.mouse.move(x(a + (b - a) * i / 8), row); await page.mouse.up() }
@@ -412,29 +412,24 @@ test('editor: past the sound\'s end, its centre line on to the view\'s end', asy
   assert.ok(await line() > w * .07 - 4, `its centre line on past its end: ${await line()}`)
 })
 
-// The time row in the foot of the track pointed at, under its sound, not at the picture's foot; pointed at none, none
-test('editor: the time row is in the foot of the track pointed at', async () => {
+// The time row over the bands, one for them all, as a DAW's ruler: there whichever track is pointed at, or none; none
+// under a track, nor at the picture's foot
+test('editor: the time row is over the tracks, whichever is pointed at', async () => {
   await open()
   await noCues()
   await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
   const box = await page.locator('.plot').boundingBox(), lanes = await tracksAt()
-  // the time row's text in rows [y0, y1) of the plot, across the lanes: light grey pixels
-  const text = ([y0, y1]) => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = 0; x < arg.w; x++) { const i = (y * w + x) * 4; if (d[i] > 90 && Math.abs(d[i] - d[i + 2]) < 20) n++ } return n`, { y0, y1, w: Math.round(box.width - 80) })
-  const strip = i => (y => [y + 2, y + FOOT - 2])(Math.round(lanes[i].y + lanes[i].h - box.y)), foot = [Math.round(box.height) - 10, Math.round(box.height)]
-  // where the row is, once the pointer is at (px, py): the strips' and the foot's text
-  const rowAt = async (px, py, want) => {
-    await page.mouse.move(px, py)
-    const read = async () => [await text(strip(0)), await text(strip(1)), await text(foot)]
-    return poll(read, got => assert.equal(got.map(n => n > 30).join(), want.join()), 3000).catch(read)
+  // the time row's text in rows [y0, y1) of the plot, across the lanes (past the caret's number under it): light grey
+  const text = ([y0, y1]) => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = 40; x < arg.w; x++) { const i = (y * w + x) * 4; if (d[i] > 90 && Math.abs(d[i] - d[i + 2]) < 20) n++ } return n`, { y0, y1, w: Math.round(box.width - 80) })
+  const strip = i => (y => [y + 2, y + FOOT - 2])(Math.round(lanes[i].y + lanes[i].h - box.y)), over = [2, TOP - 2], foot = [Math.round(box.height) - 10, Math.round(box.height)]
+  // where the row is, once the pointer is at (px, py): over the bands, the strips' and the foot's text
+  const rowAt = async (px, py) => { await page.mouse.move(px, py); await frames(); return [await text(over), await text(strip(0)), await text(strip(1)), await text(foot)] }
+  for (const py of [lanes[0].y + lanes[0].h / 2, lanes[1].y + lanes[1].h / 2, box.y + box.height - 4]) {
+    const [o, a, b, f] = await rowAt(box.x + box.width / 2, py)
+    assert.ok(o > 30 && a < 5 && b < 5 && f < 5, `pointed at ${Math.round(py - box.y)}: over them, ${o}; under a, ${a}; under b, ${b}; at the foot, ${f}`)
   }
-  const [a0, a1, af] = await rowAt(box.x + box.width / 2, lanes[0].y + lanes[0].h / 2, [true, false, false])
-  assert.ok(a0 > 30 && a1 < 5 && af < 5, `pointed at a: under a, ${a0}; under b, ${a1}; at the foot, ${af}`)
-  const [b0, b1, bf] = await rowAt(box.x + box.width / 2, lanes[1].y + lanes[1].h / 2, [false, true, false])
-  assert.ok(b0 < 5 && b1 > 30 && bf < 5, `pointed at b: under a, ${b0}; under b, ${b1}; at the foot, ${bf}`)
-  const [r0, r1] = await rowAt(box.x + box.width / 2, box.y + box.height - 4, [false, false, false])
-  assert.ok(r0 < 5 && r1 < 5, `pointed under them: none, the picture a player's: ${r0}, ${r1}`)
 })
 
 // The time row's ticks between the labelled are half as tall as a label's, every one of a step drawn, at every zoom:

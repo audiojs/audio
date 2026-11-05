@@ -28,7 +28,7 @@ test('editor: no undo nor redo in the bar, the Edit menu\'s; a band\'s look in i
   const [narrow, side, plot] = await Promise.all(['.view-slab', '.side-slab', '.plot'].map(box))
   assert.ok(narrow.width < view.width - 200 && side.x >= narrow.x + narrow.width - 1 && side.y >= buttons[0].y + buttons[0].height, 'docked beside the picture, under the buttons')
   // undo and redo the Edit menu's (and their keys'), none in the bar; what the picture shows, chosen by its look at the
-  // sound's head's right, over the axis, on the names' row, not moving as the picture turns
+  // sound's foot's right, under the axis, on the names' row, not moving as the picture turns
   assert.equal(await page.locator('.status .history').count(), 0, 'no undo, no redo in the bar')
   const heads = () => Promise.all([page.locator(':is(.lane-look, .layer-look):visible')].map(b => b.boundingBox()))
   const [look] = await heads()
@@ -46,7 +46,7 @@ test('editor: no undo nor redo in the bar, the Edit menu\'s; a band\'s look in i
   const smaller = await baselines()
   assert.ok(Math.abs(smaller.time - wide.time) <= 1 && Math.abs(smaller.length - wide.length) <= 1, `the smaller time on the same baseline: ${JSON.stringify(smaller)}`)
   await page.setViewportSize(size)
-  assert.ok(look.x > plot.x + plot.width - await gutter() - 2 && look.y >= plot.y && look.y + look.height <= plot.y + TOP, `the look at the sound's head's right, over its axis: ${look.x}, ${look.y}; ${plot.x}, ${plot.y}`)
+  assert.ok(look.x > plot.x + plot.width - await gutter() - 2 && look.y >= plot.y + tall() && look.y + look.height <= plot.y + tall() + FOOT, `the look at the sound's foot's right, under its axis: ${look.x}, ${look.y}; ${plot.x}, ${plot.y}`)
   await show('spec')
   assert.deepEqual((await heads()).map(b => b.x), [look.x], 'nothing moved as it turned')
   await show('wave')

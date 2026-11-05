@@ -10,10 +10,11 @@ import kept from '../kept.js'
 // 10 px reach; ONTO, how near a dragged time goes onto a cue or a marker, 3 px either side, so a drag goes where it is
 // put but by what it meets
 export const GUTTER = 48, RULER = 22, GAP = 2, EDGE = 6, SNAP = 6, STICK = 5, ONTO = 3, INSET = 3, NOTCH = Math.log(1.5)
-// A band: a track's lane, or a sound's lanes all told, GAP px apart; over it its head, HEAD px, its markers' names, what
-// forks it (its takes' numbers, the selection's fork), its look at its right over the axis (editor.js layers); under it
-// its foot, FOOT px, its time row, never over the sound; its last px dragged, the band's height (Finder's column edge;
-// with Alt, every band's), nothing drawn for it
+// A band: a track's lane, or a sound's lanes all told, GAP px apart; under it its foot, FOOT px, never over the sound:
+// its markers' names, as a transcript's words under its sounds, what forks it (its takes' numbers, the selection's
+// fork), its look at its right under the axis (editor.js layers); its last px dragged, the band's height (Finder's
+// column edge; with Alt, every band's), nothing drawn for it. Over the bands, the time row (`timeRow` 'top'), HEAD px,
+// one for them all, as a DAW's ruler: it stays as they scroll under it
 export const HEAD = 20, FOOT = 18
 // A track's lane TRACK px tall, a sound's lanes the picture all told, unless its foot is dragged (LOW px at least); more
 // than the picture holds scroll up and down through it, as a DAW's tracks do, the room under the last always in reach:
@@ -197,9 +198,11 @@ export let data = []
 // (`onfocus`), all else there was gone
 export let tracks = null, focus = 0
 // With tracks, a caret or a range is the edited track's alone; ranges dragged out on the time row run through every
-// lane (`allLanes`), as a DAW's ruler selects across its tracks: an edit of them is every track's (editor.js spread), so
-// a cut keeps them in time. Alt adds more of the same; a plain press in a lane makes the selection that track's again
-export let allLanes = false
+// lane, one dragged from a lane down or up into others through those (`across`, the tracks' indices, in order; null,
+// the edited one's alone), as a DAW selects across its tracks: an edit of them is each of those tracks' (editor.js
+// spread), so a cut keeps them in time. Alt adds more of the same; a plain press in a lane makes the selection that
+// track's again
+export let across = null
 // Takes (editor.js places): where recordings of one stretch went in, one heard, the others turned off (`sections`,
 // [{ at, end, on, names, lane, open }], `lane` the track's, or none for a sound's, a name '' an empty take's, `open`
 // while one is there); each a section of its lanes, from where they go in to where the longest ends, drawn as a range
@@ -239,10 +242,11 @@ export let moving = null
 // where what it draws differs (kept.js): the one canvas drawn anew would draw as the same
 export let leavesOf = null, map = null
 export let ruled = '', under = null
-// Markers: a line of one shows only as a ghost of the caret, where a press would put it: a moment's, its serif or
-// name pointed at in its strip, a range's end, its serif; either's line neared in the lanes (markAt); a marker's
-// end dragged, where it goes. Its serifs and name are its band's strip's (paintStrips). With tracks, a marker's line
-// in its track's lane alone. A marker chosen, by a press on its serif, lit in its strip: Delete takes it away
+// Markers: the edited band's lines grey, a moment's, a range's ends; another's none but as a ghost of the caret, where a
+// press would put it, its name or end pointed at in its strip; a marker's end dragged, where it goes. Its name is its
+// band's strip's (paintStrips). With tracks, a marker's line in its track's lane alone. A marker chosen, by a press on
+// its name, lit in its strip: Delete takes it away (and every other of its name selected with it); the selection or
+// the caret a press there made, dragged by an edge or its line, takes it along (pointer.js bound)
 // the marker chosen, { time, duration }, till the caret or the selection goes elsewhere
 export let chosen = null
 // Editing pitch, the spectrogram's frequencies framed on the voice, as Praat's pitch panel is: from half its lowest to
@@ -320,7 +324,7 @@ const set = {
   duration: x => duration = x, pieces: x => pieces = x, recording: x => recording = x, leveled: x => leveled = x,
   data: x => data = x, arriving: x => arriving = x, count: x => count = x, rate: x => rate = x,
   windows: x => windows = x, windowsOf: x => windowsOf = x, leavesOf: x => leavesOf = x, steered: x => steered = x,
-  moving: x => moving = x, tracks: x => tracks = x, allLanes: x => allLanes = x, band: x => band = x,
+  moving: x => moving = x, tracks: x => tracks = x, across: x => across = x, band: x => band = x,
   more: x => more = x, cursor: x => cursor = x, lift: x => lift = x, heights: x => heights = x, focus: x => focus = x,
   anchor: x => anchor = x, pictures: x => pictures = x, start: x => start = x, hovered: x => hovered = x,
   end: x => end = x, picked: x => picked = x, palette: x => palette = x, kinds: x => kinds = x,

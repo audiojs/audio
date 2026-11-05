@@ -307,13 +307,13 @@ export function write(...calls) {
 export const applied = (code, { from, to = from, insert = '' }) => code.slice(0, from) + insert + code.slice(to)
 // a change as the editor takes it, one or several over the same text, made to `code`
 export const changed = (code, c) => (Array.isArray(c) ? c : [c]).filter(Boolean).sort((p, q) => q.from - p.from).reduce(applied, code)
-// A selection through every track (view.js across): an edit of it is the same edit of each track, each in turn the one
-// edited, what each makes gathered into one change, one step of the history, so a cut keeps them in time; the track
-// edited before, edited after. Each edit reads and writes the script as the ones before it left it, `ed` standing in for
+// A selection through tracks (view.js across, their names): an edit of it is the same edit of each of them, each in
+// turn the one edited, what each makes gathered into one change, one step of the history, so a cut keeps them in time;
+// the track edited before, edited after. Each edit reads and writes the script as the ones before it left it, `ed` standing in for
 // the editor meanwhile, and `rk` for the edits, no card of one track's chosen for another's
 export let spreading = false
 export function spread(edit) {
-  const names = tracksOf(ed.code).map(t => t.name)
+  const names = tracksOf(ed.code).map(t => t.name).filter(n => v.across?.includes(n))
   if (spreading || !v.across || names.length < 2 || mastering()) return edit()
   const real = ed, edits = rk, was = state.track
   let code = real.code, done = false

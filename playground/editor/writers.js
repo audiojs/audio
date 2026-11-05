@@ -104,14 +104,37 @@ export function unmark(marker) {
   ed.change({ from: call.dot ?? call.from, to: call.to, insert: '' })
   return true
 }
-// A marker put from a band's head: a mark() of a range (the selection's) or a moment; with a name (a first one asked
-// for), so named, else its name asked for as M asks it (v.name)
-export function nameMarker({ time, duration, label }) {
+// Markers put from a band's foot, their name asked for there first (view.js): a mark() at each caret and over each
+// range it stood under (`spans`, [[a, b], …]), named alike, or with no name, their numbers showing
+export function nameMarker({ spans, label }) {
   if (!state.whole) return false
-  const s = t => number(t, v.unit), at = duration > 0 ? `{ at: ${s(time)}, d: ${s(duration)} }` : s(time)
-  const made = write(`mark(${at}${label ? `, ${quote(label)}` : ''})`)
-  if (made && !label) v.name({ time: +s(time), ...duration > 0 && { duration: +s(duration) } })
-  return made
+  const s = t => number(t, v.unit), said = label ? `, ${quote(label)}` : ''
+  return write(spans.map(([a, b]) => `mark(${b > a ? `{ at: ${s(a)}, d: ${s(b - a)} }` : s(a)}${said})`).join('.'))
+}
+// Each marker's number among its track's, as they were made: its mark()'s place in its track's chain, after those the
+// file has, which come first, by time; so one made later is the next, renumbering none before it. Each output marker
+// is its call as markCall has them: of its kind, the n-th in time the n-th call by time where they are as many, else
+// the nearest call's
+export function numbered(list) {
+  if (!list?.length) return list
+  const n = new Map()
+  for (const track of new Set(list.map(m => m.track ?? null))) {
+    focus(track ?? state.track)
+    const calls = (chain(ed.code)?.calls || []).filter(k => typeof markedAt(k) === 'number')
+    focus(state.track)
+    const own = list.filter(m => (m.track ?? null) === track), call = new Map()
+    for (const moment of [true, false]) {
+      const shown = own.filter(m => !m.duration === moment).sort((p, q) => p.time - q.time), ks = calls.filter(k => (k.args[0].kind === 'number') === moment).sort((p, q) => markedAt(p) - markedAt(q))
+      if (shown.length === ks.length) shown.forEach((m, i) => call.set(m, calls.indexOf(ks[i])))
+      else for (const k of ks) {
+        const m = shown.filter(m => !call.has(m)).reduce((a, m) => !a || Math.abs(m.time - markedAt(k)) < Math.abs(a.time - markedAt(k)) ? m : a, null)
+        if (m) call.set(m, calls.indexOf(k))
+      }
+    }
+    const file = own.filter(m => !call.has(m)), made = own.filter(m => call.has(m)).sort((p, q) => call.get(p) - call.get(q))
+    ;[...file, ...made].forEach((m, i) => n.set(m, i + 1))
+  }
+  return list.map(m => ({ ...m, n: n.get(m) }))
 }
 // A marker named, or its name taken away: its mark() call's label
 export function relabel({ label, ...marker }) {
