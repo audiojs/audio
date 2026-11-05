@@ -14,9 +14,8 @@ import { tag, gauge, size, label, stamp } from './strips.js'
 
 export const steer = () => { assign({ steered: playhead != null }); assign({ moving: null }) }
 export let barOn = null, barTimer = 0
-// `labels`: the time row's own times and ticks too (on the reel), or only these marks' (the playhead's); `clear`,
-// [[x0, x1], …] px its own labels give way to
-export function paintRuler(marks, spans = [], labels = true, clear = []) {
+// `labels`: the time row's own times and ticks too (on the reel), or only these marks' (the playhead's)
+export function paintRuler(marks, spans = [], labels = true) {
   if (ruler === 'off' || timeRow === 'band' && !rowBand()) return null
   // the tick and chevron of what is out of sight (away) taken first: the labels give way to them
   const { w } = plot(), y = row(), { step, digits, first } = labelled(), taken = away && c === oc ? [[away.x0 - 2, away.x1 + 2]] : []
@@ -37,20 +36,26 @@ export function paintRuler(marks, spans = [], labels = true, clear = []) {
     if (m.of && !m.edge && tw + 8 > x(m.of[1]) - x(m.of[0])) lx = px - 4 - tw
     lx = Math.max(0, Math.min(w - tw - 3, lx))
     if (px < 0 || px >= lanesEnd(lanes())) continue
-    // no room for its time: none, or, an end measured from or to (keep), its tick alone
-    if (taken.some(([a, b]) => lx + tw + 4 > a && lx - 4 < b)) { if (m.keep) shown.push({ ...m, px, text: null }); continue }
+    // no room for its time: on its tick's other side; else none, or, an end measured from or to (keep), its tick alone
+    const hit = lx => taken.some(([a, b]) => lx + tw + 4 > a && lx - 4 < b), other = lx > px ? px - 4 - tw : px + 4
+    if (hit(lx) && other >= 0 && other + tw + 3 <= w && !hit(other)) lx = other
+    if (hit(lx)) { if (m.keep) shown.push({ ...m, px, text: null }); continue }
     taken.push([Math.min(px, lx - 4), Math.max(px + 1, lx + tw + 4)])
     shown.push({ ...m, px, lx, text })
   }
   for (const [p, q] of spans) taken.push([X(p), X(q)])
-  taken.push(...clear)
-  if (labels && ruler !== 'none') for (let i = first; i * step <= end + 1e-9; i++) {
-    const t = i * step, px = X(t), text = stamp(t, digits), tw = c.measureText(text).width
-    if (px + 4 + tw > w) break
-    if (taken.some(([a, b]) => px + tw + 4 > a && px < b)) continue
-    c.fillStyle = color('--color-screen-rule')
-    c.fillRect(px, tickTop(), 1, TICK)
-    if (ruler === 'labels') { c.fillStyle = color('--color-screen-line-number'); c.fillText(text, px + 4, y) }
+  if (labels && ruler !== 'none') {
+    // in a band's foot, a ruler's: a tick between each two labelled too
+    if (timeRow === 'band') paintTicks(tickTop())
+    for (let i = first; i * step <= end + 1e-9; i++) {
+      const t = i * step, px = X(t), text = stamp(t, digits), tw = c.measureText(text).width
+      if (px + 4 + tw > w) break
+      // a label's room: its text and a gap after it as wide as the one before it, so no two times touch
+      if (taken.some(([a, b]) => px + tw + 8 > a && px - 4 < b)) continue
+      c.fillStyle = color('--color-screen-rule')
+      c.fillRect(px, tickTop(), 1, TICK)
+      if (ruler === 'labels') { c.fillStyle = color('--color-screen-line-number'); c.fillText(text, px + 4, y) }
+    }
   }
   c.fillStyle = gauge()
   for (const [p, q] of spans) c.fillRect(X(p), Math.round(y), X(q) - X(p), 1)
@@ -63,6 +68,16 @@ export function paintRuler(marks, spans = [], labels = true, clear = []) {
   for (const { text, lx } of pills) tag(text, lx, y, 'left', color('--color-screen-bright'), gauge())
   // the playhead's, where the ruler has room for it, for its own layer to show (layHead)
   return shown.find(m => m.head) ?? null
+}
+// A band's foot as a ruler, from `top` down: a tick TICK px long (a label's line) at each time the row labels and one
+// halfway between
+function paintTicks(top) {
+  const { w } = plot(), { step, first } = labelled(), end0 = lanesEnd(lanes())
+  c.fillStyle = color('--color-screen-rule')
+  for (let i = first - 1; i * step <= end + 1e-9; i++) for (const k of [0, .5]) {
+    const px = X((i + k) * step)
+    if (px >= 0 && px < Math.min(w, end0)) c.fillRect(px, top, 1, TICK)
+  }
 }
 // The playhead's layer laid out as the overlay is: its line down the lanes, through the band alone with one selected on
 // the spectrogram, and its tick and time on the time row where the ruler has room for them (`m`, none), relative to

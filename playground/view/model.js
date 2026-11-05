@@ -10,11 +10,10 @@ import kept from '../kept.js'
 // 10 px reach; ONTO, how near a dragged time goes onto a cue or a marker, 3 px either side, so a drag goes where it is
 // put but by what it meets
 export const GUTTER = 48, RULER = 22, GAP = 2, EDGE = 6, SNAP = 6, STICK = 5, ONTO = 3, INSET = 3, NOTCH = Math.log(1.5)
-// A band: a track's lane, or a sound's lanes all told, GAP px apart, and under it its foot, FOOT px: what is about the
-// band but is not its sound, its takes' numbers, a selection's tools, a sound's look, its axis' last label, never over
-// the sound; dragged, the band's height (Finder's column edge; with Alt, every band's), nothing drawn for it. A track's
-// band its head line over it, HEAD px, where its layer is (editor.js layers: its look, its name, its mute and its
-// lock), so a track never reads as a channel
+// A band: a track's lane, or a sound's lanes all told, GAP px apart; over it its head, HEAD px, its markers' names, what
+// forks it (its takes' numbers, the selection's fork), its look at its right over the axis (editor.js layers); under it
+// its foot, FOOT px, its time row, never over the sound; its last px dragged, the band's height (Finder's column edge;
+// with Alt, every band's), nothing drawn for it
 export const HEAD = 20, FOOT = 18
 // A track's lane TRACK px tall, a sound's lanes the picture all told, unless its foot is dragged (LOW px at least); more
 // than the picture holds scroll up and down through it, as a DAW's tracks do, the room under the last always in reach:
@@ -71,6 +70,8 @@ export function stylize(times, f0, res = 2) {
 export const HOLD = 400, SLOP = 3
 // Pointers of their own: a stretch's, its two ends pushed apart, arrows out to bars (the resize arrows are the edges')
 const pointer = (path, hx = 12, hy = 12) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke-linecap='round' stroke-linejoin='round'><path d='${path}' stroke='white' stroke-width='4'/><path d='${path}' stroke='black' stroke-width='1.5'/></svg>`)}") ${hx} ${hy}`
+// a marker's, a flag on its pole, where a press in a band's head names one
+export const MARK = `${pointer('M7 21V4M7 5h10l-2.5 3.5L17 12H7', 7, 21)}, copy`
 export const STRETCH = `${pointer('M3 7v10M21 7v10M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3')}, ew-resize`
 // Shift's, the I-beam with a plus on the side the selection goes out to it from; Alt's, with a plus at its foot: another
 export const EXTEND = [`${pointer('M6 9v6M3 12h6M13 5h4M15 5v14M13 19h4', 15)}, text`, `${pointer('M18 9v6M15 12h6M7 5h4M9 5v14M7 19h4', 9)}, text`]
@@ -85,14 +86,14 @@ export const GLIDE = .3                               // a playhead past the vie
 
 
 // What view() is given (editor.js), kept as it mounts: its element, its callbacks, its zoom's limits and overshoot
-export let root, onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow, cueOrder
+export let root, onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow, cueOrder
 export const element = (tag, className, parent) => parent.appendChild(Object.assign(document.createElement(tag), { className }))
 // a button of the picture's own pressed: the picture keeps the keys (its own, Undo's), as a press anywhere in it gives them
 export const keep = () => root.focus({ preventScroll: true })
 const layer = (name, parent = root) => element('canvas', name, parent)
 export const color = name => style.getPropertyValue(name).trim()
-// A range pointed at in its strip, no takes from where it starts: a fork (⌥, a branch) at its end inside it, where
-// takes' numbers stand, as their own one, a press on it starting takes there (onfork, the marker)
+// The selection, or a range pointed at, with no takes from where it starts: a fork (⌥, a branch) at its start under it,
+// where takes' numbers stand, as their own one, a press on it starting takes there (onfork; geometry.js placeFork)
 export const FORK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h6l6 10h6M15 7h6"/></svg>'
 // The element's layers, its GL contexts and buttons, made by mount() in this order, the DOM's order
 export let cut, reel
@@ -263,7 +264,7 @@ export let ahead = false
 // The view mounted on its element, once: what it is given kept, its layers made and laid in their order
 export function mount(el, given) {
   root = el
-  ;({ onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow, cueOrder } = given)
+  ;({ onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow, cueOrder } = given)
   // the selection under the pictures, as a selection is behind text: the sound drawn over it, a quiet spectrogram's
   // clear ground showing it; the grid over the spectrogram, under the waveform, in the waveform's canvas (paintGrid). The
   // pictures on a reel (roll), cut where the lanes end (editor.css --end): drawn past the view's right end, the reel
@@ -299,7 +300,7 @@ export function mount(el, given) {
   Object.assign(forkButton, { type: 'button', hidden: true, ariaLabel: 'Another take', title: 'Another take', innerHTML: FORK })
   for (const type of ['pointerdown', 'pointerup', 'contextmenu', 'dblclick']) forkButton.addEventListener(type, e => e.stopPropagation())
   forkButton.addEventListener('pointerdown', keep)
-  forkButton.addEventListener('click', e => { e.stopPropagation(); const m = markers[+forkButton.dataset.i]; if (m) onfork(m) })
+  forkButton.addEventListener('click', e => { e.stopPropagation(); const at = forkButton.at; if (at) onfork({ time: at.time, duration: at.duration, track: at.track }) })
   // A sound's look, a button in its foot under its axis, drawn as what it shows: pressed, how it shows opens by it
   // (onlook: '', and the button). A track's is in its layer (editor.js layers)
   lookButton = Object.assign(element('button', 'lane-look', root), { type: 'button', hidden: true, title: 'How it shows' })

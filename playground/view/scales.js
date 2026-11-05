@@ -113,26 +113,34 @@ export const ampLanes = L => L.wave.length ? L.wave : L.spec
 export const lineLanes = L => pitchLine() ? L.wave : ampLanes(L)
 // lanes on a pitch axis, where the pitch curve shows and is dragged: the spectrogram's, the notes'
 export const pitchLanes = L => [...L.spec, ...L.notes]
-// Marks [y, …] by a lane, the most important first, those there is room for: in the lane, `gap` px from each other and
-// from what is there (`placed`, ys, added to)
-export function room([, y, , lh], list, placed = [], gap = size() + 6) {
-  return list.filter(([ly]) => {
-    const ty = Math.round(ly)
-    if (ty < y || ty > y + lh || placed.some(p => Math.abs(p - ty) < gap)) return false
-    placed.push(ty)
-    return true
-  })
+// Marks [y, …] by a lane, the most important first, those there is room for: in the lane, their labels (under or over
+// their ticks: beside) `gap` px from each other's and from what is there (`placed`, the middles of labels there, added
+// to). A level and its mirror (marks [y, text, pair] of one `pair`) both or neither, so the axis reads the same either
+// side of the centre line
+export function room(rect, list, placed = [], gap = size() + 4) {
+  const inside = ([ly]) => Math.round(ly) >= rect[1] && Math.round(ly) <= rect[1] + rect[3], out = [], done = new Set()
+  for (const m of list) {
+    if (done.has(m)) continue
+    const group = (m[2] == null ? [m] : list.filter(n => n[2] === m[2])).filter(inside)
+    group.forEach(n => done.add(n))
+    const my = group.map(([ly]) => beside(rect, Math.round(ly)))
+    if (!group.length || my.some((p, i) => placed.some(q => Math.abs(q - p) < gap) || my.some((q, j) => j > i && Math.abs(q - p) < gap))) continue
+    placed.push(...my)
+    out.push(...group)
+  }
+  return out
 }
-// Marks [y, text] by a lane: each with room, its tick at its height, its label under it, clear of the pointer's value
-// (`taken`, its y)
+// Marks [y, text] by a lane: each with room, its tick at its height, its label under it (over it only where that would
+// leave the lane, its foot's, so no label runs into the lane under it), clear of the pointer's value (`taken`, its y)
+export const beside = (rect, ty) => ty + size() - 1 + size() / 2 <= rect[1] + rect[3] ? ty + size() - 1 : ty - size() + 2
 export function ticks(rect, list, taken) {
   const w = plot().w
-  for (const [ly, text] of room(rect, list, [taken].filter(v => v != null))) {
+  for (const [ly, text] of room(rect, list, taken == null ? [] : [beside(rect, taken)])) {
     const ty = Math.round(ly)
     c.fillStyle = color('--color-screen-rule')
     c.fillRect(w + 1, ty, TICK, 1)
     c.fillStyle = color('--color-screen-line-number')
-    c.fillText(text, w + 1, ty + size() - 1)
+    c.fillText(text, w + 1, beside(rect, ty))
   }
 }
 // The axis as wide as its labels, a pixel before them and 3 px after, GUTTER at most: the levels' in either unit and
@@ -174,10 +182,10 @@ export const axisMarks = rect => rect.keys ? noteMarks(rect) : rect.kind === 'sp
 // of what shows; in dB, mirrored about 0 and clear of it, the halvings first, the top's 0 with its unit
 export function levelMarks(rect, units = levelUnits) {
   const [lo, hi] = aview, within = v => v >= lo - 1e-9 && v <= hi + 1e-9
-  if (units === 'linear') return [...new Set([0, 1, -1, ...multiples(lo, hi, valueStep())])].filter(within).map(v => [ay(rect, v), linear(v)])
+  if (units === 'linear') return [...new Set([0, 1, -1, ...multiples(lo, hi, valueStep())])].filter(within).map(v => [ay(rect, v), linear(v), Math.abs(v)])
   const zero = ay(rect, 0)
   return LEVELS.flatMap(db => [1, -1].map(sign => [sign * 10 ** (db / 20), db, sign])).filter(([v]) => within(v) && Math.abs(ay(rect, v) - zero) >= 16)
-    .map(([v, db, sign]) => [ay(rect, v), db ? `${db > 0 ? '+' : '−'}${Math.abs(db)}` : sign > 0 ? '0dB' : '0'])
+    .map(([v, db, sign]) => [ay(rect, v), db ? `${db > 0 ? '+' : '−'}${Math.abs(db)}` : sign > 0 ? '0dB' : '0', db])
 }
 const linear = v => v ? `${v < 0 ? '−' : ''}${+Math.abs(v).toPrecision(3)}` : '0'
 // the 1-2-5 step the sample values are marked by, four or so across what a lane shows

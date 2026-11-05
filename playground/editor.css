@@ -367,11 +367,11 @@ svg { flex: none; }
 .record, .play, .busy { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--color-screen-bright); }
 .record, .busy { width: 36px; height: 36px; }
 .record:hover { background: var(--color-screen-hover); }
-/* the loop by the length, small, as a mode of what plays is: a ring, no key cap */
-.loop { flex: none; align-self: baseline; translate: 0 1px; display: grid; place-items: center; width: 24px; height: 24px; margin-left: -6px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--color-screen-muted); }
-.loop:hover:not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-soft); }
-.loop svg { width: 14px; height: 14px; }
-.loop[aria-pressed="true"] { color: var(--color-screen-accent); }
+/* the loop by the length, a mode of what plays, a round key the history's size, on its line */
+.status .loop { flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 28px; height: 28px; margin-left: -4px; border-radius: 6px; color: var(--color-screen-muted); }
+.status .loop svg { width: 16px; height: 16px; }
+.status .loop:hover:not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.status .loop[aria-pressed="true"] { color: var(--color-screen-accent); }
 /* before the edits, a key at the bar's right end: lit while the file as it opened is heard */
 .before { flex: none; min-height: 22px; margin-left: 12px; padding: 0 8px; border: 0; border-radius: 11px; background: var(--color-quiet); color: var(--color-screen-muted); font: 11px var(--font-mono); }
 .before:hover:not(:disabled) { background: var(--color-quiet-hover); color: var(--color-screen-ink); }
@@ -592,34 +592,31 @@ svg { flex: none; }
 .chat-connect .field { margin-bottom: 6px; }
 .chat-connect .field-note { margin: 2px 0 4px; }
 
-/* A sound's look in its foot under its axis (view.js placeLook), and a track's in its layer, its mute and its lock
-   there: quiet till pointed at, the look lit while how it shows is open by it, a mute or a lock lit while on */
+/* A band's look at its head's right, over its axis, on its names' row (a sound's embedded, at its foot's: view.js
+   placeLook), its lock by it while locked: quiet till pointed at, the look lit while how it shows is open by it, the
+   lock lit */
 .lane-look, .layer button { display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); cursor: pointer; }
 .lane-look { position: absolute; z-index: 1; }
 .lane-look[hidden] { display: none; }
 .lane-look svg, .layer button svg { width: 13px; height: 13px; }
 .lane-look:hover, .lane-look[aria-expanded="true"], .layer button:hover, .layer-look[aria-expanded="true"] { background: var(--color-screen-hover); color: var(--color-screen-bright); }
-/* The tracks' layers (index.html .layers), over the picture, each on its band's head line (view.js onlayout), as
-   far as the lanes go, the lanes' sound never under it. The edited one's name bright, a muted one dim as its lane is */
-.layers { position: absolute; top: 0; bottom: 0; left: 0; right: var(--axis, 48px); z-index: 2; pointer-events: none; }
+/* The bands' layers (index.html .layers), over the picture, each over its band from its head to its foot (view.js
+   onlayout), letting presses through to the picture but on its own buttons */
+.layers { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 2; pointer-events: none; }
 .layer-rows { position: absolute; top: 0; left: 0; right: 0; overflow: hidden; }
-.layer { position: absolute; left: 0; max-width: 100%; display: flex; align-items: center; gap: 2px; padding: 0 4px 0 0; color: var(--color-screen-soft); font: 11px/16px var(--font-mono); cursor: pointer; pointer-events: auto; }
-.layer.on { color: var(--color-screen-bright); }
-/* the title a new track would have: a placeholder, as an empty field's, where a layer's name is, a plus where its look
-   is */
-.layer-new { position: absolute; left: 0; display: flex; align-items: center; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); cursor: pointer; pointer-events: auto; }
+.layer { position: absolute; left: 0; right: 0; color: var(--color-screen-soft); font: 11px/16px var(--font-mono); }
+.layer > * { position: absolute; pointer-events: auto; }
+.layer-look { top: 2px; right: calc(var(--axis, 48px) - 17px); }
+/* shown with its band pointed at, or itself, or how it shows open by it */
+.layer:not(.hot) .layer-look:not(:hover, :focus-visible, [aria-expanded="true"]) { opacity: 0; }
+.layer-lock { top: 2px; right: calc(var(--axis, 48px) + 2px); color: var(--color-screen-accent) !important; }
+/* its name written anew (its menu's Rename), where its head starts */
+.layer-field { top: 2px; left: 0; height: 16px; padding-left: 2px; }
+/* the title a new track would have, under the last: a placeholder, as an empty field's, only as the room under the
+   lanes is pointed at (view.js paintRoom, data-room) */
+.layer-new { position: absolute; left: 0; display: flex; align-items: center; color: var(--color-screen-soft); font: 11px/16px var(--font-mono); cursor: pointer; pointer-events: auto; visibility: hidden; }
 .layer-new svg { flex: none; width: 16px; height: 13px; margin-right: 4px; }
-/* lit as it, or the room under the lanes (view.js paintRoom, data-room), is pointed at */
-.layer-new:hover, .view:has(> .plot[data-room]) .layer-new { color: var(--color-screen-soft); }
-.layer.muted > :not(.track-mute) { opacity: .45; }
-.layer.locked { cursor: default; }
-.layer-name { flex: none; max-width: 24em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 2px; }
-.layer-field { height: 16px; padding-left: 2px; }
-/* the name's own room before its buttons */
-.layer :is(.layer-name, .layer-field) + .track-mute { margin-left: 6px; }
-.track-mute[aria-pressed="true"], .layer-lock[aria-pressed="true"] { color: var(--color-screen-accent); }
-.layer-lock:not([aria-pressed="true"]):not(:focus-visible) { opacity: 0; }
-.layer:hover .layer-lock { opacity: 1; }
+.layer-new:hover, .view:has(> .plot[data-room]) .layer-new { visibility: visible; }
 /* Where the view stops short of the sound, its lanes fade out at that edge (view.js placeFades), as a list scrolled on
    does: the ground they lie on over them, from clear to whole, laid where the slab's lies (its gradient, from the
    slab's top: --ground-top, --ground-h), so it is the ground's own colour at every height; as tall as the lanes */

@@ -165,9 +165,9 @@ test('editor: a caret dragged onto a cue or a marker says what it went onto', as
   const said = () => page.locator('.hint').evaluate(e => e.hidden ? '' : e.textContent)
   // the cues' colour 5 px either side of the line (its wash WASH, 8 px), half way down the lane: [before, after]
   const washed = t => pixels(`const orange = x => { const i = (arg.y * w + x) * 4; return d[i] - d[i + 2] > 12 }; return [orange(arg.px - 5), orange(arg.px + 5)]`, { px: Math.round(x(t) - box.x), y: Math.round(tall(box) / 2) })
-  // the cues' colour by the line, its own column left out, in the 7 px square about the line's foot, over the strip's
-  // triangles
-  const crossed = t => pixels(`let n = 0; for (let y = arg.y - 3; y <= arg.y + 3; y++) for (let x = arg.px - 3; x <= arg.px + 3; x++) { const i = (y * w + x) * 4; if (x !== arg.px && d[i] - d[i + 2] > 30) n++ } return n`, { px: Math.round(x(t) - box.x), y: Math.round(tall(box)) - 1 })
+  // the cues' colour by the line, its own column left out, in the 7 px square about the lanes' top, at the point of the
+  // marker's triangle in the head over them
+  const crossed = t => pixels(`let n = 0; for (let y = arg.y - 3; y <= arg.y + 3; y++) for (let x = arg.px - 3; x <= arg.px + 3; x++) { const i = (y * w + x) * 4; if (x !== arg.px && d[i] - d[i + 2] > 30) n++ } return n`, { px: Math.round(x(t) - box.x), y: TOP - 1 })
   for (const [t, words, wash] of [[start, '', [false, true]], [end, '', [true, false]], [.75, 'Intro'], [1.8, 'Coda end']]) {
     await page.mouse.move(x(.25), y)
     await page.mouse.down()
@@ -177,7 +177,7 @@ test('editor: a caret dragged onto a cue or a marker says what it went onto', as
     await frames()
     await poll(said, s => assert.equal(s, words, `onto ${t}`))
     if (wash) await poll(() => washed(t), w => assert.deepEqual(w, wash, `onto ${t}, the wash on the sound's side`))
-    if (words) await poll(() => crossed(t), n => assert.ok(n >= 4, `onto ${t}, a cross on the line's foot, over its triangle: ${n}`))
+    if (words) await poll(() => crossed(t), n => assert.ok(n >= 4, `onto ${t}, a cross at the lanes' top, at its triangle's point: ${n}`))
     await page.mouse.up()
   }
   // let go and moved off it, nothing said

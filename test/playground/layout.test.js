@@ -1,7 +1,7 @@
 // The page's layout: the panel, a phone's and a tablet's, the bar; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, wholeLevels, open, settled, still, tab, edits, noCues, write, tall, gutter, axis, drag, lengthIs, pixels, show, setPage } from './page.js'
+import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, wholeLevels, open, settled, still, tab, edits, noCues, write, FOOT, tall, gutter, axis, drag, lengthIs, pixels, show, setPage } from './page.js'
 
 // Over the picture: its tabs; at its foot, in the bar, undo and redo after the length, before the rate; what it shows
 // chosen by its look, in the sound's foot under its axis; none moving as the picture turns. At the slab's top
@@ -28,11 +28,11 @@ test('editor: undo and redo after the length, a band\'s look in its layer, none 
   const [narrow, side, plot] = await Promise.all(['.view-slab', '.side-slab', '.plot'].map(box))
   assert.ok(narrow.width < view.width - 200 && side.x >= narrow.x + narrow.width - 1 && side.y >= buttons[0].y + buttons[0].height, 'docked beside the picture, under the buttons')
   // in the bar at the picture's foot: undo, redo, after the length, before the rate; what the picture shows, chosen by
-  // its look in the sound's layer, at the picture's left on its head line, none of them moving as the picture turns
+  // its look at the sound's head's right, over the axis, on the names' row, none of them moving as the picture turns
   const heads = () => Promise.all([page.getByRole('button', { name: 'Undo', exact: true }), page.getByRole('button', { name: 'Redo', exact: true }), page.locator(':is(.lane-look, .layer-look):visible')].map(b => b.boundingBox()))
   const [undo, redo, look] = await heads()
   const length = await box('.length'), rate = await box('.facts')
-  assert.ok(undo.y > plot.y + plot.height && undo.x >= length.x + length.width && undo.x < redo.x && redo.x + redo.width < rate.x, 'undo, redo at the foot, after the length, before the rate')
+  assert.ok(undo.y > plot.y + plot.height && undo.x >= rate.x + rate.width && undo.x < redo.x, 'undo, redo at the foot, at its right end, after the rate')
   // one baseline: the time's, the length's, the status's words, the arrows' feet; a narrower bar's smaller time keeps it
   const baselines = () => page.evaluate(() => {
     const base = e => { const i = document.createElement('i'); i.style.cssText = 'display: inline-block; width: 0; height: 0'; e.append(i); const y = i.getBoundingClientRect().y; i.remove(); return y }
@@ -46,7 +46,7 @@ test('editor: undo and redo after the length, a band\'s look in its layer, none 
   const smaller = await baselines()
   assert.ok(Math.abs(smaller.time - wide.time) <= 1 && Math.abs(smaller.feet - wide.feet) <= 1, `the smaller time on the same baseline: ${JSON.stringify(smaller)}`)
   await page.setViewportSize(size)
-  assert.ok(look.x - plot.x < 12 && look.y >= plot.y && look.y + look.height <= plot.y + TOP, `the look in the sound's layer, on its head line: ${look.x}, ${look.y}; ${plot.x}, ${plot.y}`)
+  assert.ok(look.x > plot.x + plot.width - await gutter() - 2 && look.y >= plot.y && look.y + look.height <= plot.y + TOP, `the look at the sound's head's right, over its axis: ${look.x}, ${look.y}; ${plot.x}, ${plot.y}`)
   await show('spec')
   assert.deepEqual((await heads()).map(b => b.x), [undo, redo, look].map(b => b.x), 'nothing moved as it turned')
   await show('wave')
@@ -318,7 +318,7 @@ test('editor: the page selects no text but where there is text to copy', async (
 })
 
 // The status bar at a desktop's, a tablet's and a phone's width, a sound shown and one decoding: one row in reading
-// order (the transport, the time, its length, undo and redo, what the engine says, the levels and facts, Before), each
+// order (the transport, the time, its length, the loop, what the engine says, the levels and facts, Before, undo and redo), each
 // part whole in the bar and in the window, none over another, the time and its length never cut; the length shown but
 // on a phone. Layout read from the boxes, not from pixels
 for (const [device, width, height, touch] of [['desktop', 1280, 800, false], ['tablet', 820, 1180, true], ['phone', 390, 844, true]]) test(`editor: the bar on a ${device}: the time, the length, the status, undo and redo in a row, whole, none over another`, async () => {
@@ -327,8 +327,8 @@ for (const [device, width, height, touch] of [['desktop', 1280, 800, false], ['t
     // its parts in reading order, those shown: { name, x, y, w, h, cut }; the bar's box; the page's width and the window's
     const parts = p => p.evaluate(() => {
       const box = e => { const r = e.getBoundingClientRect(), s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' ? { x: r.x, y: r.y, w: r.width, h: r.height, cut: e.scrollWidth > e.clientWidth + 1 } : null }
-      const named = [['play', '.deck-slot:has(.play)'], ['record', '.deck-slot:has(.record)'], ['time', '.time'], ['length', '.length'], ['loop', '.loop'], ['undo', '.history .undo'], ['redo', '.history button:last-child'],
-        ['status', '.message-words'], ['readout', '.readout'], ['facts', '.facts'], ['before', '.before']]
+      const named = [['play', '.deck-slot:has(.play)'], ['record', '.deck-slot:has(.record)'], ['time', '.time'], ['length', '.length'], ['loop', '.loop'],
+        ['status', '.message-words'], ['readout', '.readout'], ['facts', '.facts'], ['before', '.before'], ['undo', '.history .undo'], ['redo', '.history button:last-child']]
       const shown = named.map(([name, s]) => { const e = document.querySelector(s), b = e && (name !== 'status' || e.textContent) && box(e); return b && { name, ...b } }).filter(Boolean)
       return { shown, bar: box(document.querySelector('.status')), page: document.documentElement.scrollWidth, window: innerWidth }
     })

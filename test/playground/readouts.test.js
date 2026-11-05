@@ -190,6 +190,25 @@ audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
   assert.ok(Math.abs(loud - quiet - 10) <= 1.5, `20 dB apart, 10 px: ${(loud - quiet).toFixed(1)}`)
 })
 
+// On the spectrogram, the pointer's level under its frequency is the level its colour stands for: where there is no
+// energy at all (silence, or under the lowest bin), its colours' floor, under it ('<' and the floor), never −∞
+test('editor: on the spectrogram, a level under its colours\' floor reads as under it, never −∞', async () => {
+  await open()
+  await write(`audio.from(t => t < .5 ? .5 * Math.sin(2 * Math.PI * 1000 * t) : 0, { duration: 1 })`)
+  await lengthIs('0:01.000')
+  await show('spec')
+  await settled()
+  await page.evaluate(() => {
+    window.__said = []
+    const text = CanvasRenderingContext2D.prototype.fillText
+    CanvasRenderingContext2D.prototype.fillText = function (s, x, y) { if (this.canvas.matches('.overlay')) window.__said.push(s); return text.call(this, s, x, y) }
+  })
+  const box = await page.locator('.plot').boundingBox()
+  await page.mouse.move(box.x + (box.width - await gutter()) * .85, box.y + TOP + TRACK / 2)
+  const said = await poll(() => page.evaluate(() => window.__said), all => assert.ok(all.some(t => /^<−\d+$/.test(t)), `under the floor: ${[...new Set(all)].join(' ')}`), 3000)
+  assert.ok(!said.includes('−∞'), 'never −∞')
+})
+
 // Measuring on the spectrogram, the spectrum meter reads under the pointer: held Alt at two strikes of other notes, two
 // spectra; let go, the caret's again
 test('editor: held Alt over the spectrogram, the spectrum meter reads under the pointer', async () => {

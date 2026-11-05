@@ -1,4 +1,4 @@
-import { plot, floor, lanes } from './geometry.js'
+import { floor, lanes, rulerAt } from './geometry.js'
 import { EDGE, STICK, FINE, root, oncursor, onscrub, onaudition, duration, more, selection, band, cursor, cues, bounds, contour, gripMode, anchor, noted, assign } from './model.js'
 import { median, noteAt, linePoints, valueAt, onLine, toneOf, toneAt, pointOn, knotOn } from './notes.js'
 import { TOOLS, handled, gripAt } from './overlay.js'
@@ -20,7 +20,7 @@ import { editing } from './strips.js'
 // selection, a copy of its audio (Finder's and Figma's Alt-drag). ⌘ (Ctrl) on the spectrogram, a box of time and
 // frequency, a band. Each keeps its distance from the pointer. `hear` is the time a drag sounds.
 export function selectDown(event, px, py, t, L) {
-  const row = py > plot().h, spec = !row && L.spec.find(rect => inside(rect, px, py))
+  const row = rulerAt(py), spec = !row && L.spec.find(rect => inside(rect, px, py))
   // inside the selection, but on a caret's line there (the time row put it there), the caret's
   const within = selection && !band && !row && py <= floor() && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE && !caretAt(px, py) && !thirdAt(px, py)
   const box = spec && !within && (editing(event) || event.altKey && band) ? spec : null

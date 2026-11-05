@@ -1,7 +1,7 @@
 import { CURVES, CROSSFADES } from '../ops.js'
 import { lightness } from '../tint.js'
-import { plot } from './geometry.js'
-import { EDGE, NOTES, midiOf, noteOf, VOICE, onaudition, color, c, rate, duration, units, pieces, start, end, envelope, shift, contour, landed, clips, data, tracks, focus, noted } from './model.js'
+import { plot, rowBand } from './geometry.js'
+import { EDGE, NOTES, timeRow, midiOf, noteOf, VOICE, onaudition, color, c, rate, duration, units, pieces, start, end, envelope, shift, contour, landed, clips, data, tracks, focus, noted } from './model.js'
 import { lanesEnd } from './overlay.js'
 import { drag } from './pointer.js'
 import { moved, rgba } from './render.js'
@@ -47,14 +47,14 @@ export function paintGuide(g, L) {
   c.strokeStyle = c.fillStyle = accent()
   c.lineWidth = 1
   if (g.range && !g.band) {
-    const a = X(g.range[0]), b = X(g.range[1])
-    c.fillRect(a, h, Math.max(1, b - a), 2)
+    const a = X(g.range[0]), b = X(g.range[1]), under = timeRow === 'band' ? rowBand()?.y : h
+    if (under != null) c.fillRect(a, under, Math.max(1, b - a), 2)
     // what the range is to the call (denoise's noise)
     if (g.label) { c.textAlign = 'left'; c.fillText(g.label, a + 5, all[0][1] + 10) }
   }
   if (g.notes) for (const rect of L.spec) paintNotes(g, rect, end)
-  // a level or a time, a plain line, each end marked with a small cross, as Figma's measures end
-  const line = (x0, y0, x1, y1) => { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); for (const [px, py] of [[x0, y0], [x1, y1]]) { c.moveTo(px - 2.5, py - 2.5); c.lineTo(px + 2.5, py + 2.5); c.moveTo(px - 2.5, py + 2.5); c.lineTo(px + 2.5, py - 2.5) } c.stroke() }
+  // a level or a time, a plain line, its ends plain (a cross is a snap's, a clip's)
+  const line = (x0, y0, x1, y1) => { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke() }
   if (g.level != null) for (const rect of L.wave) {
     const amp = 10 ** (g.level / 20), [, y, lw] = rect
     for (const sign of [1, -1]) { const ly = Math.round(ay(rect, amp, sign)) + .5; line(3, ly, Math.min(lw, end) - 3, ly) }

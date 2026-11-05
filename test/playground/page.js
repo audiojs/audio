@@ -494,11 +494,32 @@ async function marked() {
 // Shift sums, as Shift and a press in a text: the selection goes out to the press at once, from where it was begun, a
 // drag going on with it, never another range; held, the pointer an I-beam with a plus on the side it goes out from
 const pointed = () => page.locator('.plot').evaluate(el => decodeURIComponent(el.style.cursor))
-// Held Alt, what the time row has in the measuring red between `a` and `b` (page x): on its row most lit, how many pixels
-const measuredOnRow = (box, a, b) => pixels(`let best = 0; for (let y = h - 20; y < h - 2; y++) { let n = 0; for (let x = ${Math.round(a - box.x)}; x < ${Math.round(b - box.x)}; x++) { const i = (y * w + x) * 4; if (d[i] - d[i + 2] > 60) n++ } best = Math.max(best, n) } return best`)
+// Held Alt, what the time row (a sound's, under its lanes) has in the measuring red between `a` and `b` (page x): on its
+// row most lit, how many pixels
+const measuredOnRow = (box, a, b) => pixels(`let best = 0; for (let y = ${TOP + TRACK}; y < ${TOP + TRACK + FOOT}; y++) { let n = 0; for (let x = ${Math.round(a - box.x)}; x < ${Math.round(b - box.x)}; x++) { const i = (y * w + x) * 4; if (d[i] - d[i + 2] > 60) n++ } best = Math.max(best, n) } return best`)
 const crossed = () => page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'crosshair')
 // The context menu's row by its words, a submenu's too
 const contextRow = name => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${name}$`) }) }).last()
+// Track `i`'s own menu: a right-click in its lane, its rows under Track
+async function trackMenuOf(i) {
+  const r = (await tracksAt())[i], box = await page.locator('.plot').boundingBox()
+  await page.mouse.click(box.x + 300, r.y + r.h / 2, { button: 'right' })
+  await contextRow('Track').hover()
+}
+// Track `i` muted or heard again from its menu (Track › Mute; `solo`, Solo); which tracks are muted, as their layers say
+async function muteTrack(i, solo = false) {
+  await trackMenuOf(i)
+  await contextRow(solo ? 'Solo' : 'Mute').click()
+}
+const mutedTracks = () => page.locator('.layer').evaluateAll(els => els.map(e => e.classList.contains('muted')))
+// Track `i` named anew from its menu (Track › Rename…), written in its field at its head's left
+async function renameTrack(i, to) {
+  await trackMenuOf(i)
+  await contextRow('Rename…').click()
+  await page.locator('.layer-field').waitFor()
+  await page.keyboard.type(to)
+  await page.keyboard.press('Enter')
+}
 
 // A selection's tools inside its foot, flush with it, side by side from its middle (view.js BOX, 16 px, 2 apart): pitch,
 // intonation, formants; the pill on its top edge its level alone
@@ -527,4 +548,4 @@ const themed = async name => {
 // a test's own page in place of the one it was given, closed after it as that one is
 const setPage = p => { page = p }
 
-export { TOP, endWay, endDrag, root, browser, page, origin, errors, made, CHIME, chimeLeft, RATE, sine, peakDb, wavBytes, engine, scrubbed, clicked, attack, code, readout, tipOf, wholeLevels, levelsTable, lengthText, seconds, open, settled, frames, poll, still, menuRow, choice, settings, selected, tab, edits, menu, facts, offered, palette, noCues, write, drawn, LANES, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, TAIL, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, taken, heard, hits, handles, dragCue, gridShown, pixels, show, shown, bursts, struck, scriptOf, keptFiles, takesLeft, recordFor, way, turn, keyed, chime, marked, pointed, measuredOnRow, crossed, contextRow, tools, themed, setPage }
+export { TOP, endWay, endDrag, root, browser, page, origin, errors, made, CHIME, chimeLeft, RATE, sine, peakDb, wavBytes, engine, scrubbed, clicked, attack, code, readout, tipOf, wholeLevels, levelsTable, lengthText, seconds, open, settled, frames, poll, still, menuRow, choice, settings, selected, tab, edits, menu, facts, offered, palette, noCues, write, drawn, LANES, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, TAIL, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, taken, heard, hits, handles, dragCue, gridShown, pixels, show, shown, bursts, struck, scriptOf, keptFiles, takesLeft, recordFor, way, turn, keyed, chime, marked, pointed, measuredOnRow, crossed, contextRow, trackMenuOf, muteTrack, mutedTracks, renameTrack, tools, themed, setPage }

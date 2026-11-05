@@ -74,8 +74,8 @@ const modifier = event => {
   invalidate(true)
 }
 
-export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onkey = () => false, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onfork = () => {}, onghost = () => {}, onlayout = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5, timeRow = 'foot', cues: cueOrder = 'chunks' } = {}) {
-  mount(root, { onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow, cueOrder })
+export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onkey = () => false, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onfork = () => {}, onghost = () => {}, onlayout = () => {}, onband = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5, timeRow = 'foot', cues: cueOrder = 'chunks' } = {}) {
+  mount(root, { onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow, cueOrder })
   root.tabIndex = 0
   root.addEventListener('pointerdown', down)
   root.addEventListener('pointermove', move)

@@ -5,7 +5,7 @@ import { writeFile, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
-import { TOP, page, origin, errors, code, tipOf, wholeLevels, lengthText, open, settled, frames, poll, still, choice, settings, selected, tab, menu, facts, noCues, write, drawn, TRACK, ROOM, FOOT, tall, tracksAt, gutter, TAIL, axis, drag, lengthIs, pixels, show, keptFiles, takesLeft, recordFor, chime, contextRow, spans } from './page.js'
+import { TOP, page, origin, errors, code, tipOf, wholeLevels, lengthText, open, settled, frames, poll, still, choice, settings, selected, tab, menu, facts, noCues, write, drawn, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, TAIL, axis, drag, lengthIs, pixels, show, keptFiles, takesLeft, recordFor, chime, contextRow, spans } from './page.js'
 
 // With nothing open, the take is the sound, drawn as it comes
 test('editor: a recording becomes a file the script opens', async () => {
@@ -513,22 +513,22 @@ test('editor: a take that cannot run holds the picture no longer than its error'
   assert.equal(await held(), false, 'the next take comes as any does')
 })
 
-// Takes are marked in the strip under the lanes, from where they go in to where the longest of them ends (each measured,
-// those turned off too, a sample's or a file kept as a recording's), pressed there selecting all of it, as a range
-// marker's, their numbers at its end inside it (held in sight at the picture's right), on a name's line, + selecting
+// Takes are marked in their band's head over the lanes, from where they go in to where the longest of them ends (each
+// measured, those turned off too, a sample's or a file kept as a recording's), pressed there selecting all of it, as a
+// range marker's name, their numbers at its end inside it (held in sight at the picture's right), on a name's line, + selecting
 // their place, nothing said by them; on a visit's first run too
-test('editor: takes are marked in the strip under all they span, pressed there selecting it, their numbers in it', async () => {
+test('editor: takes are marked over all they span, pressed there selecting it, their numbers in it', async () => {
   await open()
   // the one heard 4.5 s long, the one turned off 8 s: to 9 s, the sound's end
   await write(`audio('rhodes.wav')\n  // .write(audio('chime.wav'), { at: 1 })\n  .write(audio('birdsong.wav'), { at: 1 })`)
   await lengthIs('0:09.000')
   const { box, x } = await axis(9), chip = page.locator('.plot .takes:not([hidden])')
   await chip.waitFor()
-  // at its end inside it, here the sound's, on a name's line (NAMES, 6 px under the lanes' foot)
+  // at its end inside it, here the sound's, on a name's line (NAMES, 6 px over the lanes' top)
   const corner = await chip.boundingBox()
-  assert.ok(corner.x > x(8) && corner.x + corner.width <= x(9) + TAIL + 1 && Math.abs(corner.y + corner.height / 2 - box.y - tall(box) - 6) < 2, `in its strip, by its end: ${JSON.stringify(corner)}`)
-  // its place in the strip, pressed near its end, before its numbers: all of it selected, to 9 s
-  const strip = box.y + tall(box) + FOOT / 2, near = corner.x - 4
+  assert.ok(corner.x > x(8) && corner.x + corner.width <= x(9) + TAIL + 1 && Math.abs(corner.y + corner.height / 2 - box.y - TOP + 6) < 2, `in its head, by its end: ${JSON.stringify(corner)}`)
+  // its place in the head, pressed near its end, before its numbers: all of it selected, to 9 s
+  const strip = box.y + HEAD / 2, near = corner.x - 4
   const line = async () => { await page.mouse.move(near, strip); return page.evaluate(() => document.querySelector('.plot').style.cursor) }
   assert.equal(await line(), 'pointer')
   await frames()
@@ -561,8 +561,8 @@ test('editor: takes are marked in the strip under all they span, pressed there s
   assert.equal(await line(), 'pointer', 'shown again, its takes there')
 })
 
-// A range marked over the takes' place names it: its name at their start, their numbers at their end, inside it (as
-// far from it as the name is from the start: the last number's padding, 2 px, then 2 px)
+// A range marked over the takes' place names it: its name at their start, their numbers at their end, inside it, on its
+// name's rows
 test('editor: a range over the takes\' place names it, its name at their start, their numbers at their end', async () => {
   await open()
   await write(`audio('rhodes.wav')\n  // .write(audio('chime.wav'), { at: 1 })\n  .write(audio('birdsong.wav'), { at: 1 })\n  .pad(0, 3)\n  .mark({ at: 1, d: 8 }, 'Verse')`)
@@ -571,14 +571,14 @@ test('editor: a range over the takes\' place names it, its name at their start, 
   await chip.waitFor()
   const at = await chip.boundingBox()
   assert.ok(Math.abs(at.x + at.width - x(9) + 2) < 2, `at their end, inside: ${at.x + at.width - x(9)} px`)
-  // the rows the bright ink of columns [a, b) takes in the strip, from the lanes' foot
-  const rows = (a, b) => pixels(`const out = []; for (let y = arg.y0; y < arg.y1; y++) { for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) { out.push(y - arg.lane); break } } } return out`, { a, b, y0: lane, y1: lane + 18, lane })
-  // its name from 4 px past their start, bright on the strip's line (once its marker has come with the output)
-  const ink = () => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) n++ } return n`, { a: Math.round(x(1) - box.x) + 3, b: Math.round(x(1) - box.x) + 34, y0: lane + 1, y1: lane + 12 })
+  // the rows the bright ink of columns [a, b) takes in the head, over the lanes
+  const rows = (a, b) => pixels(`const out = []; for (let y = arg.y0; y < arg.y1; y++) { for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) { out.push(y); break } } } return out`, { a, b, y0: 0, y1: TOP })
+  // its name from its start, bright in the head (once its marker has come with the output)
+  const ink = () => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) n++ } return n`, { a: Math.round(x(1) - box.x), b: Math.round(x(1) - box.x) + 34, y0: 0, y1: TOP })
   await poll(ink, lit => assert.ok(lit >= 15, `its name at their start: ${lit}`))
-  // their numbers' text on its name's rows, from a pixel under the lanes' foot (its middle NAMES, 6 px, under it)
-  const named = await rows(Math.round(x(1) - box.x) + 3, Math.round(x(1) - box.x) + 34), numbers = await rows(Math.round(at.x - box.x), Math.round(at.x - box.x + at.width))
-  assert.ok(named[0] === 1 && JSON.stringify(numbers) === JSON.stringify(named), `the numbers on the name's rows: ${numbers}, ${named}`)
+  // their numbers' text on its name's rows
+  const named = await rows(Math.round(x(1) - box.x), Math.round(x(1) - box.x) + 34), numbers = await rows(Math.round(at.x - box.x), Math.round(at.x - box.x + at.width))
+  assert.ok(named.length && JSON.stringify(numbers) === JSON.stringify(named), `the numbers on the name's rows: ${numbers}, ${named}`)
 })
 
 // More takes than four show three about the one heard, in sight, as a pager keeps its page, … either side for those
@@ -624,8 +624,8 @@ test('editor: takes past the third fold into a menu, the one heard in sight', as
 test('editor: takes drawn where the steps after them take their place', async () => {
   await open()
   const takes = `audio('rhodes.wav')\n  // .write(audio('chime.wav'), { at: 1 })\n  .write(audio('birdsong.wav'), { at: 1 })`, chip = page.locator('.plot .takes:not([hidden])')
-  // their place, pressed in the strip just past where it starts: selected from there
-  const corner = async (n, t, from) => { await lengthIs(n); const { box, x } = await axis(+n.slice(3)); await chip.waitFor(); await page.mouse.click(x(t) + 10, box.y + tall(box) + FOOT / 2); assert.equal((await selected()).split('–')[0], from) }
+  // their place, pressed in the head just past where it starts: selected from there
+  const corner = async (n, t, from) => { await lengthIs(n); const { box, x } = await axis(+n.slice(3)); await chip.waitFor(); await page.mouse.click(x(t) + 10, box.y + HEAD / 2); assert.equal((await selected()).split('–')[0], from) }
   await write(`${takes}\n  .remove({ at: 8, d: 1 })`)
   await corner('0:08.000', 1, '0:01.000')
   await write(`${takes}\n  .remove({ at: 0, d: 0.5 })`)
@@ -644,8 +644,8 @@ test('editor: a take recorded where takes are under a later write brings them ov
   await lengthIs('0:09.500')
   const { box, x } = await axis(9.5), chip = page.locator('.plot .takes:not([hidden])')
   await chip.waitFor()
-  // their place selected (pressed in the strip), Record records into it, from its start
-  await page.mouse.click(x(5), box.y + tall(box) + FOOT / 2)
+  // their place selected (pressed in their band's head), Record records into it, from its start
+  await page.mouse.click(x(5), box.y + HEAD / 2)
   assert.equal(await selected(), '0:01.000–0:09.000')
   await page.getByRole('button', { name: 'Record', exact: true }).click()
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()

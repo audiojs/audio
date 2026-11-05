@@ -2,7 +2,7 @@
 // page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { TOP, TRACK, page, origin, readout, tipOf, open, settled, frames, poll, settings, selected, menu, facts, noCues, write, LANES, FOOT, tall, tracksAt, gutter, axis, grab, boxDrag, drag, lengthIs, tap, taken, heard, show, chime, measuredOnRow, crossed } from './page.js'
+import { TOP, TRACK, page, origin, readout, tipOf, muteTrack, mutedTracks, open, settled, frames, poll, settings, selected, menu, facts, noCues, write, LANES, FOOT, HEAD, tall, tracksAt, gutter, axis, grab, boxDrag, drag, lengthIs, tap, taken, heard, show, chime, measuredOnRow, crossed } from './page.js'
 
 // Before, a key at the bar's right end, after the rate and channels: pressed, the file as it opened, as B does, lit while it is heard; again, or B,
 // the output. A generated sound has no file to hear it against: the key is off
@@ -293,7 +293,7 @@ test('editor: scrolled while it plays, the view stays where it was put till the 
   // the clock and the view read in one go: a frame apart, the view's span is a few frames' play
   await poll(() => page.evaluate(() => { const [m, s] = document.querySelector('.time').textContent.split(':'), [p, q] = __view.range; return [p, (+m * 60 + +s - p) / (q - p)] }), ([c, at]) => assert.ok(c > put[0] && Math.abs(at - .5) < .15, `past the edge, followed: ${at.toFixed(2)} across`))
   // over the scrollbar, at the time row's top, the arrow, as over any scrollbar
-  await page.mouse.move(box.x + w / 2, box.y + box.height - 22 + 4)
+  await page.mouse.move(box.x + w / 2, box.y + box.height - 6)
   assert.equal(await page.locator('.plot').evaluate(e => e.style.cursor), 'default')
   await page.keyboard.press('Space')
 })
@@ -997,7 +997,7 @@ test('editor: the caret moves within a selection from the time row or the arrows
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, row = box.y + box.height - 11
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, row = box.y + tall(box) + 8
   const clock = () => page.locator('.time').innerText(), seconds = t => t.split(':').reduce((m, s) => m * 60 + +s, 0)
   await drag([x(1), y], [x(5) - x(1), 0])
   assert.equal(await selected(), '0:01.000–0:05.000')
@@ -1043,15 +1043,15 @@ test('editor: held Alt while it plays, it measures from the playhead', async () 
   assert.ok(ahead > (x(5) - 2 - x(3)) * .6, `from the playhead to the pointer: ${ahead} px`)
 })
 
-// Held, a range in its strip or a note plays from its start, all of it as it is, till let go (the page's auditions, as
-// view.js asks for them: { at, duration, whole }, then none); a range's name pressed plays nothing, it is written
+// Held, a range in its band's head (its name, all its width) or a note plays from its start, all of it as it is, till
+// let go (the page's auditions, as view.js asks for them: { at, duration, whole }, then none)
 test('editor: a range pressed in its strip, or a note, plays while held, from its start', async () => {
   await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('  onaudition(o) {', '  onaudition(o) {\n    (globalThis.__heard ??= []).push(o && { at: o.at, duration: o.duration, whole: o.whole })') }) })
   await open()
   await noCues()
   await write(`audio('chime.wav').mark({ at: 2, d: 2 }, 'Chorus')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), strip = box.y + tall(box) + FOOT / 2, heard = () => page.evaluate(() => globalThis.__heard ?? [])
+  const { box, x } = await axis(8), strip = box.y + HEAD / 2, heard = () => page.evaluate(() => globalThis.__heard ?? [])
   await page.mouse.move(x(3.5), strip)
   await page.mouse.down()
   await page.waitForFunction(() => globalThis.__heard?.length === 1)
@@ -1059,18 +1059,18 @@ test('editor: a range pressed in its strip, or a note, plays while held, from it
   await page.mouse.up()
   assert.deepEqual((await heard()).at(-1), null, 'let go: none')
   assert.equal(await selected(), '0:02.000–0:04.000')
-  // its name pressed: named, nothing heard
-  await page.mouse.click(x(2) + 14, strip)
+  // its name, all of it the range's: double-clicked, named anew
+  await page.mouse.dblclick(x(2) + 14, strip)
   await page.waitForFunction(() => document.activeElement?.className === 'marker-name')
-  assert.equal((await heard()).length, 2, 'its name: nothing heard')
   await page.keyboard.press('Escape')
   // a note held: the chime's first strike, C4, from its start
   await menu('View', 'Notes')
   const h = tall(box), c4 = box.y + h - (60 - 54 + .5) * h / 25
   const [px, py] = await grab([[x(.8), c4]], 'ns-resize')
   await page.mouse.move(px, py)
+  const before = (await heard()).length
   await page.mouse.down()
-  await page.waitForFunction(() => globalThis.__heard?.length === 3)
+  await page.waitForFunction(n => globalThis.__heard?.length === n + 1, before)
   const [note] = (await heard()).slice(-1), sel = (await selected()).split('–').map(t => +t.split(':')[1])
   await page.mouse.up()
   assert.ok(note.whole && Math.abs(note.at - sel[0]) < 1e-3 && Math.abs(note.at + note.duration - sel[1]) < 1e-3, `the note, as selected: ${JSON.stringify(note)}, ${sel}`)
@@ -1089,7 +1089,7 @@ let quiet = audio.from([tone(220, .1)], { sampleRate: 48000 })
 let loud = audio.from([tone(330, .4), tone(330, .4)], { sampleRate: 48000 })`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:01.000')
-  // the layers open (their mutes in sight), each lane's middle as they have it
+  // each lane's middle as its layer has it
   const { box, x } = await axis(1), row = box.y + box.height - 8, lane = async k => (r => r.y + r.h / 2)((await tracksAt())[k])
   // a track pressed, then the caret held and dragged along the time row: that track heard
   const scrub = async k => {
@@ -1111,19 +1111,19 @@ let loud = audio.from([tone(330, .4), tone(330, .4)], { sampleRate: 48000 })`)
   assert.ok(loud > .25, `the loud track: ${loud}`)
   // the loud one muted: the mix the quiet one's alone (−20 dBFS, 20 · log10 0.1); heard again, both (over −8: 0.4 and
   // 0.1 summed)
-  const mutes = page.locator('.track-mute'), both = /^−[0-7]\.\ddBFS/
-  assert.deepEqual(await mutes.evaluateAll(b => b.map(b => [b.ariaLabel, b.getAttribute('aria-pressed')])), [['Mute quiet', 'false'], ['Mute loud', 'false']])
+  const both = /^−[0-7]\.\ddBFS/
+  assert.deepEqual(await mutedTracks(), [false, false])
   await page.keyboard.press('Escape')
   await page.waitForFunction(re => new RegExp(re).test(document.querySelector('.readout').textContent), both.source)
-  await mutes.nth(1).click()
+  await muteTrack(1)
   await page.waitForFunction(() => /^−20\.0dBFS/.test(document.querySelector('.readout').textContent))
-  assert.equal(await mutes.nth(1).getAttribute('aria-pressed'), 'true')
+  assert.deepEqual(await mutedTracks(), [false, true])
   assert.equal(await page.locator('.plot').getAttribute('data-tracks'), '2', 'its lane still there')
   // kept with the tab, past a reload
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').docs?.some(d => d.muted?.includes('loud')))
   await page.reload()
-  await page.waitForFunction(() => document.querySelector('.track-mute[aria-pressed="true"]')?.ariaLabel === 'Mute loud', null, { timeout: 15000 })
+  await page.waitForFunction(() => document.querySelectorAll('.layer')[1]?.classList.contains('muted'), null, { timeout: 15000 })
   await page.waitForFunction(() => /^−20\.0dBFS/.test(document.querySelector('.readout').textContent))
-  await page.locator('.track-mute').nth(1).click()
+  await muteTrack(1)
   await page.waitForFunction(re => new RegExp(re).test(document.querySelector('.readout').textContent), both.source)
 })

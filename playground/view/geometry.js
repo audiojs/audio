@@ -1,11 +1,11 @@
 import { markLane } from './data.js'
-import { RULER, GAP, EDGE, HEAD, FOOT, TRACK, LOW, ROOM, midiOf, TICK, VOICE, root, oncursor, onfocus, ontake, onghost, onlayout, onbusy, keepRoom, timeRow, element, keep, FORK, forkButton, count, rate, duration, display, hovered, markers, recording, empty, pieces, guest, start, end, selection, band, cursor, ruler, waveLook, tracks, focus, allLanes, sections, scroll, heights, lift, kinds, noted, zoomed, assign } from './model.js'
+import { RULER, GAP, EDGE, HEAD, FOOT, TRACK, LOW, ROOM, midiOf, TICK, VOICE, root, oncursor, onfocus, ontake, onghost, onlayout, onband, onbusy, keepRoom, timeRow, element, keep, FORK, forkButton, count, rate, duration, display, hovered, markers, recording, empty, pieces, guest, start, end, selection, band, cursor, ruler, waveLook, tracks, focus, allLanes, sections, scroll, heights, lift, kinds, noted, zoomed, assign } from './model.js'
 import { lanesEnd } from './overlay.js'
 import { drag } from './pointer.js'
 import { W, H, invalidate } from './render.js'
 import { gutter, x, X, time, clamp } from './scales.js'
 import { told } from './select.js'
-import { NAMES, NAMEH, strips, stripAt, fieldTop, forks } from './strips.js'
+import { NAMES, NAMEH, feet, heads, stripAt, fieldTop, forks } from './strips.js'
 
 // Geometry: the bands and their lanes, the rooms under the tracks, each track's height, the takes' places and the
 // frozen pieces, laid out
@@ -35,13 +35,21 @@ export function haunt(t) {
 }
 export function unghost() { if (!ghost) return; ghost = false; onghost(false); invalidate(true) }
 // The bands as they are laid out, told as they change (onlayout), for the layers to line up with: each band's top (its
-// head line's), its lanes' top and height (a track's, or a sound's lanes' all told), and the room's, CSS px from the
-// picture's top
+// head line's), its lanes' top and height (a track's, or a sound's lanes' all told), its foot's bottom, and the room's,
+// CSS px from the picture's top
 let bandsLaid = ''
 export function layout(L) {
-  const r = roomLane(L), [top, foot] = extent(L.all), hd = headOf(), rows = !duration && !empty ? [] : tracks ? L.all.map(([, y, , lh]) => ({ top: y - hd, y, h: lh })) : [{ top: top - hd, y: top, h: foot - top }]
+  const r = roomLane(L), [top, foot] = extent(L.all), hd = headOf(), rows = !duration && !empty ? [] : tracks ? L.all.map(([, y, , lh]) => ({ top: y - hd, y, h: lh, bottom: y + lh + FOOT })) : [{ top: top - hd, y: top, h: foot - top, bottom: foot + FOOT }]
   const key = JSON.stringify([rows, r?.[1], r?.[3], plot().h])
   if (key !== bandsLaid) { bandsLaid = key; onlayout({ rows, room: r && { y: r[1], h: r[3] }, h: plot().h }) }
+}
+// the band pointed at, from its head to its foot, told as it changes (onband), for its look to show: its index (a
+// sound's, 0), or -1
+let pointedBand = -2
+export function hotBand(L) {
+  const [top, bottom] = L.all.length ? extent(L.all) : [0, -1], py = hovered?.[1]
+  const i = py == null ? -1 : tracks ? trackAt(L, py) : py >= top - headOf() && py < bottom + FOOT ? 0 : -1
+  if (i !== pointedBand) { pointedBand = i; onband(i) }
 }
 const FOLD = 3
 // the section whose numbers are pointed at, or -1
@@ -64,13 +72,15 @@ export function takeHot(L) {
   const m = hovered && stripAt(...hovered, L)
   return m?.kind === 'takes' ? m.i : -1
 }
+// the middle of a name's text on a band's head row
+const onHead = row => row.edge + row.dir * NAMES
 export function placeTakes(L) {
-  const all = L.all, end = lanesEnd(L), { h } = plot()
+  const end = lanesEnd(L), { h } = plot(), over = new Map(heads(L).map(s => [s.i, s]))
   while (chips.length < sections.length) chips.push(takeChip(chips.length))
   chips.forEach((el, i) => {
-    const t = sections[i], rects = !t ? [] : t.lane == null ? all : [all[t.lane]].filter(Boolean)
-    const x0 = t && X(t.at), x1 = t && Math.min(end, X(Math.min(t.end, duration))), bottom = rects.length ? Math.max(...rects.map(r => r[1] + r[3])) : 0
-    const seen = rects.length && x1 >= 0 && x0 <= end && bottom + FOOT <= h
+    const t = sections[i], row = t && over.get(tracks ? t.lane ?? null : null)
+    const x0 = t && X(t.at), x1 = t && Math.min(end, X(Math.min(t.end, duration)))
+    const seen = !!row && x1 >= 0 && x0 <= end && row.y >= 0 && row.y + row.h <= h
     el.hidden = !seen
     if (el.hidden) return
     const key = `${t.on} ${t.open} ${t.names.join()}`
@@ -84,19 +94,29 @@ export function placeTakes(L) {
       el.innerHTML = (a > 0 ? more : '') + Array.from({ length: b - a }, (_, k) => take(a + k)).join('') + (b < n ? more : '')
         + `<button type="button" value="add" class="takes-add" ${t.open ? 'aria-disabled="true" title="An empty take is there: R records into it"' : 'title="Another take"'} aria-label="Another take">${FORK}</button>`
     }
-    // in its band's strip on a name's line, at its end inside it, as far from its end as a name is from its start (its
-    // start free for a range's name over it), held at the picture's right while the section runs past it; each
-    // number's padding (2 px) after it. Its top as a name's field's, not rounded, so its text lands on the name's rows
-    const left = `${Math.round(Math.min(x1, end) - 2 - el.offsetWidth)}px`, at = `${fieldTop(bottom + NAMES, NAMEH)}px`
+    // in its band's head, on the names' row, at its end inside it (held in at the picture's right while the place runs
+    // past it), its start free for a range's name over it; each number's padding (2 px) after it. Its top as a name's
+    // field's, not rounded, so its text lands on a name's rows
+    const left = `${Math.round(Math.min(x1, end) - 2 - el.offsetWidth)}px`, at = `${fieldTop(onHead(row), NAMEH)}px`
     if (el.style.left !== left || el.style.top !== at) Object.assign(el.style, { left, right: 'auto', top: at })
   })
 }
+// The selection's fork, at its end inside it on its band's head, as the takes' numbers are where takes are: pressed,
+// takes start there (onfork); or, with none, a range's pointed at in a head. None where takes start already
+// what the fork forks, { time, duration, track, i (its lane, null a sound's), row (its head) }, or null
+export function forkOf(L) {
+  const m = !drag && hovered ? stripAt(...hovered, L) : null, i = tracks ? focus : null
+  const sel = !drag && selection && !band && selection[1] > selection[0] && !sections.some(t => (t.lane ?? null) === i && Math.abs(X(t.at) - X(selection[0])) < 1)
+  const at = sel ? { time: selection[0], duration: selection[1] - selection[0], track: tracks?.[focus]?.name ?? null, i } : m && forks(m) ? { ...markers[m.i], i: markLane(markers[m.i]) } : null
+  const row = at && heads(L).find(s => s.i === (tracks ? at.i : null))
+  return row && X(at.time) <= lanesEnd(L) && X(at.time + at.duration) >= 0 && row.y >= 0 && row.y + row.h <= plot().h ? { ...at, row } : null
+}
 export function placeFork(L) {
-  const m = !drag && hovered ? stripAt(...hovered, L) : null, seen = m && forks(m)
+  const at = forkOf(L), seen = !!at, row = at?.row, x1 = at && Math.min(X(at.time + at.duration), lanesEnd(L))
   forkButton.hidden = !seen
+  forkButton.at = seen ? at : null
   if (!seen) return
-  forkButton.dataset.i = m.i
-  const left = `${Math.round(Math.min(m.x1, lanesEnd(L)) - 2 - forkButton.offsetWidth)}px`, top = `${fieldTop(m.y + NAMES, NAMEH)}px`
+  const left = `${Math.round(x1 - 2 - forkButton.offsetWidth)}px`, top = `${fieldTop(onHead(row), NAMEH)}px`
   if (forkButton.style.left !== left || forkButton.style.top !== top) Object.assign(forkButton.style, { left, top })
 }
 // A sound longer than the page holds (summary): drawn from its picture, the waveform from its leaves and the spectrogram
@@ -110,7 +130,7 @@ export const pointers = new Map()
 // on 'hover': how long it stays once let go (ms), when it was last reached for, whether it shows, the wait to hide it
 export const LINGER = 1000
 // the time row's height: none where it is off (`ruler` 'off': an embedding page's big time says it all); in a band's
-// strip (`timeRow` 'band'), the scrollbar's alone at the picture's foot
+// foot (`timeRow` 'band'), the scrollbar's alone at the picture's foot
 export const rowH = () => ruler === 'off' ? 0 : timeRow === 'band' ? BAR + 2 : RULER
 export const plot = () => ({ w: Math.max(1, W - gutter), h: Math.max(1, H - rowH() - (scroll === 'overview' ? MAP : 0)) })
 // a sound's channels in one lane: as the waveform's look has them, or its notes, a voice's, found on their mix
@@ -174,12 +194,17 @@ export const laneAt = (L, py) => L.all.findIndex(([, y, , lh]) => py >= y && py 
 export const inLanes = (rects, py) => { const [top, bottom] = extent(rects); return py >= top && py <= bottom }
 // a track's lane at a height, the gap under it too; -1 for none (the time row)
 export const trackAt = (L, py) => py > plot().h ? -1 : L.all.findIndex(([, y, , lh]) => py >= y - headOf() && py < y + lh + FOOT)
-// A band's foot under its lanes: its name ('' a sound's), or null
+// A band's foot under its lanes, to drag its height ('band': its last GRIP px, the rest its time row's): its name (''
+// a sound's), or null
+export const GRIP = 4
+const feetOf = L => tracks ? L.all.map(([, y, , lh], i) => [y + lh, bandOf(i)]) : [[floor(L), '']]
 export function footAt(py, L = lanes()) {
   if (py > plot().h) return null
-  const feet = tracks ? L.all.map(([, y, , lh], i) => [y + lh, bandOf(i)]) : [[floor(L), '']]
-  return feet.find(([f]) => py >= f && py < f + FOOT)?.[1] ?? null
+  return feetOf(L).find(([f]) => py >= (timeRow === 'band' ? f + FOOT - GRIP : f) && py < f + FOOT)?.[1] ?? null
 }
+// the time row, a ruler's, where a press puts the caret alone and a drag selects through every lane: under the
+// picture, or ('band') a band's foot but its grip
+export const rulerAt = (py, L = lanes()) => py > plot().h || timeRow === 'band' && feetOf(L).some(([f]) => py >= f && py < f + FOOT - GRIP)
 // a band's foot as it is dragged: its height as far as the pointer has gone, and with Alt (held as it was pressed or on
 // the way) every band's, the others as they were where Alt is let go again
 export const bands = () => tracks ? tracks.map(t => t.name) : ['']
@@ -200,14 +225,14 @@ export function refocus(L, py, px) {
   onfocus(i)
   told()
 }
-// the time row, at the picture's foot, level with the panel's and the bar's edge, the scrollbar between it and the
-// lanes: its ticks TICK long from `tickTop` down, its labels beside their tops (row, their middle). A trial
-// (`timeRow` 'band', ?row=band): in the strip of the band pointed at (rowBand), under its sound, its ticks from the
-// strip's top, its labels level with the strip's names; none with that strip out of sight
-export const tickTop = () => timeRow === 'band' ? (rowBand()?.y ?? -H) + 1 : plot().h + rowH() - TICK - 2, row = () => tickTop() + 7
-// the strip the time row is in ('band'): the band pointed at's, else the edited one's; or none, out of sight
+// The time row ('band', the page's): in the foot of the band pointed at (rowBand), under its sound, its ticks from the
+// lanes' foot on (the caret's line going on down into its tick, no gap), its labels beside their tops (row, their
+// middle); none with that foot out of sight. Embedded ('foot'): at the picture's foot, level with the bar's edge, the scrollbar between it and the lanes,
+// its ticks TICK long from `tickTop` down
+export const tickTop = () => timeRow === 'band' ? rowBand()?.y ?? -H : plot().h + rowH() - TICK - 2, row = () => tickTop() + 7
+// the foot the time row is in ('band'): the band pointed at's, else the edited one's; or none, out of sight
 export function rowBand(L = lanes()) {
-  const i = tracks && hovered && !drag ? trackAt(L, hovered[1]) : -1, s = strips(L).find(s => s.i === (tracks ? i >= 0 ? i : focus : null))
+  const i = tracks && hovered && !drag ? trackAt(L, hovered[1]) : -1, s = feet(L).find(s => s.i === (tracks ? i >= 0 ? i : focus : null))
   return s && s.y >= 0 && s.y + FOOT <= plot().h ? s : null
 }
 // Zoomed in, the scrollbar at the time row's top, over its ticks, above its labels, as an overlay scrollbar is: the

@@ -61,7 +61,8 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at 
     done(lit)
   }))), [py, opaque])
   const cols = async (py, opaque) => Object.keys(await columns(py, opaque)).map(Number)
-  await page.mouse.move(box.x + 40, box.y + TOP + 30)
+  // (the pointer's value over its tick on the axis, clear of the row read)
+  await page.mouse.move(box.x + 40, box.y + TOP + 60)
   let opacity = null
   for (const px of [e - 1, e, e + 2, w]) {
     await page.evaluate(t => __view.setCursor(t), await timeAt(px))
@@ -277,11 +278,12 @@ test('editor: zoomed in, the scrollbar at the time row\'s top moves the view, th
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, foot = box.y + box.height - 22 + 4, w = box.width - (await gutter())
+  // the time row under the lanes; the scrollbar at the picture's foot
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, row = box.y + tall(box) + FOOT / 2 - 2, foot = box.y + box.height - 10 + 3, w = box.width - (await gutter())
   const time = async () => (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0)
   const left = async () => { await page.mouse.click(box.x + 1, y); return time() }
-  await page.mouse.click(x(6), foot)
-  assert.ok(Math.abs(await time() - 6) < .05, `whole, the foot is the time row's: the caret at ${await time()}`)
+  await page.mouse.click(x(6), row)
+  assert.ok(Math.abs(await time() - 6) < .05, `the time row's: the caret at ${await time()}`)
   await page.mouse.click(x(2), y)
   await page.locator('.plot').focus()
   for (let i = 0; i < 2; i++) await page.keyboard.press('=')
@@ -389,14 +391,13 @@ test('editor: on hover, a tap where the hidden scrollbar was moves the caret, no
     const [before, caret] = [await range(), await time()]
     // the bar's row at the picture's foot, near its right end: beside the thumb, which shown would take the view there
     const box = await p.locator('.plot').boundingBox(), w = box.width - parseFloat(await p.evaluate(() => getComputedStyle(document.querySelector('.panes')).getPropertyValue('--axis')))
-    await p.touchscreen.tap(box.x + w * .9, box.y + box.height - 22 + 4)
+    await p.touchscreen.tap(box.x + w * .9, box.y + box.height - 6)
     await p.waitForFunction(was => document.querySelector('.time').innerText !== was, caret)
     assert.deepEqual(await range(), before, 'the view where it was')
   } finally { await phone.close() }
 })
-// Zoomed out past the sound's end: its lanes' centre line on, faint, to the view's end, as the room's new track's is; the
-// pointer's time on the time row there too, past the end, where nothing is yet
-test('editor: past the sound\'s end, its centre line on to the view\'s end, the pointer\'s time on the row', async () => {
+// Zoomed out past the sound's end: its lanes' centre line on, faint, to the view's end, as the room's new track's is
+test('editor: past the sound\'s end, its centre line on to the view\'s end', async () => {
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
@@ -409,19 +410,12 @@ test('editor: past the sound\'s end, its centre line on to the view\'s end, the 
   const line = () => pixels(`let n = 0; for (let x = Math.round(arg.w * .92); x < arg.w - 2; x++) { let most = 0; for (let y = arg.y - 1; y <= arg.y + 1; y++) { const i = (y * w + x) * 4; most = Math.max(most, d[i] + d[i + 1] + d[i + 2]) } if (most > 120) n++ } return n`, { w, y: Math.round(TOP + TRACK / 4) })
   await page.mouse.move(box.x + 5, box.y + box.height - 4)
   assert.ok(await line() > w * .07 - 4, `its centre line on past its end: ${await line()}`)
-  // the pointer past the end, over the lanes: its tick on the row, where it is, bright
-  const at = Math.round(w * .95)
-  await page.mouse.move(box.x + at, box.y + TOP + (lane - TOP) / 2)
-  await frames()
-  const tick = await pixels(`for (let x = arg.at - 2; x <= arg.at + 2; x++) { const i = ((h - 6) * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 450) return x - arg.at } return null`, { at })
-  assert.ok(tick != null, 'its time on the row, past the end')
 })
 
-// A trial (?row=band): the time row in the strip of the track pointed at, under its sound, not at the picture's foot;
-// pointed elsewhere, under the edited track's
-test('editor: ?row=band puts the time row in the strip of the track pointed at', async () => {
-  await page.goto(origin + '/playground/?row=band')
-  await wholeLevels().waitFor({ state: 'attached' })
+// The time row in the foot of the track pointed at, under its sound, not at the picture's foot; pointed elsewhere,
+// under the edited track's
+test('editor: the time row is in the foot of the track pointed at', async () => {
+  await open()
   await noCues()
   await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')

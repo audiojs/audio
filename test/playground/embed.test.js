@@ -121,7 +121,7 @@ test('editor: embedded, another page\'s script runs alone, its panel as asked, n
 })
 
 // Embedded with the parts the page names and edits a press away (embed.js controls, ops, background): the parts named
-// there and no others, record's slot gone with it; the readout reading the level named; after the history one button,
+// there and no others, record's slot gone with it; the readout reading the level named; after the loop one button,
 // a menu of the edits, each with its icon, none the library has left out; one picked, its call written with its own
 // arguments, as the menus write theirs, the sound made by it; undone, as it was; over the picture the sound's name, a
 // menu of its ways in, a sample taken in its place; a file opened in its place, the result saved; no slab where the
@@ -208,8 +208,8 @@ test('editor: embedded, the parts the page names, its edits a press away, its fi
   await page.waitForFunction(() => document.querySelector('.embed-view').ariaLabel === 'Waveform')
   // on the page's ground, the slab's gradient gone (its edges, masked, fade into whatever is under them)
   assert.deepEqual(await page.evaluate(() => [getComputedStyle(document.querySelector('.panes')).backgroundColor, getComputedStyle(document.querySelector('.panes')).backgroundImage]), ['rgb(255, 255, 255)', 'none'])
-  // the edits after the history, in the bar
-  assert.equal(await page.evaluate(() => document.querySelector('.status .history').nextElementSibling?.classList.contains('embed-ops')), true)
+  // the edits after the loop, in the bar
+  assert.equal(await page.evaluate(() => document.querySelector('.status .loop').nextElementSibling?.classList.contains('embed-ops')), true)
   const menu = () => page.locator('.menubar-menu .menu-row')
   await page.locator('.embed-ops').click()
   assert.deepEqual(await menu().locator('.menu-label').allTextContents(), ['Stretch', 'Fade', 'Reverse'])

@@ -1,5 +1,5 @@
 import { ownMarks } from './data.js'
-import { ghost, unghost, rowH, plot, spare, bandOf, lanes, inRoom, refocus } from './geometry.js'
+import { ghost, unghost, rowH, plot, spare, bandOf, lanes, inRoom, refocus, rulerAt } from './geometry.js'
 import { origin, current, before } from './gestures.js'
 import { EDGE, NOTCH, mac, root, onselect, oncursor, onedit, oncontext, onkey, duration, hovered, segments, markers, more, start, end, fview, selection, band, cursor, cues, aview, tracks, focus, anchor, lift, zoomed, chosen, held, assign } from './model.js'
 import { drag, grabbing, hover } from './pointer.js'
@@ -167,7 +167,7 @@ export function context(event) {
   // in another track's lane, that track's: it is the one edited
   const was = focus
   refocus(lanes(), py)
-  const kept = focus === was && (grabbing || py > plot().h || (selection ? [selection, ...more].some(r => r[1] > r[0] && t >= r[0] && t <= r[1]) : more.length > 0))
+  const kept = focus === was && (grabbing || rulerAt(py) || (selection ? [selection, ...more].some(r => r[1] > r[0] && t >= r[0] && t <= r[1]) : more.length > 0))
   if (!kept) { select(0, 0); setCursor(stuck(snap(t))) }
   oncontext({ x: event.clientX, y: event.clientY })
 }

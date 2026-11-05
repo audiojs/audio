@@ -1,13 +1,13 @@
 import { lockedAt, haunt, unghost, pointers, plot, spare, tallOf, lanes, floor, inRoom, own, laneAt, trackAt, footAt, bands, resized, refocus, freeze, own0, frozenAt } from './geometry.js'
 import { selectDown, origin, current, caretAt, edgeAt, gripDown, endDown, lifting, lock, aimed, fine, scrub, unscrub, nearCue, cueDown, penDown, toneDown, pitchDown, noteDown, tapped, heardAround } from './gestures.js'
-import { EDGE, ONTO, FINE, HOLD, SLOP, EXTEND, ADD, root, onedit, onmode, onscrub, onaudition, onheight, duration, show, markers, more, pieces, start, end, fview, selection, band, cursor, playhead, steered, cues, envelope, shift, contour, fadeCurve, aview, LEVEL_STEP, tracks, focus, allLanes, sections, heights, lift, held, assign } from './model.js'
+import { EDGE, ONTO, FINE, HOLD, SLOP, EXTEND, ADD, MARK, root, onedit, onmode, onscrub, onaudition, onheight, duration, show, markers, more, pieces, start, end, fview, selection, band, cursor, playhead, steered, cues, envelope, shift, contour, fadeCurve, aview, LEVEL_STEP, tracks, focus, allLanes, sections, heights, lift, held, assign } from './model.js'
 import { hear, pitchRange, noteAt, linePoints, curveOf, onLine, pointOn, knotOn } from './notes.js'
 import { lanesEnd, gripAt, gripPointer, glide } from './overlay.js'
 import { arrange, faded, crossed, invalidate } from './render.js'
 import { steer, onAway, bring } from './ruler.js'
 import { bar, onBar, x, time, clamp, snap, free, snapF, stick, stuck, pitchLine, snapV, local, inside, uy, ya, fold, pointAt, lineLanes, pitchLanes, setRange, setFreqs, zoomSpan, onFreqs, onLevels, zoomLevels } from './scales.js'
 import { around, select, told, addCaret, setCursor } from './select.js'
-import { thumb, liftAt, editing, markAt, labelAt, notch, stripAt, rename } from './strips.js'
+import { thumb, liftAt, editing, markAt, notch, stripAt, rename, nameAt, nameMarker } from './strips.js'
 
 // The pointer: down, move, the drags, hover and leave, up, clicks and the context menu, on the picture and its time row
 
@@ -43,10 +43,13 @@ export function down(event) {
   if (liftAt(px, py)) { const t = thumb(); if (py < t.y || py > t.y + t.h) assign({ lift: Math.max(0, Math.min(spare, (py - t.h / 2) / t.room * spare)) }); drag = { lifting: true, y: py, lift0: lift }; return invalidate() }
   if (inRoom(py)) return haunt(snap(time(px)))
   unghost()
-  // in a band's strip, the band then the one edited: a marker's serif takes hold of it (a range's, that end), the
-  // caret and what plays staying where they are, dragged, it moves, let go unmoved, the caret goes to it (up); in a
-  // locked track's, nothing. A range or the takes' place: its stretch selected at once and heard from its start while
-  // held, as it is; nothing more (dragged on, nothing moves). A name pressed, named anew as it is let go (clicked)
+  // in a band's strip, the band then the one edited: a moment's name or a range's end takes hold of it (a range's,
+  // that end), the caret and what plays staying where they are, dragged, it moves, let go unmoved, the caret goes to it
+  // (up); in a locked track's, nothing. A range's name or the takes' place: its stretch selected at once and heard
+  // from its start while held, as it is; nothing more (dragged on, nothing moves)
+  // in the edited band's head where no marker is, a name to write as the press is let go (clicked): nothing more
+  blank = nameAt(lanes(), [px, py])
+  if (blank) return
   const mark = !gripAt(own(lanes()), px, py) && stripAt(px, py)
   if (mark) {
     const locked = lockedAt(mark.rects[0]?.[1] ?? 0), edge = notch(mark, px), m = mark.kind === 'mark' ? markers[mark.i] : null
@@ -60,7 +63,8 @@ export function down(event) {
     if (m && !m.duration) return invalidate(true)
     const t = m ? null : sections[mark.i], a = m ? m.time : t.at, b = m ? m.time + m.duration : Math.min(t.end, duration)
     select(a, b)
-    if (!(m && labelAt(px, py) === mark.i)) { onaudition({ at: a, duration: b - a, whole: true }); drag = { preview: true } }
+    onaudition({ at: a, duration: b - a, whole: true })
+    drag = { preview: true }
     return invalidate(true)
   }
   // a band's foot, but where a selection's tools or takes are: its height, dragged
@@ -321,6 +325,8 @@ export function hover(px, py, keys = held) {
   if (inRoom(py)) { hot = null; grabbing = false; root.style.cursor = ''; return }
   // in a band's strip, a marker's serif to drag; a name, a range or the takes' place, to press; elsewhere there,
   // the band's height to drag (where a selection's tools are not)
+  // in a band's head: a marker's, a name to write there; a range's end to drag; a name to press
+  if (nameAt(lanes(), [px, py])) { hot = null; grabbing = false; root.style.cursor = MARK; return }
   const mark = !gripAt(own(lanes()), px, py) && stripAt(px, py)
   if (mark) { hot = null; grabbing = notch(mark, px) >= 0; root.style.cursor = grabbing ? 'ew-resize' : 'pointer'; return }
   if (footAt(py) != null && !gripAt(own(lanes()), px, py)) { hot = null; grabbing = true; root.style.cursor = 'row-resize'; return }
@@ -441,11 +447,16 @@ export function up(event) {
 // Clicks counted: a click on a marker's name, or a double-click on its place, names it; a double-click takes away the
 // line's point under it (the pitch line's on the pitch curve too), or selects between the cues around it (or the
 // pause it is in); a triple-click, the sound between the pauses either side
+// what a press over the selection in its head is to name (down), till the click it makes
+let blank = null
 export function clicked(event) {
-  // a marker's name in its strip clicked, or its place double-clicked: named where its name is (the takes' place,
-  // its press alone)
+  // pressed in a band's head where no marker is: a name written there, a marker named (nameMarker)
+  const named = blank
+  blank = null
+  if (named && !event.button && event.detail === 1) return nameMarker(named)
+  // a marker's name double-clicked: named anew where its name is (the takes' place, its press alone)
   const mark = !gripAt(own(lanes()), ...local(event)) && stripAt(...local(event))
-  if (mark) return mark.kind === 'mark' && (event.detail === 2 || labelAt(...local(event)) === mark.i) && rename(mark.i)
+  if (mark) return mark.kind === 'mark' && event.detail === 2 && rename(mark.i)
   // a band's foot double-clicked: its height as it was made (with Alt, every band's)
   const foot = footAt(local(event)[1])
   if (foot != null && !gripAt(own(lanes()), ...local(event))) { if (event.detail === 2) { const names = event.altKey ? bands() : [foot], h = { ...heights }; for (const n of names) delete h[n]; assign({ heights: h }); onheight(Object.fromEntries(names.map(n => [n, null]))); invalidate() } return }

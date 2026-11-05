@@ -6,7 +6,7 @@ import { state, eng, v, ed, rk, pl, output, assign } from './context.js'
 import { write } from './edits.js'
 import { label, note } from './format.js'
 import { setKind, trackKinds, shows, showAs } from './look.js'
-import { bar, openDropdown } from './menus.js'
+import { openDropdown } from './menus.js'
 import { store } from './persist.js'
 import { marks, describe } from './readouts.js'
 import { schedule } from './run.js'
@@ -16,8 +16,8 @@ import { envelopeShown, shiftOf } from './writers.js'
 // Tracks: their lanes and layers, the one edited, mute, solo and lock, a track made, named, moved, split out (a voice,
 // stems), lined up, matched, ducked, mastered, taken away or to a tab
 
-// A track's layer right-clicked: the track's own, named anew, heard alone, locked, shown as a waveform, a spectrogram
-// or its notes, taken away (the others are a press away: a marker, an edit, on its lane). A sound alone, a track as
+// A track's own menu (Track, in its lane's right-click): named anew, muted, heard alone, locked, shown as a waveform, a
+// spectrogram or its notes, taken away (the others are a press away: a marker, an edit, on its lane). A sound alone, a track as
 // any, its tab's name: named anew, shown as it shows
 export const trackMenu = i => !v.tracks ? [
   { label: 'Rename…', hint: tabName(), run: () => renameLayer(tabName()), icon: glyphs.marker },
@@ -25,6 +25,7 @@ export const trackMenu = i => !v.tracks ? [
   ...displays.map(d => ({ label: d.label, checked: shows(null) === d.name, run: () => showAs(d.name, null) }))
 ] : [
   { label: 'Rename…', hint: state.track ?? '', run: () => renameLayer(laneName(i)), icon: glyphs.marker },
+  { label: 'Mute', checked: state.muted.includes(laneName(i)), run: () => toggleMute(i) },
   { label: 'Solo', run: () => toggleMute(i, true), icon: icons.track },
   { label: 'Lock', checked: state.locked.includes(laneName(i)), run: () => toggleLock(laneName(i)) },
   '-',
@@ -32,28 +33,8 @@ export const trackMenu = i => !v.tracks ? [
   '-',
   item('track.delete', snapshot(), { when: null, icon: opIcons.remove })
 ]
-// The tracks' layers, each on its band's head line over its lane (view.js onlayout): its look (how it shows, the
-// dropdown by it), its name (clicked, named anew), its mute (with Alt, solo) and its lock; pressed, the one edited, as
-// a press in its lane makes it; right-clicked, its menu
-export function layerPress(l, event) {
-  if (event.detail > 1 || l.locked || l.single) return
-  focusOn(l.name)
-  v.focus = l.i
-}
-// its name clicked: in hand to write anew at once, as a field's text is, the track the one edited (a locked one stays
-// as it is): another's, once its layers are laid out as that one's, so the field drawn is the one written in
-export function layerName(l, event) {
-  event.stopPropagation()
-  if (l.locked || l.single || l.name === state.track) return renameLayer(l.name)
-  layerPress(l, event)
-  requestAnimationFrame(() => requestAnimationFrame(() => renameLayer(l.name)))
-}
+// a band's look pressed (its layer's, at its head's right, over the axis): how it shows, the dropdown by it
 export function layerLook(l, event) { state.dropLane = l.band; openDropdown(event.currentTarget) }
-export function layerMenu(l, event) {
-  event.preventDefault()
-  if (!l.locked) { focusOn(l.name); v.focus = l.i }
-  bar.at(trackMenu(l.i), event.clientX, event.clientY)
-}
 // A track locked, or let go: no press in its lane takes it, as a locked layer on Figma's canvas, so it is never the one
 // edited; locked while it is, the next it has not locked is (the one before, at the last); every one locked, it stays
 export function toggleLock(name) {
@@ -112,9 +93,13 @@ export function toggleMute(i, solo = false) {
   // with Alt, solo: the others muted, it heard; pressed so again, every one heard
   const others = names.filter(n => n !== name), alone = others.every(n => state.muted.includes(n)) && !state.muted.includes(name)
   state.muted = solo ? alone ? [] : others : state.muted.includes(name) ? state.muted.filter(n => n !== name) : [...state.muted, name]
+  remix()
+}
+// The tracks heard as their mutes have them: the lanes saying so, the tracks' sum made as it plays (worker.js voice),
+// taking over where it plays; the mix made again so comes after, for the levels and the export, and takes over in its
+// turn
+function remix() {
   showTracks(lanesShown(output))
-  // heard at once: the tracks' sum made as it plays, those muted left out (worker.js voice), taking over where it plays;
-  // the mix made again without them comes after, for the levels and the export, and takes over in its turn
   const out = output, muted = [...state.muted]
   pl.out = null
   pl.set(out.channels, out.sampleRate, o => eng.voice({ ...o, output: out.id, muted }), out.length, fetches(out), lanesOf(out))

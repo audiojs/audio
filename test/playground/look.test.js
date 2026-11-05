@@ -52,13 +52,18 @@ test('editor: the axis is five characters wide at full scale, the same for eithe
 // sound, nothing at all
 test('editor: the lanes bare, or lines from the ticks; hidden behind the waveform, and gone with None or no sound', async () => {
   await open()
+  // one lane, tall enough for the half levels' labels over their ticks (a stereo sound's half lanes keep ±1 and 0)
+  await write(`audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)\n  .remix(1)`)
+  await lengthIs('0:06.525')
+  // (as long as the stereo sound it follows: its own output in)
+  await settled()
   await page.mouse.move(2, 2)
   // the ticks drawn over the sound (the overlay's, the reel's marks: the time row's), each followed by its label
   await page.evaluate(() => {
     window.__ticks = []
     const proto = CanvasRenderingContext2D.prototype, rect = proto.fillRect, text = proto.fillText
     proto.fillRect = function (x, y, w, h) { if (this.canvas.matches('.overlay, .marks, .row')) window.__ticks.push({ x, y, w, h }); return rect.call(this, x, y, w, h) }
-    proto.fillText = function (s, x, y) { if (this.canvas.matches('.overlay, .marks, .row')) window.__ticks.push({ s }); return text.call(this, s, x, y) }
+    proto.fillText = function (s, x, y) { if (this.canvas.matches('.overlay, .marks, .row')) window.__ticks.push({ s, y }); return text.call(this, s, x, y) }
   })
   // its rects, drawn as triangles in the waveform's canvas (view.js paintGrid; a waveform draws a strip), counted as the
   // picture is drawn
@@ -79,16 +84,16 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   }
   assert.ok(await blank(), 'bare by default: nothing ruled')
   await menu('View', 'Grid')
-  // the layers laid again, each only as its drawing changes (view.js, kept.js): the pointer over the picture, then off it
-  await page.locator('.plot').hover({ position: { x: 10, y: TOP + 10 } })
-  await frames()
+  // the layers laid again, each only as its drawing changes (view.js, kept.js): the window a pixel narrower and back
   await page.evaluate(() => window.__ticks = [])
-  await page.mouse.move(2, 2)
-  await frames()
+  await blank()
   const calls = await page.evaluate(() => window.__ticks), at = {}
   calls.forEach((c, i) => { if (c.w && calls[i + 1]?.s) at[calls[i + 1].s] ??= c.h === 1 ? c.y : c.x })
   const [hit, c0, c1, r5, r0] = [at['0:00.5'], at['0:02.5'], at['0:03.0'], at['0.5'], at['0']]
   assert.ok([hit, c0, c1, r5, r0].every(Number.isFinite), `ticks at 0.5 s, 2.5 s, 3 s, 0.5 and 0: ${JSON.stringify(at)}`)
+  // each level's label under its tick, but the lane's foot one, over it, in the lane (none runs into the lane under)
+  const label = text => calls.find(c => c.s === text)?.y, foot = calls.find((c, i) => c.w && calls[i + 1]?.s === '−1')?.y
+  assert.ok(label('0.5') > r5 && label('0') > r0 && label('−1') < foot, `labels under their ticks, the foot's over: 0.5 at ${label('0.5')} by ${r5}, −1 at ${label('−1')} by ${foot}`)
   // the most a 3 × 3 px square round each point is lit by the grid as it shows (gridShown), CSS px
   const lit = points => page.evaluate(points => {
     const { k, w, d } = window.__shown
@@ -280,7 +285,7 @@ test('editor: a band\'s look in its layer opens how it shows: what it shows, the
   await look.click()
   assert.equal(await look.getAttribute('aria-expanded'), 'true')
   const [b, d] = await Promise.all([look.boundingBox(), dropdown.boundingBox()])
-  assert.ok(Math.abs(d.x - b.x) <= 1 && (d.y >= b.y + b.height || d.y + d.height <= b.y), 'by it, its left edge at its look\'s, in its layer at the picture\'s left')
+  assert.ok(Math.abs(d.x + d.width - b.x - b.width) <= 1 && (d.y >= b.y + b.height || d.y + d.height <= b.y), 'by it, its right edge at its look\'s, at the band\'s foot\'s right')
   assert.deepEqual(await groups(), ['Shows', 'Levels in', 'Weighting', 'Colour', 'Colormap', 'Fill', 'Channels'], 'what it shows, then the waveform\'s: its units, its weighting, its colour, its colormap, its fill, its channels, its meter')
   // its meter always there, the level bar by the lanes' end, no choice of it
   const end = () => page.locator('.plot').evaluate(p => parseFloat(getComputedStyle(p).getPropertyValue('--end')))
