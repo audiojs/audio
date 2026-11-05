@@ -134,7 +134,8 @@ svg { flex: none; }
 .status-main { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 0; }
 /* what is said and what the sound is, small, on the length's baseline, under the middle the transport keeps: the time's
    baseline is .3 of it under its middle (its line as tall as its digits), as far as the small line goes (--line, the
-   time at its full size). The time made smaller on a narrow bar keeps that baseline, going down as it shrinks */
+   time at its full size). The time made smaller on a narrow bar keeps that baseline, going down as it shrinks, play and
+   record down with its digits' middle (.3 of its size over the baseline), the bar's left padding less */
 .status :is(.message, .heard, .readout, .facts, .before) { position: relative; top: var(--line); }
 .panes[data-side="open"] .status-main { container: picture / inline-size; }
 :is(.slab, .status) .icon-button { color: var(--color-screen-muted); }
@@ -367,8 +368,8 @@ svg { flex: none; }
 .record, .play, .busy { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--color-screen-bright); }
 .record, .busy { width: 36px; height: 36px; }
 .record:hover { background: var(--color-screen-hover); }
-/* the loop by the length, a mode of what plays, a round key the history's size, on its line */
-.status .loop { flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 28px; height: 28px; margin-left: -4px; border-radius: 6px; color: var(--color-screen-muted); }
+/* the loop by the length, a mode of what plays, a small round key on its line */
+.status .loop { flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 24px; height: 24px; margin-left: -4px; border-radius: 6px; color: var(--color-screen-muted); }
 .status .loop svg { width: 16px; height: 16px; }
 .status .loop:hover:not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .status .loop[aria-pressed="true"] { color: var(--color-screen-accent); }
@@ -857,17 +858,17 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
    too, and L), so undo and redo stay. With the panel open, the picture's
    side of the bar alone, the rate and Before under the panel: the same, by its own room */
 @container bar (max-width: 950px) { .heard { display: none; } }
-@container bar (max-width: 870px) { .clock { --time-size: 28px; } }
-@container bar (max-width: 400px) { .clock { --time-size: 22px; padding: 0; } }
+@container bar (max-width: 870px) { .clock { --time-size: 28px; } .deck-slot { translate: 0 calc(40px * .3 - 28px * .3); } .status { padding-left: 4px; } }
+@container bar (max-width: 400px) { .clock { --time-size: 22px; padding: 0; } .deck-slot { translate: 0 calc(40px * .3 - 22px * .3); } }
 @container bar (max-width: 720px) { .readout { display: none; } }
 @container bar (max-width: 670px) { .facts { display: none; } }
 @container bar (max-width: 515px) { .length { display: none; } }
 @container bar (max-width: 570px) { .before { display: none; } }
 @container bar (max-width: 380px) { .status .loop { display: none; } }
 @container picture (max-width: 744px) { .heard { display: none; } }
-@container picture (max-width: 790px) { .clock { --time-size: 28px; } }
+@container picture (max-width: 790px) { .clock { --time-size: 28px; } .deck-slot { translate: 0 calc(40px * .3 - 28px * .3); } }
 @container picture (max-width: 500px) { .readout { display: none; } }
-@container picture (max-width: 400px) { .clock { --time-size: 22px; padding: 0; } }
+@container picture (max-width: 400px) { .clock { --time-size: 22px; padding: 0; } .deck-slot { translate: 0 calc(40px * .3 - 22px * .3); } }
 @container picture (max-width: 450px) { .length { display: none; } }
 /* narrow windows: the menu's names go small before anything else */
 @media (max-width: 900px) { .menubar-item { padding: 0 6px; font-size: 12.5px; } }

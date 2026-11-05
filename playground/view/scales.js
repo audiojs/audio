@@ -134,8 +134,11 @@ export function room(rect, list, placed = [], gap = size() + 4) {
 // lane lies right under it, a channel's, so no label runs into it: `open`, the lane's own, false then); those clear of
 // the pointer's value (`taken`, its y), each alone, its mirror staying
 export const beside = (rect, ty) => rect.open !== false || ty + size() - 1 + size() / 2 <= rect[1] + rect[3] ? ty + size() - 1 : ty - size() + 2
-export function ticks(rect, list, taken) {
+// Marks ticked between them (`minor`, [y, …]) by a tick half as long, unlabelled, as a ruler's
+export function ticks(rect, list, taken, minor = []) {
   const w = plot().w, clear = ([ly]) => taken == null || Math.abs(beside(rect, Math.round(ly)) - beside(rect, taken)) >= size() + 4
+  c.fillStyle = color('--color-screen-rule')
+  for (const [ly] of minor) if (Math.round(ly) >= rect[1] && Math.round(ly) <= rect[1] + rect[3]) c.fillRect(w + 1, Math.round(ly), TICK / 2, 1)
   for (const [ly, text] of room(rect, list).filter(clear)) {
     const ty = Math.round(ly)
     c.fillStyle = color('--color-screen-rule')
@@ -180,17 +183,22 @@ export const noteMarks = rect => keyRows(rect, true).sort((p, q) => KEYED.indexO
 // a lane's marks, as its axis has them: levels, frequencies or notes
 export const axisMarks = rect => rect.keys ? noteMarks(rect) : rect.kind === 'spec' ? hzMarks(rect) : levelMarks(rect)
 // Levels within the values a lane shows, the most telling first: as sample values, 0 and full scale, then 1-2-5 steps
-// of what shows; in dB, mirrored about 0 and clear of it, the halvings first, the top's 0 with its unit
+// of what shows, two or so across it; in dB, mirrored about 0 and clear of it, the halvings first, the top's 0 with
+// its unit
 export function levelMarks(rect, units = levelUnits) {
   const [lo, hi] = aview, within = v => v >= lo - 1e-9 && v <= hi + 1e-9
-  if (units === 'linear') return [...new Set([0, 1, -1, ...multiples(lo, hi, valueStep())])].filter(within).map(v => [ay(rect, v), linear(v), Math.abs(v)])
+  if (units === 'linear') return [...new Set([0, 1, -1, ...multiples(lo, hi, labelStep())])].filter(within).map(v => [ay(rect, v), linear(v), Math.abs(v)])
   const zero = ay(rect, 0)
   return LEVELS.flatMap(db => [1, -1].map(sign => [sign * 10 ** (db / 20), db, sign])).filter(([v]) => within(v) && Math.abs(ay(rect, v) - zero) >= 16)
     .map(([v, db, sign]) => [ay(rect, v), db ? `${db > 0 ? '+' : '−'}${Math.abs(db)}` : sign > 0 ? '0dB' : '0', db])
 }
 const linear = v => v ? `${v < 0 ? '−' : ''}${+Math.abs(v).toPrecision(3)}` : '0'
-// the 1-2-5 step the sample values are marked by, four or so across what a lane shows
-const valueStep = () => nice((aview[1] - aview[0]) / 4)
+// the 1-2-5 step the sample values are read to, four or so across what a lane shows; labelled by, two or so (1 across
+// full scale); ticked between by, its next finer that parts it evenly (a half of a 1 or a 2, a fifth of a 5), unlabelled
+const valueStep = () => nice((aview[1] - aview[0]) / 4), labelStep = () => nice((aview[1] - aview[0]) / 2)
+const finer = s => s / (Math.round(s / 10 ** Math.floor(Math.log10(s) + 1e-9)) === 5 ? 5 : 2)
+// the levels ticked between the labelled, as sample values, [y, …]; none in dB, whose marks are each labelled
+export const levelTicks = rect => levelUnits === 'linear' ? multiples(...aview, finer(labelStep())).map(v => [ay(rect, v)]) : []
 // the multiples of `step` in [a, b], clear of float error
 const multiples = (a, b, step) => { const out = []; for (let k = Math.ceil(a / step - 1e-9); k * step <= b + 1e-9; k++) out.push(+(k * step).toPrecision(12)); return out }
 // Frequencies to mark, roundest first: the scale's own when all of it shows; zoomed in, the round values in view,
@@ -228,12 +236,12 @@ export const decibel = (v, fixed = 0, floor = -Infinity) => {
 // line, the mark's: within a pixel of it, so a quiet level by the centre line reads as it is, not as the 0 SNAP px
 // about it would (±0.1 in a short lane)
 export function level(rect, py) {
-  const mark = levelMarks(rect).find(([ly]) => Math.abs(ly - py) <= 1)
+  const mark = [...levelMarks(rect), ...levelTicks(rect).map(([ly]) => [ly, sampled(ya(rect, ly))])].find(([ly]) => Math.abs(ly - py) <= 1)
   if (mark) return mark[1]
   const a = ya(rect, py)
   return levelUnits === 'linear' ? sampled(a) : decibel(20 * Math.log10(Math.abs(a)), 1, -99)
 }
-// Held Alt, how far the pointer at `t` is from what is selected, or from the caret, as Figma's Alt measures: from the
+// Held ⌘ (Ctrl), how far the pointer at `t` is from what is selected, or from the caret, as Figma's Alt measures: from the
 // nearer edge to it, or inside the selection from each edge, { t, spans: [[from, to], …] }; none on an edge. While it
 // plays, from the playhead, the caret moving
 export function measured(t) {

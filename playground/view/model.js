@@ -70,8 +70,8 @@ export function stylize(times, f0, res = 2) {
 export const HOLD = 400, SLOP = 3
 // Pointers of their own: a stretch's, its two ends pushed apart, arrows out to bars (the resize arrows are the edges')
 const pointer = (path, hx = 12, hy = 12) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke-linecap='round' stroke-linejoin='round'><path d='${path}' stroke='white' stroke-width='4'/><path d='${path}' stroke='black' stroke-width='1.5'/></svg>`)}") ${hx} ${hy}`
-// a marker's, a triangle pointing down at where it goes, where a press in a band's head puts one
-export const MARK = `${pointer('M6 7h12l-6 10z', 12, 17)}, copy`
+// silence opened at a caret (held Alt on its line): a bar where it is, an arrow out of it, |→, the time pushed on
+export const OPEN = `${pointer('M6 7v10M6 12h12M15 9l3 3-3 3', 6)}, col-resize`
 export const STRETCH = `${pointer('M3 7v10M21 7v10M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3')}, ew-resize`
 // Shift's, the I-beam with a plus on the side the selection goes out to it from; Alt's, with a plus at its foot: another
 export const EXTEND = [`${pointer('M6 9v6M3 12h6M13 5h4M15 5v14M13 19h4', 15)}, text`, `${pointer('M18 9v6M15 12h6M7 5h4M9 5v14M7 19h4', 9)}, text`]

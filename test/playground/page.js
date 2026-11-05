@@ -469,10 +469,10 @@ async function turn(at, key, name) {
   assert.equal(await way(key), name)
 }
 const keyed = async (keys, act) => { for (const k of keys) await page.keyboard.down(k); await act(); for (const k of [...keys].reverse()) await page.keyboard.up(k) }
-// a range's end at `at`, ⌘ (Ctrl) held there (view.js endDown): pressed, its way turned to `name` (trim, stretch, speed);
+// a range's end at `at`, Alt held there (view.js endDown): pressed, its way turned to `name` (trim, stretch, speed);
 // or dragged `by` px, its length set so
-const endWay = (at, name) => keyed(['ControlOrMeta'], async () => turn(await grab([at], STRETCHES), 'grip', name))
-const endDrag = (at, by) => keyed(['ControlOrMeta'], async () => drag(await grab([at], STRETCHES), by))
+const endWay = (at, name) => keyed(['Alt'], async () => turn(await grab([at], STRETCHES), 'grip', name))
+const endDrag = (at, by) => keyed(['Alt'], async () => drag(await grab([at], STRETCHES), by))
 async function chime(ui) {
   await open(ui)
   await noCues()
@@ -497,6 +497,14 @@ const pointed = () => page.locator('.plot').evaluate(el => decodeURIComponent(el
 // Held Alt, what the time row (a sound's, under its lanes) has in the measuring red between `a` and `b` (page x): on its
 // row most lit, how many pixels
 const measuredOnRow = (box, a, b) => pixels(`let best = 0; for (let y = ${TOP + TRACK}; y < ${TOP + TRACK + FOOT}; y++) { let n = 0; for (let x = ${Math.round(a - box.x)}; x < ${Math.round(b - box.x)}; x++) { const i = (y * w + x) * 4; if (d[i] - d[i + 2] > 60) n++ } best = Math.max(best, n) } return best`)
+// Where the caret's ghost is along the row `py` px down the picture, CSS px from its left: its line in the skin's muted
+// grey (strips.js paintMarkers, caretTo), or null for none
+const ghostAt = py => page.evaluate(py => {
+  const cv = __overlay(), k = cv.width / cv.clientWidth, d = cv.getContext('2d').getImageData(0, Math.round(py * k), cv.width, 1).data
+  const [r, g, b] = getComputedStyle(document.documentElement).getPropertyValue('--color-screen-muted').match(/[\d.]+/g).map(Number)
+  for (let i = 0; i < cv.width; i++) if (d[i * 4 + 3] > 240 && Math.abs(d[i * 4] - r) < 8 && Math.abs(d[i * 4 + 1] - g) < 8 && Math.abs(d[i * 4 + 2] - b) < 8) return i / k
+  return null
+}, py)
 const crossed = () => page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'crosshair')
 // The context menu's row by its words, a submenu's too
 const contextRow = name => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${name}$`) }) }).last()
@@ -548,4 +556,4 @@ const themed = async name => {
 // a test's own page in place of the one it was given, closed after it as that one is
 const setPage = p => { page = p }
 
-export { TOP, endWay, endDrag, root, browser, page, origin, errors, made, CHIME, chimeLeft, RATE, sine, peakDb, wavBytes, engine, scrubbed, clicked, attack, code, readout, tipOf, wholeLevels, levelsTable, lengthText, seconds, open, settled, frames, poll, still, menuRow, choice, settings, selected, tab, edits, menu, facts, offered, palette, noCues, write, drawn, LANES, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, TAIL, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, taken, heard, hits, handles, dragCue, gridShown, pixels, show, shown, bursts, struck, scriptOf, keptFiles, takesLeft, recordFor, way, turn, keyed, chime, marked, pointed, measuredOnRow, crossed, contextRow, trackMenuOf, muteTrack, mutedTracks, renameTrack, tools, themed, setPage }
+export { TOP, endWay, endDrag, root, browser, page, origin, errors, made, CHIME, chimeLeft, RATE, sine, peakDb, wavBytes, engine, scrubbed, clicked, attack, code, readout, tipOf, wholeLevels, levelsTable, lengthText, seconds, open, settled, frames, poll, still, menuRow, choice, settings, selected, tab, edits, menu, facts, offered, palette, noCues, write, drawn, LANES, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, TAIL, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, taken, heard, hits, handles, dragCue, gridShown, pixels, show, shown, bursts, struck, scriptOf, keptFiles, takesLeft, recordFor, way, turn, keyed, chime, marked, pointed, measuredOnRow, crossed, ghostAt, contextRow, trackMenuOf, muteTrack, mutedTracks, renameTrack, tools, themed, setPage }

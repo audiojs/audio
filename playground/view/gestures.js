@@ -1,5 +1,5 @@
 import { floor, lanes, rulerAt } from './geometry.js'
-import { EDGE, STICK, FINE, root, oncursor, onscrub, onaudition, duration, more, selection, band, cursor, cues, bounds, contour, gripMode, anchor, noted, assign } from './model.js'
+import { EDGE, STICK, FINE, root, oncursor, onscrub, onaudition, duration, more, selection, band, cursor, cues, bounds, contour, gripMode, anchor, noted, tracks, assign } from './model.js'
 import { median, noteAt, linePoints, valueAt, onLine, toneOf, toneAt, pointOn, knotOn } from './notes.js'
 import { TOOLS, handled, gripAt } from './overlay.js'
 import { drag, again, thirdAt } from './pointer.js'
@@ -90,28 +90,35 @@ export function edgeAt(px) {
   return best
 }
 // A press on a range's handles (the one under the pointer's, which becomes the one gestures act on): a fade from its
-// corner; its level, pitch, intonation or formants from its pill, dragged up or down (its length, ⌘ at its end:
-// endDown). Each only clicked asks what it does (its curve, its mode). At a caret, silence opened. They come before
-// anything else there, the gain line or the pitch curve under them included.
+// corner; its level, intonation or formants from its pill or its tools, dragged up or down (its length, Alt at its
+// end: endDown). Each only clicked asks what it does (its curve, its mode). They come before anything else there, the
+// gain line or the pitch curve under them included.
 export function gripDown(px, py, L, event) {
   const grip = gripAt(L, px, py)
   if (!grip) return null
   const [kind] = grip, [p, q] = handled(), other = more.find(r => r.length === 2 && r[0] === p && r[1] === q)
   if (other) take(other)
-  if (kind === 'gap') return { gap: true, at: cursor, to: cursor, x: px, offset: cursor - time(px) }
   const [a, b] = selection
   if (kind === 'level' || TOOLS.includes(kind)) return { pill: true, tool: kind, a, b, x: px, y: py, lane: L.all[0], moved: false }
   // each keeps the distance it was pressed at from the edge it moves
   return { fade: kind, a, b, x: px, offset: (kind === 'in' ? a : b) - time(px) }
 }
-// ⌘ (Ctrl) at a range's end, any range's: its length, trimmed, stretched or sped (`gripMode`), a ⌘-click there turning
-// it to the next
+// Alt, the other way: at a range's end, any range's, its length, trimmed, stretched or sped (`gripMode`), an Alt-click
+// there turning it to the next, as Logic's Option and REAPER's Alt stretch a region's end; on a caret's line, silence
+// pulled open there, the time after it pushed on
 export function endDown(px, py, event) {
-  const e = editing(event) && py <= floor() && edgeAt(px)
+  const e = event.altKey && !event.shiftKey && py <= floor() && edgeAt(px)
   if (!e || !e.edge) return null
   if (e.r) take(e.r)
   const [a, b] = selection
   return { stretch: true, end: true, a, b, to: b, x: px, offset: b - time(px), mode: gripMode }
+}
+// (only clicked there, Alt's own click: that caret taken away, as anywhere, up)
+export function gapDown(px, py, event) {
+  const k = event.altKey && !event.shiftKey && !editing(event) && caretAt(px, py)
+  if (!k) return null
+  const at = k.r ? k.r[0] : cursor
+  return { gap: true, r: k.r, at, to: at, x: px, offset: at - time(px), moved: false }
 }
 // what its pill or a tool sets, up or down: its level; its intonation (about the range's median pitch) or its formants
 export const lifting = (rect, py, tool) => {
@@ -121,7 +128,7 @@ export const lifting = (rect, py, tool) => {
 // Shift held while dragging a gain point keeps to one axis: the one the drag has gone further along from its press
 export const lock = (event, px, py) => !event.shiftKey || drag?.x == null || drag?.y == null ? [px, py] : Math.abs(px - drag.x) >= Math.abs(py - drag.y) ? [px, drag.y] : [drag.x, py]
 // One of the others, a range, a box or a caret, made the one gestures act on; the one there was, among the others
-function take(r) {
+export function take(r) {
   const i = more.indexOf(r)
   if (i < 0) return
   more.splice(i, 1)
@@ -225,7 +232,7 @@ export function noteDown(px, py, L, event) {
   if (!n) return null
   select(n.time, n.time + n.duration)
   // heard from its start while held, as it is, till dragged (its pitch then, as it goes: hear)
-  onaudition({ at: n.time, duration: n.duration, whole: true })
+  onaudition({ at: n.time, duration: n.duration, whole: true, track: tracks ? rect.i : null })
   return { lift: 'pitch', a: n.time, b: n.time + n.duration, rect, x: px, y: py, ratio: 1, st: 0, rows: rowOf(rect), hz: n.freq, edges: apart(noted[rect.i] ?? [], n), heard: true }
 }
 // Where a note sung apart from the ones either side (BRIDGE s of quiet or more each side: a breath, a stop) moves

@@ -1,15 +1,15 @@
 // The page's layout: the panel, a phone's and a tablet's, the bar; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, wholeLevels, open, settled, still, tab, edits, noCues, write, FOOT, tall, gutter, axis, drag, lengthIs, pixels, show, setPage } from './page.js'
+import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, wholeLevels, open, settled, still, tab, edits, noCues, write, FOOT, tall, gutter, axis, drag, lengthIs, pixels, show, menu, setPage } from './page.js'
 
-// Over the picture: its tabs; at its foot, in the bar, undo and redo after the length, before the rate; what it shows
+// Over the picture: its tabs; at its foot, the bar, undo and redo none of its (the Edit menu's); what it shows
 // chosen by its look, in the sound's foot under its axis; none moving as the picture turns. At the slab's top
 // right, as an editor's activity bar, the panels' buttons: the recipes, the agent, the edits, the code, the export, the
 // settings. A panel docks beside the picture, part of the slab, a rule between them as the slab's own, no title over
 // it (its button says which); its button again closes it; its left edge drags its width; the choice and the width are
 // remembered. Undo is undo, nothing else
-test('editor: undo and redo after the length, a band\'s look in its layer, none moving; the panels\' buttons at the top right; a panel docks beside the picture', async () => {
+test('editor: no undo nor redo in the bar, the Edit menu\'s; a band\'s look in its layer, none moving; the panels\' buttons at the top right; a panel docks beside the picture', async () => {
   await open()
   const box = name => page.locator(name).boundingBox()
   const [panes, view] = await Promise.all(['.panes', '.view-slab'].map(box))
@@ -27,28 +27,28 @@ test('editor: undo and redo after the length, a band\'s look in its layer, none 
   assert.equal(await page.locator('.side-slab').getAttribute('aria-label'), 'Edits')
   const [narrow, side, plot] = await Promise.all(['.view-slab', '.side-slab', '.plot'].map(box))
   assert.ok(narrow.width < view.width - 200 && side.x >= narrow.x + narrow.width - 1 && side.y >= buttons[0].y + buttons[0].height, 'docked beside the picture, under the buttons')
-  // in the bar at the picture's foot: undo, redo, after the length, before the rate; what the picture shows, chosen by
-  // its look at the sound's head's right, over the axis, on the names' row, none of them moving as the picture turns
-  const heads = () => Promise.all([page.getByRole('button', { name: 'Undo', exact: true }), page.getByRole('button', { name: 'Redo', exact: true }), page.locator(':is(.lane-look, .layer-look):visible')].map(b => b.boundingBox()))
-  const [undo, redo, look] = await heads()
-  const length = await box('.length'), rate = await box('.facts')
-  assert.ok(undo.y > plot.y + plot.height && undo.x >= rate.x + rate.width && undo.x < redo.x, 'undo, redo at the foot, at its right end, after the rate')
-  // one baseline: the time's, the length's, the status's words, the arrows' feet; a narrower bar's smaller time keeps it
+  // undo and redo the Edit menu's (and their keys'), none in the bar; what the picture shows, chosen by its look at the
+  // sound's head's right, over the axis, on the names' row, not moving as the picture turns
+  assert.equal(await page.locator('.status .history').count(), 0, 'no undo, no redo in the bar')
+  const heads = () => Promise.all([page.locator(':is(.lane-look, .layer-look):visible')].map(b => b.boundingBox()))
+  const [look] = await heads()
+  // one baseline: the time's, the length's, the status's words, the loop's middle; a narrower bar's smaller time keeps it
   const baselines = () => page.evaluate(() => {
     const base = e => { const i = document.createElement('i'); i.style.cssText = 'display: inline-block; width: 0; height: 0'; e.append(i); const y = i.getBoundingClientRect().y; i.remove(); return y }
-    return { time: base(document.querySelector('.time')), length: base(document.querySelector('.length')), facts: base(document.querySelector('.facts .fact')), feet: document.querySelector('.status .undo path').getBoundingClientRect().bottom }
+    const loop = document.querySelector('.status .loop').getBoundingClientRect(), length = document.querySelector('.length').getBoundingClientRect()
+    return { time: base(document.querySelector('.time')), length: base(document.querySelector('.length')), facts: base(document.querySelector('.facts .fact')), loop: loop.y + loop.height / 2 - (length.y + length.height / 2) }
   })
-  const wide = await baselines()
-  assert.ok(Object.values(wide).every(y => Math.abs(y - wide.length) <= 1.5), `on one baseline: ${JSON.stringify(wide)}`)
+  const wide = await baselines(), { loop, ...lines } = wide
+  assert.ok(Object.values(lines).every(y => Math.abs(y - wide.length) <= 1.5) && Math.abs(loop) <= 1, `on one baseline, the loop on the length's middle: ${JSON.stringify(wide)}`)
   const size = await page.viewportSize()
   await page.setViewportSize({ width: 860, height: size.height })
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.clock')).getPropertyValue('--time-size').trim() === '28px')
   const smaller = await baselines()
-  assert.ok(Math.abs(smaller.time - wide.time) <= 1 && Math.abs(smaller.feet - wide.feet) <= 1, `the smaller time on the same baseline: ${JSON.stringify(smaller)}`)
+  assert.ok(Math.abs(smaller.time - wide.time) <= 1 && Math.abs(smaller.length - wide.length) <= 1, `the smaller time on the same baseline: ${JSON.stringify(smaller)}`)
   await page.setViewportSize(size)
   assert.ok(look.x > plot.x + plot.width - await gutter() - 2 && look.y >= plot.y && look.y + look.height <= plot.y + TOP, `the look at the sound's head's right, over its axis: ${look.x}, ${look.y}; ${plot.x}, ${plot.y}`)
   await show('spec')
-  assert.deepEqual((await heads()).map(b => b.x), [undo, redo, look].map(b => b.x), 'nothing moved as it turned')
+  assert.deepEqual((await heads()).map(b => b.x), [look.x], 'nothing moved as it turned')
   await show('wave')
   // part of the slab: no ground of its own; between it and the picture a rule in the slab's rule colour, as far from its
   // content as that is from the slab's edge
@@ -61,13 +61,10 @@ test('editor: undo and redo after the length, a band\'s look in its layer, none 
   await page.locator('.step-name', { hasText: 'Normalize' }).click()
   await page.locator('.step.open .params input[type=range]').first().fill('500')
   await page.locator('.readout', { hasText: '−18.0dBFS' }).waitFor()
-  // a right-click on undo undoes nothing and opens nothing; a click undoes
-  await page.getByRole('button', { name: 'Undo', exact: true }).click({ button: 'right' })
-  await page.keyboard.press('Escape')
-  assert.match(await code(), /normalize\(-18\)/, 'nothing undone')
-  assert.equal(await page.locator('.side-slab').getAttribute('aria-label'), 'Edits', 'the panel as it was')
-  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  // undo, from the Edit menu, undoes, the panel as it was
+  await menu('Edit', 'Undo')
   await page.waitForFunction(() => scriptText().includes('.normalize(-1)'))
+  assert.equal(await page.locator('.side-slab').getAttribute('aria-label'), 'Edits', 'the panel as it was')
   // its button again closes it
   await page.getByRole('tab', { name: 'Edits', exact: true }).click()
   await page.locator('.side-slab').waitFor({ state: 'hidden' })
@@ -105,9 +102,9 @@ test('editor: a panel opening, or the window narrowing, keeps where the picture 
   const view = await page.locator('.view-slab').boundingBox()
   await drag([view.x + 300, view.y + 60], [200, 0])
   await page.mouse.move(view.x + 5, view.y + view.height - 30)
-  // read on a row 60 px down the lane: where the selection's wash begins, and the caret's line, at its end (where the
-  // drag left it)
-  const edges = () => pixels(`const at = px => d[(60 * w + px) * 4]; let start = -1, line = 0; for (let px = 1; px < w - 60; px++) { if (at(px) > at(line)) line = px; if (start < 0 && at(px) > at(px - 1) + 4) start = px } return [start, line]`)
+  // read on a row 60 px down the lane: where the selection's wash begins (the caret's line on it, let go there) and
+  // where it ends
+  const edges = () => pixels(`const at = px => d[(60 * w + px) * 4]; let start = -1, end = -1; for (let px = 1; px < w - 60; px++) { if (start < 0 && at(px) > at(px - 1) + 4) start = px; else if (start >= 0 && end < 0 && px > start + 2 && at(px) < at(px - 1) - 4) end = px } return [start, end]`)
   const before = await edges()
   assert.ok(before[1] - before[0] > 190, JSON.stringify(before))
   await tab('Export')
@@ -119,8 +116,7 @@ test('editor: a panel opening, or the window narrowing, keeps where the picture 
 })
 
 // A phone held upright: the picture over the panel, half of the slab each, the bar between them; the panels' buttons
-// along the slab's foot, each staying where it is as its panel opens and closes; over the picture its head alone, undo
-// in the bar after the time
+// along the slab's foot, each staying where it is as its panel opens and closes; over the picture its head alone
 test('editor: on a phone the panel opens under the picture, its buttons at the foot where they stay', async () => {
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
   const p = await phone.newPage()
@@ -133,8 +129,6 @@ test('editor: on a phone the panel opens under the picture, its buttons at the f
     const [slab, status, button] = [await box('.panes'), await box('.status'), await edits.boundingBox()]
     assert.ok(button.y >= status.y + status.height - 1 && slab.y + slab.height - (button.y + button.height) < 12, `at the foot: ${JSON.stringify({ slab, status, button })}`)
     assert.ok(button.width >= 44 && button.height >= 44, 'a finger\'s size')
-    const time = await box('.time'), undo = await box('.history .undo')
-    assert.ok(undo.x >= time.x + time.width && undo.y >= status.y && undo.y + undo.height <= status.y + status.height, `undo in the bar after the time: ${JSON.stringify({ time, undo })}`)
     await edits.tap()
     await p.locator('.side-slab .add-step').waitFor()
     assert.deepEqual(await edits.boundingBox(), button, 'where it was')
@@ -304,7 +298,6 @@ test('editor: a shared link restores the script; on a narrow screen the panel op
   assert.ok(chain.width >= view.width - 14 && chain.y >= bar.y + bar.height - 1 && bar.y >= view.y + view.height - 1, `under the output and its bar: ${JSON.stringify(chain)} under ${JSON.stringify(view)}`)
   assert.ok(Math.abs(chain.height - view.height) < 2, 'as tall as the picture')
   for (const name of ['Code', 'Export']) assert.ok(await page.getByRole('tab', { name, exact: true }).isVisible(), name)
-  assert.ok(await page.getByRole('button', { name: 'Undo', exact: true }).isVisible())
 })
 
 // ── Loading and the gestures ───────────────────────────────────
@@ -320,17 +313,17 @@ test('editor: the page selects no text but where there is text to copy', async (
 })
 
 // The status bar at a desktop's, a tablet's and a phone's width, a sound shown and one decoding: one row in reading
-// order (the transport, the time, its length, the loop, what the engine says, the levels and facts, Before, undo and redo), each
+// order (the transport, the time, its length, the loop, what the engine says, the levels and facts, Before), each
 // part whole in the bar and in the window, none over another, the time and its length never cut; the length shown but
 // on a phone. Layout read from the boxes, not from pixels
-for (const [device, width, height, touch] of [['desktop', 1280, 800, false], ['tablet', 820, 1180, true], ['phone', 390, 844, true]]) test(`editor: the bar on a ${device}: the time, the length, the status, undo and redo in a row, whole, none over another`, async () => {
+for (const [device, width, height, touch] of [['desktop', 1280, 800, false], ['tablet', 820, 1180, true], ['phone', 390, 844, true]]) test(`editor: the bar on a ${device}: the time, the length, the status in a row, whole, none over another`, async () => {
   const ctx = await browser.newContext({ viewport: { width, height }, isMobile: touch, hasTouch: touch })
   try {
     // its parts in reading order, those shown: { name, x, y, w, h, cut }; the bar's box; the page's width and the window's
     const parts = p => p.evaluate(() => {
       const box = e => { const r = e.getBoundingClientRect(), s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' ? { x: r.x, y: r.y, w: r.width, h: r.height, cut: e.scrollWidth > e.clientWidth + 1 } : null }
       const named = [['play', '.deck-slot:has(.play)'], ['record', '.deck-slot:has(.record)'], ['time', '.time'], ['length', '.length'], ['loop', '.loop'],
-        ['status', '.message-words'], ['readout', '.readout'], ['facts', '.facts'], ['before', '.before'], ['undo', '.history .undo'], ['redo', '.history button:last-child']]
+        ['status', '.message-words'], ['readout', '.readout'], ['facts', '.facts'], ['before', '.before']]
       const shown = named.map(([name, s]) => { const e = document.querySelector(s), b = e && (name !== 'status' || e.textContent) && box(e); return b && { name, ...b } }).filter(Boolean)
       return { shown, bar: box(document.querySelector('.status')), page: document.documentElement.scrollWidth, window: innerWidth }
     })
@@ -354,7 +347,7 @@ for (const [device, width, height, touch] of [['desktop', 1280, 800, false], ['t
     await p.goto(origin + '/playground/')
     await p.locator('.readout[data-of="all"]').waitFor({ state: 'attached' })
     await settled(p)
-    await check(p, 'a sound shown', ['play', 'record', 'time', 'undo', 'redo', ...device === 'phone' ? [] : ['length', 'readout', 'facts', 'before']])
+    await check(p, 'a sound shown', ['play', 'record', 'time', ...device === 'phone' ? [] : ['length', 'readout', 'facts', 'before']])
     await p.close()
     // a file decoding, said in the status, how much has come
     const q = await ctx.newPage()
@@ -362,6 +355,6 @@ for (const [device, width, height, touch] of [['desktop', 1280, 800, false], ['t
     q.on('pageerror', e => errors.push(e.message))
     await q.goto(origin + '/playground/')
     await q.locator('.message', { hasText: /^Decoding/ }).waitFor()
-    await check(q, 'a file decoding', ['play', 'record', 'time', 'undo', 'redo', 'status', ...device === 'phone' ? [] : ['length']])
+    await check(q, 'a file decoding', ['play', 'record', 'time', 'status', ...device === 'phone' ? [] : ['length']])
   } finally { await ctx.close() }
 })

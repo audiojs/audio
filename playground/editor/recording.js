@@ -211,7 +211,7 @@ export async function stopRecording() {
 async function accompany(t) {
   const out = output ?? t.over, muted = [...state.muted, state.track]
   pl.out = null
-  pl.set(out.channels, out.sampleRate, o => eng.voice({ ...o, output: out.id, muted }), out.length, fetches(out), lanesOf(out))
+  pl.set(out.channels, out.sampleRate, o => eng.voice({ output: out.id, muted, ...o }), out.length, fetches(out), lanesOf(out))
   await pl.play({ from: t.at, to: t.until, loop: state.loop && t.until != null })
   if (take === t && pl.playing) t.heard = []
 }

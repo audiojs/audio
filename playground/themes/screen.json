@@ -2,6 +2,7 @@
 	"$schema": "vscode://schemas/color-theme",
 	"name": "The screen",
 	"type": "dark",
+	"semanticHighlighting": true,
 	"colors": {
 		"titleBar.activeBackground": "#ebebeb",
 		"titleBar.activeForeground": "#141414",
@@ -53,10 +54,12 @@
 	"tokenColors": [
 		{ "scope": "storage", "settings": { "foreground": "#ffffff" } },
 		{ "scope": "keyword", "settings": { "foreground": "#ffffff" } },
+		{ "scope": ["keyword.operator", "storage.type.function.arrow"], "settings": { "foreground": "#ebebeb" } },
+		{ "scope": ["keyword.operator.new", "keyword.operator.expression"], "settings": { "foreground": "#ffffff" } },
 		{ "scope": "entity.name.function", "settings": { "foreground": "#ebebeb" } },
 		{ "scope": ["variable", "entity.name.type"], "settings": { "foreground": "#bebebe" } },
 		{ "scope": ["string", "constant"], "settings": { "foreground": "#989898" } },
-		{ "scope": "comment", "settings": { "foreground": "#868686" } },
+		{ "scope": "comment", "settings": { "foreground": "#868686", "fontStyle": "italic" } },
 		{ "scope": "markup.heading", "settings": { "foreground": "#bebebe" } }
 	]
 }

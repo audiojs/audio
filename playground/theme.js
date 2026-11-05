@@ -1,4 +1,5 @@
 import { oklab, srgb, lightness } from './tint.js'
+import { WORDS, MEANINGS } from './syntax.js'
 
 // VS Code colour themes read into the editor's skin (skin.css), so a sound shows in the colours its code does: the
 // picture is a page of the editor, the sound its text. Each of the skin's colours is one of VS Code's, the one for the
@@ -8,8 +9,9 @@ import { oklab, srgb, lightness } from './tint.js'
 // colours comes out as whole as VS Code draws it. The skin's own default is a theme too (themes/screen.json), skin.css
 // its colours for the first paint.
 // A theme is VS Code's JSON (code.visualstudio.com/api/extension-guides/color-theme): `colors`, the workbench's, by key;
-// `tokenColors`, TextMate rules, a scope to a colour; `type` or the extension's uiTheme, its kind. A word it gives no
-// rule, the foreground, as VS Code draws it.
+// `tokenColors`, TextMate rules, a scope to a colour and a font style; `semanticHighlighting` and `semanticTokenColors`,
+// the semantic tokens over them; `type` or the extension's uiTheme, its kind. The script's words take the rules as VS
+// Code's editor does (styler, semantics; the words syntax.js), a word no rule colours the foreground.
 
 // VS Code's defaults for the colours read here and those they are made from: the registerColor calls of VS Code 1.143
 // (src/vs/platform/theme/common/colors/*.ts, src/vs/workbench/common/theme.ts), read out of its workbench as they
@@ -151,22 +153,12 @@ export const MAP = {
   // the script's caret's line; the line numbers, the picture's axes' numbers too; the selection's other matches
   '--color-screen-line': 'editor.lineHighlightBackground',
   '--color-screen-line-number': 'editorLineNumber.foreground',
-  '--color-screen-match': 'editor.selectionHighlightBackground',
-  // the script's words, as the theme colours them (SYNTAX)
-  '--color-screen-storage': ['scope', 'storage'],
-  '--color-screen-keyword': ['scope', 'keyword'],
-  '--color-screen-function': ['scope', 'function'],
-  '--color-screen-variable': ['scope', 'variable'],
-  '--color-screen-property': ['scope', 'property'],
-  '--color-screen-type': ['scope', 'type'],
-  '--color-screen-string': ['scope', 'string'],
-  '--color-screen-constant': ['scope', 'constant'],
-  '--color-screen-number': ['scope', 'number'],
-  '--color-screen-comment': ['scope', 'comment']
+  '--color-screen-match': 'editor.selectionHighlightBackground'
+  // (the script's words, after these: skin, styles)
 }
 
-// The words of a script, each by the scopes VS Code's JavaScript grammar gives it, outermost first; and a markdown
-// heading's text, by its grammar's
+// A word of each kind, by the scopes VS Code's JavaScript grammar gives it, outermost first, whose colours the
+// channels' hues are taken from; and a markdown heading's text, by its grammar's
 const js = scope => ['source.js', scope]
 export const SYNTAX = {
   number: js('constant.numeric.decimal.js'),
@@ -201,16 +193,20 @@ export const parse = text => JSON.parse(text
   .replace(/("(?:\\.|[^"\\])*")|,(\s*[}\]])/g, (m, s, end) => s ?? end))
 
 // A theme and those it includes, under it, each fetched beside the one including it (`get`, a URL to its text):
-// { name, kind, colors, tokenColors }. One handed in as an object includes from `url`, if any. A tmTheme's rules
-// (tokenColors as a path to a plist) are not read: its words take the foreground
+// { name, kind, colors, tokenColors, semanticHighlighting, semanticTokenColors }, semantic highlighting on where any
+// of them turns it on, as VS Code reads an include chain (colorThemeData.ts _loadColorTheme). One handed in as an
+// object includes from `url`, if any. A tmTheme's rules (tokenColors as a path to a plist) are not read: its words
+// take the foreground
 export async function load(url, { kind = null, get = u => fetch(u).then(r => r.text()), theme = null } = {}) {
   const own = theme ?? parse(await get(url))
-  const under = own.include && url ? await load(new URL(own.include, url).href, { get }) : { colors: {}, tokenColors: [] }
+  const under = own.include && url ? await load(new URL(own.include, url).href, { get }) : { colors: {}, tokenColors: [], semanticHighlighting: false, semanticTokenColors: {} }
   return {
     name: own.name ?? under.name,
     kind: kindOf(own.type) ?? kind ?? under.kind,
     colors: { ...under.colors, ...own.colors },
-    tokenColors: [...under.tokenColors, ...Array.isArray(own.tokenColors) ? own.tokenColors : []]
+    tokenColors: [...under.tokenColors, ...Array.isArray(own.tokenColors) ? own.tokenColors : []],
+    semanticHighlighting: under.semanticHighlighting || !!own.semanticHighlighting,
+    semanticTokenColors: { ...under.semanticTokenColors, ...own.semanticTokenColors?.constructor === Object && own.semanticTokenColors }
   }
 }
 // a theme's kind from its type, or from an extension's uiTheme
@@ -282,7 +278,7 @@ const over = (c, bg) => c.a === 1 || bg.a !== 1 ? c : rgb(bg.r - c.a * (bg.r - c
 // own, else its default for the theme's kind (`registry`, REGISTRY or all of VS Code's: themes/vscode-colors.json); a
 // transform made of those; a word's colour, the rules'. `colors`, the theme's by id; undefined where there is none
 export function resolver({ kind, colors = {}, tokenColors = [] }, registry = REGISTRY) {
-  const words = colourer(tokenColors), memo = new Map()
+  const words = styler(tokenColors), memo = new Map()
   const color = id => {
     if (!memo.has(id)) { memo.set(id, undefined); memo.set(id, colorOf(colors[id]) ?? value(registry[id])) }
     return memo.get(id)
@@ -306,7 +302,7 @@ export function resolver({ kind, colors = {}, tokenColors = [] }, registry = REG
       // the skin's own: `f` of the way from one to the other in OKLab, each opaque over the screen; a word's colour, the
       // foreground's where no rule colours it, opaque over the screen, as text is drawn
       case 'oklab': { const bg = screen(), a = value(x), b = value(y); return a && b ? ofUnit(mix(unitOf(over(a, bg)), unitOf(over(b, bg)), f)) : a ?? b }
-      case 'scope': { const c = words(SYNTAX[x]); return over(c ? ofUnit(c) : color('editor.foreground'), screen()) }
+      case 'scope': { const c = words(SYNTAX[x]).fg; return over(c ? ofUnit(c) : color('editor.foreground'), screen()) }
     }
     throw new Error(`no colour transform ${op}`)
   }
@@ -314,46 +310,213 @@ export function resolver({ kind, colors = {}, tokenColors = [] }, registry = REG
   return value
 }
 
-// The rules' colour for a scope: of the selectors matching it (a selector matches the scope it names and those under
-// it, `keyword` matches `keyword.control.js`), the one naming the most of it, the later of two alike, as TextMate
-// themes go; one with ancestors only where they are among the scope's (`ancestors`); null where none match
+// The rule for a scope, as VS Code's TextMate engine matches a theme's (vscode-textmate src/theme.ts: parseTheme,
+// resolveParsedThemeRules, ThemeTrieElement, Theme.match): each selector a scope and the ancestors before it, sorted by
+// scope, then ancestors, then place, and laid into a tree by the scope's parts, each part taking what the shorter one
+// above it sets and it leaves unset; a scope matched at the longest of its parts the tree has, by the most specific of
+// the rules there (the deepest, then the longer ancestor names, then the more of them) whose ancestors are the scope's,
+// nearest first, in order (`>` one its parent). { fg, font }: a colour [r, g, b, a] 0..1 or null, the font style's
+// bits (FONT) or -1, either unset where no rule sets it; null where no rule is there at all. A rule without a scope or
+// without settings is passed over, as VS Code passes it over (colorThemeData.ts tokenColors), the default the editor's
+export const FONT = { italic: 1, bold: 2, underline: 4, strikethrough: 8 }
 export function scoper(rules) {
-  const list = []
-  rules.forEach(r => {
-    const fg = hex(r?.settings?.foreground)
-    if (!fg || r.scope == null) return
-    for (const sel of Array.isArray(r.scope) ? r.scope : String(r.scope).split(',')) {
-      const parts = String(sel).trim().split(/\s+/)
-      if (parts[0] && parts.every(p => /^[\w.-]+$/.test(p))) list.push({ last: parts.at(-1), parents: parts.slice(0, -1), fg })
+  const parsed = []
+  rules.forEach((r, index) => {
+    const s = r?.settings, scopes = typeof r?.scope === 'string' ? r.scope.replace(/^,+|,+$/g, '').split(',') : Array.isArray(r?.scope) ? r.scope : null
+    if (!s || !scopes?.length || !r.scope.length) return
+    const font = typeof s.fontStyle === 'string' ? s.fontStyle.split(' ').reduce((f, w) => f | (FONT[w] ?? 0), 0) : -1, fg = hex(s.foreground)
+    for (const sel of scopes) if (typeof sel === 'string') {
+      const parts = sel.trim().split(' ')
+      if (parts.at(-1)) parsed.push({ scope: parts.at(-1), parents: parts.length > 1 ? parts.slice(0, -1).reverse() : null, index, font, fg })
     }
   })
-  const under = (sel, scope) => scope === sel || scope.startsWith(sel + '.')
-  return (scope, ancestors = []) => {
-    let best = null, depth = -1
-    for (const s of list) {
-      if (!under(s.last, scope) || !s.parents.every(p => ancestors.some(a => under(p, a)))) continue
-      const d = s.last.split('.').length * 10 + s.parents.length
-      if (d >= depth) { best = s.fg; depth = d }
+  const cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0
+  const arrCmp = (a, b) => !a && !b ? 0 : !a ? -1 : !b ? 1 : a.length !== b.length ? a.length - b.length : a.reduce((r, x, i) => r || cmp(x, b[i]), 0)
+  parsed.sort((a, b) => cmp(a.scope, b.scope) || arrCmp(a.parents, b.parents) || a.index - b.index)
+  const node = (main, withParents = []) => ({ main, withParents, children: new Map() })
+  const root = node({ depth: 0, parents: [], font: -1, fg: null })
+  const accept = (r, depth, font, fg) => { r.depth = Math.max(r.depth, depth); if (font !== -1) r.font = font; if (fg) r.fg = fg }
+  const insert = (n, depth, scope, parents, font, fg) => {
+    if (scope === '') {
+      if (!parents) return accept(n.main, depth, font, fg)
+      const same = n.withParents.find(r => arrCmp(r.parents, parents) === 0)
+      return same ? accept(same, depth, font, fg) : void n.withParents.push({ depth, parents, font: font === -1 ? n.main.font : font, fg: fg ?? n.main.fg })
     }
-    return best
+    const dot = scope.indexOf('.'), head = dot < 0 ? scope : scope.slice(0, dot)
+    if (!n.children.has(head)) n.children.set(head, node({ ...n.main }, n.withParents.map(r => ({ ...r }))))
+    insert(n.children.get(head), depth + 1, dot < 0 ? '' : scope.slice(dot + 1), parents, font, fg)
+  }
+  for (const r of parsed) insert(root, 0, r.scope, r.parents, r.font, r.fg)
+  const specific = (a, b) => {
+    if (a.depth !== b.depth) return b.depth - a.depth
+    for (let i = 0, j = 0; ; i++, j++) {
+      if (a.parents[i] === '>') i++
+      if (b.parents[j] === '>') j++
+      if (i >= a.parents.length || j >= b.parents.length) break
+      const d = b.parents[j].length - a.parents[i].length
+      if (d) return d
+    }
+    return b.parents.length - a.parents.length
+  }
+  const memo = new Map()
+  const rulesOf = scope => {
+    if (memo.has(scope)) return memo.get(scope)
+    let n = root
+    for (const part of scope.split('.')) { if (!n.children.has(part)) break; n = n.children.get(part) }
+    const list = [...n.withParents, n.main].sort(specific)
+    memo.set(scope, list)
+    return list
+  }
+  const under = (scope, sel) => scope === sel || scope.startsWith(sel) && scope[sel.length] === '.'
+  // the rule's ancestors (nearest first) among the scope's (outermost first), each further out than the one before
+  const among = (ancestors, parents) => {
+    let i = ancestors.length - 1
+    for (let n = 0; n < parents.length; n++) {
+      let sel = parents[n], child = false
+      if (sel === '>') { if (n === parents.length - 1) return false; sel = parents[++n]; child = true }
+      while (i >= 0 && !under(ancestors[i], sel)) { if (child) return false; i-- }
+      if (i < 0) return false
+      i--
+    }
+    return true
+  }
+  return (scope, ancestors = []) => {
+    const r = rulesOf(scope).find(r => among(ancestors, r.parents))
+    return r ? { fg: r.fg, font: r.font } : null
   }
 }
-// A word's colour by its scopes, outermost first: its own scope's, or where no rule takes that, the nearest enclosing
-// one's, as VS Code lays a scope's style over its parent's (vscode-textmate); null where none is coloured
-export function colourer(rules) {
-  const rule = scoper(rules)
-  return stack => { for (let i = stack.length - 1; i >= 0; i--) { const c = rule(stack[i], stack.slice(0, i)); if (c) return c } return null }
+// A word's style by its scopes, outermost first, as VS Code's TextMate engine lays each scope's rule over its parent's
+// (vscode-textmate AttributedScopeStack.mergeAttributes): of its last `own` scopes, what each sets over the one before,
+// the rest its ancestors, which a rule's ancestors are matched against. { fg, font }, unset (null, -1) where none of its
+// own sets it: there it takes its part's
+export function styler(rules) {
+  const match = scoper(rules)
+  return (stack, own = stack.length) => {
+    let fg = null, font = -1
+    for (let i = stack.length - own; i < stack.length; i++) {
+      const r = match(stack[i], stack.slice(0, i))
+      if (r?.fg) fg = r.fg
+      if (r && r.font !== -1) font = r.font
+    }
+    return { fg, font }
+  }
+}
+
+// The scopes VS Code probes a theme's TextMate rules for, for a semantic token the theme's semanticTokenColors leave
+// unset, by the token's type and modifiers: its registry's, as VS Code 1.143 registers them
+// (src/vs/platform/theme/common/tokenClassificationRegistry.ts registerDefaultClassifications), then the JavaScript
+// extension's (extensions/javascript/package.json, contributes.semanticTokenScopes)
+export const PROBES = [
+  ['comment', 'comment'], ['string', 'string'], ['keyword', 'keyword.control'], ['number', 'constant.numeric'], ['regexp', 'constant.regexp'],
+  ['operator', 'keyword.operator'], ['namespace', 'entity.name.namespace'], ['type', 'entity.name.type support.type'], ['struct', 'entity.name.type.struct'],
+  ['class', 'entity.name.type.class support.class'], ['interface', 'entity.name.type.interface'], ['enum', 'entity.name.type.enum'],
+  ['typeParameter', 'entity.name.type.parameter'], ['function', 'entity.name.function support.function'], ['member', ''],
+  ['method', 'entity.name.function.member support.function'], ['macro', 'entity.name.function.preprocessor'],
+  ['variable', 'variable.other.readwrite entity.name.variable'], ['parameter', 'variable.parameter'], ['property', 'variable.other.property'],
+  ['enumMember', 'variable.other.enummember'], ['event', 'variable.other.event'], ['decorator', 'entity.name.decorator entity.name.function'],
+  ['variable.readonly', 'variable.other.constant'], ['property.readonly', 'variable.other.constant.property'], ['type.defaultLibrary', 'support.type'],
+  ['class.defaultLibrary', 'support.class'], ['interface.defaultLibrary', 'support.class'], ['variable.defaultLibrary', 'support.variable support.other.variable'],
+  ['variable.defaultLibrary.readonly', 'support.constant'], ['property.defaultLibrary', 'support.variable.property'],
+  ['property.defaultLibrary.readonly', 'support.constant.property'], ['function.defaultLibrary', 'support.function'], ['member.defaultLibrary', 'support.function'],
+  ['property:javascript', 'variable.other.property.js'], ['property.readonly:javascript', 'variable.other.constant.property.js'],
+  ['variable:javascript', 'variable.other.readwrite.js'], ['variable.readonly:javascript', 'variable.other.constant.object.js'],
+  ['function:javascript', 'entity.name.function.js'], ['namespace:javascript', 'entity.name.type.module.js'],
+  ['variable.defaultLibrary:javascript', 'support.variable.js'], ['function.defaultLibrary:javascript', 'support.function.js']
+]
+// VS Code's semantic tokens drawn over the grammar's (src/vs/workbench/services/themes/common/colorThemeData.ts
+// getTokenStyle, resolveScopes): a token, its type and modifiers (`variable.declaration.readonly`), takes each of its
+// colour, bold, italic, underline and strikethrough from the theme's semanticTokenColors rule that matches it best, and
+// what none sets from the TextMate rules for the scopes probed for it (PROBES), by the selector that matches it best,
+// of its probes the first a rule takes. A selector (`type.modifier:language`, `*` any type) matches a token of its type
+// (100) with each of its modifiers (100 each), in its language (10); the later of two alike. A probed scope takes the
+// rule whose selector names the most of it, by the selector's length, as VS Code scores a scope (nameMatcher). What the
+// token leaves unset the grammar's word keeps (SemanticTokensProviderStyling, sparseTokensStore.ts). { fg, bold,
+// italic, underline, strikethrough }, each undefined where unset; none at all where the theme turns semantic
+// highlighting off
+export function semantics({ tokenColors = [], semanticHighlighting = false, semanticTokenColors = {} }) {
+  if (!semanticHighlighting) return () => ({})
+  // a selector parsed from its end (tokenClassificationRegistry.ts parseClassifierString), and its score for a token
+  const selector = s => { const out = { modifiers: [], language: undefined }; let end = s.length; for (let i = s.length - 1; i >= 0; i--) if (s[i] === ':' || s[i] === '.') { const part = s.slice(i + 1, end); end = i; s[i] === ':' ? out.language = part : out.modifiers.push(part) } return { ...out, type: s.slice(0, end) } }
+  const score = (sel, type, mods) => !sel.type || sel.language !== undefined && sel.language !== 'javascript' || sel.type !== '*' && sel.type !== type || sel.modifiers.some(m => !mods.includes(m)) ? -1 : (sel.language !== undefined ? 10 : 0) + (sel.type !== '*' ? 100 : 0) + 100 * sel.modifiers.length
+  // a style from a colour and a font style, the four of it all set where a font style is given (TokenStyle.fromSettings)
+  const settle = (fg, fontStyle, more = {}) => typeof fontStyle === 'string'
+    ? { fg, ...Object.fromEntries(['bold', 'italic', 'underline', 'strikethrough'].map(k => [k, fontStyle.includes(k)])) }
+    : { fg, ...Object.fromEntries(['bold', 'italic', 'underline', 'strikethrough'].map(k => [k, typeof more[k] === 'boolean' ? more[k] : undefined])) }
+  const rules = Object.entries(semanticTokenColors).map(([k, v]) => [selector(k), typeof v === 'string' ? settle(hex(v), undefined) : v && typeof v === 'object' ? settle(hex(v.foreground), v.fontStyle, v) : null]).filter(r => r[1])
+  const defaults = PROBES.map(([k, probes]) => [selector(k), probes ? probes.split(' ') : []])
+  const matchers = tokenColors.map(r => matcherOf(r))
+  // the rules for one scope probed: the best colour and the best font style, either from any rule, or none
+  const probe = scopes => {
+    for (const p of scopes) {
+      let fg, fontStyle, fs = -1, ss = -1
+      tokenColors.forEach((r, i) => {
+        const v = matchers[i](p)
+        if (v < 0) return
+        if (v >= fs && r.settings.foreground) { fg = r.settings.foreground; fs = v }
+        if (v >= ss && typeof r.settings.fontStyle === 'string') { fontStyle = r.settings.fontStyle; ss = v }
+      })
+      if (fg !== undefined || fontStyle !== undefined) return settle(fg !== undefined ? hex(fg) : undefined, fontStyle)
+    }
+    return null
+  }
+  const memo = new Map()
+  return token => {
+    if (memo.has(token)) return memo.get(token)
+    const [type, ...mods] = token.split('.'), out = {}, best = {}
+    const take = (s, style) => { for (const k of ['fg', 'bold', 'italic', 'underline', 'strikethrough']) if ((k === 'fg' ? style.fg : style[k] !== undefined) && (best[k] ?? -1) <= s) { best[k] = s; out[k] = style[k] } }
+    for (const [sel, style] of rules) { const s = score(sel, type, mods); if (s >= 0) take(s, style) }
+    for (const k in best) best[k] = Infinity
+    for (const [sel, probes] of defaults) { const s = score(sel, type, mods), style = s >= 0 && probe(probes); if (style) take(s, style) }
+    memo.set(token, out)
+    return out
+  }
+}
+// A TextMate rule's selectors matched against one scope as VS Code matches a probe (colorThemeData.ts getScopeMatcher,
+// nameMatcher; textMateScopeMatcher.ts createMatchers): each selector the names it lists all among the scopes, its
+// score where it does the last one's place and the name's length, `-` none, `,` and `|` the best of either; -1 none
+function matcherOf(rule) {
+  const sels = !rule?.scope || !rule.settings ? [] : Array.isArray(rule.scope) ? rule.scope : [rule.scope]
+  const scopesMatch = (s, id) => !!s && (s === id || s.length > id.length && s.startsWith(id) && s[id.length] === '.')
+  const name = (ids, scopes) => { if (scopes.length < ids.length) return -1; let score; return ids.every(id => { for (let i = scopes.length - 1; i >= 0; i--) if (scopesMatch(scopes[i], id)) { score = (i + 1) * 0x10000 + id.length; return true } return false }) && score !== undefined ? score : -1 }
+  const all = []
+  for (const sel of sels) {
+    if (typeof sel !== 'string') continue
+    const re = /([LR]:|[\w.:][\w.:-]*|[,|\-()])/g, next = () => re.exec(sel)?.[0] ?? null, ident = t => !!t && /[\w.:]+/.test(t)
+    let t = next()
+    const operand = () => {
+      if (t === '-') { t = next(); const m = operand(); return m && (x => m(x) < 0 ? 0 : -1) }
+      if (t === '(') { t = next(); const m = inner(); if (t === ')') t = next(); return m }
+      if (ident(t)) { const ids = []; do { ids.push(t); t = next() } while (ident(t)); return x => name(ids, x) }
+      return null
+    }
+    const conjunction = () => { const ms = []; for (let m = operand(); m; m = operand()) ms.push(m); return ms.length ? x => { let v = ms[0](x); for (let i = 1; v >= 0 && i < ms.length; i++) v = Math.min(v, ms[i](x)); return v } : null }
+    const inner = () => {
+      const ms = []
+      for (let m = conjunction(); m; m = conjunction()) { ms.push(m); if (t !== '|' && t !== ',') break; do t = next(); while (t === '|' || t === ',') }
+      return ms.length ? x => Math.max(...ms.map(m => m(x))) : null
+    }
+    while (t !== null) {
+      if (t.length === 2 && t[1] === ':') t = next()
+      const m = conjunction()
+      if (m) all.push(m)
+      if (t !== ',') break
+      t = next()
+    }
+  }
+  return scope => all.length ? Math.max(...all.map(m => m([scope]))) : -1
 }
 
 // The skin's colours (skin.css's tokens, CSS colours) from a theme: { '--color-screen': …, … }, each its part's (MAP,
-// or `map` in its place, read by `registry`), then the channels' hues. The rules without a scope set the foreground and background where
-// the colours don't, as a tmTheme's first does; a theme of no kind, light or dark by its background
-export function skin({ kind = null, colors = {}, tokenColors = [] }, map = MAP, registry = REGISTRY) {
+// or `map` in its place, read by `registry`), then the channels' hues, then the script's words. The rules without a
+// scope set the foreground and background where the colours don't, as a tmTheme's first does; a theme of no kind,
+// light or dark by its background
+export function skin(theme, map = MAP, registry = REGISTRY) {
+  let { kind = null, colors = {}, tokenColors = [] } = theme
   const global = tokenColors.find(r => r && r.scope == null)?.settings ?? {}
   colors = { ...hex(global.background) && { 'editor.background': global.background }, ...hex(global.foreground) && { 'editor.foreground': global.foreground }, ...colors }
   const bg0 = hex(colors['editor.background'])
   kind ??= bg0 ? (lightness(bg0) > .5 ? 'light' : 'dark') : 'dark'
-  const value = resolver({ kind, colors, tokenColors }, registry), bg = unitOf(value(['opaque', 'editor.background', '#000000']))
+  const value = resolver({ kind, colors, tokenColors }, registry), screen = value(['opaque', 'editor.background', '#000000']), bg = unitOf(screen)
   // the channels' hues: the text's, then the words' where they are hues (a grey is none: a theme of greys leaves the
   // channels the even round), each apart from those before it and from the screen
   const lab = c => oklab(c.map(decode)), apart = (a, b) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i])) > .08, hued = c => Math.hypot(...lab(c).slice(1)) > .04
@@ -361,9 +524,36 @@ export function skin({ kind = null, colors = {}, tokenColors = [] }, map = MAP, 
   for (const c of [['opaque', 'editor.foreground', ['opaque', 'editor.background', '#000000']], ...CHANNELS.map(k => ['scope', k])].map(w => unitOf(value(w)))) if ((!hues.length || hued(c)) && apart(c, bg) && hues.every(h => apart(c, h))) hues.push(c)
   return {
     ...Object.fromEntries(Object.entries(map).map(([k, v]) => [k, css(value(v))])),
-    ...Object.fromEntries(hues.map((c, i) => [`--color-screen-channel-${i + 1}`, css(ofUnit(c))]))
+    ...Object.fromEntries(hues.map((c, i) => [`--color-screen-channel-${i + 1}`, css(ofUnit(c))])),
+    ...styles({ ...theme, tokenColors }, screen)
   }
 }
+// The script's words' colours and font styles (script.js draws them): each word's own (syntax.js WORDS) as VS Code's
+// TextMate engine gives them, --color-syntax-<word> and, where its rules give it a font style, --italic-, --bold- and
+// --line-syntax-<word>, none where its own scopes set none (it shows its part's then); each semantic token's
+// (MEANINGS) as --color-semantic-<type-modifiers> and the rest, only what the theme's semantic highlighting sets (the
+// word's own shows through the rest). Colours opaque over the screen, as text is drawn
+function styles(theme, screen) {
+  const style = styler(theme.tokenColors ?? []), meaning = semantics(theme), out = {}
+  const colour = c => c && css(over(ofUnit(c), screen))
+  const put = (k, name, { fg, italic, bold, line }) => {
+    if (fg) out[`--color-${k}-${name}`] = colour(fg)
+    if (italic !== undefined) out[`--italic-${k}-${name}`] = italic ? 'italic' : 'normal'
+    if (bold !== undefined) out[`--bold-${k}-${name}`] = bold ? 'bold' : 'normal'
+    if (line !== undefined) out[`--line-${k}-${name}`] = line || 'none'
+  }
+  for (const [w, scopes] of Object.entries(WORDS)) {
+    const [under, own] = scopes.includes(' / ') ? scopes.split(' / ').map(s => s.split(' ')) : [[], scopes ? scopes.split(' ') : []]
+    const { fg, font } = style(w === 'source' ? own : ['source.js', ...under, ...own], own.length)
+    put('syntax', w, font === -1 ? { fg } : { fg, italic: !!(font & FONT.italic), bold: !!(font & FONT.bold), line: lines(font & FONT.underline, font & FONT.strikethrough) })
+  }
+  for (const m of MEANINGS) {
+    const s = meaning(m)
+    put('semantic', m.replaceAll('.', '-'), { fg: s.fg, italic: s.italic, bold: s.bold, line: s.underline === undefined && s.strikethrough === undefined ? undefined : lines(s.underline, s.strikethrough) })
+  }
+  return out
+}
+const lines = (under, through) => [under && 'underline', through && 'line-through'].filter(Boolean).join(' ')
 
 // VS Code's fonts, a setting's, not a theme's (a theme has none): the editor's, for what an editor sets in it (the
 // script, the picture's numbers, as its line numbers are, at its size), the workbench's for the rest. `editor`, `size`
@@ -381,10 +571,13 @@ export const webviewFonts = (doc = document) => {
   return fonts({ editor: v('editor-font-family'), size: v('editor-font-size'), ui: v('font-family') })
 }
 
-// A skin worn: its colours set on the page over skin.css's, those of the one before gone; none, skin.css's own
+// A skin worn: its colours set on the page over skin.css's, those of the one before gone, the page marked worn
+// (data-worn), so the screen's own words (skin.css, for a page wearing none) leave what a theme's words leave unset
+// unset; none, skin.css's own
 let worn = []
 export function wear(tokens, el = document.documentElement) {
   for (const k of worn) el.style.removeProperty(k)
   worn = Object.keys(tokens ?? {})
   for (const k of worn) el.style.setProperty(k, tokens[k])
+  el.toggleAttribute('data-worn', !!tokens)
 }

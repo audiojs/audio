@@ -8,7 +8,7 @@ import { timeRow, root, onsamples, onheard, color, reel, selectCanvas, specCanva
 import { labelled } from './notes.js'
 import { paint, lanesEnd, fitTo } from './overlay.js'
 import { barOn, moveOn } from './ruler.js'
-import { scale, gutter, X, freqs, room, fitAxis, axisMarks, setRange, whole } from './scales.js'
+import { scale, gutter, X, freqs, room, fitAxis, axisMarks, levelTicks, setRange, whole } from './scales.js'
 import { told } from './select.js'
 import { ground } from './strips.js'
 
@@ -495,7 +495,7 @@ function rule(L) {
   const all = L.all, stop = lanesEnd(L), lines = []
   if (grid === 'none' || !duration) return []
   // the time row's ticks' times ('band', its foot a ruler's: the finer step), else its labels'
-  const { step, minor } = labelled(), by = timeRow === 'band' ? minor : step, cols = []
+  const { step, minor } = labelled(), by = timeRow === 'band' ? minor ?? step : step, cols = []
   for (let i = Math.ceil(start / by - 1e-9); i * by <= end + 1e-9; i++) { const px = X(i * by); if (px >= 1 && px < stop) cols.push(px) }
   all.forEach((rect, i) => {
     const [, y, , lh] = rect, right = Math.min(stop, X(tracks?.[i]?.end ?? duration))
@@ -504,7 +504,7 @@ function rule(L) {
       if (x1 > x0 && y1 > y0) lines.push(x0 * dpr, y0 * dpr, (x1 - x0) * dpr, (y1 - y0) * dpr)
     }
     for (const px of cols) put(px, y, 1, lh)
-    for (const ty of room(rect, axisMarks(rect)).map(([ly]) => Math.round(ly))) if (ty > y && ty < y + lh - 1) put(0, ty, stop, 1)
+    for (const ty of [...room(rect, axisMarks(rect)), ...rect.kind === 'wave' ? levelTicks(rect) : []].map(([ly]) => Math.round(ly))) if (ty > y && ty < y + lh - 1) put(0, ty, stop, 1)
   })
   // the theme's whitespace marks, at half their strength as they run the lanes' length
   return [[color('--color-screen-grid'), lines, .5]]

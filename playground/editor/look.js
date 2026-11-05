@@ -1,5 +1,5 @@
 import scales from '../scale.js'
-import { load, parse, skin, fonts, wear, webview, webviewFonts } from '../theme.js'
+import { THEMES, load, parse, skin, fonts, wear, webview, webviewFonts } from '../theme.js'
 import { temperature, rgb, MAPS } from '../tint.js'
 import { root, GIVEN, APART, LOOK, looks, specMethods, mapNames, WAVE, waveLooks, levelList, scaleNames, displays } from './config.js'
 import { state, v, pl } from './context.js'
@@ -159,6 +159,9 @@ export function flipView() { setDisplay(state.display === 'wave' ? 'spec' : 'wav
 
 export function wire() {
   try { worn = APART ? null : JSON.parse(localStorage.getItem('audio-theme')); wear(worn && dressed(worn.theme)) } catch { worn = null }
+  // one of VS Code's kept before the page read a theme's semantic highlighting: read again from its file
+  const before = worn?.theme && !('semanticHighlighting' in worn.theme) && THEMES.find(t => t.name === worn.name)
+  if (before) setTheme(before).catch(() => {})
   // given, the skin the page around it sends, { skin: its tokens (theme.js skin, fonts), or null for skin.css's own }:
   // worn as a theme is, not kept; the page told once this listens (at the end)
   if (GIVEN) addEventListener('message', ({ source, origin, data }) => {

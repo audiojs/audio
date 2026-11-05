@@ -61,8 +61,8 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at 
     done(lit)
   }))), [py, opaque])
   const cols = async (py, opaque) => Object.keys(await columns(py, opaque)).map(Number)
-  // (the pointer's value over its tick on the axis, clear of the row read)
-  await page.mouse.move(box.x + 40, box.y + TOP + 60)
+  // (the pointer on the band's time row: its axes shown, no ghost of a caret in the lanes)
+  await page.mouse.move(box.x + 40, box.y + TOP + TRACK + 6)
   let opacity = null
   for (const px of [e - 1, e, e + 2, w]) {
     await page.evaluate(t => __view.setCursor(t), await timeAt(px))
@@ -435,4 +435,48 @@ test('editor: the time row is in the foot of the track pointed at', async () => 
   assert.ok(b0 < 5 && b1 > 30 && bf < 5, `pointed at b: under a, ${b0}; under b, ${b1}; at the foot, ${bf}`)
   const [r0, r1] = await rowAt(box.x + box.width / 2, box.y + box.height - 4, [false, false, false])
   assert.ok(r0 < 5 && r1 < 5, `pointed under them: none, the picture a player's: ${r0}, ${r1}`)
+})
+
+// The time row's ticks between the labelled are half as tall as a label's, every one of a step drawn, at every zoom:
+// the step between is the finest that leaves each label room, a px clear of its text; where none would, the labels go
+// a step further apart (notes.js labelled). Read off the row's own drawing as the band is pointed at
+test('editor: the ticks between the labels half as tall, every one drawn, at every zoom', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  // a tick's length on either axis (view/model.js TICK)
+  const box = await page.locator('.plot').boundingBox(), TICK = 12
+  await page.evaluate(() => {
+    window.__row = []
+    const proto = CanvasRenderingContext2D.prototype, rect = proto.fillRect, text = proto.fillText
+    proto.fillRect = function (x, y, w, h) { if (this.canvas.matches('.row') && w === 1) window.__row.push({ x, h }); return rect.call(this, x, y, w, h) }
+    proto.fillText = function (s, x, y) { if (this.canvas.matches('.row')) window.__row.push({ s, x, w: this.measureText(s).width }); return text.call(this, s, x, y) }
+  })
+  // the row as it is drawn, the pointer on the band's head (no time of its own on the row): labels, full ticks, half ones
+  const read = async () => {
+    await page.evaluate(() => window.__row = [])
+    await page.mouse.move(box.x + 3, box.y + 4)
+    await page.mouse.move(box.x + 4, box.y + 4)
+    await frames()
+    const row = await page.evaluate(() => window.__row)
+    // (each once, the row drawn again as the frames go)
+    const xs = h => [...new Set(row.filter(r => r.h === h).map(r => r.x))].sort((p, q) => p - q)
+    return { labels: row.filter(r => r.s), full: xs(TICK), half: xs(TICK / 2) }
+  }
+  for (let zoom = 0; zoom < 4; zoom++) {
+    const { labels, full, half } = await read()
+    assert.ok(labels.length >= 2 && full.length >= 2, `zoom ${zoom}: labels and their ticks: ${JSON.stringify(labels)}`)
+    assert.ok(half.length, `zoom ${zoom}: ticks between the labels`)
+    {
+      // evenly spaced, each label's text a px clear of the next tick, none left out between two labels
+      // (the last two labels', away from the pointer's time at the row's start)
+      const step = Math.min(...half.slice(1).map((x, i) => x - half[i])), [a, b] = full.slice(-2), n = Math.round((b - a) / step)
+      for (const l of labels) assert.ok(!half.some(x => x > l.x - 1 && x < l.x + l.w + 1), `zoom ${zoom}: no tick through ${l.s}`)
+      assert.ok(n >= 2, `zoom ${zoom}: ticks between, ${step.toFixed(1)} px apart: ${JSON.stringify({ full, half })}`)
+      assert.equal(half.filter(x => x > a + 1 && x < b - 1).length, n - 1, `zoom ${zoom}: every one between ${a} and ${b}, ${step.toFixed(1)} px apart`)
+    }
+    await page.locator('.plot').focus()
+    await page.keyboard.press('=')
+  }
 })

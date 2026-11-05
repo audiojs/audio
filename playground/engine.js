@@ -288,9 +288,10 @@ export default function engine(url = WORKER) {
     // What plays, made and rendered as it plays (worker.js voice): { voice }, a facade of the library's (audio/worker) the
     // page plays as an instance, or null when there is none (the output gone, the engine stopped). Boxed: a voice of a
     // sound still arriving is thenable, waiting for it to be whole, and a promise resolved with it would wait as long. Of
-    // a sound the page holds (`held`: { key, channels, sampleRate }), in the deck; else, or where the deck fails, here
+    // a sound the page holds (`held`: { key, channels, sampleRate }), in the deck, its mix; else, or where the deck fails or
+    // tracks are `muted` (their mix made without them), here
     async voice({ held, ...what }) {
-      let [r, from] = held ? await deck.voice(held, what) : [null]
+      let [r, from] = held && !(what.muted?.length && what.output) ? await deck.voice(held, what) : [null]
       if (!r?.inst) [r, from] = [await call({ type: 'voice', ...what }), worker]
       if (!r?.inst) return null
       const { default: audioWorker } = await import('../worker.js')

@@ -202,9 +202,9 @@ export default function player({ onend = () => {} } = {}) {
     // what a scrub hears about `t`: the output's samples, or the lane of the track it hears
     heard: scrubbedAt,
     // A moment heard as an edit will leave it, while the edit is dragged (a pitch): [from, to] of the output through
-    // `edit`, a call of the library's on it [type, ...args], once, in place of the one before; null stops it. Playback
-    // pauses for it.
-    async audition(from, to, edit) {
+    // `edit`, a call of the library's on it [type, ...args], once, in place of the one before; null stops it; with
+    // tracks, those `muted` (by name) left out of it. Playback pauses for it.
+    async audition(from, to, edit, muted = null) {
       const mine = ++auditions, was = hearing
       hearing = null
       release(was)
@@ -212,7 +212,7 @@ export default function player({ onend = () => {} } = {}) {
       this.pause()
       await (deck ?? await load()).context().resume()
       if (mine !== auditions) return
-      const of = outs, a = (await made({ from, to, edit }))?.voice
+      const of = outs, a = (await made({ from, to, edit, ...muted && { muted } }))?.voice
       if (mine !== auditions || of !== outs || !a) return release(a)
       hearing = a
       a.on('ended', () => { if (hearing === a) { hearing = null; release(a) } })

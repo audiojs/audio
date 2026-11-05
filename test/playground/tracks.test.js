@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import audio from '../../audio.js'
-import { TOP, page, origin, sine, wavBytes, code, readout, tipOf, open, settled, frames, poll, still, choice, selected, tab, menu, noCues, write, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, axis, grab, drag, lengthIs, pixels, chime, contextRow, trackMenuOf, muteTrack, mutedTracks, renameTrack } from './page.js'
+import { TOP, page, origin, sine, wavBytes, code, readout, tipOf, open, settled, frames, poll, still, choice, selected, tab, menu, noCues, write, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, axis, grab, drag, lengthIs, pixels, chime, contextRow, trackMenuOf, muteTrack, mutedTracks, renameTrack, ghostAt } from './page.js'
 
 // A file dropped under the lanes, in the room: a track of its own, named for it, from where it was let go
 test('editor: a file dropped under the lanes goes into a new track of its own there', async () => {
@@ -809,4 +809,50 @@ test('editor: right-clicked in a track\'s lane, its own menu under Track', async
   await page.mouse.click(x(2), second.y + second.h / 2, { button: 'right' })
   await contextRow('Track').hover()
   for (const name of ['Rename…', 'Solo', 'Lock']) await contextRow(name).waitFor()
+})
+
+// Over any track's lane, the edited one's or another's, where a press would put the caret shows first, its ghost, grey:
+// on that track's own marker by it, on where its sound ends; pressed, the caret there, the track edited
+test('editor: the caret\'s ghost over any track goes onto its markers and its end; a press puts the caret there', async () => {
+  await open()
+  await write(`let a = audio('chime.wav')\n  .mark(1, 'Verse')\n\nlet b = audio('chime.wav')\n  .crop({ at: 0, d: 5 })\n  .mark(2.5, 'Two')`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:08.000')
+  await settled()
+  const { box, x } = await axis(8), lanes = await tracksAt(), clock = () => page.locator('.time').innerText()
+  for (const [i, t, time] of [[0, 1, '0:01.000'], [1, 2.5, '0:02.500'], [1, 5, '0:05.000'], [0, 1, '0:01.000']]) {
+    const y = lanes[i].y + lanes[i].h / 3
+    await page.mouse.move(x(t) + 4, y)
+    await poll(() => ghostAt(y - box.y), at => assert.ok(Math.abs(at - (x(t) - box.x)) < 1.5, `over track ${i} by ${t} s, its ghost on it, ${(x(t) - box.x).toFixed(1)}: ${at}`))
+    await page.mouse.click(x(t) + 4, y)
+    await page.waitForFunction(t => document.querySelector('.time').textContent === t, time)
+    assert.equal(await clock(), time)
+  }
+  // with snapping off, where the pointer is
+  await menu('View', 'Snap')
+  await page.mouse.click(x(5) + 4, lanes[1].y + lanes[1].h / 3)
+  assert.notEqual(await clock(), '0:05.000')
+})
+
+// The time row under a track says the times of what is selected in it alone: pointed at another track, its row has
+// the pointer's time and no selection's
+test('editor: a selection\'s times on its own track\'s time row, not on another\'s', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:08.000')
+  await settled()
+  const { x } = await axis(8), [a, b] = await tracksAt()
+  await drag([x(2), a.y + a.h / 2], [x(4) - x(2), 0])
+  await page.evaluate(() => {
+    window.__row = new Set()
+    const text = CanvasRenderingContext2D.prototype.fillText
+    CanvasRenderingContext2D.prototype.fillText = function (s, x, y) { if (this.canvas.matches('.row')) window.__row.add(s); return text.call(this, s, x, y) }
+  })
+  // the times written on the row as the pointer comes to (t, y)
+  const row = async (t, y) => { await page.evaluate(() => window.__row = new Set()); await page.mouse.move(x(t), y); await page.mouse.move(x(t) + 1, y); await frames(); return page.evaluate(() => [...window.__row]) }
+  const edges = list => list.filter(s => /^0:0[24]\.\d+$/.test(s))
+  await poll(() => row(6, a.y + a.h / 2), list => assert.equal(edges(list).length, 2, `under a, its selection's start and end: ${list}`))
+  await poll(() => row(6, b.y + b.h / 2), list => assert.deepEqual(edges(list), [], `under b, none of them: ${list}`))
 })

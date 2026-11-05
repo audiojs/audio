@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { TRACK, TOP, root, page, sine, engine, code, wholeLevels, open, frames, poll, menuRow, selected, menu, offered, noCues, write, FOOT, HEAD, tall, tracksAt, axis, grab, drag, lengthIs, hits, handles, pixels, keptFiles, contextRow } from './page.js'
+import { TRACK, TOP, root, page, sine, engine, code, wholeLevels, open, frames, poll, menuRow, selected, menu, offered, noCues, write, FOOT, HEAD, tall, tracksAt, axis, grab, drag, lengthIs, hits, handles, pixels, keptFiles, contextRow, ghostAt } from './page.js'
 
 // M puts a marker at the caret, a mark() at the chain's end; its serif, in the strip under the lanes, drags to move
 // it, a double-click names it (its mark()'s label), its right-click menu takes it away; File exports the parts between
@@ -139,8 +139,8 @@ test('editor: markers: a marker named before its output comes keeps its name thr
   assert.match(await code(), /\.mark\([\d.]+, 'Hello'\)/)
 })
 
-// A marker's line, a moment's or a range's end, points as it is neared (a hand, lit) and takes a press onto it: the
-// caret goes to the marker's time, not to the pixel pressed; with snapping off, the pixel's
+// A marker's line, a moment's or a range's end, takes a press by it onto it, the caret's ghost on it as it is neared:
+// the caret goes to the marker's time, not to the pixel pressed; with snapping off, the pixel's
 test('editor: markers: a press by a marker line puts the caret on it', async () => {
   await open()
   await write(`audio('chime.wav').mark(2).mark({ at: 5, d: 1 })`)
@@ -148,13 +148,12 @@ test('editor: markers: a press by a marker line puts the caret on it', async () 
   const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   const caret = async () => +(await page.locator('.time').innerText()).split(':')[1]
   for (const t of [2, 5, 6]) {
-    await grab([[x(t) + 4, y]], 'pointer')
+    await page.mouse.move(x(t) + 4, y)
+    await poll(() => ghostAt(y - box.y), at => assert.ok(Math.abs(at - (x(t) - box.x)) < 1.5, `its ghost on ${t} s: ${at}`))
     await page.mouse.click(x(t) + 4, y)
     assert.equal(await caret(), t)
   }
   await menu('View', 'Snap')
-  await page.mouse.move(x(2) + 4, y)
-  assert.notEqual(await page.locator('.plot').evaluate(el => el.style.cursor), 'pointer')
   await page.mouse.click(x(2) + 4, y)
   assert.ok(await caret() > 2, 'the pixel pressed')
 })
@@ -168,7 +167,7 @@ test('editor: markers: one in silence past the sound stays there, and drags on w
   await lengthIs('0:10.000')
   const { box, x } = await axis(10), y = box.y + TOP + TRACK * .3, strip = box.y + HEAD / 2
   const caret = async () => +(await page.locator('.time').innerText()).split(':')[1]
-  await page.mouse.click(...await grab([[x(9) + 4, y]], 'pointer'))
+  await page.mouse.click(x(9) + 4, y)
   assert.equal(await caret(), 9, 'its line where it was put, from the output')
   await drag(await grab([[x(9), strip]], 'ew-resize'), [x(9.5) - x(9), 0])
   await page.waitForFunction(() => Math.abs(+(scriptText().match(/\.mark\(([\d.]+)\)/)?.[1]) - 9.5) < .05)
@@ -176,7 +175,9 @@ test('editor: markers: one in silence past the sound stays there, and drags on w
   await drag(await grab([[x(9.5), strip]], 'ew-resize'), [x(11) - x(9.5), 0])
   await page.waitForFunction(() => +(scriptText().match(/\.mark\(([\d.]+)\)/)?.[1]) === 10)
   await write(`audio('chime.wav').pad(0, 2).mark(9.75)`)
-  await page.mouse.click(...await grab([[x(9.75) + 4, y]], 'pointer'))
+  await page.mouse.move(x(9.75) + 4, y)
+  await poll(() => ghostAt(y - box.y), at => assert.ok(Math.abs(at - (x(9.75) - box.x)) < 1.5, `its ghost on it: ${at}`))
+  await page.mouse.click(x(9.75) + 4, y)
   assert.equal(await caret(), 9.75)
 })
 
@@ -539,10 +540,10 @@ test('editor: the head over the lanes names a range, nothing else there, nothing
   await page.mouse.move(box.x + px(0) + 1, box.y + TOP + (lane - TOP) / 3)
   await frames()
   assert.deepEqual(await lines(), [], 'on the sound\'s start, none')
-  // held Alt, every cue's line
-  await page.keyboard.down('Alt')
-  await poll(lines, all => assert.ok(all.length > 2, `held Alt, ${all.length} lines`), 3000)
-  await page.keyboard.up('Alt')
+  // held ⌘, every cue's line
+  await page.keyboard.down('ControlOrMeta')
+  await poll(lines, all => assert.ok(all.length > 2, `held ⌘, ${all.length} lines`), 3000)
+  await page.keyboard.up('ControlOrMeta')
 })
 
 // A range pointed at in its band's head lights its stretch over the sound, as a press there would select it; selected
@@ -590,9 +591,10 @@ test('editor: a marker dragged moves alone, the caret and what plays staying whe
   assert.ok(Math.abs(await now() - 5) < .05, String(await now()))
 })
 
-// Naming is marking: pointed at in a band's head where no marker is, the pointer a marker's; a click puts one there at
+// Naming is marking: pointed at in a band's head where no marker is, the pointer the arrow; a click puts one there at
 // once, over the selection a range of it, elsewhere a moment where a press would put the caret (the caret there), and
-// asks its name, which it may go without (Enter or Escape on nothing: none, its number shown). The selection's fork at
+// asks its name, which it may go without (Enter or Escape on nothing: none, its number shown); over the caret, the
+// marker to be, a plus, which puts it on the caret's time. The selection's fork at
 // its end inside it, on the names' row: pressed, takes start there
 test('editor: a click in a band\'s head puts a marker, the selection\'s range or a moment, its name asked for; the selection\'s fork starts takes', async () => {
   await open()
@@ -602,8 +604,10 @@ test('editor: a click in a band\'s head puts a marker, the selection\'s range or
   const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, head = box.y + HEAD / 2, field = page.locator('.marker-name')
   const marks = () => page.evaluate(() => (scriptText().match(/\.mark\(/g) || []).length)
   await drag([x(2), y], [x(4) - x(2), 0])
-  await page.mouse.move(x(3), head)
-  await page.waitForFunction(() => /, copy$/.test(document.querySelector('.plot').style.cursor))
+  // the pointer plain there, the arrow; over the selection's start, the marker to be, a plus, says so
+  await page.mouse.move(x(2) + 3, head)
+  await page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'default')
+  await page.locator('.hint', { hasText: 'Name the selection' }).waitFor()
   await page.mouse.click(x(3), head)
   await page.waitForFunction(() => /\.mark\(\{ at: 2, d: 2 \}\)$/.test(scriptText()))
   await field.waitFor()
@@ -627,6 +631,15 @@ test('editor: a click in a band\'s head puts a marker, the selection\'s range or
   await page.keyboard.press('Enter')
   await page.waitForFunction(() => /\.mark\(0\.5, 'Hit'\)$/.test(scriptText()))
   assert.equal(await marks(), 3)
+  // the plus over the caret, a few px off it: a marker on the caret's time exactly
+  await page.mouse.click(x(1.53), y)
+  const caret = await page.locator('.time').innerText()
+  await page.mouse.move(x(1.53) + 3, head)
+  await page.locator('.hint', { hasText: 'Name the caret\'s place' }).waitFor()
+  await page.mouse.click(x(1.53) + 3, head)
+  await field.waitFor()
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(t => new RegExp(`\\.mark\\(${+t.split(':')[1]}\\)$`).test(scriptText()), caret)
   // its fork, at its end inside it, over the lanes, starts takes there
   await drag([x(6), y], [x(7) - x(6), 0])
   const fork = page.locator('.plot .fork')

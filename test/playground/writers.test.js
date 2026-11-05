@@ -226,7 +226,7 @@ test('editor: a script that opens with gain() loads, its gain line drawn', async
 // crossfaded as a delete's, or silence added), stretched with the pitch kept, or sped with the pitch following, a click
 // on it turning it to the next; a stretch just made changes with it. Its pill sets its level; the first of the tools at
 // the lanes' foot, its pitch. Each is one step.
-test('editor: ⌘ at a selection\'s end trims, stretches or speeds it, its pill sets its level', async () => {
+test('editor: Alt at a selection\'s end trims, stretches or speeds it, its pill sets its level', async () => {
   const { box, x, y } = await chime(), lh = (TRACK - LANES) / 2
   const select = async (a, b) => { await page.mouse.click(x(7.5), y); await drag([x(a), y], [x(b) - x(a), 0]) }
   const last = async pattern => { await page.waitForFunction(p => new RegExp(p).test(scriptText()), pattern.source); return code() }
@@ -369,7 +369,7 @@ test('editor: a stretch dragged anywhere ends where it was let go, to the sample
   assert.equal(total - 8 * 44100, to - a - 30870, await code())
 })
 
-test('editor: ⌘ at a selection\'s end only stretches it, its pill dragged up only sets its level', async () => {
+test('editor: Alt at a selection\'s end only stretches it, its pill dragged up only sets its level', async () => {
   await page.addInitScript(tap)
   await open()
   await noCues()
@@ -378,7 +378,7 @@ test('editor: ⌘ at a selection\'s end only stretches it, its pill dragged up o
   const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, lh = (TRACK - LANES) / 2
   const select = async () => { await page.mouse.click(x(7.5), y); await drag([x(2.2), y], [x(4.2) - x(2.2), 0]) }
   await select()
-  await keyed(['ControlOrMeta'], async () => drag(await grab([[x(4.2), y]], STRETCHING), [x(5.2) - x(4.2), -80]))
+  await keyed(['Alt'], async () => drag(await grab([[x(4.2), y]], STRETCHING), [x(5.2) - x(4.2), -80]))
   await page.waitForFunction(() => /\.stretch\(1\.5, \{ at: 2\.2, d: 2 \}\)$/.test(scriptText()))
   assert.equal(await selected(), '0:02.200–0:05.200')
   assert.doesNotMatch(await code(), /gain/)
@@ -416,32 +416,36 @@ test('editor: the crossfade tool on a selection crossfades across it', async () 
   assert.equal(await page.locator('.message.problem').count(), 0)
 })
 
-// With nothing selected, the square past the caret, where a selection's stretch square is, pulls silence open there:
-// insert() of the length it is dragged, what follows moving on
-test('editor: the square past the caret opens silence there', async () => {
+// With nothing selected, the caret's line held Alt, the other way, pulls silence open there, saying so: insert() of the
+// length it is dragged, what follows moving on; only Alt-clicked, the caret as an Alt-click leaves it
+test('editor: Alt on the caret\'s line opens silence there', async () => {
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), lh = (TRACK - LANES) / 2
-  await page.mouse.click(x(2), box.y + TOP + TRACK * .3)
-  // its pointer trim's, as it does what trimming out does
-  await drag(await grab([[x(2) + 9, box.y + TOP + lh * 3 / 4]], 'ew-resize'), [x(3) - x(2), 0])
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
+  await page.mouse.click(x(2), y)
+  await page.keyboard.down('Alt')
+  const at = await grab([[x(2), y]], /col-resize$/)
+  await page.locator('.hint', { hasText: 'Insert silence at 0:02' }).waitFor()
+  await drag(at, [x(3) - x(2), 0])
+  await page.keyboard.up('Alt')
   await page.waitForFunction(() => /\.insert\(1, \{ at: 2, xfade: 0\.01 \}\)$/.test(scriptText()))
   await lengthIs('0:09.000')
 })
 
-// At the end the caret's square is before it, there being no room past it; pulled out past where the pictures end, the
-// view widens a frame at a time while the pointer stays out there, and the silence is as long as it is pulled
-test('editor: at the end, the square before the caret opens silence past the picture\'s edge, as far as it is pulled', async () => {
+// At the end, silence pulled out past where the pictures end: the view widens a frame at a time while the pointer stays
+// out there, and the silence is as long as it is pulled
+test('editor: at the end, Alt on the caret\'s line opens silence past the picture\'s edge, as far as it is pulled', async () => {
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), lh = (TRACK - LANES) / 2
+  const { box, x } = await axis(8)
   await page.locator('.plot').focus()
   await page.keyboard.press('End')
-  const at = await grab([[x(8) - 8, box.y + TOP + lh * 3 / 4]], 'ew-resize')
+  await page.keyboard.down('Alt')
+  const at = await grab([[x(8), box.y + TOP + TRACK * .3]], /col-resize$/)
   await page.mouse.move(...at)
   await page.mouse.down()
   await page.mouse.move(box.x + box.width - 20, at[1], { steps: 5 })
@@ -450,6 +454,7 @@ test('editor: at the end, the square before the caret opens silence past the pic
   // said by the pointer out there, as it grows
   assert.match(await page.locator('.hint').innerText(), /^silence \d+:\d\d\.\d+$/)
   await page.mouse.up()
+  await page.keyboard.up('Alt')
   await page.waitForFunction(() => /\.insert\([\d.]+, \{ at: 8, xfade: 0\.01 \}\)$/.test(scriptText()))
   const d = +(await code()).match(/\.insert\(([\d.]+),/)[1]
   assert.ok(d > 1, `as far as it was pulled: ${d} s`)
@@ -472,24 +477,27 @@ test('editor: a selection\'s fade squares sit on whole pixels, flush with its st
   await poll(() => pixels(`
     const at = (px, y) => d[(y * w + px) * 4]
     // on a row under the squares, between the grid's dots (a tenth of full scale apart, 8 px in a lane TRACK px tall):
-    // the wash's first column, and the caret's line, the brightest, after its last (where the drag left it)
-    let start = -1, line = 0
-    for (let px = 1; px < w - 60; px++) { if (at(px, ${TOP + 20}) > at(line, ${TOP + 20})) line = px; if (start < 0 && at(px, ${TOP + 20}) > at(px - 1, ${TOP + 20}) + 4) start = px }
-    return { start, line, row: [start, start + 8, start + 15, start + 16, line - 17, line - 16, line - 8, line - 1].map(px => at(px, ${TOP + 1})) }`), r => {
+    // the selection's first column, the caret's line (let go, at its start: the square in from it a px), and the
+    // column after its last, where the wash ends
+    let start = -1, line = -1
+    for (let px = 1; px < w - 60; px++) { if (start < 0 && at(px, ${TOP + 20}) > at(px - 1, ${TOP + 20}) + 4) start = px; else if (start >= 0 && line < 0 && px > start + 2 && at(px, ${TOP + 20}) < at(px - 1, ${TOP + 20}) - 4) line = px }
+    return { start, line, row: [start + 1, start + 9, start + 16, start + 17, line - 17, line - 16, line - 8, line - 1].map(px => at(px, ${TOP + 1})) }`), r => {
     const [in0, inMid, in1, washIn, washOut, out0, outMid, out1] = r.row
     assert.ok(in0 < washIn - 4 && in1 < washIn - 4 && out0 < washOut - 4 && out1 < washOut - 4, `squares darker than the wash at their edges: ${JSON.stringify(r)}`)
     assert.ok(Math.abs(in0 - inMid) <= 2 && Math.abs(in1 - inMid) <= 2 && Math.abs(out0 - outMid) <= 2 && Math.abs(out1 - outMid) <= 2, `edges as dark as middles: ${JSON.stringify(r)}`)
   })
 })
 
-// ⌘ (Ctrl) empowers: held at a range's end, the end sets its length, as the grip past it does (a stretch, by default),
-// with the stretch's pointer; a plain press there only resizes the range
-test('editor: held ⌘, a range\'s end stretches it, as its grip does', async () => {
+// Alt goes the other way: held at a range's end, the end sets its length (a stretch, by default), with the stretch's
+// pointer, saying so, as Logic's Option and REAPER's Alt stretch a region's end; a plain press there only resizes it
+test('editor: held Alt, a range\'s end stretches it', async () => {
   const { x, y } = await chime()
   await drag([x(1), y], [x(2) - x(1), 0])
-  await page.mouse.move(x(2), y)
-  await keyed(['ControlOrMeta'], async () => {
+  await page.mouse.move(x(2) - 1, y)
+  await page.locator('.hint', { hasText: /^End / }).waitFor()
+  await keyed(['Alt'], async () => {
     await page.waitForFunction(() => /^url\(/.test(document.querySelector('.plot').style.cursor))
+    await page.locator('.hint', { hasText: /^Stretch, end / }).waitFor()
     await drag([x(2), y], [x(2.5) - x(2), 0])
   })
   await page.waitForFunction(() => /\.stretch\(1\.5, \{ at: 1, d: 1 \}\)$/.test(scriptText()))

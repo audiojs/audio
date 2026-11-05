@@ -102,7 +102,7 @@ function remix() {
   showTracks(lanesShown(output))
   const out = output, muted = [...state.muted]
   pl.out = null
-  pl.set(out.channels, out.sampleRate, o => eng.voice({ ...o, output: out.id, muted }), out.length, fetches(out), lanesOf(out))
+  pl.set(out.channels, out.sampleRate, o => eng.voice({ output: out.id, muted, ...o }), out.length, fetches(out), lanesOf(out))
   store()
   assign({ hush: true })
   schedule(0)

@@ -1,4 +1,5 @@
 import { ops, methods, stats, presets, GROUPS, format, fromManifest } from './ops.js'
+import words, { WORDS, MEANINGS, PARTS } from './syntax.js'
 
 // The script editor: JavaScript with the audio methods completed after a dot, sources and stat names completed
 // inside strings. `oncaret(update)` hears every move of the selection and every change, for the stack beside it. A
@@ -108,25 +109,43 @@ function mapPos(spec, pos) {
 // slider's slide() and settle(), the page's and a number's dragged here alike
 function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe = async () => null, keys = {}, hint = null, wrap = false }, plain, shownKey, { slide, settle }) {
   const {
-    EditorView, EditorState, Transaction, keymap, lineNumbers, highlightActiveLine, drawSelection, dropCursor, tooltips,
+    EditorView, EditorState, Transaction, RangeSetBuilder, ViewPlugin, Decoration, keymap, lineNumbers, highlightActiveLine, drawSelection, dropCursor, tooltips,
     history, historyKeymap, defaultKeymap, indentWithTab, isolateHistory, undo, redo, undoDepth, redoDepth, javascript, localCompletionSource, scopeCompletionSource,
-    autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, syntaxHighlighting, HighlightStyle, bracketMatching, indentOnInput,
-    syntaxTree, tags, setDiagnostics, highlightSelectionMatches
+    autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, bracketMatching, indentOnInput,
+    syntaxTree, setDiagnostics, highlightSelectionMatches
   } = lib
-  const highlight = HighlightStyle.define([
-    { tag: [tags.definitionKeyword, tags.modifier], color: 'var(--color-screen-storage)' },
-    { tag: [tags.keyword, tags.controlKeyword, tags.moduleKeyword, tags.operatorKeyword], color: 'var(--color-screen-keyword)' },
-    { tag: [tags.function(tags.propertyName), tags.function(tags.variableName)], color: 'var(--color-screen-function)' },
-    { tag: tags.variableName, color: 'var(--color-screen-variable)' },
-    { tag: tags.propertyName, color: 'var(--color-screen-property)' },
-    { tag: [tags.className, tags.typeName], color: 'var(--color-screen-type)' },
-    { tag: [tags.string, tags.regexp], color: 'var(--color-screen-string)' },
-    { tag: [tags.bool, tags.null], color: 'var(--color-screen-constant)' },
+  // The words, as VS Code colours them (syntax.js): each marked with its word (.syntax-<word>), a name with its semantic
+  // token too (.semantic-<type-modifiers>), a part's mark round the marks of the words in it. A word wears its own
+  // colour and font style (theme.js styles: the skin's --color-syntax-<word> and the rest), the semantic token's over
+  // them where the theme sets them (--sem-*, which the token's mark sets); what neither sets it takes from the part
+  // round it, as VS Code's TextMate engine lays a scope's style over its parent's. A theme worn restyles them all, the
+  // marks as they were. Marks that start and end together CodeMirror nests by their sides alone (RangeSet's
+  // LayerCursor compare): a part's mark is inclusive, so it goes round a word of its own range, and a template
+  // expression's (`${'a'}`) round a part of its range too, that part's inclusive at its end as well
+  const marks = new Map(), mark = (word, meaning) => {
+    const c = `syntax-${word}${meaning ? ` semantic-${meaning.replaceAll('.', '-')}` : ''}`
+    return marks.get(c) ?? marks.set(c, Decoration.mark({ class: c, inclusiveStart: PARTS.has(word), inclusiveEnd: PARTS.has(word) && word !== 'embedded' })).get(c)
+  }
+  const decorate = state => {
+    const b = new RangeSetBuilder()
+    for (const [from, to, word, meaning] of words(syntaxTree(state), state.doc.toString())) b.add(from, to, mark(word, meaning))
+    return b.finish()
+  }
+  const colour = ViewPlugin.fromClass(class {
+    constructor(view) { this.decorations = decorate(view.state) }
+    update(u) { if (u.docChanged || syntaxTree(u.state) !== syntaxTree(u.startState)) this.decorations = decorate(u.state) }
+  }, { decorations: v => v.decorations })
+  const own = (w, p) => `var(--${p}-syntax-${w})`
+  const syntax = EditorView.theme({
+    // the script's own (source.js), round it all
+    '.cm-content': { color: `var(--color-syntax-source, var(--color-screen-ink))`, fontStyle: own('source', 'italic'), fontWeight: own('source', 'bold'), textDecorationLine: own('source', 'line') },
+    ...Object.fromEntries(Object.keys(WORDS).filter(w => w !== 'source').map(w => [`.syntax-${w}`, {
+      color: `var(--sem-color, ${own(w, 'color')})`, fontStyle: `var(--sem-italic, ${own(w, 'italic')})`, fontWeight: `var(--sem-bold, ${own(w, 'bold')})`, textDecorationLine: `var(--sem-line, ${own(w, 'line')})`
+    }])),
+    ...Object.fromEntries(MEANINGS.map(m => m.replaceAll('.', '-')).map(k => [`.semantic-${k}`, Object.fromEntries(['color', 'italic', 'bold', 'line'].map(p => [`--sem-${p}`, `var(--${p}-semantic-${k})`]))])),
     // a number drags (scrub): the pointer says so
-    { tag: tags.number, color: 'var(--color-screen-number)', cursor: 'ew-resize' },
-    { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--color-screen-comment)', fontStyle: 'italic' },
-    { tag: tags.invalid, color: 'var(--color-screen-error)' }
-  ])
+    '.syntax-number, .syntax-embedded-number': { cursor: 'ew-resize' }
+  })
 
   // The code slab's look, the same as the site's code examples: grey syntax on the dark screen, or a theme's (skin.css).
   const theme = EditorView.theme({
@@ -331,7 +350,7 @@ function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe
 
   const extensions = [
     lineNumbers(), history(), drawSelection(), dropCursor(), indentOnInput(), bracketMatching(), closeBrackets(), highlightActiveLine(), highlightSelectionMatches(),
-    javascript(), syntaxHighlighting(highlight), theme, scrub,
+    javascript(), colour, syntax, theme, scrub,
     autocompletion({ override: [insideStrings, methodsAfterDot, localCompletionSource, scopeCompletionSource(globalThis)], icons: false, maxRenderedOptions: 400 }),
     tooltips({ parent: document.body }),
     keymap.of([...Object.entries(keys).map(([key, run]) => ({ key, run: () => (run(), true), preventDefault: true })), ...steps, ...closeBracketsKeymap, ...completionKeymap, ...historyKeymap, indentWithTab, ...defaultKeymap]),

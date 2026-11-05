@@ -18,19 +18,19 @@ export const markLane = m => { if (!tracks) return null; const i = tracks.findIn
 // without tracks
 const ours = m => !tracks || markLane(m) === focus
 // and the ends of the places takes went in there (sections), as a range marker's: what a dragged edge or a caret snaps to
-// (a marker dragged, not to where it was)
-export const ownMarks = () => [...markers.filter((m, i) => ours(m) && i !== drag?.marker).flatMap(marked), ...ownTakes().flatMap(t => [t.at, Math.min(t.end, duration)])]
-const ownTakes = () => sections.filter(t => t.lane == null || !tracks || t.lane === focus)
-// What a dragged time went onto (stick): a marker, by its name (a range's start or end), as Figma names what an object
-// snapped to, { text }; a sound's start or a hit, the takes' start, the side the sound is on, { side: 1 }; its end or
-// the takes' end, { side: -1 }; a cue a warp placed, nothing. A marker's or the takes' place, in the strip: `strip`
-export function snappedTo(q) {
-  for (const m of markers.filter(ours)) {
-    const [a, b] = marked(m), name = m.label || 'Marker'
-    if (q === a) return { text: b == null ? name : `${name} start`, strip: true }
-    if (q === b) return { text: `${name} end`, strip: true }
+// (a marker dragged, not to where it was); a band's (a track's index, null the sound's), the edited one's (ownMarks)
+export const marksOf = i => [...markers.filter((m, j) => (!tracks || markLane(m) === i) && j !== drag?.marker).flatMap(marked), ...takesOf(i).flatMap(t => [t.at, Math.min(t.end, duration)])]
+export const ownMarks = () => marksOf(tracks ? focus : null)
+const takesOf = i => sections.filter(t => t.lane == null || !tracks || t.lane === i)
+// What a time went onto (stick): a marker's place or the takes', `strip`; the side its sound is on, as a soft wash shows
+// it: after a range's start, a sound's start, a hit, the takes' start, { side: 1 }; before a range's end, a sound's end,
+// the takes' end, { side: -1 }; a moment, a cue a warp placed, none
+export function snappedTo(q, i = tracks ? focus : null) {
+  for (const m of markers.filter(m => !tracks || markLane(m) === i)) {
+    const [a, b] = marked(m)
+    if (q === a || q === b) return { side: b == null ? 0 : q === a ? 1 : -1, strip: true }
   }
-  for (const t of ownTakes()) if (q === t.at || q === Math.min(t.end, duration)) return { side: q === t.at ? 1 : -1, strip: true }
+  for (const t of takesOf(i)) if (q === t.at || q === Math.min(t.end, duration)) return { side: q === t.at ? 1 : -1, strip: true }
   const side = SIDES[cueKinds[cues?.indexOf(q) ?? -1]]
   return side ? { side } : {}
 }

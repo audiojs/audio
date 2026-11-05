@@ -158,7 +158,7 @@ test('editor: with tracks, the status bar names what the edited track holds', as
   await heard(/^C2/)
 })
 
-// The pointer on the spectrogram, held Alt (measuring), reads the level its colour stands for (gl-spectrogram pick) and
+// The pointer on the spectrogram, held ⌘ (measuring), reads the level its colour stands for (gl-spectrogram pick) and
 // marks it with a dot in the measuring red on the spectrum meter, which spans the spectrogram's own levels, its floor to
 // its top (view.js meterX): tones of amplitude 0.5 and 0.05, 20 dB apart (20 · log10(0.5 / 0.05)), marked 20/80 of
 // the meter's 40 px apart at the default 80 dB range, the louder, the loudest there is, at the top
@@ -180,9 +180,9 @@ audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
   // where the pointer's mark is, px into the meter
   const mark = async y => {
     await page.mouse.move(box.x + box.width * .4, box.y + y)
-    await page.keyboard.down('Alt')
+    await page.keyboard.down('ControlOrMeta')
     const { k, lit } = await poll(() => red(y), ({ lit }) => assert.ok(lit.length, `a mark on the meter at ${y}`))
-    await page.keyboard.up('Alt')
+    await page.keyboard.up('ControlOrMeta')
     return (lit[0] + lit.at(-1) + 1) / 2 / k
   }
   const loud = await mark(Math.round(TOP + lh * at(1000))), quiet = await mark(Math.round(TOP + lh + LANES + lh * at(4000)))
@@ -209,23 +209,23 @@ test('editor: on the spectrogram, a level under its colours\' floor reads as und
   assert.ok(!said.includes('−∞'), 'never −∞')
 })
 
-// Measuring on the spectrogram, the spectrum meter reads under the pointer: held Alt at two strikes of other notes, two
+// Measuring on the spectrogram, the spectrum meter reads under the pointer: held ⌘ at two strikes of other notes, two
 // spectra; let go, the caret's again
-test('editor: held Alt over the spectrogram, the spectrum meter reads under the pointer', async () => {
+test('editor: held ⌘ over the spectrogram, the spectrum meter reads under the pointer', async () => {
   const { box, x, y } = await chime()
   await show('spec')
   await settled()
   const g = await gutter(), meter = () => pixels(`let s = 0; for (let py = 0; py < h - 30; py++) for (let px = w - ${g} - 46; px < w - ${g} - 2; px++) { const i = (py * w + px) * 4; s += (d[i] + d[i + 1] + d[i + 2]) * (py % 7 + 1) } return s`)
   const rest = await meter()
   await page.mouse.move(x(1.5), y)
-  await page.keyboard.down('Alt')
+  await page.keyboard.down('ControlOrMeta')
   await crossed()
   await frames()
   const one = await meter()
   await page.mouse.move(x(5.5), y)
   await frames()
   const two = await meter()
-  await page.keyboard.up('Alt')
+  await page.keyboard.up('ControlOrMeta')
   assert.notEqual(one, two, 'a spectrum under each place')
   await poll(meter, m => assert.equal(m, rest, 'let go, the caret\'s'))
 })

@@ -21,7 +21,7 @@ export function paintRuler(marks, spans = [], labels = true) {
   const { w } = plot(), y = row(), { step, digits, first } = labelled(), taken = away && c === oc ? [[away.x0 - 2, away.x1 + 2]] : []
   c.textAlign = 'left'
   const shown = []
-  // held Alt, each length measured, a line along the row in the measuring red, on a pill over the middle of its span, as
+  // held ⌘ (Ctrl), each length measured, a line along the row in the measuring red, on a pill over the middle of its span, as
   // Figma draws and labels a gap it measures; the pills before all else here, the other labels giving way to them, the
   // ruler's to the line too
   const pills = spans.map(([p, q]) => {
@@ -45,7 +45,6 @@ export function paintRuler(marks, spans = [], labels = true) {
   }
   for (const [p, q] of spans) taken.push([X(p), X(q)])
   if (labels && ruler !== 'none') {
-    const words = []
     for (let i = first; i * step <= end + 1e-9; i++) {
       const t = i * step, px = X(t), text = stamp(t, digits), tw = c.measureText(text).width
       if (px + 4 + tw > w) break
@@ -53,10 +52,10 @@ export function paintRuler(marks, spans = [], labels = true) {
       if (taken.some(([a, b]) => px + tw + 8 > a && px - 4 < b)) continue
       c.fillStyle = color('--color-screen-rule')
       c.fillRect(px, tickTop(), 1, TICK)
-      if (ruler === 'labels') { c.fillStyle = color('--color-screen-line-number'); c.fillText(text, px + 4, y); words.push([px + 2, px + 6 + tw]) }
+      if (ruler === 'labels') { c.fillStyle = color('--color-screen-line-number'); c.fillText(text, px + 4, y) }
     }
     // in a band's foot, a ruler's: ticks between the labelled too, none through a time written on it
-    if (timeRow === 'band') paintTicks(tickTop(), [...words, ...taken])
+    if (timeRow === 'band') paintTicks(tickTop(), taken)
   }
   c.fillStyle = gauge()
   for (const [p, q] of spans) c.fillRect(X(p), Math.round(y), X(q) - X(p), 1)
@@ -70,15 +69,16 @@ export function paintRuler(marks, spans = [], labels = true) {
   // the playhead's, where the ruler has room for it, for its own layer to show (layHead)
   return shown.find(m => m.head) ?? null
 }
-// A band's foot as a ruler, from `top` down: a tick TICK px long (a label's line) at each round time between the
-// labelled ones, the grid's finer step (labelled's minor: a second between every 5, a tenth between every half), as
-// the grid's lines fall (render.js rule); none within `clear` ([[x0, x1], …] px: a time written there)
+// A band's foot as a ruler, from `top` down: a tick half a label's long at each round time between the labelled ones,
+// the grid's finer step (labelled's minor: a second between every 5, where a label leaves room for it), as the grid's
+// lines fall (render.js rule); none within `clear` ([[x0, x1], …] px: a time the pointer or the selection writes there)
 function paintTicks(top, clear) {
   const { w } = plot(), { minor } = labelled(), end0 = lanesEnd(lanes())
+  if (!minor) return
   c.fillStyle = color('--color-screen-rule')
   for (let i = Math.ceil(start / minor - 1e-9); i * minor <= end + 1e-9; i++) {
     const px = X(i * minor)
-    if (px >= 0 && px < Math.min(w, end0) && !clear.some(([a, b]) => px >= a && px <= b)) c.fillRect(px, top, 1, TICK)
+    if (px >= 0 && px < Math.min(w, end0) && !clear.some(([a, b]) => px >= a && px <= b)) c.fillRect(px, top, 1, TICK / 2)
   }
 }
 // The playhead's layer laid out as the overlay is: its line down the lanes, through the band alone with one selected on

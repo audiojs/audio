@@ -141,12 +141,12 @@ test('editor: the caret goes where the pointer presses; Play starts on its press
   await page.locator('.time', { hasText: /^0:02\.000$/ }).waitFor()
   await page.mouse.move(x(3), box.y + TOP + TRACK / 2, { steps: 4 })
   await page.mouse.up()
-  // the clock shows the caret (where the drag left the selection's moving end), one time always, in the units the
-  // settings choose, as the time row writes them; after it how long the selection is, in white, between bars as a length
-  // is marked; pointed at, the selection and its samples. The display above the levels still says what the sound is.
-  // The settings keep the selection
+  // the clock shows the caret (let go, at the selection's start), one time always, in the units the settings choose,
+  // as the time row writes them; after it how long the selection is, in white, between bars as a length is marked;
+  // pointed at, the selection and its samples. The display above the levels still says what the sound is. The settings
+  // keep the selection
   const length = () => page.locator('.length').innerText()
-  assert.equal(await page.locator('.time').innerText(), '0:03.000')
+  assert.equal(await page.locator('.time').innerText(), '0:02.000')
   assert.equal(await length(), '0:01.000')
   const white = await page.evaluate(() => { const i = document.body.appendChild(document.createElement('i')); i.style.color = 'var(--color-screen-bright)'; const c = getComputedStyle(i).color; i.remove(); return c })
   assert.equal(await page.locator('.length').evaluate(el => getComputedStyle(el).color), white)
@@ -155,7 +155,7 @@ test('editor: the caret goes where the pointer presses; Play starts on its press
   assert.match(await readout(), /^−/)
   // pointed at, in samples
   assert.match(await page.locator('.length').evaluate(tipOf), /^Selection\n44,100 samples$/)
-  assert.match(await page.locator('.time').evaluate(tipOf), /^Caret\nSample 132,300$/)
+  assert.match(await page.locator('.time').evaluate(tipOf), /^Caret\nSample 88,200$/)
   // the press alone plays; the release changes nothing
   const play = await page.locator('button.play').boundingBox()
   await page.mouse.move(play.x + play.width / 2, play.y + play.height / 2)
@@ -976,15 +976,15 @@ test('editor: the pointer hides while the caret sounds, and comes back', async (
   assert.notEqual(await cursor(), 'none')
 })
 
-// Handles are for editing: while it plays there are none, the caret's square past it too
+// Handles are for editing: while it plays there are none, a selection's fade corner too
 test('editor: no handles while it plays', async () => {
-  const { box, x, y } = await chime(), lh = (TRACK - LANES) / 2, at = [x(2) + 9, box.y + TOP + lh * 3 / 4]
-  await page.mouse.click(x(2), y)
+  const { box, x, y } = await chime(), at = [x(4) - 9, box.y + TOP + 9]
+  await drag([x(2), y], [x(4) - x(2), 0])
   await grab([at], 'ew-resize')
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.time').textContent !== '0:02.000')
-  await page.mouse.move(at[0] + 1, at[1])
-  assert.equal(await page.locator('.plot').evaluate(el => el.style.cursor), '')
+  // over the selection, its audio to drag, no fade there
+  await poll(async () => { await page.mouse.move(at[0] + 1, at[1]); return page.locator('.plot').evaluate(el => el.style.cursor) }, c => assert.equal(c, 'grab'))
   await page.keyboard.press('Space')
   await page.getByRole('button', { name: 'Play' }).waitFor()
 })
@@ -1025,19 +1025,20 @@ test('editor: the caret moves within a selection from the time row or the arrows
   assert.equal(await clock(), '0:03.000')
 })
 
-// While it plays, held Alt measures from the playhead, the caret moving, not from where it started: the line on the time
+// While it plays, held ⌘ measures from the playhead, the caret moving, not from where it started: the line on the time
 // row runs from the playhead to the pointer, none of it back to the caret it started from
-test('editor: held Alt while it plays, it measures from the playhead', async () => {
+test('editor: held ⌘ while it plays, it measures from the playhead', async () => {
   const { box, x, y } = await chime()
   await page.mouse.click(x(1), y)
   await page.mouse.move(x(5), y)
   await page.keyboard.press('Space')
   // the playhead, and the tick measured from on it, well past where it started
   await page.waitForFunction(() => document.querySelector('.time').textContent > '0:01.600')
-  await page.keyboard.down('Alt')
-  await crossed()
+  // (the pointer may be on a cue, ⌘'s to drag: measured all the same)
+  await page.keyboard.down('ControlOrMeta')
+  await frames()
   const [behind, ahead] = [await measuredOnRow(box, x(1) + 2, x(1.3)), await measuredOnRow(box, x(3), x(5) - 2)]
-  await page.keyboard.up('Alt')
+  await page.keyboard.up('ControlOrMeta')
   await page.keyboard.press('Space')
   assert.equal(behind, 0, 'nothing back to where it started')
   assert.ok(ahead > (x(5) - 2 - x(3)) * .6, `from the playhead to the pointer: ${ahead} px`)
@@ -1126,4 +1127,22 @@ let loud = audio.from([tone(330, .4), tone(330, .4)], { sampleRate: 48000 })`)
   await page.waitForFunction(() => /^−20\.0dBFS/.test(document.querySelector('.readout').textContent))
   await muteTrack(1)
   await page.waitForFunction(re => new RegExp(re).test(document.querySelector('.readout').textContent), both.source)
+})
+
+// With tracks, a range pressed in a track's head plays that track alone, as it is: the voice made of the tracks' mix
+// with every other muted (engine.js voice, worker.js voice), never the mix of all of them
+test('editor: with tracks, a range pressed in a track\'s head plays that track alone', async () => {
+  await page.route('**/playground/engine.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('    async voice({ held, ...what }) {', '    async voice({ held, ...what }) {\n      ;(globalThis.__voiced ??= []).push(what.muted ?? null)') }) })
+  await open()
+  await write(`let a = audio('chime.wav')\n  .mark({ at: 2, d: 2 }, 'Chorus')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:08.000')
+  await settled()
+  const { box, x } = await axis(8), [a] = await tracksAt()
+  await page.evaluate(() => globalThis.__voiced = [])
+  await page.mouse.move(x(3), a.y - HEAD / 2)
+  await page.mouse.down()
+  await poll(() => page.evaluate(() => globalThis.__voiced), voiced => assert.deepEqual(voiced.at(-1), ['b'], `heard with b muted: ${JSON.stringify(voiced)}`))
+  await page.mouse.up()
+  assert.equal(await selected(), '0:02.000–0:04.000')
 })

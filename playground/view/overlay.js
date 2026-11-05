@@ -1,14 +1,14 @@
 import { CURVES } from '../ops.js'
 import { lightness } from '../tint.js'
 import { ownMarks, snappedTo, SIDES, unwritten } from './data.js'
-import { frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, hotBand, pointedBand, plot, merged, spare, lanes, extent, own, laneAt, rowBand, MAP, veils, placeFrozen, roomLane } from './geometry.js'
+import { frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, hotBand, pointedBand, plot, merged, spare, lanes, extent, own, rowBand, MAP, veils, placeFrozen, roomLane } from './geometry.js'
 import { ONTO, INSET, FOOT, midiOf, noteOf, STRETCH, TICK, root, hint, timeRow, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, LEVEL_STEP, picked, tracks, focus, allLanes, scroll, noted, held, assign } from './model.js'
 import { pitchRange, semis, pitchSays, intonationSays, median, pitched, clampY, paintGuide, BLACK, paintRoll, paintLine, bent, toneAt, paintContour } from './notes.js'
-import { drag, touch, hot } from './pointer.js'
+import { drag, touch, hot, opening } from './pointer.js'
 import { decibels, drawn, W, H, dpr, half, invalidate, tape, rolled, onTape, running, wash, caretColour, rgba, shades } from './render.js'
 import { paintRuler, layHead, awayOf, onAway, paintAway, THICK, paintBar, barLight } from './ruler.js'
-import { gutter, onBar, X, time, free, snapF, seen, stick, stuck, pitchLine, inside, fy, yf, rowOf, keyY, keyRows, ay, ampLanes, pitchLanes, ticks, beside, hzMarks, noteMarks, levelMarks, reads, decibel, level, measured, probe, setRange } from './scales.js'
-import { paintMeasure, waveAt, placeFades, placeLook, paintRoom, paintLift, tag, accent, gauge, size, label, paintSelection, highlight, paintEdge, stamp, dragged, editing, paintCues, paintMarkers, heads, stripped, stripAt, paintStrips, naming, paintOvers } from './strips.js'
+import { gutter, onBar, X, time, free, snapF, seen, stick, stuck, pitchLine, inside, fy, yf, rowOf, keyY, keyRows, ay, ampLanes, pitchLanes, ticks, beside, hzMarks, noteMarks, levelMarks, levelTicks, reads, decibel, level, measured, probe, setRange } from './scales.js'
+import { paintMeasure, waveAt, ghostOf, placeFades, placeLook, paintRoom, paintLift, tag, accent, gauge, size, label, paintSelection, highlight, paintEdge, stamp, dragged, editing, paintCues, paintMarkers, heads, stripped, stripAt, paintStrips, naming, paintOvers } from './strips.js'
 
 // The overlay, over the reel: the axes, the pointer's readouts, what is measured; on the reel, the marks drawn in time
 // (markers, cues, carets, a range's edges) and its handles; the meters and the keys by the lanes' end
@@ -71,11 +71,12 @@ function scene(L) {
   // one's), the labels there giving way to it; its level or frequency by its lane
   const at = hovered && hovered[0] >= 0 && hovered[0] <= w && !drag?.scroll && !onBar(...hovered) && !onAway(...hovered) ? hovered : null, lane = at && all.find(r => inside(r, ...at))
   // (past the end too, where nothing is yet: the time there all the same)
-  const pointed = at && (drag?.span ? drag.p : drag?.stretch ? drag.to : drag?.hear ?? stuck(free(time(at[0]))))
-  // held Alt over the picture, as Figma's: every cue, where a press would snap (the caret held, an edge or a range's
-  // end, dragged, where it would), and how far the pointer is from what is selected, or from the caret (measured); held
-  // ⌘ (Ctrl), the cue under the pointer alone (paintCues)
-  const aiming = !!hovered && (!drag || dragged() != null) && !!held.altKey, measure = !!hovered && !drag && held.altKey && lane ? measured(pointed) : null
+  // (where a press puts the caret: its ghost, ghostOf, on what it is by)
+  const pointed = at && (drag?.span ? drag.p : drag?.stretch ? drag.to : drag?.hear ?? (ghostOf()?.t ?? stuck(free(time(at[0])))))
+  // held ⌘ (Ctrl) over the picture, aiming, as Figma's Alt measures: every cue, where a press would snap (the caret
+  // held, an edge or a range's end, dragged, where it would), the one under the pointer a press takes, and how far the
+  // pointer is from what is selected, or from the caret (measured)
+  const aiming = !!hovered && (!drag || dragged() != null) && editing(held), measure = !!hovered && !drag && editing(held) && lane ? measured(pointed) : null
   probe(measure && L.spec.includes(lane) && playhead == null ? pointed : null)
   // the times a drag's edges are at, or the caret dragged: the cues and markers they sit on light
   const lit = drag?.caret ? [cursor] : drag?.anchor != null || drag?.carry || drag?.stretch ? sel || [] : drag?.span || []
@@ -135,7 +136,9 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
   // own layer's); a file held over the picture, where it goes in; an end measured from in the measuring red
   const caret = color('--color-screen-caret'), bright = color('--color-screen-bright'), here = caretColour()
   const litEdge = drag?.resizing && sel ? sel[sel[0] === drag.anchor ? 1 : 0] : !drag && hot ? hot.t : null
-  const edges = sel && !drag?.span ? sel.map((t, edge) => ({ t, fill: t === litEdge ? bright : caret, edge, of: sel })) : []
+  // (the selection's on the edited band's row alone, or every band's through every lane: another's says nothing of it)
+  const ours = !tracks || allLanes || rowBand(L)?.i === focus
+  const edges = sel && !drag?.span && ours ? sel.map((t, edge) => ({ t, fill: t === litEdge ? bright : caret, edge, of: sel })) : []
   const apart = t => !edges.some(m => X(m.t) === X(t))
   onRow(() => paintRuler([
     ...(at && apart(pointed) ? [{ t: pointed, fill: drag ? bright : caret }] : []),
@@ -180,11 +183,11 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
   // for all that is there (a cue within ONTO px of a marker, as stick has it, with it). A cue there, where the line
   // meets the waveform in each lane, at the waveform's top and foot
   // (a sound's start, where it rises from nothing, one on the centre line), a lane with no waveform at its top and
-  // foot; a marker or the takes' place, centred on the lanes' edge, at its triangle's point, a marker's name by
-  // it. To the side the sound it went onto is, a faint wash fading from it
+  // foot; a marker or the takes' place, centred on the lanes' edge, its name lit in the head (paintStrips). To the
+  // side the sound it went onto is, a faint wash fading from it
   const onto = dragged(), stuckTo = onto != null && stick(onto)
   if (stuckTo?.d < .5) {
-    const rects = (allLanes ? L : T).all, px = X(onto), here = t => Math.abs(X(t) - px) < 1, { text, side } = snappedTo(stuckTo.t)
+    const rects = (allLanes ? L : T).all, px = X(onto), here = t => Math.abs(X(t) - px) < 1, { side } = snappedTo(stuckTo.t)
     const cue = seen().find(i => Math.abs(X(cues[i]) - px) <= ONTO), foot = ownMarks().some(here) ? heads(L).find(s => s.i === (tracks ? focus : null))?.edge : null
     // a clip's cross alike (paintOvers): a line a pixel wide, on pixels' middles
     c.strokeStyle = accent()
@@ -195,14 +198,7 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
       for (const py of low ? [top.y, low.y] : [y + 3, y + lh - 3]) crossAt(px + .5, Math.round(py) + .5)
     }
     washFrom(px, cue != null ? SIDES[cueKinds[cue]] : side, rects, WASHED)
-    if (text && foot != null) say(text, px + 8, foot - 12)
   }
-}
-// a small triangle, 7 px across, its base on y, pointing down (`dir` 1) or up, in the fill's colour
-export function triangleAt(px, py, dir) {
-  c.beginPath()
-  c.moveTo(px - 3.5, py); c.lineTo(px + 3.5, py); c.lineTo(px, py + dir * 5)
-  c.fill()
 }
 // to the side the sound is of a line at `px` (`side`: 1 after it, -1 before, none: no wash), a wash of the accent
 // fading from `a` to nothing WASH px off, a pixel clear of the line, so the line is its own colour whole. Each
@@ -263,27 +259,30 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
     paintRoom(L, at)
     endLanes(L)
     paintLift(!drag && at)
-    // held Alt, the pointer's guides out to the axes, at once, wherever it is over a lane: with what it measures, or on
+    // held ⌘, the pointer's guides out to the axes, at once, wherever it is over a lane: with what it measures, or on
     // the caret with nothing to; and as a drag sets a time, the caret held, an edge, a range Shift goes on with
-    const guide = measure ?? (at && held.altKey ? dragged() != null ? { t: dragged() } : li >= 0 ? { t: pointed } : null : null)
-    // over a waveform, the level read is the waveform's at the pointer's time (or what it measures to), not the
-    // pointer's height (waveAt), as Alt's guides take it; held ⌘ or Ctrl, aiming, the pointer's own
-    const read = lane && !editing(held) && !held.ctrlKey ? waveAt(lane, guide?.t ?? time(at[0]), at[1]) : null
-    if (guide) paintMeasure(guide, read?.y ?? at[1], T.all, read)
-    // a selection's edge under the pointer says which it is and where
+    const guide = measure ?? (at && editing(held) ? dragged() != null ? { t: dragged() } : li >= 0 ? { t: pointed } : null : null)
+    // over a waveform, the level read is the waveform's at the pointer's time (waveAt); held ⌘ or Ctrl, aiming, the
+    // pointer's own, where its guide runs across
+    const read = lane && !editing(held) && !held.ctrlKey ? waveAt(lane, time(at[0]), at[1]) : null
+    if (guide) paintMeasure(guide, at[1], T.all)
+    // a selection's edge under the pointer says which it is and where, held Alt its end what it does; a caret's line
+    // held Alt, that silence opens there
     if (at && lane && hot && !drag) {
-      const { t, edge } = hot, text = `${!edge ? 'Start' : editing(held) ? `${gripName('stretch')}, end` : 'End'} ${stamp(t)}`, ex = X(t)
+      const { t, edge } = hot, text = `${!edge ? 'Start' : held.altKey ? `${gripName('stretch')}, end` : 'End'} ${stamp(t)}`, ex = X(t)
       say(text, edge ? ex - 6 : ex + 6, clampY(lane, at[1]), edge ? 'right' : 'left')
     }
+    if (at && lane && opening && !drag) say(`Insert silence at ${stamp(cursor)}`, X(cursor) + 6, clampY(lane, at[1]))
     // right axis: levels by the waveform, frequencies by the spectrogram (or the voice range for pitch), each label
     // under its tick
     c.textAlign = 'left'
-    const near = rect => rect === lane ? Math.round(at[1]) : null
+    // the labels give way to the value read where it is written: at the waveform's level read, else the pointer's
+    const near = rect => rect === lane ? Math.round(read?.y ?? at[1]) : null
     // with tracks, the levels of the band pointed at (its head and foot too, as its time row is), else of the edited
     // one: one scale in sight, not every lane's
     // ('band') with none pointed at, none at all, the picture a player's then, as the time row is (rowBand)
     const bands = timeRow !== 'band' ? all : pointedBand < 0 ? [] : tracks ? [all[pointedBand]] : all
-    for (const rect of tracks || timeRow === 'band' ? bands.filter(r => r.kind === 'wave') : L.wave) ticks(rect, levelMarks(rect), near(rect))
+    for (const rect of tracks || timeRow === 'band' ? bands.filter(r => r.kind === 'wave') : L.wave) ticks(rect, levelMarks(rect), near(rect), levelTicks(rect))
     for (const rect of bands.filter(r => r.kind === 'spec')) ticks(rect, hzMarks(rect), near(rect))
     for (const rect of bands.filter(r => r.kind === 'notes')) ticks(rect, noteMarks(rect), near(rect))
     // the pointer's values; what a drag does, in a few words by it
@@ -362,8 +361,8 @@ function endLanes(L) {
 // A time range's handles, each clicked or dragged to do one thing, where the range is wide enough for them: in its top
 // corners the fade each makes, a small square with the fade's curve in it as the fade menu draws it; the pill on its
 // top edge its level; inside its foot, flush with it, side by side from its middle, where its notes show, the tools of
-// a voice in it (TOOLS): its intonation, its formants (its pitch the notes dragged), no fades there; its length from ⌘ at its end. With several ranges, the one under the pointer has them. With none, at the caret (the one under the pointer),
-// a square pulls silence open. [kind, x, y] each, a square's x and y its centre; a fade being dragged stays under the
+// a voice in it (TOOLS): its intonation, its formants (its pitch the notes dragged), no fades there; its length from Alt at its end. With several ranges, the one under the pointer has them.
+// [kind, x, y] each, a square's x and y its centre; a fade being dragged stays under the
 // pointer, where it reaches. Shown with the pointer on or by the range or the caret, none for one it is away from; to
 // a touch or a pen, which may have no pointer to bring near (`touch`, the last press's or move's, at first the
 // screen's), always.
@@ -382,21 +381,12 @@ function grips(L) {
   // each square on whole pixels, so crisp at any pixel ratio, notched: flush with the top and with the edge it sits by,
   // never over the caret's line (a pixel wide: on a range's start, its first; on its end, the one after its last, where
   // a drag leaves it); a range's end, its last pixel, lit only as it would move, then drawn over the square (paintEdge)
-  // in each lane, in the middle of its lower half: off the centre line, where the sound is, and away from the fades at
-  // the top; low, as others stretch from low (Audacity's clip handles: the top pair trims, the lower pair, a clock on
-  // it, sets the speed; Cubase and Nuendo stretch from an event's lower corners). By the square's left
-  const lower = left => all.map(([, y, , lh]) => [left + h, Math.round(y + lh * 3 / 4)])
   const [a, b] = handled() ?? []
   // none while a name is written in place: the field's, nothing over it
   if (a == null || naming || band || playhead != null || frozen.length || drag?.carry || drag?.stretch || drag?.lift || drag?.pill) return []
   const xa = X(a), xb = X(b), out = []
-  // a caret: silence to pull open where the grip would be, a stretch of nothing; at the end, where there is no room
-  // past it, before it
-  if (a === b) {
-    const at = X(drag?.gap ? drag.to : a), left = at + 1 + BOX <= lanesEnd(L) ? at + 1 : at - BOX
-    return duration && (!drag || drag.gap) && at >= 0 && at < lanesEnd(L) && left >= 0 ? lower(left).map(p => ['gap', ...p]) : []
-  }
-  if (drag && !drag.fade) return []
+  // a caret has none: silence opens at it held Alt (gapDown)
+  if (a === b || drag && !drag.fade) return []
   // a voice's own tools only where its notes show (all the lanes notes'), its pitch there the notes themselves, dragged:
   // its intonation and formants, no fades; over a waveform or a spectrogram, its fades and level alone
   const fade = kind => drag?.fade === kind && drag.span ? X(drag.p) : kind === 'in' ? xa : xb, voiced = L.notes.length === all.length
@@ -414,12 +404,12 @@ export const gripAt = (L, px, py) => grips(L).find(([k, gx, gy]) => { const [x0,
 // what each does, as its way is now (a click on it turns it to the next)
 const CURVE_WORDS = { linear: 'linear', exp: 'exponential', log: 'logarithmic', cos: 'S-curve' }
 // the pill's level in steps; the pitch in semitones, from the note the range has where the pitch curve has one
-const gripName = kind => ({ in: `Fade in, ${CURVE_WORDS[fadeCurve]}`, out: `Fade out, ${CURVE_WORDS[fadeCurve]}`, level: `Level, by ${LEVEL_STEP}dB`, intonation: 'Intonation, wider or flatter', formant: 'Formants, by cents', stretch: { trim: 'Trim', stretch: 'Stretch', speed: 'Speed' }[gripMode], gap: 'Insert silence' })[kind]
+const gripName = kind => ({ in: `Fade in, ${CURVE_WORDS[fadeCurve]}`, out: `Fade out, ${CURVE_WORDS[fadeCurve]}`, level: `Level, by ${LEVEL_STEP}dB`, intonation: 'Intonation, wider or flatter', formant: 'Formants, by cents', stretch: { trim: 'Trim', stretch: 'Stretch', speed: 'Speed' }[gripMode] })[kind]
 export const gripPointer = kind => kind === 'level' || TOOLS.includes(kind) ? 'ns-resize' : kind === 'stretch' && gripMode !== 'trim' ? STRETCH : 'ew-resize'
 // Dark squares with no rim, each glyph in its own, soft lines on the screen's colour so they show over the waveform;
 // the one under the pointer, or dragged, bright, and it says what it does
 function paintGrips(L, at) {
-  const list = grips(L), under = at && !drag && gripAt(L, ...at), busy = drag?.fade ?? (drag?.lift ? 'level' : drag?.gap ? 'gap' : null)
+  const list = grips(L), under = at && !drag && gripAt(L, ...at), busy = drag?.fade ?? (drag?.lift ? 'level' : null)
   const [top, bottom] = extent(L.all), h = BOX / 2
   c.lineCap = c.lineJoin = 'round'
   for (const [kind, gx, gy] of list) {
@@ -435,8 +425,6 @@ function paintGrips(L, at) {
     // the tools: pitch an arrow up and down; intonation a wave widening; formants two peaks of an envelope
     else if (kind === 'intonation') for (let i = 0; i <= 12; i++) c.lineTo(gx - 6 + i, gy - (1 + 4 * i / 12) * Math.sin(Math.PI * i / 3))
     else if (kind === 'formant') { c.moveTo(gx - 6, gy + 4); c.quadraticCurveTo(gx - 3, gy - 6, gx, gy + 4); c.quadraticCurveTo(gx + 3, gy - 6, gx + 6, gy + 4) }
-    // silence opened at a caret: a bar where it is, an arrow out of it, |→, the time pushed on
-    else if (kind === 'gap') { c.moveTo(gx - 5, gy - 5); c.lineTo(gx - 5, gy + 5); c.moveTo(gx - 5, gy); c.lineTo(gx + 5, gy); c.moveTo(gx + 2, gy - 3); c.lineTo(gx + 5, gy); c.lineTo(gx + 2, gy + 3) }
     if (!boxed) { c.strokeStyle = color('--color-screen'); c.lineWidth = kind === 'level' ? 5 : 3.5; c.stroke() }
     c.strokeStyle = lit
     c.lineWidth = kind === 'level' ? 2.5 : 1.5
@@ -465,11 +453,11 @@ export const SPACE = 6, meterAt = w => plot().w + 1 - SPACE - w
 export const metered = L => Math.max(L.spectral && show.spectrum ? METER : 0, L.notes.length && show.keys ? KEYS : 0, L.wave.length && show.meters ? 3 : 0)
 const meterX = (left, v, [lo, hi] = decibels ?? [-90, 0]) => left + Math.max(0, Math.min(1, (v - lo) / (hi - lo))) * METER
 function paintMeters(L) {
-  const bar = meterAt(metered(L)), pointed = hovered ? laneAt(L, hovered[1]) : -1
+  // with tracks, the band pointed at (its head and foot too, as the axis has it), else the edited one's
+  const bar = meterAt(metered(L)), shown = rect => !tracks || rect.i === (pointedBand >= 0 ? pointedBand : focus)
   for (const rect of show.keys ? L.notes : []) paintKeys(rect, bar)
   if (show.meters && meters) L.wave.forEach(rect => {
-    // with tracks, the one pointed at, else the edited one, as the levels' axis
-    if (tracks && rect.i !== (pointed >= 0 ? pointed : focus)) return
+    if (!shown(rect)) return
     // in one lane, the loudest channel's
     const m = merged() ? meters.levels?.reduce((p, q) => q.peak > p.peak ? q : p) : meters.levels?.[rect.i] ?? meters.levels?.[0]
     if (!m) return
@@ -491,7 +479,7 @@ function paintMeters(L) {
   if (!L.spec.length || !show.spectrum) return
   const bins = meters?.spectra, size = meters?.size, left = bar
   if (!bins) return
-  L.spec.forEach(rect => {
+  L.spec.filter(shown).forEach(rect => {
     const db = bins[rect.i] ?? bins[0], [, y, , lh] = rect, outline = new Path2D()
     outline.moveTo(left, y + lh)
     for (let py = y + lh; py >= y; py -= 2) {

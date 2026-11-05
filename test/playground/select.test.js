@@ -4,10 +4,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { TRACK, TOP, page, code, readout, tipOf, wholeLevels, seconds, open, settled, frames, poll, menuRow, settings, selected, menu, noCues, write, tall, gutter, spans, axis, grab, boxDrag, drag, lengthIs, hits, handles, pixels, show, shown, bursts, struck, keyed, chime, marked, pointed, measuredOnRow, crossed } from './page.js'
 
-// The caret is where a drag leaves the selection's moving end, as a text's: dragged either way, the end let go; the
-// clock reads it, and once the selection is gone it stays there; Play still plays the selection from its start.
-// Double-clicked, at its start
-test('editor: the caret is where a drag left the selection\'s moving end; double-clicked, at its start', async () => {
+// A selection let go puts the caret at its start, however it was dragged (as it goes, at the end it moves, heard
+// there): the clock reads where the selection starts, as Play plays it from, and once the selection is gone it stays
+// there. Double-clicked, and Shift-clicked out further, at its start too
+test('editor: a selection let go puts the caret at its start, wherever the drag went; double-clicked too', async () => {
   await open()
   await noCues()
   const before = await seconds(), { box, x } = await axis(before), clock = () => page.locator('.time').innerText()
@@ -17,8 +17,8 @@ test('editor: the caret is where a drag left the selection\'s moving end; double
     await page.mouse.down()
     await page.mouse.move(x(before * to), box.y + TOP + 120, { steps: 5 })
     await page.mouse.up()
-    const [start, end] = (await selected()).split('–'), head = to > from ? end : start
-    assert.equal(await clock(), head, `dragged ${from} → ${to}: the caret at ${head}`)
+    const [head] = (await selected()).split('–')
+    assert.equal(await clock(), head, `dragged ${from} → ${to}: the caret at its start, ${head}`)
     await page.keyboard.press('Escape')
     assert.equal(await selected(), '')
     assert.equal(await clock(), head, 'the selection gone, the caret stays')
@@ -27,35 +27,35 @@ test('editor: the caret is where a drag left the selection\'s moving end; double
   const [start, end] = (await selected()).split('–')
   assert.ok(end, 'a double-click selects')
   assert.equal(await clock(), start, 'double-clicked: the caret at the start')
-  // Shift and a click further on: out to it, the caret there
+  // Shift and a click further on: out to it, the caret at its start again
   await page.keyboard.down('Shift')
   await page.mouse.click(x(before * .8), box.y + TOP + 100)
   await page.keyboard.up('Shift')
-  const [, to] = (await selected()).split('–')
-  assert.equal(await clock(), to, 'Shift-clicked: the caret at the end it moved')
+  const [from] = (await selected()).split('–')
+  assert.equal(await clock(), from, 'Shift-clicked: the caret at its start')
 })
 
-// Cues stay out of sight, a forest over the sound otherwise: held Alt, every one, faint, as Figma shows what there is to
-// snap to; held ⌘ (Ctrl), only the one under the pointer, the one a press would take; away from them, none. Lit lines
-// are orange runs along a row 4 px under the lanes' top.
-test('editor: held Alt, every cue shows; held ⌘, only the one under the pointer', async () => {
+// Cues stay out of sight, a forest over the sound otherwise: held ⌘ (Ctrl), aiming, every one, faint, as Figma shows
+// what there is to snap to, the one under the pointer a press would take among them; held Alt, none. Lit lines are
+// orange runs along a row 4 px under the lanes' top.
+test('editor: held ⌘, every cue shows, the one under the pointer among them; held Alt, none', async () => {
   await open()
   await write(hits)
   await lengthIs('0:02.000')
   const { box, x } = await axis(2), y = box.y + TOP + 40
-  const lit = async () => pixels(`let n = 0, run = false; for (let x = 0; x < w - ${await gutter()}; x++) { const i = (${TOP + 4} * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) n++; run = on } return n`)
+  const lit = async () => pixels(`let n = 0, run = false; for (let x = 0; x < w - ${await gutter()}; x++) { const i = (${TOP + 4} * w + x) * 4, on = d[i] - d[i + 2] > 40; if (on && !run) n++; run = on } return n`)
   const w = await spans(box)
   const cue = await poll(async () => (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02), cue => assert.equal(cue.length, 1), 8000)
   assert.equal(await lit(), 0, 'none shown')
   await page.mouse.move(x(.75), y)
   await page.keyboard.down('Alt')
-  const all = await lit()
+  assert.equal(await lit(), 0, 'held Alt: none')
   await page.keyboard.up('Alt')
-  assert.ok(all >= 3, `held Alt: every one, ${all}`)
   await page.keyboard.down('ControlOrMeta')
-  assert.equal(await lit(), 0, 'held ⌘ away from them: none')
+  const all = await lit()
+  assert.ok(all >= 3, `held ⌘: every one, ${all}`)
   await page.mouse.move(x(cue[0]) + 1, y)
-  assert.equal(await lit(), 1, 'the one under the pointer')
+  assert.equal(await lit(), all, 'the one under the pointer among them')
   await page.keyboard.up('ControlOrMeta')
 })
 
@@ -65,33 +65,32 @@ test('editor: zoomed out, only the plainer cues show, none within 24 px of anoth
   await open()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t) * Math.exp(-(t % 0.1) * 60) * (1 + (Math.floor(t / 0.1) % 5 === 0)), { duration: 60 })`)
   await lengthIs('1:00.000')
-  // the cues drawn, held Alt, across the lanes (the meter after them left out), the pointer's own line at 30 px too, and
-  // what it measures there (the strikes past full scale: a triangle at the lane's top, 7 px across)
+  // the cues drawn, held ⌘, across the lanes (the meter after them left out), the pointer's own line at 30 px too
   const box = await page.locator('.plot').boundingBox(), y = box.y + TOP + 40
   const runs = async () => (await pixels(`const out = []; let run = false; for (let x = 0; x < ${await spans(box)}; x++) { const i = (${TOP + 4} * w + x) * 4, on = d[i] - d[i + 2] > 40; if (on && !run) out.push(x); run = on } return out`)).filter(x => Math.abs(x - 30) > 5)
   await page.mouse.move(box.x + 30, y)
   const g = await gutter()
-  await page.keyboard.down('Alt')
+  await page.keyboard.down('ControlOrMeta')
   // a minute's cues found on a slow runner in half a minute or so
   await poll(runs, shown => {
     const apart = Math.min(...shown.slice(1).map((x, i) => x - shown[i]))
     assert.ok(shown.length > 20 && shown.length < (box.width - g) / 24 + 2, `${shown.length} shown across ${Math.round(box.width)} px`)
     assert.ok(apart >= 23, `the closest ${apart} px apart`)
   }, 60000)
-  await page.keyboard.up('Alt')
+  await page.keyboard.up('ControlOrMeta')
   // zoomed in five halvings, under 2 s across: each of its 18 or so strikes, tens of px apart
   await page.locator('.plot').focus()
   for (let i = 0; i < 5; i++) await page.keyboard.press('=')
   await page.mouse.move(box.x + 30, y)
-  await page.keyboard.down('Alt')
+  await page.keyboard.down('ControlOrMeta')
   await poll(runs, near => assert.ok(near.length >= 15, `zoomed in: ${near.length}`))
-  await page.keyboard.up('Alt')
+  await page.keyboard.up('ControlOrMeta')
 })
 
-// Held Alt, a press held still is the caret's all the same, dragged and heard, no caret added, every cue showing as Alt
-// shows them while it goes; without Alt, the caret dragged onto a cue keeps its colour, a small triangle in the cues'
+// Held Alt, a press held still is the caret's all the same, dragged and heard, no caret added, the cues either side
+// showing as it goes; without Alt, the caret dragged onto a cue keeps its colour, a small triangle in the cues'
 // colour at its top and its foot marking the snap
-test('editor: held Alt, a press held takes the caret along, the cues showing; onto a cue, a cross where it meets the waveform', async () => {
+test('editor: held Alt, a press held takes the caret along, no caret added; onto a cue, a cross where it meets the waveform', async () => {
   await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
   await open()
   await write(hits)
@@ -110,7 +109,7 @@ test('editor: held Alt, a press held takes the caret along, the cues showing; on
   const shown = await lit()
   await page.mouse.up()
   await page.keyboard.up('Alt')
-  assert.ok(shown.length >= 3, `held Alt, the caret dragged: every cue, ${shown}`)
+  assert.ok(shown.length >= 2, `held Alt, the caret dragged: the cues either side, ${shown}`)
   assert.equal(await selected(), '', 'nothing selected')
   assert.ok(Math.abs(await clock() - 1.25) < .03, `the caret where it was let go: ${await clock()}`)
   assert.equal(await page.evaluate(() => __view.carets.length), 1, 'no caret added')
@@ -155,7 +154,7 @@ test('editor: a range begun by a cue starts on it; its end dragged onto one, the
 // to, a cross over its triangle in the strip; a cue, nothing said, a faint wash fading from it to the side its sound is
 // on (here a tone struck every half second, gone quiet between: each strike where a sound starts, after it; where it has
 // faded under the pauses' level, before)
-test('editor: a caret dragged onto a cue or a marker says what it went onto', async () => {
+test('editor: a caret dragged onto a cue or a marker shows what side its sound is on, no words', async () => {
   await open()
   await write(hits + `\n  .mark(0.75, 'Intro')\n  .mark({ at: 1.6, d: 0.2 }, 'Coda')`)
   await lengthIs('0:02.000')
@@ -168,16 +167,17 @@ test('editor: a caret dragged onto a cue or a marker says what it went onto', as
   // the cues' colour by the line, its own column left out, in the 7 px square about the lanes' top, at the point of the
   // marker's triangle in the head over them
   const crossed = t => pixels(`let n = 0; for (let y = arg.y - 3; y <= arg.y + 3; y++) for (let x = arg.px - 3; x <= arg.px + 3; x++) { const i = (y * w + x) * 4; if (x !== arg.px && d[i] - d[i + 2] > 30) n++ } return n`, { px: Math.round(x(t) - box.x), y: TOP - 1 })
-  for (const [t, words, wash] of [[start, '', [false, true]], [end, '', [true, false]], [.75, 'Intro'], [1.8, 'Coda end']]) {
+  // (no words: the wash says where the sound is, the marker's name lit in its head)
+  for (const [t, wash, mark] of [[start, [false, true]], [end, [true, false]], [.75, null, true], [1.8, [true, false], true]]) {
     await page.mouse.move(x(.25), y)
     await page.mouse.down()
     // held, the press is the caret's: dragged, it goes along
     await page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'ew-resize')
     await page.mouse.move(x(t) + 1, y, { steps: 6 })
     await frames()
-    await poll(said, s => assert.equal(s, words, `onto ${t}`))
+    await poll(said, s => assert.equal(s, '', `onto ${t}`))
     if (wash) await poll(() => washed(t), w => assert.deepEqual(w, wash, `onto ${t}, the wash on the sound's side`))
-    if (words) await poll(() => crossed(t), n => assert.ok(n >= 4, `onto ${t}, a cross at the lanes' top, at its triangle's point: ${n}`))
+    if (mark) await poll(() => crossed(t), n => assert.ok(n >= 4, `onto ${t}, a cross at the lanes' top, at its triangle's point: ${n}`))
     await page.mouse.up()
   }
   // let go and moved off it, nothing said
@@ -207,9 +207,8 @@ test('editor: a caret dragged onto a marker by a cue snaps once, a cross at each
 })
 
 // A drag that snaps shows where it would: the caret held and dragged, or a range's edge, the cues either side of it
-// faint; held Alt, every one, the edge's drag too; pressed with Alt on a range's edge, the edge, as the caret held with
-// Alt is the caret, no range added
-test('editor: dragged, the caret or an edge shows the cues either side of it; with Alt every one, an edge pressed with Alt its own', async () => {
+// faint; held ⌘, every one, the edge's drag too, aimed; pressed with ⌘ on a range's edge, the edge, no range added
+test('editor: dragged, the caret or an edge shows the cues either side of it; with ⌘ every one, an edge pressed with ⌘ its own, aimed', async () => {
   await open()
   await write(hits)
   await lengthIs('0:02.000')
@@ -226,17 +225,17 @@ test('editor: dragged, the caret or an edge shows the cues either side of it; wi
   await page.mouse.up()
   const near = (px, t) => Math.abs(px - (x(t) - box.x)) < 2
   assert.ok(beside.length === 2 && near(beside[0], before) && near(beside[1], after), `the cues either side, at ${before} and ${after} s: ${beside}`)
-  // a range's edge pressed with Alt, dragged: the edge's own drag, every cue showing
+  // a range's edge pressed with ⌘, dragged: the edge's own drag, a quarter as far, every cue showing
   await drag([x(.6), y], [x(1.2) - x(.6), 0])
-  await page.keyboard.down('Alt')
+  await page.keyboard.down('ControlOrMeta')
   await page.mouse.move(x(1.2), y)
   await page.mouse.down()
   await page.mouse.move(x(1.4), y, { steps: 4 })
   const all = await lit()
   await page.mouse.up()
-  await page.keyboard.up('Alt')
-  assert.ok(all.length >= 5, `held Alt, every cue: ${all}`)
-  assert.match(await selected(), /^0:00\.\d+–0:01\.[34]\d+$/, 'its end dragged, no range added')
+  await page.keyboard.up('ControlOrMeta')
+  assert.ok(all.length >= 5, `held ⌘, every cue: ${all}`)
+  assert.match(await selected(), /^0:00\.\d+–0:01\.2\d+$/, 'its end dragged, aimed, no range added')
 })
 
 // Shift and a double-click extend what is selected to the fragment clicked, as Shift and a double-click extend a text's
@@ -273,8 +272,8 @@ test('editor: Shift and a double-click extend the selection to the fragment; Shi
   assert.ok(beside.length === 2 && edge(.9) && edge(1.5), `the cues either side of 1.2 s, where the pause before is: ${beside}`)
 })
 
-// Dragged, what it would snap to shows either side of it, a marker's line among the cues; held Alt, a marker's too
-test('editor: dragged, a marker shows as a snap line with the cues; held Alt, every marker\'s too', async () => {
+// Dragged, what it would snap to shows either side of it, a marker's line among the cues; held ⌘, a marker's too
+test('editor: dragged, a marker shows as a snap line with the cues; held ⌘, every marker\'s too', async () => {
   await open()
   await write(hits + `.mark(0.7, 'M')`)
   await lengthIs('0:02.000')
@@ -290,16 +289,16 @@ test('editor: dragged, a marker shows as a snap line with the cues; held Alt, ev
   const beside = await lit()
   await page.mouse.up()
   assert.ok(beside.some(at(.7)), `the marker's line either side: ${beside}`)
-  // plain hovered away from it, past the sound's middle: held Alt, every cue, the marker among them
+  // plain hovered away from it, past the sound's middle: held ⌘, every cue, the marker among them
   await page.mouse.move(x(1.6), y)
-  await page.keyboard.down('Alt')
+  await page.keyboard.down('ControlOrMeta')
   const all = await lit()
-  await page.keyboard.up('Alt')
-  assert.ok(all.some(at(.7)) && all.length >= 4, `held Alt, the marker too: ${all}`)
+  await page.keyboard.up('ControlOrMeta')
+  assert.ok(all.some(at(.7)) && all.length >= 4, `held ⌘, the marker too: ${all}`)
 })
 
 // Where they crowd, a chunk's edge shows before an onset by it however much plainer the onset (the ui config's cues,
-// 'chunks' by default): a phrase's start at 1 s, a strike 20 ms on, 12 px apart, ranked ten times its; held Alt, the start
+// 'chunks' by default): a phrase's start at 1 s, a strike 20 ms on, 12 px apart, ranked ten times its; held ⌘, the start
 test('editor: where cues crowd, where a sound starts shows before an onset by it', async () => {
   await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
   await open()
@@ -310,9 +309,9 @@ test('editor: where cues crowd, where a sound starts shows before an onset by it
   await page.evaluate(() => { __view.cues = [{ t: 1, kind: 'start', rank: 1 }, { t: 1.02, kind: 'hit', rank: 10 }] })
   const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (${TOP + 4} * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
   await page.mouse.move(box.x + 30, box.y + TOP + 40)
-  await page.keyboard.down('Alt')
+  await page.keyboard.down('ControlOrMeta')
   const shown = await lit()
-  await page.keyboard.up('Alt')
+  await page.keyboard.up('ControlOrMeta')
   const at = t => shown.some(px => Math.abs(px - (x(t) - box.x)) < 2)
   assert.ok(at(1) && !at(1.02), `the start, not the strike by it: ${shown}`)
 })
@@ -491,11 +490,10 @@ test('editor: inside a selection the caret drags, the selection kept; on the sel
   await drag(2, 2.5)
   assert.ok(Math.abs(await caret() - 2.5) < .06, `caret dragged to 2.5s: ${await caret()}`)
   assert.equal(await selected(), range)
-  // the range's end, the caret on it once a range is made again (where the drag left it): the edge's, the range longer,
-  // no caret dragged off it
+  // the range's end, made again, dragged: the edge's, the range longer
   await page.mouse.click(x(5), lane)
   await drag(1, 3)
-  const made = await selected(), end = await caret()
+  const made = await selected(), end = made.split('–')[1].split(':').reduce((m, s) => m * 60 + +s, 0)
   await drag(end, end + .4)
   const [a, b] = (await selected()).split('–'), at = t => t.split(':').reduce((m, s) => m * 60 + +s, 0)
   assert.ok(Math.abs(at(b) - end - .4) < .06 && at(a) === at(made.split('–')[0]), `the end dragged: ${made} → ${a}–${b}`)
@@ -629,10 +627,10 @@ test('editor: a selection\'s dragged edge snaps to a range\'s ends and to the ta
 })
 
 // The handles show with the pointer on or by what they are for, none with it away: a selection's fade square in its
-// top corner, the caret's square past it; to a touch or a pen, which may have no pointer to bring near, always. On
+// top corner; a caret has none, Alt on its line opening silence (writers.test.js); to a touch or a pen, which may have no pointer to bring near, always. On
 // silence, so only the wash, the lines and the squares show: a square's pixels, with the pointer away and by it, the
 // pointer's own line clear of them
-test('editor: the handles show only with the pointer on or by the selection or the caret', async () => {
+test('editor: the handles show only with the pointer on or by the selection; a caret has none', async () => {
   await open()
   await noCues()
   await write(`audio.from(2)`)
@@ -653,11 +651,10 @@ test('editor: the handles show only with the pointer on or by the selection or t
     await page.locator('.plot').dispatchEvent('pointermove', { pointerType, clientX: away[0], clientY: y })
     await poll(() => region(fade), got => assert.ok(differ(none, got) > 20, `${pointerType}: its square`))
   }
-  // the caret's square, past it in the middle of the lane's lower half (one lane, a mono sound's)
+  // past the caret, in the middle of the lane's lower half (one lane, a mono sound's), where its square was: nothing
   await page.mouse.click(x(1), y)
   const gap = [x(1) + 3, tall(box) * 3 / 4 - 6], bare = await seen(away, gap)
-  assert.ok(differ(bare, await seen([x(1) - 12, y], gap)) > 20, 'the pointer by the caret: its square')
-  assert.ok(differ(bare, await seen(away, gap)) <= 2, 'the pointer away again: none')
+  assert.ok(differ(bare, await seen([x(1) - 12, y], gap)) <= 2, 'the pointer by the caret: no square')
 })
 
 // A press inside the selection keeps it, as a press on selected text does: dragged, its audio moves; let go where it
@@ -710,58 +707,35 @@ test('editor: Shift and a press elsewhere extends the selection at once, a drag 
   await page.keyboard.up('Shift')
 })
 
-// Alt measures as Figma's Alt does: held, the pointer a cross, the waveform's level at its time (the peak of the column,
-// on the pointer's side of the centre line, not the pointer's own height) dashed in the measuring red across to the level
-// axis and from there down to the time row, and on the time row a line from the selection's nearer edge to it, how far
-// it is; let go, none. It shows as the key goes down, before the pointer moves. ⌘ aims: the pointer a cross, nothing
-// measured
-test('editor: held Alt, the pointer measures how far it is from the selection, dashed out to the axes', async () => {
+// ⌘ aims and measures as Figma's Alt does: held, the pointer a cross, its own height (the value under it, not the
+// waveform's there) dashed in the measuring red across to the level axis and from there down to the time row, and on
+// the time row a line from the selection's nearer edge to it, how far it is; let go, none. It shows as the key goes
+// down, before the pointer moves. Alt measures nothing
+test('editor: held ⌘, the pointer measures how far it is from the selection, dashed out to the axes', async () => {
   const { box, x, y } = await chime()
   await drag([x(1), y], [x(2) - x(1), 0])
   // high over the lane, far over the sound there
   const py = box.y + TOP + 2
   await page.mouse.move(x(4), py)
   const span = x(4) - x(2) - 4, red = (x0, x1, y0, y1) => pixels(`let n = 0; for (let py = ${Math.round(y0)}; py < ${Math.round(y1)}; py++) for (let px = ${Math.round(x0)}; px < ${Math.round(x1)}; px++) { const i = (py * w + px) * 4; if (d[i] - d[i + 2] > 60 && d[i] > 150) n++ } return n`)
-  // the row of the most red right of the pointer's column, over the lane's upper half; the waveform's top a few px
-  // before that column (its first pixel down from the lane's top lit as the waveform is)
+  // the row of the most red right of the pointer's column, over the lane's upper half
   const across = () => pixels(`let best = 0, at = -1; for (let py = ${TOP}; py < arg.h; py++) { let n = 0; for (let px = arg.x0; px < arg.x1; px++) { const i = (py * w + px) * 4; if (d[i] - d[i + 2] > 60 && d[i] > 150) n++ } if (n > best) { best = n; at = py } } return { at, n: best }`, { x0: Math.round(x(4) - box.x + 4), x1: Math.round(x(5) - box.x), h: Math.round(TOP + TRACK / 4) })
-  const top = () => pixels(`for (let py = ${TOP}; py < arg.h; py++) { const i = (py * w + arg.x) * 4; if (d[i] > 120 && Math.abs(d[i] - d[i + 2]) < 30) return py } return -1`, { x: Math.round(x(4) - box.x - 3), h: Math.round(TOP + TRACK / 4) })
   assert.equal(await measuredOnRow(box, x(2) + 2, x(4) - 2), 0)
-  await page.keyboard.down('ControlOrMeta')
-  await crossed()
-  assert.equal(await measuredOnRow(box, x(2) + 2, x(4) - 2), 0, '⌘ measures nothing')
-  await page.keyboard.up('ControlOrMeta')
-  const wave = await top()
   await page.keyboard.down('Alt')
+  await frames()
+  assert.equal(await measuredOnRow(box, x(2) + 2, x(4) - 2), 0, 'Alt measures nothing')
+  await page.keyboard.up('Alt')
+  await page.keyboard.down('ControlOrMeta')
   await crossed()
   const [n, level] = [await measuredOnRow(box, x(2) + 2, x(4) - 2), await across()]
   const below = await red(x(4) - box.x - 2, x(4) - box.x + 3, level.at + 4, level.at + 60)
-  await page.keyboard.up('Alt')
+  await page.keyboard.up('ControlOrMeta')
   assert.ok(n > span * .6, `a line across the time row: ${n} of ${Math.round(span)} px`)
   assert.ok(level.n > (x(5) - x(4) - 4) * .3, `dashed across to the axis: ${level.n} px lit`)
-  // (its drawn top a few px under its peak, the tips of a density fill faint)
-  assert.ok(wave > 0 && Math.abs(level.at - wave) <= 8 && level.at > py - box.y + 20, `at the waveform's level (${wave} px down), not the pointer's (${Math.round(py - box.y)}): ${level.at}`)
+  // aiming, the value under the pointer itself, not the waveform's there
+  assert.ok(Math.abs(level.at - (py - box.y)) <= 1, `at the pointer's height (${Math.round(py - box.y)}): ${level.at}`)
   assert.ok(below > 20 && below < 56 * .8, `dashed down from it to the time row: ${below} px lit`)
   assert.equal(await measuredOnRow(box, x(2) + 2, x(4) - 2), 0, 'gone with the key')
-})
-
-// Held Alt over a waveform whose levels are zoomed in past its peaks: the level measured is the waveform's as it is,
-// past the lane's top, the line held at that edge, a small triangle there pointing out to it
-test('editor: held Alt where the waveform runs past the levels shown, the line stops at the edge, a triangle pointing on', async () => {
-  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
-  await open()
-  await noCues()
-  await write(`audio.from(t => 0.9 * Math.sin(2 * Math.PI * 220 * t), { duration: 2 })`)
-  await lengthIs('0:02.000')
-  await page.evaluate(() => { __view.frame = { levels: [-.2, .2] } })
-  const { box, x } = await axis(2), red = (x0, x1, y0, y1) => pixels(`let n = 0; for (let py = arg[2]; py < arg[3]; py++) for (let px = arg[0]; px < arg[1]; px++) { const i = (py * w + px) * 4; if (d[i] - d[i + 2] > 60 && d[i] > 150) n++ } return n`, [x0, x1, y0, y1].map(Math.round))
-  const px = x(1) - box.x
-  await page.mouse.move(x(1), box.y + TOP + TRACK / 6)
-  await page.keyboard.down('Alt')
-  await poll(() => red(px - 4, px + 5, TOP, TOP + 6), tip => assert.ok(tip >= 6, `a triangle at the lane's top: ${tip} px`), 3000)
-  const across = await red(px + 8, px + 80, TOP, TOP + 2)
-  await page.keyboard.up('Alt')
-  assert.ok(across > 20, `the line along the top edge, out to the axis: ${across} px`)
 })
 
 test('editor: Alt and a click makes a caret, the one Shift then extends: ranges made in order', async () => {
@@ -964,25 +938,25 @@ test('editor: a press by the sound\'s start or end goes onto it', async () => {
   }
 })
 
-// Held Alt over a lane, the pointer's guides out to the axes, dashed in the measuring red, at once, on the caret too,
-// where there is nothing to measure; and as a drag sets a time, Alt pressed on the way
-test('editor: held Alt, the guides to the axes at once, on the caret and as a drag goes', async () => {
+// Held ⌘ over a lane, the pointer's guides out to the axes, dashed in the measuring red, at once, on the caret too,
+// where there is nothing to measure; and as a drag sets a time, ⌘ pressed on the way
+test('editor: held ⌘, the guides to the axes at once, on the caret and as a drag goes', async () => {
   const { x, y } = await chime()
   const guides = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => { const o = document.querySelector('.plot canvas.overlay'), d = o.getContext('2d').getImageData(0, 0, o.width, o.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 180 && d[i + 1] < 120 && d[i + 3] > 100) n++; done(n) }))))
   await page.mouse.click(x(2), y)
-  assert.equal(await guides(), 0, 'none without Alt')
-  await page.keyboard.down('Alt')
-  assert.ok(await guides() > 50, 'Alt pressed, the pointer on the caret: at once')
-  await page.keyboard.up('Alt')
+  assert.equal(await guides(), 0, 'none without ⌘')
+  await page.keyboard.down('ControlOrMeta')
+  assert.ok(await guides() > 50, '⌘ pressed, the pointer on the caret: at once')
+  await page.keyboard.up('ControlOrMeta')
   assert.equal(await guides(), 0, 'let go, gone')
   await page.mouse.move(x(3), y)
   await page.mouse.down()
   await page.mouse.move(x(4), y, { steps: 4 })
-  await page.keyboard.down('Alt')
+  await page.keyboard.down('ControlOrMeta')
   await page.mouse.move(x(4.5), y, { steps: 2 })
-  assert.ok(await guides() > 50, 'a range dragged, Alt pressed on the way')
+  assert.ok(await guides() > 50, 'a range dragged, ⌘ pressed on the way')
   await page.mouse.up()
-  await page.keyboard.up('Alt')
+  await page.keyboard.up('ControlOrMeta')
 })
 
 // A selection behind the sound, as an editor's is behind its text: Light+'s #ADD6FF where the lane is clear, the
@@ -1036,9 +1010,9 @@ test('editor: a press held still, then dragged, takes the caret along without se
   assert.equal(await selected(), '0:05.000–0:06.000')
 })
 
-// The lines a drag or held Alt shows, each named faintly by its top in a word or two, as a hint: the sound's own start
-// and end, where a sound starts after a pause, a hit, a marker's name
-test('editor: held Alt, each cue line named by its top: Start, End, a sound\'s start, a hit, a marker', async () => {
+// The lines a drag or held ⌘ shows carry no words, which crowded the sound: where the sound is, a soft wash says; a
+// marker's name is in its head alone
+test('editor: held ⌘, the cue lines unnamed: no word by any, the marker\'s name its own alone', async () => {
   await open()
   await write(`audio('chime.wav').mark(5.5, 'Bell')`)
   await lengthIs('0:08.000')
@@ -1050,8 +1024,8 @@ test('editor: held Alt, each cue line named by its top: Start, End, a sound\'s s
   })
   const { box, x } = await axis(8)
   await page.mouse.move(x(3), box.y + TOP + TRACK / 3)
-  await page.keyboard.down('Alt')
-  await poll(() => page.evaluate(() => [...window.__named]), named => assert.ok(['Start', 'End', 'Bell'].every(n => named.includes(n)) && named.some(n => /^(Hit|Sound start)$/.test(n)), `named: ${named.join(', ')}`), 3000)
-  await page.keyboard.up('Alt')
+  await page.keyboard.down('ControlOrMeta')
+  await poll(() => page.evaluate(() => [...window.__named]), named => assert.ok(named.includes('Bell') && !named.some(n => /^(Start|End|Hit|Sound start|Sound end|Bell start|Bell end|Takes start|Takes end)$/.test(n)), `named: ${named.join(', ')}`), 3000)
+  await page.keyboard.up('ControlOrMeta')
 })
 

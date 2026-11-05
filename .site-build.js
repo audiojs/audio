@@ -48,15 +48,14 @@ const LIBRARY = {
 // the parser alone, which reads the scripts from the first (code.js). The two share the parser's chunk.
 const entries = {
   codemirror: `
-    export { EditorState, StateField, StateEffect, Transaction } from '@codemirror/state'
-    export { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, dropCursor, showTooltip, tooltips } from '@codemirror/view'
+    export { EditorState, StateField, StateEffect, Transaction, RangeSetBuilder } from '@codemirror/state'
+    export { EditorView, ViewPlugin, Decoration, keymap, lineNumbers, highlightActiveLine, drawSelection, dropCursor, showTooltip, tooltips } from '@codemirror/view'
     export { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, undo, redo, undoDepth, redoDepth } from '@codemirror/commands'
     export { javascript, localCompletionSource, scopeCompletionSource } from '@codemirror/lang-javascript'
     export { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
-    export { syntaxHighlighting, HighlightStyle, bracketMatching, indentOnInput, syntaxTree } from '@codemirror/language'
+    export { bracketMatching, indentOnInput, syntaxTree } from '@codemirror/language'
     export { setDiagnostics } from '@codemirror/lint'
-    export { highlightSelectionMatches } from '@codemirror/search'
-    export { tags } from '@lezer/highlight'`,
+    export { highlightSelectionMatches } from '@codemirror/search'`,
   lezer: `export { parser } from '@lezer/javascript'`
 }
 const PANE = {

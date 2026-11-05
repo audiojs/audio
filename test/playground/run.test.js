@@ -119,20 +119,23 @@ test('editor: an edit made before CodeMirror comes is undone and redone once it 
   const held = new Promise(r => release = r)
   await p.route('**/assets/codemirror.js', async route => { await held; route.continue() })
   const text = () => p.evaluate(() => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n'))
+  // a menu's row, by its words (the Edit menu's Undo, Redo)
+  const row = async (menu, ...names) => { await p.locator('.menubar-item', { hasText: new RegExp(`^${menu}$`) }).click(); for (const name of names) await p.locator('.menubar-list .menu-row:visible').filter({ has: p.locator('.menu-label', { hasText: new RegExp(`^${name.replace('.', '\\.')}$`) }) }).last().click() }
   try {
     await p.goto(origin + '/playground/')
     await p.locator('.plot[data-empty]').waitFor()
-    await p.locator('.menubar-item', { hasText: /^File$/ }).click()
-    for (const name of ['Sample or generate', 'chime.wav']) await p.locator('.menubar-list .menu-row:visible').filter({ has: p.locator('.menu-label', { hasText: new RegExp(`^${name.replace('.', '\\.')}$`) }) }).last().click()
+    await row('File', 'Sample or generate', 'chime.wav')
     await p.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
-    assert.equal(await p.locator('.history .undo').getAttribute('aria-disabled'), null, 'undoable already')
+    await p.locator('.menubar-item', { hasText: /^Edit$/ }).click()
+    assert.equal(await p.locator('.menubar-list .menu-row:visible', { has: p.locator('.menu-label', { hasText: /^Undo$/ }) }).last().getAttribute('aria-disabled'), null, 'undoable already')
+    await p.keyboard.press('Escape')
     release()
     await p.locator('.cm-content').waitFor({ state: 'attached' })
     assert.equal(await text(), `audio('chime.wav')`)
-    await p.getByRole('button', { name: 'Undo', exact: true }).click()
+    await row('Edit', 'Undo')
     await p.locator('.plot[data-empty]').waitFor()
     assert.equal(await text(), '')
-    await p.getByRole('button', { name: 'Redo', exact: true }).click()
+    await row('Edit', 'Redo')
     await p.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
     assert.equal(await text(), `audio('chime.wav')`)
   } finally { release(); await p.close() }
@@ -467,7 +470,7 @@ test('editor: the page comes up once, whole, and the sound only rises into it', 
         light: spec ? +(spec.style.opacity || 0) : null,
         over: spec ? +(plot.querySelector('canvas.overlay').style.opacity || 0) : null,
         end: plot ? getComputedStyle(plot).getPropertyValue('--end').trim() : null,
-        undo: Math.round(app.querySelector('.status .undo').getBoundingClientRect().x)
+        before: Math.round(app.querySelector('.status .before').getBoundingClientRect().x)
       })
       requestAnimationFrame(tick)
     }
@@ -479,7 +482,7 @@ test('editor: the page comes up once, whole, and the sound only rises into it', 
   await still()
   const seen = await page.evaluate(() => window.__boot)
   // every frame seen, said in full when one of these fails: how it came up
-  const told = JSON.stringify(seen.map(f => [+f.boot, f.menu, f.light, f.over, f.end, f.undo].join(' ')))
+  const told = JSON.stringify(seen.map(f => [+f.boot, f.menu, f.light, f.over, f.end, f.before].join(' ')))
   assert.ok(seen.some(f => f.boot), `the page waits to be wired: ${told}`)
   assert.ok(seen.every(f => !f.boot || f.menu === '0'), `nothing of it shows until it is: ${told}`)
   assert.ok(!seen.at(-1).boot && seen.at(-1).menu === '1', `and then all of it does: ${told}`)
@@ -489,8 +492,8 @@ test('editor: the page comes up once, whole, and the sound only rises into it', 
   assert.ok(seen.every(f => f.light == null || f.light > 0 || !f.over), `no empty lanes, no axes, waiting for the sound: they come with it: ${told}`)
   const ends = new Set(seen.filter(f => !f.boot).map(f => f.end))
   assert.equal(ends.size, 1, `the lanes keep their end: ${[...ends]}`)
-  const heads = new Set(seen.filter(f => !f.boot).map(f => f.undo))
-  assert.equal(heads.size, 1, `undo stays where it is as the sound comes: ${[...heads]}`)
+  const heads = new Set(seen.filter(f => !f.boot).map(f => f.before))
+  assert.equal(heads.size, 1, `the bar's end, Before, stays where it is as the sound comes: ${[...heads]}`)
 })
 
 // An edit made on the picture is drawn at once, and its output takes the picture's place without a move: zoomed in near

@@ -40,22 +40,22 @@ export { KINDS, NOTES, noteOf, stylize, HOLD, SLOP } from './view/model.js'
 // keys say how, the same everywhere, each its pointer: Shift sums (the selection, or the caret, extended to the press
 // at once from where it was begun, as in a text, a drag going on with it; the I-beam with a chevron the way it goes).
 // Alt adds (another caret, VS Code's, the one Shift then extends, or another range; dragged inside the selection, a
-// copy of its audio, Finder's and Figma's Alt-drag; the I-beam with a plus), and measures, as Figma's Alt does: held,
-// the pointer a cross, every cue showing where a press would snap, the pointer's place dashed out to the axes in the
-// measuring red, and how far it is from what is selected, a line along the time row, its length on it. ⌘ (Ctrl) aims
-// and empowers: held, the pointer a cross, the cue under it lit; what a press does: a range's end sets its length, as its grip does; the cues light and
-// drag, the audio either side stretching; on the spectrogram a press makes a box of time and frequency, a band, as
-// Photoshop's selections; and any drag aims finely (its moves a quarter as far, nothing snapping).
+// copy of its audio, Finder's and Figma's Alt-drag; the I-beam with a plus), and goes the other way: at a range's end,
+// its length (trimmed, stretched, sped: an Alt-click there the next way), as Logic's Option and REAPER's Alt stretch a
+// region's end; on the caret's line, silence pulled open there. ⌘ (Ctrl) aims and measures, as Figma's Alt does:
+// held, the pointer a cross, every cue showing where a press would snap, the one under it lit, dragged, the audio
+// either side stretching; the pointer's place dashed out to the axes in the measuring red, its own value read, and how
+// far it is from what is selected, a line along the time row, its length on it; on the spectrogram a press makes a box
+// of time and frequency, a band, as Photoshop's selections; and any drag aims finely (its moves a quarter as far,
+// nothing snapping). Over a band's lanes, any band's, where a press would put the caret, its ghost, grey, gone onto
+// what is by it (caretTo).
 // A pressed or dragged time goes onto a cue (shown or not) or a marker within a few pixels of it, which lights, as
 // Figma's objects snap (`snapping`). A range's handles, shown with the pointer on or by it, each do one thing, the
 // range under the pointer's among several, say what when the pointer is on one, and a click on one turns it to its next way (`onmode`), as a
 // tool's options cycle, no menu: its top corners, drawn as the fade they make, fade it (inward, from its edge; outward,
 // the audio past it goes, crossfading into it; a click, the next curve); the pill on its top edge, dragged up or down,
-// sets its level; the tools at its foot, side by side, a voice's pitch, intonation and formants, each dragged up or down
-// (the pitch's clicked, its curve);
-// the square past its end, a square's height off each lane's foot, trims it (cut back, or silence added), stretches it
-// or speeds it (a click, the next). With none, the square past the caret pulls silence open there, as trimming out
-// does. None while it plays. What else shows (`show`) is grabbed where it is, never through a mode: the cues (held ⌘),
+// sets its level; on notes, the tools at its foot, side by side, a voice's intonation and formants, each dragged up or
+// down. None while it plays. What else shows (`show`) is grabbed where it is, never through a mode: the cues (held ⌘),
 // the gain line and its points; editing pitch (`pitching`), on the spectrogram framed on the voice, the pitch curve, dragged
 // up or down the whole pitch line with it, a click on it a point of the line there, dragged, as RX's Dialogue Contour has
 // them, and its bends, each dragged bending the voice between its neighbours, as Praat's Manipulation; on the

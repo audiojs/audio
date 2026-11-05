@@ -1,35 +1,33 @@
 import clock from '../time.js'
-import { markLane, ownMarks, snappedTo, placed } from './data.js'
-import { ghost, CHUNK, plot, spare, lanes, floor, inRoom, own, inLanes, roomLane, banded, underRow } from './geometry.js'
+import { markLane, marksOf, ownMarks, snappedTo, placed } from './data.js'
+import { ghost, CHUNK, pointedBand, plot, spare, lanes, floor, inRoom, own, inLanes, roomLane, banded, underRow } from './geometry.js'
 import { fine, nearCue } from './gestures.js'
-import { EDGE, HEAD, FOOT, KINDS, timeRow, mac, root, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, selection, band, cursor, playhead, cues, cueKinds, bounds, snapping, clips, aview, levelUnits, data, tracks, focus, allLanes, sections, windows, lift, chosen, held, assign } from './model.js'
+import { EDGE, ONTO, HEAD, FOOT, KINDS, timeRow, mac, root, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, selection, band, cursor, playhead, cues, cueKinds, bounds, snapping, clips, aview, levelUnits, data, tracks, focus, allLanes, sections, windows, lift, chosen, held, assign } from './model.js'
 import { clipMarks } from './notes.js'
-import { say, triangleAt, crossAt, lanesEnd, seenTo } from './overlay.js'
-import { drag, hot } from './pointer.js'
+import { say, crossAt, washFrom, WASHED, lanesEnd, seenTo } from './overlay.js'
+import { drag, hot, caretGhost } from './pointer.js'
 import { W, moved, invalidate, wash } from './render.js'
 import { THIN, THICK } from './ruler.js'
 import { select, setCursor } from './select.js'
-import { x, X, time, snap, stuck, digits, seen, inside, fy, ay, sampled, decibel } from './scales.js'
+import { x, X, time, snap, digits, seen, inside, fy, ay, sampled, decibel } from './scales.js'
 
 // The strips under the lanes and across them: the measure, the fades at the view's edges, each band's look, the room
 // under the tracks, the selection behind the sound, the cues, the markers and the names
 
 // in the measuring red, where the pointer is, dashed out to the axes as Figma's guides: down to the time row (the
 // band's, 'band'), where its length is (paintRuler), and across to the level or frequency axis, where its value is
-// `read`, a waveform's level there (waveAt), past the lane's edge: a small triangle at that edge pointing out to it
 const DASHED = [4, 3]
-export function paintMeasure({ t }, py, rects, read = null) {
+export function paintMeasure({ t }, py, rects) {
   const px = X(t), { w } = plot(), h = timeRow === 'band' ? underRow()?.y ?? plot().h : plot().h, y = Math.round(py)
   if (px < 0 || px > w) return
   c.fillStyle = gauge()
   for (let k = y; k < h; k += DASHED[0] + DASHED[1]) c.fillRect(px, k, 1, Math.min(DASHED[0], h - k))
   if (rects.some(r => inside(r, px, py))) for (let k = px; k < w; k += DASHED[0] + DASHED[1]) c.fillRect(k, y, Math.min(DASHED[0], w - k), 1)
-  if (read?.past) triangleAt(px + .5, y + read.past * 5, -read.past)
 }
-// Held Alt over a waveform lane, the level measured: the waveform's at time `t`, the peak of its samples under the
-// pixel on the pointer's side of the centre line, so a clip past the levels shown is measured as it is: { y, text,
-// past } (y within the lane; past, 1 over its top, -1 under its foot, 0 inside); null where the lane is no waveform's,
-// or the page holds no samples there (a long sound's let go), the pointer's then
+// Over a waveform lane, the level read: the waveform's at time `t`, the peak of its samples under the
+// pixel on the pointer's side of the centre line, so a clip past the levels shown reads as it is: { y, text } (y
+// within the lane); null where the lane is no waveform's, or the page holds no samples there (a long sound's let go),
+// the pointer's then
 export function waveAt(rect, t, py) {
   const x = data[rect.i]
   if (rect.kind !== 'wave' || !x || t == null) return null
@@ -38,8 +36,8 @@ export function waveAt(rect, t, py) {
   const [, top, , lh] = rect, up = py < top + lh / 2
   let v = 0
   for (let i = i0; i < i1; i++) if (up ? x[i] > v : x[i] < v) v = x[i]
-  const y = top + (aview[1] - v) / (aview[1] - aview[0]) * lh, past = y < top ? 1 : y > top + lh ? -1 : 0
-  return { y: Math.max(top, Math.min(top + lh - 1, y)), past, text: levelUnits === 'linear' ? sampled(v) : decibel(20 * Math.log10(Math.abs(v)), 1, -99) }
+  const y = top + (aview[1] - v) / (aview[1] - aview[0]) * lh
+  return { y: Math.max(top, Math.min(top + lh - 1, y)), text: levelUnits === 'linear' ? sampled(v) : decibel(20 * Math.log10(Math.abs(v)), 1, -99) }
 }
 // The lanes faded at an edge the sound runs on past, out of the view (fades): from their start, scrolled on from its
 // start; before their end, short of its end; each FADE px wide, as tall as the caret, over the pictures, under what is
@@ -165,9 +163,11 @@ export function paintEdge(L, sel) {
 export const stamp = (t, d = digits()) => clock(t, units, { digits: d, rate })
 // Cues: shown only where they matter, never a forest over the sound, as Figma shows its guides only as a thing is
 // dragged: dragged (the caret held, an edge, a range dragged out, a marker's triangle), what it snaps to either side of
-// where it is, faint: the cues, the markers' and the takes' ends; nothing on a plain hover; held Alt (`all`), all of
-// them, faint; held ⌘ (Ctrl), the one under the pointer a press would take; the one dragged, bright where it will land;
-// those an end measured to sits on (`lit`), lit
+// where it is, faint: the cues, the markers' and the takes' ends; nothing on a plain hover; held ⌘ (Ctrl, `all`), all
+// of them, faint, the one under the pointer a press would take brighter; the one dragged, bright where it will land;
+// those an end measured to sits on (`lit`), lit. No words by them: where the sound is, a soft wash says (washFrom).
+// The primary ones, where sounds and ranges start and end, the markers' and the takes', plainer than the secondary,
+// the hits within
 const on = (lit, px) => lit.some(t => Math.abs(x(t) - px) < .5)
 // The time a drag moves, as the caret or a range's end: the caret held, an edge, a range dragged out (Shift held before
 // the press or after it), a marker's serif moved (a range's end, the one held), else null
@@ -184,58 +184,59 @@ export function paintCues(rects, lit, all = false) {
     const at = t == null ? null : moved(t), px = at == null ? null : X(at)
     if (px != null && px >= 0 && px <= plot().w && !(drag && on(lit, px)) && !(lines.get(px)?.a >= a)) lines.set(px, { t, a })
   }
-  if (all) for (const t of pool) put(t, .4)
-  if (t0 != null && snapping) { const p = X(t0); put(pool.findLast(t => X(t) < p - .5), .4); put(pool.find(t => X(t) > p + .5), .4) }
+  const faint = t => cueKinds[cues?.indexOf(t) ?? -1] === 'hit' ? .25 : .4
+  if (all) for (const t of pool) put(t, faint(t))
+  if (t0 != null && snapping) { const p = X(t0), was = pool.findLast(t => X(t) < p - .5), next = pool.find(t => X(t) > p + .5); put(was, faint(was)); put(next, faint(next)) }
   const near = !drag && hovered ? nearCue(...hovered, held) : -1
   if (near >= 0) put(cues[near], .7)
   for (const t of drag ? [] : lit) put(times.find(c => Math.abs(X(c) - X(t)) < .5), 1)
   if (drag?.cue != null) lines.set(X(drag.to), { t: drag.to, a: 1 })
-  // each line, and while something is dragged or Alt held, what it is in a word or two by its top, faint, as a hint
-  const named = (drag || all) && rects.length
-  for (const [px, { t, a }] of lines) {
-    c.fillStyle = accent()
+  c.fillStyle = accent()
+  for (const [px, { a }] of lines) {
     c.globalAlpha = a
     for (const [, ly, , lh] of rects) c.fillRect(px, ly, 1, lh)
-    const text = named && lineName(t)
-    if (!text) continue
-    c.globalAlpha = .6
-    c.fillStyle = color('--color-screen-soft')
-    c.textAlign = 'left'
-    c.fillText(text, px + 3, rects[0][1] + 8)
   }
   c.globalAlpha = 1
 }
-// what a line snaps to, in a word or two: a marker's name (its start, its end), the takes' place, the track's own start
-// and end, where a sound starts or ends between pauses, a hit
-function lineName(t) {
-  const m = snappedTo(t), kind = cueKinds[cues?.indexOf(t) ?? -1]
-  if (m.text) return m.text
-  if (m.strip) return m.side > 0 ? 'Takes start' : 'Takes end'
-  if (bounds.has(t)) return t <= 1e-9 ? 'Start' : 'End'
-  return { hit: 'Hit', start: 'Sound start', end: 'Sound end' }[kind] ?? ''
+// Where a press over a band (`i`, a track's index; null, the sound's) puts the caret: the time under the pointer to
+// the zoom's step, gone onto what is by it, as a drag goes (stick). Within EDGE px a primary place: where the band's
+// sound starts and ends, a marker's line, a range's end, the takes' ends; else, in the edited band, within ONTO px a
+// secondary one, a cue this scale shows (a sound's start or end within, a hit). Never with snapping off, nor while ⌘
+// aims finely (`keys` held)
+export function caretTo(px, i = tracks ? focus : null, keys = held) {
+  const t = snap(time(px)), own = i === (tracks ? focus : null)
+  if (!snapping || fine() || editing(keys)) return t
+  const near = (list, d) => list.reduce((b, q) => Math.abs(x(q) - px) <= d && (b == null || Math.abs(x(q) - px) < Math.abs(x(b) - px)) ? q : b, null)
+  const ends = [0, tracks ? tracks[i]?.end ?? duration : duration], marks = marksOf(i).map(t => own ? moved(t) ?? t : t)
+  return near([...ends, ...marks.filter(t => t != null)], EDGE) ?? (own ? near(seen().map(k => cues[k]), ONTO) : null) ?? t
 }
+// The caret's ghost as it is drawn, { t, i }: where a press at the pointer would put it now, onto what it is by as that
+// comes (an output's markers, its cues), the pointer still; or null
+export const ghostOf = () => !drag && hovered && caretGhost ? { t: caretTo(hovered[0], caretGhost.i), i: caretGhost.i } : null
+// Ghosts of lines, faint, as the caret's would be: where a press over a band would put the caret (caretGhost), any
+// band's, gone onto what it is by, the side of the sound there washed softly; a marker's end or a moment pointed at in
+// the head; a marker dragged
 export function paintMarkers(all, lit, pointedAt) {
   const lanesOf = m => markLane(m) == null ? all : [all[markLane(m)]].filter(Boolean), ghosts = new Map()
-  const near = hovered && !drag ? markAt(...hovered) : null, edge = pointedAt?.kind === 'mark' && hovered && !drag ? notch(pointedAt, hovered[0]) : -1
-  if (near != null) ghosts.set(X(near), tracks ? [all[focus]].filter(Boolean) : all)
+  const edge = pointedAt?.kind === 'mark' && hovered && !drag ? notch(pointedAt, hovered[0]) : -1, g = ghostOf()
+  const bandOf = i => i == null ? all : [all[i]].filter(Boolean)
   if (edge >= 0 || pointedAt?.moment && !drag) ghosts.set(edge === 1 ? pointedAt.x1 : pointedAt.x0, pointedAt.rects)
   if (drag?.marker != null && drag.moved) ghosts.set(X(dragged()), lanesOf(markers[drag.marker]))
   c.fillStyle = color('--color-screen-caret')
   c.globalAlpha = .5
   for (const [px, rects] of ghosts) if (px >= 0 && px <= plot().w && !on(lit, px)) for (const [, y, , lh] of rects) c.fillRect(px, y, 1, lh)
   c.globalAlpha = 1
+  // the caret to be grey, as a ghost of it
+  if (!g || on(lit, X(g.t))) return
+  c.fillStyle = color('--color-screen-muted')
+  for (const [, y, , lh] of bandOf(g.i)) c.fillRect(X(g.t), y, 1, lh)
+  if (Math.abs(X(g.t) - X(time(hovered[0]))) < .5) return
+  const { side } = snappedTo(g.t, g.i), end = tracks ? tracks[g.i]?.end ?? duration : duration
+  washFrom(X(g.t), side ?? (g.t <= 1e-9 ? 1 : Math.abs(g.t - end) < 1e-9 ? -1 : 0), bandOf(g.i), WASHED / 2)
 }
 // two markers one: the same track's, of the same kind at the same time, to half a millisecond (an output's, from the
 // time written)
 export const same = (m, n) => m.track === n.track && !m.duration === !n.duration && Math.abs(m.time - n.time) < 5e-4
-// The edited track's marker line in its lanes within EDGE px of the pointer, a moment's or a range's end: its time,
-// where a press puts the caret; or null. Snapping as a drag does (stick): not with it off, nor while ⌘ aims finely
-export function markAt(px, py) {
-  if (!snapping || fine() || py > plot().h) return null
-  let best = null
-  for (const t of ownMarks().map(t => moved(t) ?? t)) if (Math.abs(x(t) - px) <= EDGE && (best == null || Math.abs(x(t) - px) < Math.abs(x(best) - px))) best = t
-  return best
-}
 // ── The strips, each band's rows along its lanes: over them its head, under them its foot. In the head (banded;
 // embedded, no head: the foot) its markers by their names alone, as a transcript letters its sounds over them: a
 // range's over its stretch from its start, cut short where it has no room, a moment's from its time; one with no name
@@ -303,7 +304,8 @@ const MARKED = 9
 export function paintStrips(L, pointedAt, selected) {
   // the edited band's (every band's through every lane), the others' faint
   // (a marker's line pointed at in the lanes, its name lit too)
-  const w = lanesEnd(L), edited = i => !tracks || allLanes || i === focus, near = hovered && !drag ? markAt(...hovered) : null
+  // (a time a drag or the caret to be went onto, its name lit too)
+  const w = lanesEnd(L), edited = i => !tracks || allLanes || i === focus, g = ghostOf(), near = dragged() ?? (g?.i === (tracks ? focus : null) ? g.t : null)
   c.textAlign = 'left'
   for (const m of stripped(L)) {
     if (m.kind !== 'mark' || m.x1 + REACH < 0 || m.x0 - REACH > w) continue
@@ -317,25 +319,44 @@ export function paintStrips(L, pointedAt, selected) {
     if (naming && same(naming, mark) || room < 8) continue
     nameOn(m, m.text, lx, room, ink)
   }
-  // where a click would put a marker (a moment's time; a range's, the selection, which shows already): a ghost of its
-  // line, faint, down its band's lanes, as the caret's would be
-  const blank = nameAt(L)
-  if (blank && blank.a === blank.b && blank.x0 <= w) {
+  // the marker to be over the caret, a faint plus, lit pointed at, saying so; elsewhere, where a click would put one (a
+  // moment's time; a range's, the selection, which shows already): a ghost of its line, faint, down its band's lanes,
+  // as the caret's would be
+  const blank = nameAt(L), plus = placeholder(L)
+  if (plus) {
+    c.globalAlpha = blank?.on ? 1 : .6
+    c.fillStyle = color(blank?.on ? '--color-screen-bright' : '--color-screen-muted')
+    c.fillText('+', plus.x0, plus.row.edge + plus.row.dir * NAMES)
+    c.globalAlpha = 1
+    if (blank?.on) say(plus.b > plus.a ? 'Name the selection' : 'Name the caret\'s place', plus.x1 + 6, plus.row.edge + plus.row.dir * NAMES)
+  }
+  if (blank && !blank.on && blank.a === blank.b && blank.x0 <= w) {
     c.fillStyle = color('--color-screen-caret')
     c.globalAlpha = .5
     for (const [, y, , lh] of L.all.filter(r => !tracks || r.i === focus)) c.fillRect(Math.round(blank.x0), y, 1, lh)
     c.globalAlpha = 1
   }
 }
-// A name to write, pointed at in the edited band's head where no marker is: over the selection (no band), a range of
-// it; elsewhere a moment, where a press there would put the caret. { row, x0, x1, a, b, text } (text the next number
-// among the band's markers), or null
+// The marker to be, over the caret in the edited band's head while that band is pointed at, where none is: a plus
+// where its name would start, { row, a, b, x0, x1 } (a range's: the selection's, from its start); none while it plays,
+// nor in a player's view, a band not pointed at
+export function placeholder(L) {
+  if (drag || naming || playhead != null || !banded() || !duration || pointedBand !== (tracks ? focus : 0)) return null
+  const row = heads(L).find(s => s.i === (tracks ? focus : null)), [a, b] = selection && !band && selection[1] > selection[0] ? selection : [cursor, cursor]
+  const x0 = nameLeft(X(a)), x1 = x0 + wide('+')
+  return row && x0 <= lanesEnd(L) && !stripAt(x0 + 1, row.y + row.h / 2, L) && !stripAt(x1 - 1, row.y + row.h / 2, L) ? { row, a, b, x0, x1 } : null
+}
+// A name to write, pointed at in the edited band's head where no marker is: the marker to be, its plus or by it
+// (placeholder, `on`), at the caret's time exactly; over the selection (no band), a range of it; elsewhere a moment,
+// where a press there would put the caret. { row, x0, x1, a, b, on }, or null
 export function nameAt(L, at = hovered) {
   if (!at || drag || naming || !banded() || !duration) return null
   const row = heads(L).find(s => s.i === (tracks ? focus : null)), [px, py] = at
   if (!row || py < row.y || py >= row.y + row.h || px < 0 || px > lanesEnd(L) || stripAt(px, py, L)) return null
+  const plus = placeholder(L)
+  if (plus && px >= plus.x0 - REACH && px <= plus.x1 + REACH) return { ...plus, x1: X(plus.b), on: true }
   const sel = selection && !band && selection[1] > selection[0] && px >= X(selection[0]) && px <= X(selection[1])
-  const [a, b] = sel ? selection : [stuck(snap(time(px))), stuck(snap(time(px)))]
+  const [a, b] = sel ? selection : [caretTo(px), caretTo(px)]
   return { row, x0: X(a), x1: X(b), a, b }
 }
 // A marker put where nameAt has it, at once (a click there): written, chosen, a moment's time the caret's, and its

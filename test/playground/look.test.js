@@ -2,8 +2,10 @@
 // page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
-import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, menu, menuRow, write, LANES, FOOT, tall, gutter, tracksAt, lengthIs, gridShown, pixels, show, shown, themed } from './page.js'
+import { readFile, open as openFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, menu, menuRow, write, LANES, FOOT, tall, gutter, tracksAt, lengthIs, gridShown, pixels, show, shown, themed, axis, noCues } from './page.js'
+import { resolver, semantics } from '../../playground/theme.js'
 
 // The axis at the pictures' right is as wide as its labels and the pointer's value read out on it, five characters at
 // full scale: a sample value to a digit finer than the marks (−0.03), decibels to a tenth with no unit (−12.3), a
@@ -91,11 +93,15 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   await blank()
   const calls = await page.evaluate(() => window.__ticks), at = {}
   calls.forEach((c, i) => { if (c.w && calls[i + 1]?.s) at[calls[i + 1].s] ??= c.h === 1 ? c.y : c.x })
-  const [hit, c0, c1, r5, r0] = [at['0:00.5'], at['0:02.5'], at['0:03.0'], at['0.5'], at['0']]
-  assert.ok([hit, c0, c1, r5, r0].every(Number.isFinite), `ticks at 0.5 s, 2.5 s, 3 s, 0.5 and 0: ${JSON.stringify(at)}`)
+  // 0.5 between 0 and 1, labelled by its tick alone, half as long as theirs (ticks); the times a second apart, the
+  // strike at 0.5 s ringing at 0.6
+  const [s1, c0, c1, r1, r0] = [at['0:01'], at['0:02'], at['0:03'], at['1'], at['0']], r5 = calls.find(c => c.w === 6 && c.h === 1 && c.y > r1 && c.y < r0)?.y
+  const px = t => s1 + (t - 1) * (c0 - s1), hit = px(.6)
+  assert.ok([s1, c0, c1, r5, r0].every(Number.isFinite), `ticks at 1 s, 2 s, 3 s, 0.5 and 0: ${JSON.stringify(at)}`)
+  assert.ok(!calls.some(c => c.s === '0.5'), '0.5 unlabelled')
   // each level's label under its tick, the lane's foot one too (one lane: nothing under it to run into)
   const label = text => calls.find(c => c.s === text)?.y, foot = calls.find((c, i) => c.w && calls[i + 1]?.s === '−1')?.y
-  assert.ok(label('0.5') > r5 && label('0') > r0 && label('−1') > foot, `labels under their ticks: 0.5 at ${label('0.5')} by ${r5}, −1 at ${label('−1')} by ${foot}`)
+  assert.ok(label('1') > r1 && label('0') > r0 && label('−1') > foot, `labels under their ticks: 1 at ${label('1')} by ${r1}, −1 at ${label('−1')} by ${foot}`)
   // the most a 3 × 3 px square round each point is lit by the grid as it shows (gridShown), CSS px
   const lit = points => page.evaluate(points => {
     const { k, w, d } = window.__shown
@@ -103,10 +109,10 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   }, points)
   const mid = [(c0 + c1) / 2, (r5 + r0) / 2]
   await gridShown()
-  const [down, across, between, behind] = await lit([[c0, mid[1]], [mid[0], r5], mid, [hit, r0]])
-  assert.ok(down && across, 'a line down from 2.5 s and across from 0.5')
-  // and from each tick between the labelled ones: 2.6 s, a fifth of the way on
-  assert.ok((await lit([[c0 + (c1 - c0) / 5, mid[1]]]))[0], 'a line down from 2.6 s, as its tick')
+  const [down, across, between, behind] = await lit([[px(2.6), mid[1]], [mid[0], r5], mid, [hit, r0]])
+  // from each tick between the labelled ones too, as the time row has them: a fifth of a second each, here
+  assert.ok(down && across, 'a line down from 2.6 s and across from 0.5')
+  assert.ok((await lit([[px(2.8), mid[1]]]))[0], 'a line down from 2.8 s, as its tick')
   assert.equal(between, 0, 'none between the ticks')
   assert.equal(behind, 0, 'none behind the waveform')
   // the levels in decibels: a line across from −6 dB's tick
@@ -478,11 +484,11 @@ test('editor: tracks\' waveforms coloured by the colour mode, as a sound\'s', as
 test('theme: a VS Code theme read into the skin, each part the colour of the part of VS Code it stands for', async () => {
   const rgb = hex => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(' ')}${hex.length > 7 ? ` / ${Math.round(parseInt(hex.slice(7), 16) / 255 * 1e3) / 1e3}` : ''})`
   for (const [name, want] of [
-    ['Dark+', { screen: '#1E1E1E', 'screen-ink': '#D4D4D4', 'screen-accent': '#007FD4', 'screen-mark': '#569cd6', 'screen-line-number': '#858585', 'screen-number': '#b5cea8', bezel: '#444444', 'screen-well': '#3C3C3C', 'screen-select': '#264F78', 'screen-select-inactive': '#3A3D41',
+    ['Dark+', { screen: '#1E1E1E', 'screen-ink': '#D4D4D4', 'screen-accent': '#007FD4', 'screen-mark': '#569cd6', 'screen-line-number': '#858585', 'syntax-number': '#b5cea8', bezel: '#444444', 'screen-well': '#3C3C3C', 'screen-select': '#264F78', 'screen-select-inactive': '#3A3D41',
       menu: '#252526', 'menu-select': '#0078d4', 'menu-select-ink': '#FFFFFF', tab: '#1E1E1E', 'tab-ink': '#FFFFFF', 'tab-off-ink': '#A6A6A6', tabs: '#252526', side: '#252526', 'screen-range': '#ffffff0b', paper: '#3C3C3C' }],
-    ['Light+', { screen: '#FFFFFF', 'screen-ink': '#000000', 'screen-accent': '#0090F1', 'screen-mark': '#800000', 'screen-line-number': '#237893', 'screen-number': '#098658', bezel: '#E7E7E7', 'screen-well': '#FFFFFF', 'screen-select': '#ADD6FF', 'screen-select-inactive': '#E5EBF1',
+    ['Light+', { screen: '#FFFFFF', 'screen-ink': '#000000', 'screen-accent': '#0090F1', 'screen-mark': '#800000', 'screen-line-number': '#237893', 'syntax-number': '#098658', bezel: '#E7E7E7', 'screen-well': '#FFFFFF', 'screen-select': '#ADD6FF', 'screen-select-inactive': '#E5EBF1',
       menu: '#FFFFFF', 'menu-select': '#0060C0', 'tab-ink': '#333333', 'tab-off-ink': '#616161', tabs: '#F3F3F3', side: '#F3F3F3', 'screen-hover': '#E8E8E8', 'screen-range': '#fdff0033', paper: '#DDDDDD' }],
-    ['Monokai', { screen: '#272822', 'screen-ink': '#f8f8f2', 'screen-accent': '#99947c', 'screen-mark': '#A6E22E', 'screen-number': '#AE81FF', bezel: '#34352f', 'screen-well': '#414339', 'screen-select': '#878b9180', 'screen-select-inactive': '#878b9140',
+    ['Monokai', { screen: '#272822', 'screen-ink': '#f8f8f2', 'screen-accent': '#99947c', 'screen-mark': '#A6E22E', 'syntax-number': '#AE81FF', bezel: '#34352f', 'screen-well': '#414339', 'screen-select': '#878b9180', 'screen-select-inactive': '#878b9140',
       menu: '#1e1f1c', 'menu-select': '#75715E', tabs: '#1e1f1c', side: '#1e1f1c', paper: '#1e1f1c' }]
   ]) {
     const s = await themed(name)
@@ -490,23 +496,28 @@ test('theme: a VS Code theme read into the skin, each part the colour of the par
     assert.equal(s['--color-screen-wave'], s['--color-screen-ink'], `${name}: the waveform the text's colour`)
     assert.equal(s['--color-screen-channel-1'], s['--color-screen-ink'], `${name}: the first channel the text's colour`)
   }
-  // every theme VS Code ships reads whole: a colour for every part, each one a canvas takes
+  // every theme VS Code ships reads whole: a colour for every part, each one a canvas takes; a word's font style one CSS
+  // takes
   const { THEMES, MAP } = await import('../../playground/theme.js')
   for (const t of THEMES) {
     const s = await themed(t.name)
     for (const k of Object.keys(MAP)) assert.ok(k in s, `${t.name}: ${k}`)
-    for (const [k, v] of Object.entries(s)) assert.match(v, /^(rgb\(\d+ \d+ \d+( \/ [\d.]+)?\)|transparent)$/, `${t.name}: ${k}`)
+    for (const [k, v] of Object.entries(s)) assert.match(v, /^--(italic|bold|line)-/.test(k) ? /^(italic|bold|normal|none|underline|line-through|underline line-through)$/ : /^(rgb\(\d+ \d+ \d+( \/ [\d.]+)?\)|transparent)$/, `${t.name}: ${k}`)
   }
 })
 
 // The skin's own default is a theme (themes/screen.json): skin.css's colours are what the theme reads as, token for
-// token, so the first paint and the theme worn are one. Every part mapped (theme.js MAP) a colour skin.css declares
+// token, so the first paint and the theme worn are one. Every part mapped (theme.js MAP) a colour skin.css declares;
+// the script's words those the screen gives them, no more, while no theme is worn (wear: a theme's words their own)
 test('theme: the screen a theme, skin.css its colours', async () => {
   const { MAP, load, skin } = await import('../../playground/theme.js')
   const screen = skin(await load(new URL('../../playground/themes/screen.json', import.meta.url).href, { get: u => readFile(new URL(u), 'utf8') }))
-  const css = await readFile(new URL('../../playground/skin.css', import.meta.url), 'utf8'), root = css.slice(css.indexOf(':root {'), css.indexOf('\n}', css.indexOf(':root {')))
-  const declared = Object.fromEntries([...root.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(m => [m[1], m[2].trim()]))
+  const css = await readFile(new URL('../../playground/skin.css', import.meta.url), 'utf8')
+  const block = start => Object.fromEntries([...css.slice(css.indexOf(start), css.indexOf('\n}', css.indexOf(start))).matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(m => [m[1], m[2].trim()]))
+  const declared = block(':root {')
   for (const k of Object.keys(MAP)) assert.equal(declared[k], screen[k], k)
+  const words = Object.fromEntries(Object.entries(screen).filter(([k]) => /-(syntax|semantic)-/.test(k)))
+  assert.deepEqual(block(':root:not([data-worn]) {'), words)
   // a theme of greys gives no channel hues: the screen's channels the even round
   assert.equal(screen['--color-screen-channel-2'], undefined)
 })
@@ -562,25 +573,213 @@ test('theme: colours made of others as VS Code\'s own Color makes them', async t
   }
 })
 
-// A word's colour as VS Code's own TextMate engine resolves it (vscode-textmate, Theme.match), for every word the skin
-// takes in every theme VS Code ships: the deepest selector matching it wins, the later of two alike, an ancestor
-// selector only where its ancestors are the word's; a scope no rule takes, its parent's colour, as the engine lays each
-// scope's style over its parent's
-test('theme: each word in the colour VS Code\'s TextMate engine gives it, in every theme it ships', async t => {
-  let tm
-  try { tm = (await import('vscode-textmate')).default } catch { return t.skip('vscode-textmate not installed (npm i -D vscode-textmate)') }
-  const { THEMES, SYNTAX, load, colourer } = await import('../../playground/theme.js')
-  const hex = c => c && '#' + c.slice(0, 3).map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('')
-  for (const th of THEMES) {
-    const theme = await load(new URL(`../../playground/themes/${th.file}`, import.meta.url).href, { get: u => readFile(new URL(u), 'utf8') })
-    const registry = new tm.Registry({ onigLib: Promise.resolve({}), loadGrammar: async () => null })
-    registry.setTheme({ settings: theme.tokenColors })
-    const engine = registry._syncRegistry._theme, map = registry.getColorMap(), mine = colourer(theme.tokenColors)
-    for (const [word, stack] of Object.entries(SYNTAX)) {
-      let path = null, id = 0
-      for (const scopeName of stack) { path = { scopeName, parent: path }; id = engine.match(path)?.foregroundId || id }
-      assert.equal(hex(mine(stack)), id ? map[id].slice(0, 7).toLowerCase() : null, `${th.name}: ${word}`)
+// VS Code's own, where it is installed: its TextMate engine and the regular expressions it runs on (vscode-textmate,
+// vscode-oniguruma, in node_modules.asar: a header of JSON naming each file's place, the files after it; the wasm
+// unpacked beside it), its JavaScript grammar, the TypeScript its language features run and its workbench; null where
+// it is not
+const APP = '/Applications/Visual Studio Code.app/Contents/Resources/app'
+let installed
+const vscode = () => installed ??= (async () => {
+  let asar
+  try { asar = await openFile(`${APP}/node_modules.asar`) } catch { return null }
+  const read = async (at, n) => { const b = Buffer.alloc(n); await asar.read(b, 0, n, at); return b }
+  const head = await read(0, 16), header = JSON.parse(await read(16, head.readUInt32LE(12))), base = 8 + head.readUInt32LE(4)
+  const file = async path => { const f = path.split('/').reduce((n, k) => n.files[k], header); return String(await read(base + +f.offset, f.size)) }
+  const cjs = src => { const module = { exports: {} }; new Function('module', 'exports', src)(module, module.exports); return module.exports }
+  const tm = cjs(await file('vscode-textmate/release/main.js')), onig = cjs(await file('vscode-oniguruma/release/main.js'))
+  await asar.close()
+  await onig.loadWASM((await readFile(`${APP}/node_modules.asar.unpacked/vscode-oniguruma/release/onig.wasm`)).buffer)
+  const grammar = JSON.parse(await readFile(`${APP}/extensions/javascript/syntaxes/JavaScript.tmLanguage.json`, 'utf8'))
+  const registry = new tm.Registry({ onigLib: Promise.resolve({ createOnigScanner: p => new onig.OnigScanner(p), createOnigString: s => new onig.OnigString(s) }), loadGrammar: async s => s === 'source.js' ? grammar : null })
+  const ts = createRequire(import.meta.url)(`${APP}/extensions/node_modules/typescript/lib/typescript.js`)
+  return { tm, registry, js: await registry.loadGrammar('source.js'), ts, workbench: () => readFile(`${APP}/out/vs/workbench/workbench.desktop.main.js`, 'utf8') }
+})()
+const themesOf = async () => {
+  const { THEMES, load } = await import('../../playground/theme.js')
+  return Promise.all([...THEMES, { name: 'The screen', file: 'screen.json', kind: 'dark' }].map(async t => ({ ...t, theme: await load(new URL(`../../playground/themes/${t.file}`, import.meta.url).href, { kind: t.kind, get: u => readFile(new URL(u), 'utf8') }) })))
+}
+
+// A word's colour and font style as VS Code's own TextMate engine gives them (vscode-textmate Theme.match, each scope's
+// over its parent's), for every word of the script and every kind the channels take, in every theme VS Code ships and
+// the screen's: of each scope the most specific rule, by its parts, then its ancestors, which must be the scope's in
+// order; what a scope's rule leaves unset, its parent's
+test('theme: each word\'s colour and font style as VS Code\'s TextMate engine gives them, in every theme it ships', async t => {
+  const code = await vscode()
+  if (!code) return t.skip('VS Code is not installed here')
+  const { SYNTAX, styler, hex } = await import('../../playground/theme.js'), { WORDS } = await import('../../playground/syntax.js')
+  const stacks = [...Object.values(SYNTAX), ...Object.entries(WORDS).map(([w, s]) => w === 'source' ? [s] : ['source.js', ...s.replace(' / ', ' ').split(' ').filter(Boolean)])]
+  for (const { name, theme } of await themesOf()) {
+    code.registry.setTheme({ settings: theme.tokenColors.filter(r => r?.scope && r.settings) })
+    const engine = code.registry._syncRegistry._theme, map = code.registry.getColorMap(), mine = styler(theme.tokenColors)
+    for (const stack of stacks) {
+      let path = null, fg = 0, font = -1
+      for (const scopeName of stack) { path = { scopeName, parent: path }; const m = engine.match(path); if (m?.foregroundId) fg = m.foregroundId; if (m && m.fontStyle !== -1) font = m.fontStyle }
+      const own = mine(stack)
+      assert.deepEqual([own.fg, own.font], [fg ? hex(map[fg]) : null, font], `${name}: ${stack.join(' ')}`)
     }
+  }
+})
+
+// The defaults VS Code draws a semantic token with where a theme sets none, as it registers them: the scopes it probes
+// for each type and modifier (tokenClassificationRegistry.ts, read out of the workbench), then the JavaScript
+// extension's (extensions/javascript/package.json); and the globals TypeScript's library declares, each the token
+// TypeScript makes of it
+test('theme: semantic tokens\' defaults as VS Code registers them, the library\'s globals as TypeScript reads them', async t => {
+  const code = await vscode()
+  if (!code) return t.skip('VS Code is not installed here')
+  const { PROBES } = await import('../../playground/theme.js'), { LIBRARY } = await import('../../playground/syntax.js')
+  const src = await code.workbench(), a = src.indexOf('o("comment",d('), b = src.indexOf('}function', src.indexOf('e("member.defaultLibrary"'))
+  if (a < 0 || b < 0) return t.skip('this VS Code\'s registry is not where 1.143\'s was')
+  const theirs = [...src.slice(a, b).matchAll(/(?:\bo\("(\w+)",d\(\d+,null\)|\be\("([\w.]+)"),(\[(?:\[[^\]]*\],?)*\])/g)].map(m => [m[1] ?? m[2], JSON.parse(m[3]).map(p => p.join(' ')).join(' ')])
+  const js = JSON.parse(await readFile(`${APP}/extensions/javascript/package.json`, 'utf8')).contributes.semanticTokenScopes.find(s => s.language === 'javascript').scopes
+  assert.deepEqual(PROBES, [...theirs, ...Object.entries(js).map(([k, v]) => [`${k}:javascript`, v.join(' ')])])
+  const names = Object.keys(LIBRARY), text = names.join(';\n'), tokens = semanticTokens(code.ts, text)
+  assert.deepEqual(tokens.map(([from, to, m]) => [text.slice(from, to), m]), names.map(n => [n, `${LIBRARY[n][0]}.defaultLibrary`]))
+})
+
+// TypeScript's semantic tokens of a script, as VS Code's TypeScript features ask for them of a JavaScript file in a
+// project of its own (extensions/typescript-language-features: encodedSemanticClassifications-full, format 2020, its
+// legend; the inferred project's options): [from, to, 'type.modifier…'], `local` left out, as MEANINGS leaves it. Its
+// library read once for them all (a document registry), each script a file of its own
+let documents, scripts = 0
+function semanticTokens(ts, text) {
+  const file = `/script-${++scripts}.js`, lib = ts.getDefaultLibFilePath({ target: ts.ScriptTarget.ES2024 })
+  const options = { target: ts.ScriptTarget.ES2024, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, jsx: ts.JsxEmit.ReactJSX, allowJs: true, checkJs: false, strictNullChecks: true, strictFunctionTypes: true, allowNonTsExtensions: true }
+  const service = ts.createLanguageService({
+    getScriptFileNames: () => [file], getScriptVersion: () => '1', getCurrentDirectory: () => '/', getCompilationSettings: () => options, getDefaultLibFileName: () => lib,
+    getScriptSnapshot: f => f === file ? ts.ScriptSnapshot.fromString(text) : ts.sys.fileExists(f) ? ts.ScriptSnapshot.fromString(ts.sys.readFile(f)) : undefined,
+    fileExists: f => f === file || ts.sys.fileExists(f), readFile: f => f === file ? text : ts.sys.readFile(f)
+  }, documents ??= ts.createDocumentRegistry())
+  const spans = service.getEncodedSemanticClassifications(file, { start: 0, length: text.length }, '2020').spans, out = []
+  const TYPES = ['class', 'enum', 'interface', 'namespace', 'typeParameter', 'type', 'parameter', 'variable', 'enumMember', 'property', 'function', 'method']
+  for (let i = 0; i < spans.length; i += 3) {
+    const c = spans[i + 2]
+    if (c > 255) out.push([spans[i], spans[i] + spans[i + 1], [TYPES[(c >> 8) - 1], ...['declaration', 'readonly', 'defaultLibrary'].filter(m => c & 1 << { declaration: 0, readonly: 3, defaultLibrary: 4 }[m])].join('.')])
+  }
+  return out
+}
+
+// The scripts a page has: the recipes as the page opens them, and the parts of a script the page writes and one writes
+// (a marker, an edit's range, a curve, tracks; a function, constants, a template's expressions, a regular expression,
+// comments, a doc comment)
+const SCRIPTS = async () => [
+  ...(await import('../../playground/recipes.js')).default.map(r => r.code.replaceAll('$src', `audio('chime.wav')`)),
+  `let voice = audio('handpan.wav')\n  .write(audio('birdsong.wav'), { at: 4 })\n  // .write(audio('monitor.wav'), { at: 4 })\n  .mark(0.8, 'Verse')\n  .mark({ at: 1.4, duration: 1.6 }, 'Chorus')\nlet keys = audio('rhodes.wav').gain(-6)\nlet bell = audio('chime.wav')`,
+  `audio('chime.wav').gain(-3, { at: 1.2, duration: 0.5 }).gain({ t: [0, 0.5, 1], v: [0, -6, -6, 0] }).crop({ at: 0, d: 30 }).fade(0.05, 0.4).mark({ at: 0, d: 1.5 }, 'intro')`,
+  [
+    '/** A kick: a sine falling in pitch. @param {number} t seconds */',
+    'const kick = t => {',
+    '  let s = t % 0.25',
+    '  return Math.sin(2 * Math.PI * (120 * s + 18 * (1 - Math.exp(-40 * s)))) * Math.exp(-12 * s)',
+    '}',
+    'const LOUD = -1, beat = audio.from(kick, { d: 2 }), k = new Float32Array(4)',
+    "let [lufs, peak] = await beat.stat(['loudness', 'db'])",
+    "console.log(`${lufs.toFixed(1)} LUFS, peak ${peak} dB, ${'o'}${{ k }}`)",
+    "if (typeof peak === 'number' && peak > LOUD) beat.normalize(LOUD)",
+    'else if (peak == null || !Number.isFinite(peak)) beat.gain(-Infinity)',
+    'for (const name of [\'a.wav\', "b.wav"]) audio(name).trim().save(name.replace(/\\.\\w+$/, \'-clean.wav\'))',
+    'function shape(x, n = 2) { return x < 0 ? -shape(-x, n) : 1 - (1 - x) ** n }',
+    '/* noise under it, shaped */ beat.mix(audio.from(t => shape(Math.random() * 2 - 1) * 0.1, { duration: beat.duration }), { at: 0.5 })',
+    'let o = { fn: shape, n: null, on: true, off: false, f(x) { return x }, g: () => this }',
+    'k[0] += 1 << 2'
+  ].join('\n')
+]
+
+// What VS Code draws of a script in a theme, each character's colour (opaque over the screen, as the skin writes one)
+// and font style: the grammar's tokens, styled by its engine with the theme's rules after VS Code's own first (the
+// editor's colours: colorThemeData.ts tokenColors), then TypeScript's semantic tokens over them, styled as VS Code
+// styles one (theme.js semantics: its rules, the scopes it probes, as VS Code's sources have them; the probes checked
+// against VS Code's own above)
+const css = c => `rgb(${c.r} ${c.g} ${c.b}${c.a < 1 ? ` / ${c.a}` : ''})`
+function theirs(code, { kind, theme }, text, tokens = semanticTokens(code.ts, text)) {
+  const value = resolver({ kind, colors: theme.colors }), screen = ['opaque', 'editor.background', '#000000'], seen = new Map()
+  const colour = c => seen.get(c) ?? seen.set(c, css(value(['opaque', c, screen]))).get(c)
+  const fg = value('editor.foreground'), two = v => Math.round(v).toString(16).padStart(2, '0')
+  code.registry.setTheme({ settings: [{ settings: { foreground: '#' + [fg.r, fg.g, fg.b].map(two).join('') + (fg.a < 1 ? two(fg.a * 255) : ''), background: '#000000' } }, ...theme.tokenColors.filter(r => r?.scope && r.settings)] })
+  const map = code.registry.getColorMap(), out = []
+  let rule = code.tm.INITIAL
+  for (const line of text.split('\n')) {
+    const { tokens, ruleStack } = code.js.tokenizeLine2(line, rule)
+    for (let i = 0; i < tokens.length; i += 2) {
+      const meta = tokens[i + 1], font = meta >>> 11 & 15, end = i + 2 < tokens.length ? tokens[i + 2] : line.length
+      for (let k = tokens[i]; k < end; k++) out.push({ fg: colour(map[meta >>> 15 & 511]), italic: !!(font & 1), bold: !!(font & 2), underline: !!(font & 4), strike: !!(font & 8) })
+    }
+    out.push(null)
+    rule = ruleStack
+  }
+  const style = semantics(theme), hex = c => '#' + c.map((v, i) => i < 3 || v < 1 ? two(v * 255) : '').join('')
+  for (const [from, to, m] of tokens) {
+    const s = style(m)
+    for (let k = from; k < to; k++) Object.assign(out[k], s.fg && { fg: colour(hex(s.fg)) }, ...['italic', 'bold', 'underline'].map(p => s[p] !== undefined && { [p]: s[p] }), s.strikethrough !== undefined && { strike: s.strikethrough })
+  }
+  return out
+}
+// What the page draws (script.js): each character's words laid over one another, outermost first, each its own colour
+// and font style where the skin sets them, the innermost's semantic token over them; the script's own under them all
+function ours(vars, list, text) {
+  const out = Array.from(text, () => ({ fg: vars['--color-syntax-source'] ?? vars['--color-screen-ink'], italic: false, bold: false, underline: false, strike: false }))
+  const lay = (x, v) => {
+    if (v('color')) x.fg = v('color')
+    if (v('italic')) x.italic = v('italic') === 'italic'
+    if (v('bold')) x.bold = v('bold') === 'bold'
+    if (v('line')) { x.underline = v('line').includes('underline'); x.strike = v('line').includes('line-through') }
+  }
+  for (const [from, to, w] of list) for (let k = from; k < to; k++) lay(out[k], p => vars[`--${p}-syntax-${w}`])
+  for (const [from, to, , m] of list) if (m) for (let k = from; k < to; k++) lay(out[k], p => vars[`--${p}-semantic-${m.replaceAll('.', '-')}`])
+  return out
+}
+
+// Every character of the page's scripts as VS Code draws it, in every theme it ships and the screen's: the grammar's
+// colours and font styles, which a theme gives by scopes, compared to the scopes syntax.js gives the parser's tree, and
+// TypeScript's semantic tokens to those it finds by the script's names (what TypeScript infers of a type it does not:
+// a member of a string, an array, an object a name holds; a doc comment's {@link}; see syntax.js). Spaces aside
+test('script: every character of the page\'s scripts as VS Code draws it, in every theme it ships', async t => {
+  const code = await vscode()
+  if (!code) return t.skip('VS Code is not installed here')
+  const { skin } = await import('../../playground/theme.js'), { default: words } = await import('../../playground/syntax.js'), { parser } = await import('@lezer/javascript')
+  const scripts = (await SCRIPTS()).map(text => ({ text, list: words(parser.parse(text), text), tokens: semanticTokens(code.ts, text) })), report = []
+  for (const th of await themesOf()) {
+    const vars = skin(th.theme), wrong = []
+    let all = 0
+    for (const { text, list, tokens } of scripts) {
+      const a = theirs(code, th, text, tokens), b = ours(vars, list, text)
+      for (let k = 0; k < text.length; k++) if (!/\s/.test(text[k])) { all++; if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) wrong.push(`${JSON.stringify(text.slice(Math.max(0, k - 16), k))} [${text[k]}]: ${JSON.stringify(a[k])}, ours ${JSON.stringify(b[k])}`) }
+    }
+    report.push(`${th.name}: ${all - wrong.length} of ${all}`)
+    assert.deepEqual(wrong.slice(0, 5), [], `${th.name}: ${wrong.length} characters drawn otherwise`)
+  }
+  t.diagnostic(report.join('; '))
+})
+
+// The page draws each character of the script as its words and the skin say (ours above): a word's colour and font
+// style its own, else the part's round it, a semantic token's over them, a part round a word of its own range
+// (`${r}`, `${'x'}`); in the screen's own skin, then in themes worn from the View menu, one with a font style its
+// comments do not take (Dark+), one with parameters italic and types underlined (Monokai), the screen's back after
+test('editor: each character of the script drawn as its words and the skin say, a theme worn or none', async () => {
+  const { skin, load, THEMES } = await import('../../playground/theme.js'), { default: words } = await import('../../playground/syntax.js'), { parser } = await import('@lezer/javascript')
+  const text = (await SCRIPTS()).at(-1), list = words(parser.parse(text), text)
+  await open()
+  await tab('Code')
+  await page.locator('.cm-content').click()
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.insertText(text)
+  // each character as drawn: its colour, its font style, the lines of the words it is in (a decoration is drawn by the
+  // element that sets it, over all inside it; an error's own aside)
+  const drawn = () => page.evaluate(() => {
+    const out = [], lines = el => { const on = new Set(); for (let e = el; !e.classList.contains('cm-content'); e = e.parentElement) if (/\bsyntax-/.test(e.className)) for (const l of getComputedStyle(e).textDecorationLine.split(' ')) if (l !== 'none') on.add(l); return on }
+    const walk = n => {
+      if (n.nodeType !== 3) return n.childNodes.forEach(walk)
+      const s = getComputedStyle(n.parentElement), d = lines(n.parentElement)
+      for (const _ of n.textContent) out.push({ fg: s.color.replace(/,/g, ''), italic: s.fontStyle === 'italic', bold: +s.fontWeight >= 600, underline: d.has('underline'), strike: d.has('line-through') })
+    }
+    document.querySelectorAll('.cm-content .cm-line').forEach((l, i) => { if (i) out.push(null); walk(l) })
+    return out
+  })
+  const theme = async name => { const t = THEMES.find(t => t.name === name) ?? { file: 'screen.json', kind: 'dark' }; return skin(await load(new URL(`../../playground/themes/${t.file}`, import.meta.url).href, { kind: t.kind, get: u => readFile(new URL(u), 'utf8') })) }
+  for (const name of ['The screen', 'Dark+', 'Monokai', 'The screen']) {
+    if (name !== 'The screen' || await page.evaluate(() => document.documentElement.hasAttribute('data-worn'))) await menu('View', 'Theme', name)
+    const want = ours(await theme(name), list, text)
+    await poll(drawn, got => { for (let k = 0; k < text.length; k++) if (!/\s/.test(text[k])) assert.deepEqual(got[k], want[k], `${name}: ${JSON.stringify(text.slice(Math.max(0, k - 16), k))} [${text[k]}]`) })
   }
 })
 
@@ -656,10 +855,14 @@ test('theme: the least a theme can be, and the odd forms VS Code reads', async (
     { scope: 'keyword.control', settings: { foreground: '#333333' } },
     { scope: 'source.python keyword.control.flow', settings: { foreground: '#444444' } }
   ])
-  assert.deepEqual(['keyword.operator.js', 'string.quoted.js', 'keyword.control.flow.js', 'comment.js'].map(s => rule(s)), [hex('#111111'), hex('#111111'), hex('#333333'), null])
+  assert.deepEqual(['keyword.operator.js', 'string.quoted.js', 'keyword.control.flow.js', 'comment.js'].map(s => rule(s)?.fg ?? null), [hex('#111111'), hex('#111111'), hex('#333333'), null])
   assert.deepEqual([hex('#abc'), hex('#aabbcc80'), hex('red'), hex(42)], [[170 / 255, 187 / 255, 204 / 255, 1], [170 / 255, 187 / 255, 204 / 255, 128 / 255], null, null])
   // a colour or a selector of the wrong kind passed over, as VS Code does, the rest read
-  assert.equal(skin({ colors: { 'editor.background': 42 }, tokenColors: [{ scope: [7, 'constant.numeric'], settings: { foreground: '#ff0000' } }] })['--color-screen-number'], 'rgb(255 0 0)')
+  assert.equal(skin({ colors: { 'editor.background': 42 }, tokenColors: [{ scope: [7, 'constant.numeric'], settings: { foreground: '#ff0000' } }] })['--color-syntax-number'], 'rgb(255 0 0)')
+  // a word's font style only where a rule gives one: a comment's italic, a string's none of its own; a semantic token's
+  // none where the theme turns semantic highlighting off
+  const s = skin({ tokenColors: [{ scope: 'comment', settings: { foreground: '#00ff00', fontStyle: 'italic underline' } }, { scope: 'string', settings: { foreground: '#ff0000' } }], semanticTokenColors: { variable: '#0000ff' } })
+  assert.deepEqual([s['--italic-syntax-comment'], s['--bold-syntax-comment'], s['--line-syntax-comment'], s['--italic-syntax-string'], s['--color-semantic-variable']], ['italic', 'normal', 'underline', undefined, undefined])
 })
 
 // A theme from its own file (View, Theme, Open a VS Code theme…), one to another leaving nothing of the first (A, then
@@ -797,3 +1000,27 @@ test('editor: the axes show only while the band is pointed at', async () => {
   await poll(ink, n => assert.ok(n < 20, `pointed nowhere, none: ${n}`), 3000)
 })
 
+
+// The levels' labels give way to the value read only where it is written: over a waveform, at the waveform's level at
+// the pointer's time, so the pointer high over a quiet stretch leaves the top's label as it is (the value, 0, written
+// at the middle); held ⌘, the value its own height's, the top's label gives way
+test('editor: an axis label gives way to the value read where it is written, not to the pointer', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')\n  .remix(1)`)
+  await lengthIs('0:08.000')
+  await settled()
+  const { box, x } = await axis(8)
+  await page.evaluate(() => {
+    window.__said = new Set()
+    const text = CanvasRenderingContext2D.prototype.fillText
+    CanvasRenderingContext2D.prototype.fillText = function (s, x, y) { if (this.canvas.matches('.overlay')) window.__said.add(s); return text.call(this, s, x, y) }
+  })
+  // what the overlay writes as the pointer comes to the tail at 7.9 s, near silence, a few px under the top's tick
+  let nudge = 0
+  const said = async () => { await page.evaluate(() => window.__said = new Set()); await page.mouse.move(x(7.9) + (nudge ^= 1), box.y + TOP + 6); await page.waitForTimeout(150); return page.evaluate(() => [...window.__said]) }
+  await poll(said, s => assert.ok(s.includes('1'), `the top's label kept: ${s}`), 3000)
+  await page.keyboard.down('ControlOrMeta')
+  await poll(said, s => assert.ok(!s.includes('1'), `held ⌘, the top's giving way: ${s}`), 3000)
+  await page.keyboard.up('ControlOrMeta')
+})

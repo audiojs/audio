@@ -6,7 +6,7 @@ import { lanesEnd } from './overlay.js'
 import { drag } from './pointer.js'
 import { moved, rgba } from './render.js'
 import { x, X, time, pitchLine, ly, fy, rowOf, keyY, keyRows, ay, fold, ampLanes } from './scales.js'
-import { tag, accent, label } from './strips.js'
+import { tag, accent, label, stamp } from './strips.js'
 
 // Pitch and notes: a frequency's place, the notes lane and its keys, a voice's notes and guides, the gain and pitch
 // lines and their bends, the clips
@@ -197,10 +197,20 @@ export function noteAt(rect, px, py) {
 const SECONDS = [1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, .001, .002, .005, .01, .02, .05, .1, .2, .5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600]
 export function labelled() {
   const pps = plot().w / (end - start || 1), steps = units === 'samples' ? [0, 1, 2, 3, 4, 5, 6, 7].flatMap(e => [1, 2, 5].map(m => m * 10 ** e / rate)) : SECONDS
-  const step = steps.find(s => s * pps >= 72) ?? steps.at(-1)
-  // the grid's finer step between: the largest of the steps that parts it evenly in three or more
-  const minor = steps.findLast(s => s <= step / 3 * (1 + 1e-9) && Math.abs(step / s - Math.round(step / s)) < 1e-6)
-  return { step, minor, digits: Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)), first: Math.max(0, Math.ceil(start / step - 1e-9)) }
+  // the ticks between, the grid's finer step: the finest of the steps that parts the labels' evenly with room after
+  // each label for its text (4 px past its tick, the widest in view) and a px more, so none is ever left out for a
+  // label; where none has room, the labels a step apart further on, so there are always ticks between
+  const was = c.font
+  c.font = label()
+  const digitsOf = step => Math.max(0, Math.ceil(-Math.log10(step) - 1e-9))
+  const finer = step => {
+    const d = digitsOf(step), tw = Math.max(...[start, end].map(t => c.measureText(stamp(Math.floor(t / step) * step, d)).width))
+    return steps.find(s => s < step * (1 - 1e-9) && Math.abs(step / s - Math.round(step / s)) < 1e-6 && s * pps >= tw + 6)
+  }
+  const from = steps.findIndex(s => s * pps >= 72), at = from < 0 ? steps.length - 1 : steps.slice(from).findIndex(finer) + from
+  const step = at < from ? steps[from] : steps[at], minor = finer(step) ?? null
+  c.font = was
+  return { step, minor, digits: digitsOf(step), first: Math.max(0, Math.ceil(start / step - 1e-9)) }
 }
 // Where each lane's samples first cross full scale in each stretch that clips, { t, i: its lane, sign: +1 or −1 },
 // read off the samples the page holds (none of a long sound's), once for those clips and samples
