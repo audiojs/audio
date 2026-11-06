@@ -28,15 +28,18 @@ let shown = null, carded = false
 let notesFor = ''
 // the edits asked while one is still being made over the picture, each made once the one before it is (view.js onbusy)
 let queued = []
+// a tab being shown (switchTab): its caret and selection put back as it left them, its playback, if it plays, going on
+// where it is, not sent to them
+let turning = false
 
 // The writes from outside, by name: assign({ output: out, incoming: null })
 const set = {
   state: x => state = x, eng: x => eng = x, v: x => v = x, ed: x => ed = x, rk: x => rk = x, pl: x => pl = x,
   output: x => output = x, incoming: x => incoming = x, showing: x => showing = x, timer: x => timer = x, hush: x => hush = x,
   steps: x => steps = x, depthWas: x => depthWas = x, rechoose: x => rechoose = x, viewing: x => viewing = x,
-  shown: x => shown = x, carded: x => carded = x, notesFor: x => notesFor = x, queued: x => queued = x
+  shown: x => shown = x, carded: x => carded = x, notesFor: x => notesFor = x, queued: x => queued = x, turning: x => turning = x
 }
 export function assign(o) { for (const k in o) set[k](o[k]) }
 
 // (no `export let`: tests patch these declarations' text, test/repl/)
-export { state, eng, v, ed, rk, pl, output, incoming, showing, timer, hush, steps, depthWas, rechoose, viewing, shown, carded, notesFor, queued }
+export { state, eng, v, ed, rk, pl, output, incoming, showing, timer, hush, steps, depthWas, rechoose, viewing, shown, carded, notesFor, queued, turning }

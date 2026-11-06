@@ -331,9 +331,9 @@ test('editor: a tab dragged onto the picture is a track; a track moved to its ow
   await page.mouse.up()
   await page.waitForFunction(() => scriptText().includes("let handpan = audio('handpan.wav')"))
   assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet handpan = audio('handpan.wav')`)
-  // named by its tracks, as their layers are
-  assert.deepEqual(await page.locator('.files [role="tab"]').allInnerTexts(), ['chime + handpan'])
-  await page.waitForFunction(() => document.title === 'chime + handpan · audio repl')
+  // named by its first track's file, nothing added for the others (its overview counts them)
+  assert.deepEqual(await page.locator('.files [role="tab"]').allInnerTexts(), ['chime.wav'])
+  await page.waitForFunction(() => document.title === 'chime.wav · audio repl')
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await menu('Track', 'Move the track to its own tab')
   await page.waitForFunction(() => scriptText().trim() === "audio('handpan.wav')")
@@ -395,13 +395,41 @@ test('editor: the shown tab\'s name, clicked, is written in place at once, as it
   assert.equal(await page.locator('.file.current [role="tab"]').textContent(), 'Session', 'kept over a reload')
 })
 
+// A tab playing, left and shown again, plays on where it has come to, not from its caret again. Pointed at, a tab says
+// what its sound is: its length, its rate and channels, its loudness, its edits, the samples the page holds, when it was
+// made; nothing added to its name for the tracks beside its first
+test('editor: a tab shown again plays on where it is; pointed at, it says what its sound is', async () => {
+  await open()
+  const { box, x } = await axis(6.525), at = () => page.evaluate(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s })
+  await page.mouse.click(x(2), box.y + TOP + TRACK / 2)
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => document.querySelector('button.play').getAttribute('aria-label') === 'Pause')
+  await page.waitForTimeout(400)
+  const left = await at()
+  await page.getByRole('button', { name: 'New tab' }).click()
+  await page.waitForTimeout(500)
+  await page.locator('.file [role="tab"]').first().click()
+  assert.ok(await at() > left + .3, `played on: ${left} s when left, ${await at()} s shown again`)
+  await page.keyboard.press('Space')
+  await page.locator('.file [role="tab"]').first().hover()
+  await page.locator('#tab-facts:popover-open').waitFor()
+  const facts = Object.fromEntries((await page.locator('#tab-facts tr').allInnerTexts()).map(r => r.split('\t')))
+  assert.equal(await page.locator('#tab-facts .levels-head').innerText(), 'chime.wav')
+  assert.deepEqual([facts.Length, facts.Sound, facts.Edits], ['0:06.525', '44.1kHz · stereo', '3'], JSON.stringify(facts))
+  assert.match(facts.Loudness, /^−\d+\.\dLUFS · peak −1\.0dBFS$/)
+  assert.match(facts.Memory, /^\d+(\.\d)?MB$/)
+  // the new tab, made now, says so
+  await page.locator('.file [role="tab"]').last().hover()
+  await page.waitForFunction(() => document.querySelector('#tab-facts .levels-head')?.textContent === 'untitled' && document.querySelector('#tab-facts').innerText.includes('Made\tnow'))
+})
+
 // Each tab shows its own sound at once when it is shown again, before its script has run again
 test('editor: a tab shown again shows its sound at once', async () => {
   await open()
   await page.getByRole('button', { name: 'New tab' }).click()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t), { d: 3 })`)
   await lengthIs('0:03.000')
-  const length = () => page.evaluate(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop())
+  const length = () => page.evaluate(() => tabTip().split(' · ').pop())
   await page.locator('.file [role="tab"]').first().click()
   assert.equal(await length(), '0:06.525', 'the chime at once')
   await page.locator('.file [role="tab"]').last().click()

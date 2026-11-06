@@ -147,13 +147,19 @@
           <div class="file" :each="t in tabs" :class="{ current: t.id === tab }" :data-id="t.id" :data-mark="marks[t.id] ?? null">
             <!-- its speaker while it plays, as a browser's tab's: tabs play at once, each heard or muted by a press here -->
             <button class="file-sound" :if="sounding[t.id]" :aria-pressed="sounding[t.id] === 'muted' ? 'true' : 'false'" :aria-label="(sounding[t.id] === 'muted' ? 'Unmute ' : 'Mute ') + t.name" :title="sounding[t.id] === 'muted' ? 'Unmute tab' : 'Mute tab'" :onclick="toggleTabMute(t.id)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path :d="sounding[t.id] === 'muted' ? 'm16 9 6 6m0-6-6 6' : 'M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13'"/></svg></button>
-            <button role="tab" :if="renamingTab !== t.id" :class="{ source: t.id === tab }" :aria-selected="t.id === tab ? 'true' : 'false'" :aria-busy="marks[t.id] === 'working' ? 'true' : null" :title="(t.id === tab ? [t.name, length] : [t.name, markWords[marks[t.id]]]).filter(Boolean).join(' · ')" :onclick="tabPress(t.id)" :onpointerdown="e => dragTab(e, t.id)" :text="t.name"></button>
+            <button role="tab" :if="renamingTab !== t.id" :class="{ source: t.id === tab }" :aria-selected="t.id === tab ? 'true' : 'false'" :aria-busy="marks[t.id] === 'working' ? 'true' : null" :data-length="t.id === tab ? length : null" interestfor="tab-facts" :onpointerenter="() => tabOver(t.id)" :onfocus="() => tabOver(t.id)" :onclick="tabPress(t.id)" :onpointerdown="e => dragTab(e, t.id)" :text="t.name"></button>
             <!-- the one shown clicked, its name written anew in place (tabPress) -->
             <input class="file-field" :if="renamingTab === t.id" spellcheck="false" aria-label="Tab name" :value="t.name" :style="'width: ' + (Math.max(2, t.name.length) + 1) + 'ch'" :oninput="e => fitField(e.target)" :onkeydown="e => tabRenamed(e, t)" :onblur="e => tabRenamed(e, t)">
             <!-- what its sound is doing, in the close button's place till that is pointed at: on its way, or made while the
                  tab was not shown -->
             <button class="file-close" :aria-label="'Close ' + t.name" title="Close tab" :onclick="closeTab(t.id)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg><span class="file-mark" aria-hidden="true"></span></button>
           </div>
+          </div>
+          <!-- a tab pointed at, what its sound is at a glance: its length, tracks, rate and channels, loudness, tempo and
+               key, edits, memory, when it was made, what it is doing (tabs.js tabOver) -->
+          <div id="tab-facts" class="levels" popover="hint" data-place="bottom start" role="tooltip">
+            <p class="levels-head" :text="tabFacts.head"></p>
+            <table class="levels-table"><tbody><tr :each="r in tabFacts.rows"><th scope="row" :text="r[0]"></th><td class="tab-fact" :text="r[1]"></td></tr></tbody></table>
           </div>
           <button class="icon-button file-new" aria-label="New tab" title="New tab" :onclick="newTab()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></button>
         </div>
@@ -302,15 +308,6 @@
           <span class="speed-mark" :text="shuttleText"></span>
         </div>
         <div class="status-end">
-          <!-- before the facts, the delivery spec the output is checked against, its verdict by its name: pointed at, its
-               rules in a table, the output's value and the limit each; pressed, the specs to choose from (none: Check,
-               faint) -->
-          <div id="checks" class="levels checks" popover="hint" data-place="top end" role="tooltip" :if="!embed && spec">
-            <p class="levels-head" :text="report ? report.name + (report.pass ? ': passes' : ': fails') : checking ? 'Measuring the output…' : 'Open or make a sound to check it'"></p>
-            <table class="levels-table" :if="report"><tbody><tr :each="row in checkRows" :title="row.note || null"><th scope="row" :text="row.name"></th><td :class="row.afterClass"><span class="mark" :text="row.afterMark + ' '"></span><span :text="row.after"></span></td><td :text="row.limit ? row.limit + row.unit : ''"></td></tr></tbody></table>
-            <p class="check-note" :if="report?.note" :text="report?.note"></p>
-          </div>
-          <button class="checked" type="button" :if="!embed && whole" interestfor="checks" :class="{ pass: report?.pass, fail: report && !report.pass, stale: checking }" :onclick="pickSpec" :title="spec ? null : 'Check against a delivery spec'"><span class="mark" :if="spec" :text="report ? (report.pass ? '✓' : '✗') : '·'"></span><span :text="spec ? specs.find(s => s.key === spec)?.short : 'Check'"></span></button>
           <p class="facts" :if="sound"><button class="fact" popovertarget="rate-menu" title="Resample" :text="sound?.rate"></button><button class="fact" popovertarget="channels-menu" title="Remix channels" :text="sound?.channels"></button><button class="fact" :if="depth" popovertarget="depth-menu" title="Export bit depth" :text="depth + '-bit'"></button><button class="fact embed-view" type="button" :if="embed" :aria-label="lookIcons[display]?.[0]" :title="display === 'wave' ? 'Show the spectrogram' : 'Show the waveform'" :onclick="flipView"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path :d="lookIcons[display]?.[1]"></path></svg></button></p>
           <button class="before" :aria-pressed="ab ? 'true' : 'false'" :onclick="toggleAB" :disabled="!canCompare" :title="canCompare ? (ab ? 'Back to the edit (' + shortcut('compare') + ')' : 'Hear the original (' + shortcut('compare') + ')\nLevel-matched') : 'No original to compare'">Before</button>
           <!-- embedded, with no menu bar to hold them: the history, at the bar's right end, after the level and the facts,
@@ -319,6 +316,15 @@
             <button class="icon-button undo" :aria-disabled="canUndo ? null : 'true'" :onclick="undo" aria-label="Undo" :title="tip('undo')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
             <button class="icon-button" :onclick="redo" :disabled="!canRedo" aria-label="Redo" :title="tip('redo')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5m5 5H10a6 6 0 0 0 0 12h3"/></svg></button>
           </div>
+          <!-- by the export, the delivery spec the output is checked against, its verdict by its name: pointed at, its
+               rules in a table, the output's value and the limit each; pressed, the specs to choose from (none: Check,
+               faint); with no sound, dimmed, in sight where it will be, so nothing moves as one comes -->
+          <div id="checks" class="levels checks" popover="hint" data-place="top end" role="tooltip" :if="!embed && spec">
+            <p class="levels-head" :text="report ? report.name + (report.pass ? ': passes' : ': fails') : checking ? 'Measuring the output…' : 'Open or make a sound to check it'"></p>
+            <table class="levels-table" :if="report"><tbody><tr :each="row in checkRows" :title="row.note || null"><th scope="row" :text="row.name"></th><td :class="row.afterClass"><span class="mark" :text="row.afterMark + ' '"></span><span :text="row.after"></span></td><td :text="row.limit ? row.limit + row.unit : ''"></td></tr></tbody></table>
+            <p class="check-note" :if="report?.note" :text="report?.note"></p>
+          </div>
+          <button class="checked" type="button" :if="!embed" :disabled="!whole" interestfor="checks" :class="{ pass: report?.pass, fail: report && !report.pass, stale: checking }" :onclick="pickSpec" :title="spec ? null : 'Check against a delivery spec'"><span class="mark" :if="spec" :text="report ? (report.pass ? '✓' : '✗') : '·'"></span><span :text="spec ? specs.find(s => s.key === spec)?.short : 'Check'"></span></button>
           <!-- last, the way out: the output as a file, or its cuts as an edit list, a dropdown over it -->
           <button class="icon-button download" type="button" :if="!embed" popovertarget="download" aria-haspopup="dialog" aria-label="Export" :title="'Export (' + shortcut('export') + ')'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M4 19h16"/></svg></button>
         </div>

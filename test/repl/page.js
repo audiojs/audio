@@ -57,6 +57,8 @@ beforeEach(async () => {
   // a panel opens it
   await page.addInitScript(() => {
     // the script, its lines as the editor has them, the code panel open or not
+    // the tab shown, as it says itself: its name, then its length (its overview has the rest)
+    globalThis.tabTip = () => { const e = document.querySelector('.source'); return e ? `${e.textContent} · ${e.dataset.length ?? ''}` : '' }
     globalThis.scriptText = () => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n')
     // what is drawn over the sound as it shows: the reel's time row and marks (view.js marksOf: the time row's times, the
     // carets, the cues, the markers…) where the reel is, cut where the lanes end, under the overlay; a canvas the
@@ -153,7 +155,7 @@ const wholeLevels = () => page.locator('.readout[data-of="all"]')
 // that table, its head and a row a line, its cells apart: "Peak −1.0dBFS at 0:00.120"
 const levelsTable = () => page.locator('#levels').evaluate(el => [el.querySelector('.levels-head')?.textContent, ...[...el.querySelectorAll('tr')].map(r => [...r.cells].map(c => c.textContent).filter(Boolean).join(' '))].filter(Boolean).join('\n'))
 // The output's length, from the name's tooltip ("chime.wav · 0:06.525"): the axes show it, so the page doesn't repeat it
-const lengthText = () => page.evaluate(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop())
+const lengthText = () => page.evaluate(() => tabTip().split(' · ').pop())
 const seconds = async () => { const [m, s] = (await lengthText()).split(':'); return +m * 60 + +s }
 // (`ui`: the app's config, as the link gives it)
 async function open(ui = null) {
@@ -320,7 +322,7 @@ async function drag([x, y], [dx, dy]) {
   await page.mouse.move(x + dx, y + dy, { steps: 6 })
   await page.mouse.up()
 }
-const lengthIs = text => page.waitForFunction(text => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith(' · ' + text), text)
+const lengthIs = text => page.waitForFunction(text => tabTip().endsWith(' · ' + text), text)
 // What reaches the speakers: every AudioContext's destination becomes a tap recording its left channel, run before the page
 function tap() {
   const Real = window.AudioContext

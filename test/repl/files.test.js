@@ -136,7 +136,7 @@ test('editor: several files dropped open as tracks of one tab, exported a file e
 test('editor: a file dropped on the waveform of a generated sound goes in where it is dropped', async () => {
   await open()
   await write(`audio.from(0.5)`)
-  await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop() === '0:00.500')
+  await page.waitForFunction(() => tabTip().split(' · ').pop() === '0:00.500')
   const bytes = await wavBytes([sine(.5, 440, .5)]), { x } = await axis(.5)
   await page.evaluate(({ bytes, x }) => {
     const target = document.querySelector('.plot'), rect = target.getBoundingClientRect(), data = new DataTransfer()
@@ -146,7 +146,7 @@ test('editor: a file dropped on the waveform of a generated sound goes in where 
     target.dispatchEvent(new DragEvent('drop', at))
   }, { bytes: [...bytes], x: x(.5) })
   await page.waitForFunction(() => scriptText() === "audio.from(0.5)\n  .insert(audio('tone.wav'), { at: 0.5, xfade: 0.01 })")
-  await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop() === '0:01.000')
+  await page.waitForFunction(() => tabTip().split(' · ').pop() === '0:01.000')
 })
 
 test('editor: export downloads the output, encoded', async () => {

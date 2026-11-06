@@ -174,17 +174,17 @@ for (const width of [1280, 880]) test(`repl: the status bar holds still as a sel
 // The level and the facts after it one row of figures, as far apart each from the next, embedded as in the whole editor
 // (where nothing comes before the level, it keeps by the facts); a tablet's bar, an iPad's 768 px held upright, has
 // them all
-test('repl: the level, the check and the facts as far apart as each other, embedded or not, a tablet\'s bar showing them', async () => {
+test('repl: the level and the facts as far apart as each other, embedded or not, a tablet\'s bar showing them', async () => {
   const gaps = () => page.evaluate(() => {
     const text = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect() }
-    const all = [document.querySelector('.readout'), document.querySelector('.status .checked'), ...document.querySelectorAll('.facts .fact')].filter(Boolean).filter(e => getComputedStyle(e).display !== 'none' && e.getClientRects().length).map(text)
+    const all = [document.querySelector('.readout'), ...document.querySelectorAll('.facts .fact')].filter(e => getComputedStyle(e).display !== 'none' && e.getClientRects().length).map(text)
     return all.slice(1).map((b, i) => Math.round(b.left - all[i].right))
   })
   await page.setViewportSize({ width: 768, height: 720 })
   await open()
   await wholeLevels().waitFor()
   const whole = await gaps()
-  assert.ok(whole.length === 4 && whole.every(g => g === whole[0]), `the level, the check and three facts, evenly: ${whole}`)
+  assert.ok(whole.length === 3 && whole.every(g => g === whole[0]), `the level and three facts, evenly: ${whole}`)
   await page.goto(origin + '/blank.html')
   const src = await page.evaluate(async () => {
     await import('/repl/embed.js')

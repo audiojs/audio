@@ -23,7 +23,7 @@ export let owning
 // A tab as it is kept: its script, where it was looked at and what was selected
 export const saved = d => {
   const shown = d.id === state.tab
-  return { code: shown ? ed.code : d.code, title: d.title ?? null, frame: d.frame ?? (shown ? v?.frame : null), view: d.view ?? (shown ? v?.state : null), track: shown ? state.track : d.track ?? null, muted: shown ? state.muted : d.muted ?? [], locked: shown ? state.locked : d.locked ?? [], heights: d.heights ?? {}, kinds: d.kinds ?? {} }
+  return { code: shown ? ed.code : d.code, title: d.title ?? null, made: d.made ?? null, frame: d.frame ?? (shown ? v?.frame : null), view: d.view ?? (shown ? v?.state : null), track: shown ? state.track : d.track ?? null, muted: shown ? state.muted : d.muted ?? [], locked: shown ? state.locked : d.locked ?? [], heights: d.heights ?? {}, kinds: d.kinds ?? {} }
 }
 // the storage full, the tabs and the settings are kept without their conversations, and the page says so, once
 let full = false

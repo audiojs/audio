@@ -278,12 +278,12 @@ test('editor: deleting a selection writes remove() and shortens the output by it
   // each time goes to the zoom's 1-2-5 step, at most 2.5 pixels
   const px = before / await spans(box)
   assert.ok(Math.abs(+at - before * .25) < 3 * px && Math.abs(+duration - before * .25) < 3 * px, `${at} ${duration}`)
-  await page.waitForFunction(expected => Math.abs(+(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':')[1] - expected) < .002, before - +duration)
+  await page.waitForFunction(expected => Math.abs(+tabTip().split(' · ').pop().split(':')[1] - expected) < .002, before - +duration)
   // the waveform shares the script's history
   await page.locator('.plot').focus()
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => !scriptText().includes('.remove('))
-  await page.waitForFunction(expected => Math.abs(+(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':')[1] - expected) < .002, before)
+  await page.waitForFunction(expected => Math.abs(+tabTip().split(' · ').pop().split(':')[1] - expected) < .002, before)
 })
 
 test('editor: completion lists methods by group and a chosen one opens its sliders', async () => {
@@ -351,7 +351,7 @@ test('editor: pauses selected together are shortened or deleted together, in one
   await page.waitForFunction(() => (scriptText().match(/\.remove\(/g) || []).length === 3)
   const ats = [...(await code()).matchAll(/remove\(\{ at: ([\d.]+)/g)].map(m => +m[1])
   assert.ok(ats[0] > ats[1] && ats[1] > ats[2] && Math.abs(ats[2] - .4) < .03, JSON.stringify(ats))
-  await page.waitForFunction(() => +(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(':').pop() < 1.8)
+  await page.waitForFunction(() => +tabTip().split(':').pop() < 1.8)
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => !scriptText().includes('.remove('))
 })

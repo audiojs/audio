@@ -746,7 +746,7 @@ test('editor: a sound longer than the page holds sounds under the caret as it is
   await page.addInitScript(tap)
   await open()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .5, { duration: 1820, sampleRate: 48000 })`)
-  await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('30:20.000'), null, { timeout: 120000 })
+  await page.waitForFunction(() => tabTip().endsWith('30:20.000'), null, { timeout: 120000 })
   await page.waitForFunction(() => !document.querySelector('.message').textContent, null, { timeout: 120000 })
   const { box, x } = await axis(1820), row = onRow(box)
   await settled()

@@ -40,7 +40,7 @@ test('editor: a recording becomes a file the script opens', async () => {
   await page.waitForFunction(() => +document.querySelector('.time').textContent.split(':')[1] > .9)
   // the take itself, untrimmed: about as long as the recording ran (a slow machine's run, however long)
   await write(`audio('recording.wav')`)
-  const long = () => page.waitForFunction(most => { const s = +(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':')[1]; return s > .9 && s < most }, ran + .5)
+  const long = () => page.waitForFunction(most => { const s = +tabTip().split(' · ').pop().split(':')[1]; return s > .9 && s < most }, ran + .5)
   await long()
   const before = await lengthText()
   // kept for the next visit, as a file is (a 32-bit float WAV): the same length after a reload, nothing missing
@@ -285,7 +285,7 @@ test('editor: the record button records over the sound from the caret, into the 
   }, await gutter(), { timeout: 10000 })
   await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
   await page.waitForFunction(() => /\.write\(audio\('take\.wav'\), \{ at: 7\.5 \}\)$/.test(scriptText()))
-  await page.waitForFunction(() => +(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':')[1] > 8.2)
+  await page.waitForFunction(() => +tabTip().split(' · ').pop().split(':')[1] > 8.2)
   // stopped, the caret waits where the take ended, as a tape's head: Record again records on from there, the takes
   // meeting to the sample
   const ended = +(await page.locator('.time').innerText()).split(':')[1]

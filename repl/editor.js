@@ -13,7 +13,7 @@ import { connectAgent, pickAgent, partsOf, showChat, newChat, openChat, dropChat
 import { wire as wireClipboard } from './editor/clipboard.js'
 import { command, shortcut, tip, scriptKeys, pressed } from './editor/commands.js'
 import { root, params, EMBED, UI, STACKED, AGENTED, SHOWN, QUICK, GIVEN, formats, ENCODING, writtenDepth, DEPTH_USE, cutFormats, frameRates, KEEPS, LOOK, looks, specMethods, WAVE, waveLooks, levelList, curves, glyphs, gripModes, displays, SHUTTLE, times, tenths, rates, layouts, specs, stored, oneOf, sideOf } from './editor/config.js'
-import { ed, rk, pl, output, incoming, rechoose, shown, carded, queued, assign } from './editor/context.js'
+import { ed, rk, pl, output, incoming, rechoose, shown, carded, queued, turning, assign } from './editor/context.js'
 import { remember, undoList, goTo, editSelection, warp, carry, toTab, addOp, spread, flatten, switchTake } from './editor/edits.js'
 import { lengthOf, pickFiles, openFiles, taken, recover, useSample, useCode, useRecipe, openSearch, closeSearch, typeSearch, runSearch, preview, useResult, exportFiles, exportCuts, share, wire as wireFiles } from './editor/files.js'
 import { bytes, mac, keys, clock, stamp, ruled, label, note } from './editor/format.js'
@@ -25,7 +25,7 @@ import { playerOf, toggleAB, toggleLoop, plays, playPress, playClick, togglePlay
 import { meter, describe, markLevel, unmarkLevel, pickReading, pickHeard, pickSpec, listen } from './editor/readouts.js'
 import { placed, toggleRecording, take, recorder, armRecording, startRecording, stopRecording, reach, span, useTakeOf, forkRange, takeList, wire as wireRecording } from './editor/recording.js'
 import { schedule, evaluate, stop, standIn, scheduleCheck, wire as wireRun } from './editor/run.js'
-import { docOf, initialDocs, retitle, tabPress, tabRenamed, switchTab, scrollTabs, inSight, newTab, dragTab, closeTab, wire as wireTabs } from './editor/tabs.js'
+import { docOf, initialDocs, retitle, tabPress, tabOver, tabRenamed, switchTab, scrollTabs, inSight, newTab, dragTab, closeTab, wire as wireTabs } from './editor/tabs.js'
 import { guidesOf } from './editor/tools.js'
 import { trackMenu, layerLook, toggleLock, fitField, nameNewTrack, roomMenu, toggleMute, focusOn, trackOf, laneName, untrack, wire as wireTracks } from './editor/tracks.js'
 import { resampleTo, remixTo, silence, stretch, trim, crossfade, lift, unmark, nameMarker, relabel, remark, fade, setGrip, setCurve, envelope, pitchline, envelopeShown, shiftOf, shift, tone, formant } from './editor/writers.js'
@@ -76,7 +76,7 @@ const state = sprae(root, {
   embed: EMBED, stacked: STACKED, agented: AGENTED, quick: QUICK, made: 0, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
   // the commands' keys and tooltips, as the menus have them (commands.js)
   shortcut, tip,
-  tabs: [], marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, hotBand: -1, trackRows: null, ghost: false, renamingTab: null,
+  tabs: [], tabFacts: { id: null, head: '', rows: [] }, marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, hotBand: -1, trackRows: null, ghost: false, renamingTab: null,
   progress: '', figure: '', arrived: null, working: false, loading: false, arriving: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
   time: '0:00.000', held: null, span: 0, readout: '', reading: { of: '', head: '', rows: [] }, heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
   // the ring in Play's place (status), unless it plays or records
@@ -187,7 +187,7 @@ const state = sprae(root, {
   setLevels, setLook,
   blankView: on => { if (v) v.blank = on }, setDisplay, dropToggle, placeList, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo, pickReading, pickHeard, pickSpec, markLevel, unmarkLevel,
   togglePlay, playPress, playClick, stop, redo: () => command('redo').run(), mac, share, exportFiles,
-  switchTab, tabPress, tabRenamed, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
+  switchTab, tabPress, tabOver, tabRenamed, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
   openSearch, closeSearch, runSearch, typeSearch, preview, useResult
 })
 assign({ state })
@@ -323,7 +323,7 @@ v = view(root.querySelector('.plot'), {
     later()
   },
   // the caret put elsewhere while it plays: playback goes there, over what is selected now (all of it, if nothing)
-  oncursor(t) { if (pl.playing) pl.play(plays(t)); else { state.time = stamp(t); meter(); pl.seek(t); listen(); later() } },
+  oncursor(t) { if (pl.playing) { if (!turning) pl.play(plays(t)) } else { state.time = stamp(t); meter(); pl.seek(t); listen(); later() } },
   // an edit made on the picture: true once it is written in the script
   // what a selection's handles and its audio dragged do, through every track the same, when it runs through them (spread)
   onedit(type, detail, data) {

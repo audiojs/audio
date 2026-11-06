@@ -113,7 +113,7 @@ test('editor: after a reload the view is where it was left while its sound still
   await open()
   await noCues()
   await write(`audio('${origin}/slow/test/fixture.wav')`)
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && tabTip().endsWith('0:02.000'), null, { timeout: 30000 })
   const { box, x } = await axis(2), y = box.y + TOP + TRACK * .3
   const left = async () => { await page.mouse.click(box.x + 1, y); return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0) }
   await page.mouse.click(x(1.5), y)
@@ -136,19 +136,19 @@ test('editor: after a reload the view is where it was left while its sound still
   // past the 250 ms a view held waits (editor.js WAIT): the file shows as it comes, the view not moved by it
   await page.waitForTimeout(300)
   assert.ok(Math.abs(await left() - before) < .01, 'where it was, while it loads')
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && tabTip().endsWith('0:02.000'), null, { timeout: 30000 })
   await settled()
   assert.ok(Math.abs(await left() - before) < .01, 'and once it is whole')
   // an edit that waits for the whole file (normalize): the file shows dim as it arrives, in the view as it was left
   await write(`audio('${origin}/slow/test/fixture.wav').normalize()`)
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && tabTip().endsWith('0:02.000'), null, { timeout: 30000 })
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl')).docs.some(d => d.code.includes('.normalize()')))
   await page.reload()
   await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   // past the 250 ms a view held waits (editor.js WAIT): the file shows dim as it comes, the view not moved by it
   await page.waitForTimeout(300)
   assert.ok(Math.abs(await left() - before) < .01, 'the file, dim, where it was')
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && tabTip().endsWith('0:02.000'), null, { timeout: 30000 })
   await settled()
   assert.ok(Math.abs(await left() - before) < .01, 'its output too')
 })

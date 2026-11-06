@@ -361,7 +361,7 @@ test('editor: a stretch dragged anywhere ends where it was let go, to the sample
   await page.waitForFunction(() => /\.stretch\(/.test(scriptText()))
   const [a, to] = (await selected()).split('–').map(Number)
   // its length, in the samples the times are in, no longer 8 s'
-  await page.waitForFunction(() => !(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith(' · 352800'))
+  await page.waitForFunction(() => !tabTip().endsWith(' · 352800'))
   // all of it selected, in samples: 0 to its length
   await page.locator('.plot').focus()
   await page.keyboard.press('ControlOrMeta+A')
@@ -458,7 +458,7 @@ test('editor: at the end, Alt on the caret\'s line opens silence past the pictur
   await page.waitForFunction(() => /\.insert\([\d.]+, \{ at: 8, xfade: 0\.01 \}\)$/.test(scriptText()))
   const d = +(await code()).match(/\.insert\(([\d.]+),/)[1]
   assert.ok(d > 1, `as far as it was pulled: ${d} s`)
-  await page.waitForFunction(total => { const [m, s] = (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':'); return Math.abs(+m * 60 + +s - total) < 1e-3 }, 8 + d)
+  await page.waitForFunction(total => { const [m, s] = tabTip().split(' · ').pop().split(':'); return Math.abs(+m * 60 + +s - total) < 1e-3 }, 8 + d)
 })
 
 // The fade squares on whole pixels, flush with what they sit by and never over the caret's line: the one in from the

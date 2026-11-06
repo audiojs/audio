@@ -772,7 +772,7 @@ test('editor: dragged inside the selection, its audio slides over what is there;
   await keyed(['Alt'], () => drag([x(1.5), y], [x(4) - x(1), 0]))
   await page.waitForFunction(() => /\.copy\(\{ at: 1, d: 1 \}\)\.paste\(4, 0\.01\)$/.test(scriptText()))
   assert.equal(await selected(), '0:04.000–0:05.000', 'the copy selected where it went')
-  await page.waitForFunction(expected => Math.abs(+(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':')[1] - expected) < .002, before + 1)
+  await page.waitForFunction(expected => Math.abs(+tabTip().split(' · ').pop().split(':')[1] - expected) < .002, before + 1)
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => scriptText() === "audio('chime.wav')")
   await page.mouse.click(x(7.5), y)

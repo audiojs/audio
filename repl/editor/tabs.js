@@ -1,8 +1,8 @@
-import { SLOP } from '../view.js'
-import { source, chain, tracks as tracksOf, focus } from '../code.js'
-import { root, EMBED, displays, stored, docsOf } from './config.js'
-import { state, eng, v, ed, rk, pl, timer, steps, depthWas, assign } from './context.js'
-import { label } from './format.js'
+import { SLOP, NOTES } from '../view.js'
+import { source, chain, steps as stepsOf, tracks as tracksOf, focus } from '../code.js'
+import { root, EMBED, displays, layouts, stored, docsOf } from './config.js'
+import { state, eng, v, ed, rk, pl, output, timer, steps, depthWas, assign } from './context.js'
+import { label, clock, dbfs, bytes, ago } from './format.js'
 import { saved, store } from './persist.js'
 import { playerOf, ticker, chase } from './play.js'
 import { places } from './recording.js'
@@ -38,7 +38,7 @@ export async function initialDocs() {
   // the link is all there is, so a reload runs it again
   if (hash && !EMBED) history.replaceState(null, '', location.pathname + location.search)
   const names = list => Array.isArray(list) ? list.filter(n => typeof n === 'string') : []
-  docs = list.map(({ code, title, frame, view, track, muted, locked, heights, kinds }) => ({ id: ++docIds, code, title: typeof title === 'string' && title ? title : null, frame, view, track: typeof track === 'string' ? track : null, muted: names(muted), locked: names(locked),
+  docs = list.map(({ code, title, made, frame, view, track, muted, locked, heights, kinds }) => ({ id: ++docIds, code, title: typeof title === 'string' && title ? title : null, made: Number.isFinite(made) ? made : null, frame, view, track: typeof track === 'string' ? track : null, muted: names(muted), locked: names(locked),
     heights: heights && typeof heights === 'object' ? Object.fromEntries(Object.entries(heights).filter(([, h]) => Number.isFinite(h))) : {},
     kinds: kinds && typeof kinds === 'object' ? Object.fromEntries(Object.entries(kinds).filter(([, k]) => displays.some(d => d.name === k))) : {} }))
   return docs[at]
@@ -73,12 +73,43 @@ function renameTab(id, to) {
   store()
 }
 function nameOf(code) { return soundName(code, source(code)?.strings.map(x => x.name), !!chain(code)) }
-// A sound's name: with tracks, theirs, as their layers have them (not every file their takes open, a dozen, none of them
-// the track); else the files it opens; else 'generated' (`made`) or 'untitled'
+// A sound's name: with tracks, the first's, its file's as a sound alone is named, else the name it has in the script (the
+// others, a track made beside it, a take, never added to it: how many there are its tab's overview says); else the
+// files it opens; else 'generated' (`made`) or 'untitled'
 export function soundName(code, files, made) {
-  const tracks = tracksOf(code).map(t => t.name)
-  return tracks.length ? tracks.join(' + ') : files?.length ? files.map(label).join(' + ') : made ? 'generated' : 'untitled'
+  const [first] = tracksOf(code), file = first && source(code.slice(first.statement.from, first.statement.to))?.strings[0]?.name
+  return first ? file ? label(file) : first.name : files?.length ? files.map(label).join(' + ') : made ? 'generated' : 'untitled'
 }
+// A tab pointed at, what its sound is at a glance (index.html #tab-facts), as its run left it: its length, its tracks,
+// its rate and channels, its loudness and peak, its tempo and key where they are clear (worker.js listen: 6 s at least),
+// its edits, the samples the page holds of it, when it was made, and what it is doing. A tab not yet run, its script's
+// part alone
+export function tabOver(id) {
+  const d = docOf(id), shown = id === state.tab, out = shown ? output : d?.output, code = shown ? ed.code : d?.code ?? ''
+  const tracks = tracksOf(code)
+  // its edits, every track's
+  let edits = 0
+  try { for (const t of tracks.length ? tracks : [null]) { focus(t?.name ?? null); edits += stepsOf(code).filter(x => x.on).length } } finally { focus(state.track) }
+  const rows = [], has = !!out?.duration
+  if (has) {
+    const k = (out.channels ?? out.peaks)?.length ?? 0
+    rows.push(['Length', clock(out.duration)])
+    if (tracks.length > 1) rows.push(['Tracks', `${tracks.length}`])
+    rows.push(['Sound', [`${+(out.sampleRate / 1000).toFixed(3)}kHz`, layouts.find(l => l.count === k)?.label ?? `${k} ch`, out.bitDepth && `${out.bitDepth}-bit`].filter(Boolean).join(' · ')])
+    if (out.stats) rows.push(['Loudness', `${Number.isFinite(out.stats.loudness) ? dbfs(out.stats.loudness) : '−∞'}LUFS · peak ${dbfs(out.stats.peak)}dBFS`])
+    if (out.heardAll) { const { bpm, key } = out.heardAll; if (bpm || key) rows.push(['Tempo', [bpm && `${bpm} BPM`, key && `${NOTES[key.tonic]} ${key.mode}`].filter(Boolean).join(' · ')]) }
+  }
+  rows.push(['Edits', `${edits}`])
+  if (has) rows.push(['Memory', bytes(held(out))])
+  if (d?.made) rows.push(['Made', ago(d.made)])
+  const doing = [state.sounding[id] === 'muted' ? 'Playing, muted' : state.sounding[id] || (shown && state.playing) ? 'Playing' : '', state.markWords[state.marks[id]] ?? ''].filter(Boolean).join(' · ')
+  if (doing) rows.push(['Now', doing])
+  state.tabFacts = { id, head: state.tabs.find(t => t.id === id)?.name ?? '', rows }
+  // the tempo and the key, read once for all of it, then said
+  if (has && !out.heardAll && out.duration >= 6) eng.listen(out.id, [0, 0], [0, out.duration]).then(r => { out.heardAll = { bpm: r?.bpm ?? null, key: r?.key ?? null }; if (state.tabFacts.id === id) tabOver(id) }).catch(() => out.heardAll = {})
+}
+// the samples the page holds of an output: its channels, its tracks' lanes, its peaks
+const held = out => { let n = 0; const add = x => ArrayBuffer.isView(x) ? n += x.byteLength : Array.isArray(x) && x.forEach(add); for (const k of ['channels', 'lanes', 'peaks']) add(out[k]); return n }
 export function switchTab(id) {
   if (id === state.tab || !docs.some(d => d.id === id)) return
   const was = docs.find(d => d.id === state.tab), next = docs.find(d => d.id === id)
@@ -102,7 +133,7 @@ export function switchTab(id) {
   v.notes = {}
   assign({ notesFor: '' })
   focus(state.track)
-  assign({ viewing: { delta: null, back: null } })
+  assign({ viewing: { delta: null, back: null }, turning: true })
   v.select(0, 0)
   v.setCursor(0)
   // its sound at once, as it was last shown (none for a new one); while that is what its script makes as it reads now,
@@ -111,6 +142,7 @@ export function switchTab(id) {
   assign({ incoming: null })
   settle(next.output ?? null)
   if (!next.output) standIn(next)
+  assign({ turning: false })
   if (pl.playing) chase()
   ed.open(id, next.code)
   // its takes' places, as its script has them: a run, which would place them, may not come
@@ -178,7 +210,7 @@ function tabEdges() {
   if ((tabStrip.dataset.more ?? '') !== more) more ? tabStrip.dataset.more = more : delete tabStrip.dataset.more
 }
 export function newTab(code = '') {
-  const doc = { id: ++docIds, code }
+  const doc = { id: ++docIds, code, made: Date.now() }
   docs.push(doc)
   switchTab(doc.id)
   return doc
@@ -254,7 +286,7 @@ export function closeTab(id = state.tab) {
 export function reopenTab(i = closed.length - 1) {
   const [c] = closed.splice(i, 1)
   if (!c) return
-  const doc = c.doc ?? { id: ++docIds, code: c.code, frame: c.frame, view: c.view, track: c.track ?? null, muted: c.muted ?? [] }
+  const doc = c.doc ?? { id: ++docIds, code: c.code, made: Number.isFinite(c.made) ? c.made : null, frame: c.frame, view: c.view, track: c.track ?? null, muted: c.muted ?? [] }
   const blank = !ed.code.trim() ? state.tab : null
   docs.splice(Math.min(c.at ?? docs.length, docs.length), 0, doc)
   switchTab(doc.id)

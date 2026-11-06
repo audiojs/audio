@@ -379,10 +379,11 @@ svg { flex: none; }
 .before:hover:not(:disabled) { background: var(--color-quiet-hover); color: var(--color-screen-ink); }
 .before[aria-pressed="true"]:not(:disabled) { background: var(--color-screen-accent); color: var(--color-screen); }
 .before:disabled { opacity: .4; }
-/* the spec checked against, its verdict by its name, before the facts as far from them as they are from each other:
-   Check alone, faint, with none; its rules pointed at, a table over it as the levels' */
-.checked { flex: none; margin-left: 4px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); white-space: nowrap; }
-.checked:hover, .checked:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+/* the spec checked against, its verdict by its name, by the export: Check alone, faint, with none; its rules pointed at,
+   a table over it as the levels' */
+.checked { flex: none; margin-left: 12px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); white-space: nowrap; }
+.checked:disabled { opacity: .4; }
+.checked:hover:not(:disabled), .checked:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .checked.pass, .checked.fail { color: var(--color-screen-soft); }
 .checked .mark { margin-right: 3px; }
 .checked.pass .mark { color: var(--color-screen-bright); }
@@ -391,7 +392,7 @@ svg { flex: none; }
 .checks td.fail { color: var(--color-screen-error); }
 .checks .check-note { max-width: 36ch; margin: 4px 0 0; white-space: normal; }
 /* the export, last at the bar's right end: a dropdown over it */
-.status .download { flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 28px; height: 28px; margin-left: 6px; border-radius: 6px; }
+.status .download { flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 28px; height: 28px; margin-left: 2px; border-radius: 6px; }
 .status .download svg { width: 17px; height: 17px; }
 .record-icon { display: block; width: 11px; height: 11px; border-radius: 50%; background: var(--color-screen-error); opacity: .8; }
 .record:hover .record-icon { opacity: 1; }
@@ -478,6 +479,8 @@ svg { flex: none; }
 .levels-table th { padding: 0 12px 0 0; color: var(--popoff-soft); font: 11.5px/17px var(--font-body); text-align: left; }
 .levels-table td { padding: 0; color: var(--popoff-ink); text-align: right; }
 .levels-table td + td { padding-left: 10px; color: var(--popoff-muted); text-align: left; }
+/* a tab's overview: each fact after its name */
+.levels-table .tab-fact { text-align: left; }
 /* undo and redo after the length, a pair of keys, their arrows standing on the length's baseline as its digits do (an
    arrow's foot, its stroke's round end, 7 px under the key's middle; the digits' baseline 1.5 px under --line) */
 .status .history { position: relative; top: calc(var(--line) - 4.5px); display: flex; gap: 1px; }
