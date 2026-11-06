@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { page, errors, open, tab, show, shown } from './page.js'
 
-// The agent, through the local bridge (bin/bridge.js): the page connects with the bridge's address and key, the agent
+// The agent, through the local bridge (bin/bridge.js): the page, asked for the agent's line, connects with the bridge's address and key, the agent
 // the bridge started with named, no choice to make; it answers the agent's tool calls as the MCP server sends them (an
 // edit written into the script, one step; the state of the sound; a measurement and a picture, changing nothing; the
-// file as it opened, level-matched), and the chat streams the agent's words as Markdown, what it runs while it answers,
+// file as it opened, level-matched), and the line under the code streams the agent's words as Markdown, what it runs while it answers,
 // the tools it used. The conversation is the page's, kept: a reload brings it back, a new one starts empty, the old one
 // is a click away, another tab shows it still (the agent's `open` and `tabs` move between tabs mid-conversation). The agent here is a stand-in on PATH printing what
 // `claude -p --output-format stream-json --verbose --include-partial-messages` prints, a tool's run held for a moment
@@ -52,14 +52,16 @@ const out = l => process.stdout.write(JSON.stringify(l) + '\\n'), wait = ms => n
     const url = await new Promise(resolve => proc.stdout.on('data', d => { const m = String(d).match(/http:\/\/127\.0\.0\.1:\d+/); if (m) resolve(m[0]) }))
     // the bridge is the one other address the page may reach
     await page.route(url + '/**', route => route.continue())
-    await open({ edits: true })
-    await tab('Agent')
+    await open({ edits: true, agent: true })
+    await tab('Code')
+    // the line under the code, till it connects, opens the bridge's address and key
+    await page.locator('.chat-line').click()
     await page.getByRole('textbox', { name: 'The bridge\'s address' }).fill(url)
     await page.getByLabel('The bridge\'s key').fill(KEY)
-    await page.getByRole('button', { name: 'Connect' }).click()
+    await page.getByRole('button', { name: 'Connect', exact: true }).click()
     await page.locator('.chat-form textarea[placeholder="Ask Claude Code…"]').waitFor()
     assert.equal(await page.getByRole('textbox', { name: 'The bridge\'s address' }).count(), 0, 'its address and key gone once connected')
-    assert.equal(await page.locator('.chat-empty').count(), 0, 'connected, nothing said: the box says who answers, no choice of agent')
+    assert.equal(await page.locator('.chat-line').count(), 0, 'connected, nothing said: the line says who answers')
     assert.equal(await page.locator('.chat-head').count(), 0, 'no conversations yet')
     // the agent's tools, as its MCP server calls them
     const call = (tool, args = {}) => fetch(`${url}/call?key=${KEY}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tool, args }) }).then(r => r.json())
@@ -161,7 +163,7 @@ const out = l => process.stdout.write(JSON.stringify(l) + '\\n'), wait = ms => n
     await call('stop')
     await call('script', { code: script })
     // the chat: while it answers, what it runs; then its words as Markdown, the tools it used
-    await tab('Agent')
+    await tab('Code')
     const box = page.getByRole('textbox', { name: 'A message to the agent' })
     await box.fill('How long is it?')
     await page.keyboard.press('Enter')
@@ -199,7 +201,7 @@ const out = l => process.stdout.write(JSON.stringify(l) + '\\n'), wait = ms => n
     assert.deepEqual((await call('state')).result.selection, [1, 3])
     await second.getByRole('button', { name: 'Applied fade(0.02, 0.1)' }).click()
     assert.equal(await page.locator('.step.chosen .step-name').innerText(), 'Fade', 'its card chosen among the edits')
-    await tab('Agent')
+    await tab('Code')
     // reloaded, the conversation is back; a new one starts empty, the old a click away
     await page.reload()
     await page.locator('.chat-message.user').nth(1).waitFor()
@@ -238,8 +240,8 @@ test('editor: conversations kept with each tab come back as the page\'s, whichev
     docs: [{ code: "audio('chime.wav')", chats: [chat(1, 'First')], chat: 1 }, { code: "audio('chime.wav').gain(-3)", chats: [chat(3, 'Third')], chat: 3 }],
     closed: [{ code: "audio('chime.wav').gain(-6)", chats: [chat(2, 'Second')], chat: 2, at: 0, shut: 1 }]
   })
-  await open()
-  await tab('Agent')
+  await open({ agent: true })
+  await tab('Code')
   assert.equal(await page.locator('.chat-title').innerText(), 'Third', 'the one the tab shown had open')
   await page.locator('.chat-title').click()
   assert.deepEqual(await page.locator('#chats-menu .chat-item .menu-item').allInnerTexts().then(t => t.map(s => s.split('\n')[0])), ['Third', 'Second', 'First'], 'every tab\'s, newest first')

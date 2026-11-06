@@ -20,7 +20,7 @@ const value = v => Number.isFinite(v) ? minus(Number.isInteger(v) ? String(v) : 
 const limit = ({ min, max }) => min != null && max != null ? (min === max ? `= ${value(min)}` : `${value(min)} to ${value(max)}`) : max != null ? `≤ ${value(max)}` : min != null ? `≥ ${value(min)}` : ''
 const mark = pass => pass == null ? '·' : pass ? '✓' : '✗'
 const verdict = pass => pass == null ? 'info' : pass ? 'pass' : 'fail'
-// a check's rule as its table's row: its name, the output's value and mark, its limit (the Export tab's, the chat's)
+// a check's rule as its table's row: its name, the output's value and mark, its limit (the bar's check's, the chat's)
 export const ruled = r => ({ name: r.name, unit: r.unit, limit: limit(r), note: r.note || '', after: value(r.value), afterMark: mark(r.pass), afterClass: verdict(r.pass) })
 // a sound by its address, a URL or a path from the site's root (worker.js address), named by its file
 export const label = name => /^(https?|blob|data):|^\/(?!\/)/.test(name) ? decodeURIComponent(name.split(/[?#]/)[0].split('/').pop() || name) : name

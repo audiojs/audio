@@ -105,10 +105,10 @@ npx audio --bridge
 #   key     3e37b8c61acf5b50f010852168f4843d
 #   agents  Claude Code, Codex, Pi, Kimi Code
 #
-#   In the repl's Agent panel, paste the key, then Connect. It stays the same next time.
+#   In the repl opened with ?ui={"agent":true}, paste the key in the line under the code, then Connect. It stays the same next time.
 ```
 
-Open the [repl](https://audio.js.org/audio/repl/), every edit of it a line of `audio` code, and connect it to the bridge with the key (once: the bridge keeps it), and its chat runs an agent of yours, which measures, looks at, edits and plays the sound open there, and finds which edit did what: it measures the sound before and after each, and what each took out; each tab keeps its conversations, each with the agent, and its model, picked under the message. The bridge finds Claude Code, Codex, Pi, Gemini CLI, Qwen Code, Kimi Code, OpenCode, Kilo Code, Cline, Goose, Factory Droid, Cursor, Augment, Kiro and Mistral Vibe on PATH; any other that speaks [ACP](https://agentclientprotocol.com/get-started/registry) runs by its command line, `--agent "my-agent --acp"`.
+Open the [repl with its agent line](https://audio.js.org/audio/repl/?ui=%7B%22agent%22:true%7D), every edit of it a line of `audio` code, and connect it to the bridge with the key (once: the bridge keeps it), and the line under its code runs an agent of yours, which measures, looks at, edits and plays the sound open there, and finds which edit did what: it measures the sound before and after each, and what each took out; its conversations are kept, each with the agent, and its model, picked under the line. The bridge finds Claude Code, Codex, Pi, Gemini CLI, Qwen Code, Kimi Code, OpenCode, Kilo Code, Cline, Goose, Factory Droid, Cursor, Augment, Kiro and Mistral Vibe on PATH; any other that speaks [ACP](https://agentclientprotocol.com/get-started/registry) runs by its command line, `--agent "my-agent --acp"`.
 
 Any MCP agent gets the repl's tools (`state`, `measure`, `look`, `edit`, `select`, `play`, `check`, …), the running bridge found by itself: `npx add-mcp "npx -y audio --mcp --repl"`.
 

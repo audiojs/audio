@@ -311,7 +311,7 @@ test('editor: completion lists methods by group and a chosen one opens its slide
 // de-reverb model is not fetched: the script is what is tested
 test('editor: a recipe goes on the sound as it is, over the selection when there is one, one step', async () => {
   await page.route(/huggingface\.co/, route => route.abort())
-  await open()
+  await open({ recipes: true })
   const chime = `audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)`
   await menu('Process', 'Recipes', 'Reduce noise')
   assert.equal(await code(), `${chime}\n  .omlsa()`)
@@ -452,7 +452,7 @@ test('editor: a long step is cut short in its card, the card no wider than the p
 // all away. An edit made after it is a step of its own, not the group's. Its de-reverb model is not fetched
 test('editor: a recipe is one card of the edits, its steps folded under it, turned off or removed together', async () => {
   await page.route(/huggingface\.co/, route => route.abort())
-  await open({ edits: true })
+  await open({ edits: true, recipes: true })
   const chime = `audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)`
   await menu('Process', 'Recipes', 'Remove room echo')
   const grouped = `${chime}\n  // Remove room echo\n    .highpass(80)\n    .dereverb()`
@@ -485,18 +485,20 @@ test('editor: a recipe is one card of the edits, its steps folded under it, turn
   assert.equal(await page.locator('.step-group').count(), 0)
 })
 
-// Recipes: a goal's whole chain, a group each, folded till opened; found by its words (its group opening), put on the
-// sound open
-test('editor: a recipe found by its words goes on the sound open; its groups fold', async () => {
+// Recipes, a goal's whole chain each, only where the link asks for them: Process › Recipes, by group, one picked put on
+// the sound open; without it, no Recipes in Process
+test('editor: the recipes, where the link asks for them, in Process; none otherwise', async () => {
+  const rows = async () => {
+    await page.locator('.menubar-item', { hasText: /^Process$/ }).click()
+    const list = await page.locator('.menubar-list:popover-open > .menu-row .menu-label').allInnerTexts()
+    await page.keyboard.press('Escape')
+    return list
+  }
   await open()
-  await tab('Recipes')
-  const master = page.locator('.recipe-group', { has: page.locator('summary', { hasText: /^Master/ }) })
-  assert.equal(await master.locator('.scenario').first().isVisible(), false, 'folded')
-  await master.locator('summary').click()
-  assert.ok((await master.locator('.scenario strong').allInnerTexts()).includes('Mastering chain, dither last'), 'opened: the mastering recipes')
-  await page.getByRole('searchbox', { name: 'Find a recipe' }).fill('restore vinyl')
-  assert.deepEqual(await page.locator('.scenario strong').allInnerTexts(), ['Restore vinyl'])
-  await page.locator('.scenario', { hasText: 'Restore vinyl' }).click()
+  assert.ok(!(await rows()).includes('Recipes'), 'none by default')
+  await open({ recipes: true })
+  assert.equal((await rows())[0], 'Recipes')
+  await menu('Process', 'Recipes', 'Restore vinyl')
   await page.waitForFunction(() => /^audio\('chime\.wav'\)\.trim\(\)\.normalize\(-1\)\.fade\(0\.02,0\.1\)\/\/Restorevinyl\.declick\(\)\.decrackle\(\)\.midside/.test(scriptText().replace(/\s+/g, '')))
 })
 

@@ -9,9 +9,10 @@ import { glyph } from './icons.js'
 // opens the one under the pointer. After an item runs, the keys go back to where they were, so Space still plays.
 // A narrow window has one Menu, the menus inside it, each opening in place. The same menus open at a point, as a
 // context menu (`at`), with the same keys but ← and →.
-// The row under the pointer is the one at once, its submenu opening OPEN ms on; on the way to an open submenu the pointer
-// crosses other rows, which let it pass while it heads into the submenu (aims), and take it once it rests REST ms there
-const OPEN = 100, REST = 300
+// The row under the pointer is the one at once, its submenu opening at once; on the way to an open submenu the pointer
+// crosses other rows, which let it pass while it heads into the submenu (aims), and take it once it rests REST ms there.
+// The aim alone holds a submenu open, no delay on every row besides (Kamens: a delay is what aiming makes needless)
+const REST = 300
 export default function menubar(root, model) {
   // what the pointer does next (a submenu to open, a row it rests on), and where it was its last few moves
   let open = null, back = null, hovering = 0, trail = []
@@ -148,13 +149,13 @@ export default function menubar(root, model) {
     if (sub && row?.sub !== sub && aims(sub)) hovering = setTimeout(() => point(panel, row), REST)
     else point(panel, row)
   }
-  // The row the pointer is on: lit, its submenu opening a moment on, any other the panel has closing now
+  // The row the pointer is on: lit, its submenu opening, any other the panel has closing now
   function point(panel, row) {
     if (!row || !live(panel)) return
     row.focus({ preventScroll: true })
     if (row.sub?.matches(':popover-open')) return
     collapse(panel)
-    if (row.sub && !narrow.matches) hovering = setTimeout(() => live(panel) && expand(row), OPEN)
+    if (row.sub && !narrow.matches) expand(row)
   }
   const live = panel => panel.matches(':popover-open, .inline:not([hidden])')
   // Whether the pointer heads into `sub`: from where it was a few moves ago, into the triangle that point makes with the

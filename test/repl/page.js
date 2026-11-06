@@ -206,6 +206,10 @@ async function tab(name) {
   const t = page.getByRole('tab', { name, exact: true })
   if (await t.getAttribute('aria-selected') !== 'true') await t.click()
 }
+// The export's dropdown open, over its button at the bar's right end (a press on it again would close it)
+async function download() {
+  if (!await page.locator('#download').evaluate(e => e.matches(':popover-open'))) await page.locator('.status .download').click()
+}
 // whether the panel shows the edits
 const edits = async () => await page.getByRole('tab', { name: 'Edits', exact: true }).getAttribute('aria-selected') === 'true'
 // Runs an item of the app menu: the menu by its name, then each submenu and the item, by their words
@@ -532,7 +536,7 @@ const contextRow = name => page.locator('.menubar-menu .menu-row', { has: page.l
 async function trackMenuOf(i) {
   const r = (await tracksAt())[i], box = await page.locator('.plot').boundingBox()
   await page.mouse.click(box.x + 300, r.y + r.h / 2, { button: 'right' })
-  await contextRow('Track').hover()
+  await page.locator('.menubar-menu .menu-group', { hasText: /^Track$/ }).waitFor()
 }
 // Track `i` muted or heard again from its menu (Track › Mute; `solo`, Solo); which tracks are muted, as their layers say
 async function muteTrack(i, solo = false) {
@@ -540,14 +544,6 @@ async function muteTrack(i, solo = false) {
   await contextRow(solo ? 'Solo' : 'Mute').click()
 }
 const mutedTracks = () => page.locator('.layer').evaluateAll(els => els.map(e => e.classList.contains('muted')))
-// Track `i` named anew from its menu (Track › Rename…), written in its field at its head's left
-async function renameTrack(i, to) {
-  await trackMenuOf(i)
-  await contextRow('Rename…').click()
-  await page.locator('.layer-field').waitFor()
-  await page.keyboard.type(to)
-  await page.keyboard.press('Enter')
-}
 
 // A selection's tools inside its foot, flush with it, side by side from its middle (view.js BOX, 16 px, 2 apart), where
 // its notes show: intonation, formants; the pill on its top edge its level alone
@@ -576,4 +572,4 @@ const themed = async name => {
 // a test's own page in place of the one it was given, closed after it as that one is
 const setPage = p => { page = p }
 
-export { TOP, NAMED, endWay, endDrag, root, browser, page, origin, errors, made, CHIME, chimeLeft, RATE, sine, peakDb, wavBytes, engine, scrubbed, clicked, attack, code, readout, tipOf, wholeLevels, levelsTable, lengthText, seconds, open, settled, frames, poll, still, menuRow, choice, settings, selected, tab, edits, menu, facts, offered, palette, noCues, write, drawn, LANES, TRACK, ROOM, HEAD, GRIP, onRow, tall, tracksAt, gutter, TAIL, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, taken, heard, hits, handles, dragCue, gridShown, pixels, show, shown, bursts, struck, scriptOf, keptFiles, takesLeft, recordFor, way, turn, keyed, chime, marked, pointed, measuredOnRow, crossed, ghostAt, hintsAt, hinted, contextRow, trackMenuOf, muteTrack, mutedTracks, renameTrack, tools, themed, setPage }
+export { TOP, NAMED, endWay, endDrag, root, browser, page, origin, errors, made, CHIME, chimeLeft, RATE, sine, peakDb, wavBytes, engine, scrubbed, clicked, attack, code, readout, tipOf, wholeLevels, levelsTable, lengthText, seconds, open, settled, frames, poll, still, menuRow, choice, settings, selected, tab, download, edits, menu, facts, offered, palette, noCues, write, drawn, LANES, TRACK, ROOM, HEAD, GRIP, onRow, tall, tracksAt, gutter, TAIL, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, taken, heard, hits, handles, dragCue, gridShown, pixels, show, shown, bursts, struck, scriptOf, keptFiles, takesLeft, recordFor, way, turn, keyed, chime, marked, pointed, measuredOnRow, crossed, ghostAt, hintsAt, hinted, contextRow, trackMenuOf, muteTrack, mutedTracks, tools, themed, setPage }

@@ -2,7 +2,7 @@ import recipes from '../recipes.js'
 import { tracks as tracksOf, master as masterOf } from '../code.js'
 import { builtins } from '../sources.js'
 import { THEMES } from '../theme.js'
-import { root, generators, formats, displays, SPEEDS, specs, STACKED, sides } from './config.js'
+import { root, generators, formats, displays, SPEEDS, specs, STACKED } from './config.js'
 import { state, v, ed, rk, output, steps } from './context.js'
 import { undoList, goTo, editSelection } from './edits.js'
 import { pickFiles, shelved, unshelve, useSample, useCode, useRecipe, openSearch, exportFiles, share } from './files.js'
@@ -106,11 +106,12 @@ export const commands = [
   { id: 'zoom.selection', label: 'To the selection', when: s => !!s.sel, run: () => v.zoomTo(...v.selection) },
   // the frequencies and the levels whole too
   { id: 'zoom.all', label: 'All of it', keys: '0', scope: 'view', press: e => e.key === '0' && !mod(e), run: () => v.fit() },
-  { id: 'panel', label: 'Panel', items: () => [
+  // the code beside the picture, shown or not; with the edits, which of the two
+  STACKED ? { id: 'panel', label: 'Panel', items: () => [
     check('Shown', !!state.side, () => state.toggleSide()),
     '-',
-    ...[['recipes', 'Recipes'], ['chat', 'Agent'], ['edits', 'Edits'], ['code', 'Code'], ['export', 'Export']].filter(([name]) => sides.includes(name)).map(([name, label]) => check(label, state.side === name, () => state.setSide(name)))
-  ] },
+    ...[['edits', 'Edits'], ['code', 'Code']].map(([name, label]) => check(label, state.side === name, () => state.setSide(name)))
+  ] } : { id: 'panel', label: 'Code', checked: () => state.side === 'code', run: () => state.setSide('code') },
   { id: 'theme', label: 'Theme', items: () => [
     check('The screen', !worn, () => dress(null), { hint: 'Grey on black, as the site draws it' }),
     ...[['Light', /^light/], ['Dark', /^dark/], ['High contrast', /^hc/]].flatMap(([group, kind]) => ['-', { group }, ...THEMES.filter(t => kind.test(t.kind)).map(t => check(t.name, worn?.name === t.name, () => setTheme(t)))]),

@@ -544,7 +544,7 @@ export default function bridge(argv = []) {
         `audio bridge on ${url}`, '',
         `  ${dim('key')}     ${bold(key)}`,
         `  ${dim('agents')}  ${names.length ? names.join(', ') : `none found: install one (${Object.values(AGENTS).slice(0, 6).map(a => a.name).join(', ')}, …), then start again`}`, '',
-        dim(`  In the repl's Agent panel, paste the key, then Connect.${own ? ' It stays the same next time.' : ''}`)
+        dim(`  In the repl opened with ?ui={"agent":true}, paste the key in the line under the code, then Connect.${own ? ' It stays the same next time.' : ''}`)
       ].join('\n'))
       resolve(server)
     })

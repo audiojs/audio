@@ -1,4 +1,4 @@
-// Scripts to start from, the Recipes panel's and the File menu's. `$src` is the sound open as it is, its edits kept: a
+// Scripts to start from, Process › Recipes' (where the link asks for them, ?ui= recipes). `$src` is the sound open as it is, its edits kept: a
 // recipe that is one chain on it goes after the script's own (over the selection, when there is one), one of statements
 // takes the script's sound for its source (repl.js useRecipe). A recipe made for a delivery spec names it: the page checks the output against it
 // (fn/check.js). Their sources, their measured results and the ones still to join: .work/recipes.md.

@@ -1,7 +1,7 @@
 // The status bar's readouts: the level, the note, the chord, the facts; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { TOP, TRACK, page, tipOf, wholeLevels, open, settled, frames, poll, menuRow, tab, noCues, write, LANES, tall, tracksAt, gutter, spans, axis, drag, lengthIs, pixels, show, chime, crossed } from './page.js'
+import { TOP, TRACK, page, tipOf, wholeLevels, open, settled, frames, poll, menuRow, tab, download, noCues, write, LANES, tall, tracksAt, gutter, spans, axis, drag, lengthIs, pixels, show, chime, crossed } from './page.js'
 
 // The readout pointed at marks what it reads on the sound, the peak: a plain line through where it is and at its level,
 // each end crossed; a row of its table pointed at, that row's alone: the RMS, its level, no line through the peak
@@ -42,13 +42,13 @@ test('editor: with tracks, the readout marks the mix\'s level on every track\'s 
 })
 
 // The depth the export writes, after the rate and the channels: the source's kept, or another picked there, which
-// Export's Bits says too
+// the export's Bits says too
 test('editor: the depth written is a click from another', async () => {
   await open()
   await page.locator('.facts .fact', { hasText: '16-bit' }).click()
   await page.locator('#depth-menu .menu-item', { hasText: '24-bit' }).click()
   await page.locator('.facts', { hasText: '24-bit' }).waitFor()
-  await tab('Export')
+  await download()
   assert.equal(await page.locator('.choices button[aria-pressed="true"]', { hasText: /^24$/ }).count(), 1)
   // a format that writes no 24 bits keeps its own
   await page.locator('.choices button', { hasText: /^MP3$/ }).click()

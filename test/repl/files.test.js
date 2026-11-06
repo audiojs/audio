@@ -4,67 +4,66 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import audio from '../../audio.js'
-import { TOP, root, page, origin, sine, peakDb, wavBytes, code, tipOf, wholeLevels, seconds, open, poll, settings, tab, menu, noCues, write, drawn, TRACK, ROOM, gutter, axis, drag, lengthIs, pixels, show, keptFiles, chime } from './page.js'
+import { TOP, root, page, origin, sine, peakDb, wavBytes, code, tipOf, wholeLevels, seconds, open, poll, settings, tab, download, menu, noCues, write, drawn, TRACK, ROOM, gutter, axis, drag, lengthIs, pixels, show, keptFiles, chime } from './page.js'
 
 // The check (fn/check.js) of the result beside the file as it opened. Apple Podcasts: -16 LKFS ±1, true peak ≤ -1 dBFS
 // (podcasters.apple.com/support/893). The default script peaks at -1 dBFS: its true peak sits above, and it is loud.
-// The check, in the panel's Export tab: each rule, the result, the limit
+// The check, in the bar by the facts: the spec's name, its verdict by it; pointed at, each rule, the result, the limit
+const checked = async () => {
+  await page.locator('.status .checked').hover()
+  await page.locator('#checks:popover-open .levels-table').waitFor()
+  return (await page.locator('#checks .levels-table tr').allInnerTexts()).map(r => r.split('\t').map(c => c.trim()))
+}
+const checkAgainst = async label => { await page.locator('.status .checked').click(); await page.locator('.menubar-menu .menu-row', { hasText: label }).click() }
 test('editor: a delivery check shows each rule for the result, and follows the script', async () => {
   await open()
-  await tab('Export')
-  // the check, folded while no spec is chosen
-  await page.locator('.export summary', { hasText: /^Check/ }).click()
-  await page.locator('.export').getByRole('button', { name: 'Apple Podcasts' }).click()
-  await page.locator('.check-table:not(.stale)').waitFor()
-  const rows = async () => (await page.locator('.check-table tbody tr').allInnerTexts()).map(r => r.split('\t').map(c => c.trim()))
-  assert.deepEqual(await page.locator('.check-table thead th').allInnerTexts(), ['Rule', 'After', 'Limit'])
-  let [loud, peak] = await rows()
+  assert.equal(await page.locator('.status .checked').innerText(), 'Check', 'none chosen: Check, alone')
+  await checkAgainst('Apple Podcasts')
+  await page.waitForFunction(() => document.querySelector('.status .checked')?.textContent === '✗Apple')
+  let [loud, peak] = await checked()
   assert.equal(loud[0], 'Loudness')
   assert.match(loud[1], /^✗ −1[0-4]\.\d\d$/, 'normalized to its peak, the result is too loud')
   assert.equal(loud[2], '−17 to −15LUFS')
   assert.match(peak[1], /^✗ −0\.9\d$/, 'true peak over a -1 dBFS sample peak')
+  await page.mouse.move(0, 0)
   await tab('Code')
   await write(`audio('chime.wav').normalize('podcast')`)
-  await tab('Export')
-  await page.waitForFunction(() => document.querySelector('.check-table:not(.stale) tbody tr td')?.textContent.includes('✓'))
-  ;[loud, peak] = await rows()
+  await page.waitForFunction(() => document.querySelector('.status .checked')?.textContent === '✓Apple')
+  ;[loud, peak] = await checked()
   assert.equal(loud[1], '✓ −16.00')
   assert.match(peak[1], /^✓ −/)
-  // the format there is the one Export takes
-  await page.locator('.export').getByRole('button', { name: 'FLAC' }).click()
-  assert.equal(await page.locator('.export-button').innerText(), 'Export FLAC')
-  await page.locator('.export').getByRole('button', { name: 'Off' }).click()
-  await page.locator('.check-table').waitFor({ state: 'detached' })
+  await page.mouse.move(0, 0)
+  await checkAgainst('Off')
+  await page.waitForFunction(() => document.querySelector('.status .checked')?.textContent === 'Check')
+  assert.equal(await page.locator('#checks').count(), 0)
 })
 
 test('editor: a recipe made for a delivery spec checks the output against it', async () => {
-  await open()
+  await open({ recipes: true })
   await menu('Process', 'Recipes', 'Podcast episode')
-  await tab('Export')
-  assert.equal(await page.locator('.export').getByRole('button', { name: 'Apple Podcasts' }).getAttribute('aria-pressed'), 'true')
-  await page.waitForFunction(() => { const r = [...document.querySelectorAll('.check-table:not(.stale) tbody td:nth-of-type(1)')]; return r.length && r.every(td => !td.textContent.includes('✗')) }, null, { timeout: 30000 })
+  await page.waitForFunction(() => document.querySelector('.status .checked')?.textContent === '✓Apple', null, { timeout: 30000 })
   assert.match(await code(), /\.normalize\('podcast'\)$/)
 })
 
-// The export's rows of choices each on one line, every label whole, at the panel's narrowest as at its default: a field's
-// choices under its name when they want the row; nothing past the panel's edge
-test('editor: the export\'s choices keep to one row each, labels whole, the panel wide or narrow', async () => {
+// The export, a dropdown over its button at the bar's right end: its rows of choices each on one line, every label
+// whole, nothing past its edge; the format there the one Export takes
+test('editor: the export\'s choices keep to one row each, labels whole', async () => {
   await open()
-  await tab('Export')
+  await download()
   await page.locator('.export summary', { hasText: 'Edit list' }).click()
-  await page.locator('.export summary', { hasText: 'Check' }).click()
-  for (const format of ['MP3', 'OGG', 'WAV']) {
+  for (const format of ['MP3', 'OGG', 'WAV', 'FLAC']) {
     await page.locator('.export').getByRole('button', { name: format, exact: true }).click()
-    for (const px of [440, 280]) {
-      await page.evaluate(px => document.querySelector('.panes').style.setProperty('--panel', px + 'px'), px)
-      const r = await page.locator('.export').evaluate(e => ({
-        over: e.scrollWidth - e.clientWidth,
-        rows: [...e.querySelectorAll('.choices')].filter(c => c.offsetParent).map(c => ({ name: c.getAttribute('aria-label'), lines: new Set([...c.children].map(b => b.offsetTop)).size, cut: [...c.children].filter(b => b.scrollWidth > b.clientWidth + 1).map(b => b.textContent) }))
-      }))
-      assert.equal(r.over, 0, `${format} at ${px}px: nothing past the edge`)
-      for (const row of r.rows) assert.ok(row.lines === 1 && !row.cut.length, `${format} at ${px}px, ${row.name}: ${row.lines} lines, cut ${row.cut}`)
-    }
+    const r = await page.locator('.export').evaluate(e => ({
+      over: e.scrollWidth - e.clientWidth,
+      rows: [...e.querySelectorAll('.choices')].filter(c => c.offsetParent).map(c => ({ name: c.getAttribute('aria-label'), lines: new Set([...c.children].map(b => b.offsetTop)).size, cut: [...c.children].filter(b => b.scrollWidth > b.clientWidth + 1).map(b => b.textContent) }))
+    }))
+    assert.equal(r.over, 0, `${format}: nothing past the edge`)
+    for (const row of r.rows) assert.ok(row.lines === 1 && !row.cut.length, `${format}, ${row.name}: ${row.lines} lines, cut ${row.cut}`)
   }
+  assert.equal(await page.locator('.export-button').innerText(), 'Export FLAC')
+  // within the window, over its button
+  const [menu, button] = await Promise.all([page.locator('#download').boundingBox(), page.locator('.status .download').boundingBox()])
+  assert.ok(menu.x >= 0 && menu.x + menu.width <= page.viewportSize().width && menu.y + menu.height <= button.y, JSON.stringify({ menu, button }))
 })
 
 // A file dropped where nothing plays opens it; held over the waveform it shows where it goes in, a caret of its own,
@@ -154,11 +153,11 @@ test('editor: export downloads the output, encoded', async () => {
   await open()
   const length = await seconds()
   const waiting = page.waitForEvent('download')
-  await tab('Export')
+  await download()
   await page.locator('.export-button').click()
-  const download = await waiting
-  assert.equal(download.suggestedFilename(), 'chime-edited.wav')
-  const pcm = await audio(await readFile(await download.path())).read()
+  const file = await waiting
+  assert.equal(file.suggestedFilename(), 'chime-edited.wav')
+  const pcm = await audio(await readFile(await file.path())).read()
   assert.ok(Math.abs(pcm[0].length / 44100 - length) < .001)
   assert.ok(Math.abs(peakDb(pcm) + 1) < .05, `peak ${peakDb(pcm)}`)
 })
@@ -349,7 +348,7 @@ test('editor: the export writes the depth chosen, and the markers as cue points 
   await open()
   await write(`audio('chime.wav').mark(1)`)
   await lengthIs('0:08.000')
-  await tab('Export')
+  await download()
   const panel = page.locator('.export')
   await panel.getByRole('group', { name: 'Bits' }).getByRole('button', { name: '24', exact: true }).click()
   const exported = async () => { const [d] = await Promise.all([page.waitForEvent('download'), panel.locator('.export-button').click()]); return readFile(await d.path()) }
@@ -372,13 +371,13 @@ test('editor: the export writes the cuts as an edit list, the clip named, at the
   await drag([x(2), y], [x(3) - x(2), 0])
   await page.keyboard.press('Delete')
   await lengthIs('0:07.000')
-  await tab('Export')
+  await download()
   const panel = page.locator('.export')
   await panel.locator('summary', { hasText: /^Edit list/ }).click()
   await panel.getByRole('group', { name: 'Frames a second' }).getByRole('button', { name: '25', exact: true }).click()
-  const [download] = await Promise.all([page.waitForEvent('download'), panel.getByRole('button', { name: 'Export EDL' }).click()])
-  assert.equal(download.suggestedFilename(), 'chime-edited.edl')
-  const edl = await readFile(await download.path(), 'utf8'), events = edl.split('\n').filter(l => /^\d{3}\s/.test(l))
+  const [file] = await Promise.all([page.waitForEvent('download'), panel.getByRole('button', { name: 'Export EDL' }).click()])
+  assert.equal(file.suggestedFilename(), 'chime-edited.edl')
+  const edl = await readFile(await file.path(), 'utf8'), events = edl.split('\n').filter(l => /^\d{3}\s/.test(l))
   assert.match(edl, /^TITLE: /m)
   assert.equal(events.length, 2, edl)
   assert.match(edl, /\* FROM CLIP NAME: chime\.wav/)

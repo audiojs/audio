@@ -1,7 +1,7 @@
 import { chain } from '../code.js'
 import agent from '../agent.js'
 import doing, { measures, noted } from '../doing.js'
-import { root, specs, stored, docsOf, STACKED } from './config.js'
+import { root, specs, stored, docsOf, STACKED, AGENTED } from './config.js'
 import { state, ed, rk } from './context.js'
 import { ago, stamp, ruled, note } from './format.js'
 import { store } from './persist.js'
@@ -106,7 +106,7 @@ function answer(m) {
   })
   if (m.done) { turns.delete(m.turn); c.at = Date.now(); store() }
 }
-// What a call came to, as a table under its step: a check's rules, as the Export tab shows them; what a measure measured,
+// What a call came to, as a table under its step: a check's rules, as the bar's check shows them; what a measure measured,
 // where it measured more than one thing; none else
 function tabled(tool, { result, told }) {
   if (tool === 'check') return result?.rules?.length ? result.rules.map(ruled) : null
@@ -149,9 +149,10 @@ export async function sendChat() {
 }
 // Enter sends, Shift and Enter is a new line
 export function chatKey(event) { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendChat() } }
-let chatLog
 let following = true
 
+// The bridge, connected if it has a key, whether the page shows the agent's line or not (config.js AGENTED): the page's
+// tools are an agent's through it too (bin/mcp.js --repl), asked from the agent's own terminal
 export function wire() {
   bridge = agent({
     tools: Object.fromEntries(Object.entries(page).map(([tool, f]) => [tool, async args => {
@@ -160,13 +161,14 @@ export function wire() {
       try { const r = await f(args, x => told = x); answering(tool, args, at, r, null, told); return r } catch (e) { answering(tool, args, at, null, e.message); throw e }
     }])),
     // online, the agents the bridge found on its machine, its first one first (none: it found none)
-    onstatus(status, hello) { state.agentStatus = status; if (hello) { state.agents = hello.agents ?? (hello.agent ? [hello.agent] : []); askAgent() } },
+    onstatus(status, hello) { state.agentStatus = status; if (status === 'online') state.agentSetup = false; if (hello) { state.agents = hello.agents ?? (hello.agent ? [hello.agent] : []); askAgent() } },
     onchat: answer
   })
   if (state.bridgeKey) connectAgent()
+  if (!AGENTED) return
   setInterval(() => { if (state.chatBusy || turns.size) state.tick = Date.now() }, 1000)
   // The conversation keeps its newest words in sight as they come, unless scrolled up to read
-  chatLog = root.querySelector('.chat-log')
+  const chatLog = root.querySelector('.chat-log')
   chatLog.addEventListener('scroll', () => { following = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 32 })
   new MutationObserver(() => { if (following) chatLog.scrollTop = chatLog.scrollHeight }).observe(chatLog, { childList: true, subtree: true, characterData: true })
   showChat()

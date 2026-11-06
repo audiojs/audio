@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import audio from '../../audio.js'
-import { TOP, TRACK, browser, page, origin, errors, chimeLeft, sine, wavBytes, code, wholeLevels, open, settled, frames, menuRow, selected, tab, menu, noCues, write, tall, tracksAt, axis, drag, lengthIs, scriptOf, keyed, chime, contextRow } from './page.js'
+import { TOP, TRACK, browser, page, origin, errors, chimeLeft, sine, wavBytes, code, wholeLevels, open, settled, frames, menuRow, selected, tab, download, menu, noCues, write, tall, tracksAt, axis, drag, lengthIs, scriptOf, keyed, chime } from './page.js'
 
 // A slice dragged up over the head onto the tabs goes to a tab of its own, this one's script cropped to it: copied (Alt),
 // this one as it was; moved (⌘), it leaves this one, the rest closing up as a cut's
@@ -374,33 +374,18 @@ test('editor: each tab keeps where its sound was zoomed, switched away and back 
   await settled()
   assert.ok(Math.abs(await left() - before) < .01, 'and after a reload')
 })
-// A name is a field: a track's, from its menu (Track › Rename…), written at once, focused, in its layer's font and
-// weight, at its head's left, no box round it, as wide as its text; the tab shown, clicked, the same, its name kept with
-// the tab and over a reload
-test('editor: a track\'s name from its menu or the shown tab\'s, clicked, is written in place at once, as it looks', async () => {
+// A name is a field: the tab shown, clicked, written at once, focused, in the tab's font and weight, no box round it,
+// its name kept with the tab and over a reload
+test('editor: the shown tab\'s name, clicked, is written in place at once, as it looks', async () => {
   await open()
   await noCues()
-  await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')`)
-  await lengthIs('0:09.000')
   const look = sel => page.evaluate(sel => { const e = document.querySelector(sel), s = getComputedStyle(e); return { font: s.fontFamily + ' ' + s.fontSize + ' ' + s.fontWeight, outline: s.outlineStyle, focused: document.activeElement === e, width: e.getBoundingClientRect().width } }, sel)
-  const name = await look('.layer:nth-child(2)'), box = await page.locator('.plot').boundingBox()
-  const renaming = async i => { const r = (await tracksAt())[i]; await page.mouse.click(box.x + 300, r.y + r.h / 2, { button: 'right' }); await contextRow('Track').hover(); await contextRow('Rename…').click() }
-  await renaming(1)
-  const field = await look('.layer-field')
-  assert.ok(field.focused, 'focused at once')
-  assert.equal(field.font, name.font, 'in its layer\'s font and weight')
-  assert.equal(field.outline, 'none', 'no box round it')
-  assert.ok(field.width < 40, `as wide as its text: ${field.width}`)
-  await page.keyboard.type('bed')
-  await page.keyboard.press('Enter')
-  await page.waitForFunction(() => /\nlet bed = audio\('rhodes\.wav'\)/.test(scriptText()))
-  // another track's: that one edited, its name in hand
-  await renaming(0)
-  await page.waitForFunction(() => document.activeElement?.classList.contains('layer-field') && document.activeElement.value === 'a')
-  await page.keyboard.press('Escape')
-  // the tab shown
+  const name = await look('.file.current [role="tab"]')
   await page.locator('.file.current [role="tab"]').click()
-  assert.ok((await look('.file-field')).focused, 'the tab\'s name focused at once')
+  const field = await look('.file-field')
+  assert.ok(field.focused, 'the tab\'s name focused at once')
+  assert.equal(field.font, name.font, 'in the tab\'s font and weight')
+  assert.equal(field.outline, 'none', 'no box round it')
   await page.keyboard.type('Session')
   await page.keyboard.press('Enter')
   await page.waitForFunction(() => document.querySelector('.file.current [role="tab"]')?.textContent === 'Session')
@@ -452,7 +437,7 @@ test('editor: a tab shown again runs nothing; its sound, its words and its expor
   await settled()
   assert.equal(await page.evaluate(() => runs), ran, 'nothing ran again')
   assert.deepEqual(await page.locator('.console .line').evaluateAll(l => l.map(e => e.textContent)), ['the chime'])
-  await tab('Export')
+  await download()
   const [d] = await Promise.all([page.waitForEvent('download'), page.locator('.export .export-button').click()])
   const exported = await audio(await readFile(await d.path()))
   assert.ok(Math.abs(exported.duration - 8) < .001, `its own sound exported: ${exported.duration} s`)

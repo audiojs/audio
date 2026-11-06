@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import audio from '../../audio.js'
-import { prepare, error, bare, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, voiceTrack, stemTracks, soundOf, written, addTrack, dropTrack, renameTrack, splitOf, master, addMaster, rollback, stages, sharing, residual, takes, carried, useTake, retake, addTake, dropTake, raise } from '../../repl/code.js'
+import { prepare, error, bare, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, voiceTrack, stemTracks, soundOf, written, addTrack, dropTrack, splitOf, master, addMaster, rollback, stages, sharing, residual, takes, carried, useTake, retake, addTake, dropTake, raise } from '../../repl/code.js'
 import { ops, guides, previews, SCALES } from '../../repl/ops.js'
 import { SCALES as NOTE_SCALES, snapMidi } from '@audio/note'
 import { help, layout, layouts, texts } from '../../repl/help.js'
@@ -411,15 +411,6 @@ test('code: tracks are the sounds declared that nothing reads, edited one at a t
 // A sidechain's key keeps the track it reads (a voice the bed ducks under is still heard); a master, the last statement a
 // copy of one track with the others mixed in, then steps of its own, leaves them tracks and is edited as one: its steps
 // those after the mix; tracks made, opened or taken away keep it mixing every track; a key's step goes with its track
-// A track named anew as a script names a sound, every reference to it with it (a key that ducks another under it), a
-// name no other sound has; a name that makes none, the one it has, or no such track: nothing
-test('code: a track renamed, its references with it, to a name of its own', () => {
-  const code = "let chime = audio('chime.wav')\n\nlet track = audio.from(0)\n  .write(audio('take.wav'), { at: 1 })\n\nlet bed = audio('rhodes.wav').ducker({ key: track, range: -15 })"
-  assert.deepEqual(renameTrack(code, 'track', 'Lead vocal'), { name: 'leadVocal', code: code.replace('let track', 'let leadVocal').replace('key: track', 'key: leadVocal') })
-  assert.equal(renameTrack(code, 'track', 'chime').name, 'chime2')
-  for (const [from, to] of [['track', '!!!'], ['track', 'track'], ['nope', 'x']]) assert.equal(renameTrack(code, from, to), null, `${from} → ${to}`)
-})
-
 test('code: a key keeps a track; a master mixes the tracks, then steps of its own', () => {
   const apply = (code, change) => code.slice(0, change.from) + change.insert + code.slice(change.to ?? change.from)
   const names = code => tracks(code).map(t => t.name)

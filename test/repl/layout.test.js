@@ -4,9 +4,8 @@ import assert from 'node:assert/strict'
 import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, wholeLevels, open, settled, still, tab, edits, noCues, write, HEAD, tall, gutter, axis, drag, lengthIs, pixels, show, menu, setPage } from './page.js'
 
 // Over the picture: its tabs; at its foot, the bar, undo and redo none of its (the Edit menu's); what it shows
-// chosen by its look, in the sound's foot under its axis; none moving as the picture turns. At the slab's top
-// right, as an editor's activity bar, the panels' buttons: the recipes, the agent, the edits, the code, the export, the
-// settings. A panel docks beside the picture, part of the slab, a rule between them as the slab's own, no title over
+// chosen by its look, in the sound's foot under its axis; none moving as the picture turns. At the tabs' right end, the
+// panels' buttons: the edits (where the link asks for them), the code. A panel docks beside the picture, part of the slab, a rule between them as the slab's own, no title over
 // it (its button says which); its button again closes it; its left edge drags its width; the choice and the width are
 // remembered. Undo is undo, nothing else
 test('editor: no undo nor redo in the bar, the Edit menu\'s; a band\'s look in its layer, none moving; the panels\' buttons at the top right; a panel docks beside the picture', async () => {
@@ -14,10 +13,10 @@ test('editor: no undo nor redo in the bar, the Edit menu\'s; a band\'s look in i
   const box = name => page.locator(name).boundingBox()
   const [panes, view] = await Promise.all(['.panes', '.view-slab'].map(box))
   assert.ok(Math.abs(view.width - panes.width) < 2, 'the picture the whole width')
-  // the bar's last, Before, as far in from the slab's right edge as Play is from its left
-  const before = await box('.before')
-  assert.ok(panes.x + panes.width - before.x - before.width >= 12, `Before clear of the edge: ${panes.x + panes.width - before.x - before.width}`)
-  const buttons = await Promise.all(['Recipes', 'Agent', 'Edits', 'Code', 'Export'].map(name => page.getByRole('tab', { name, exact: true }).boundingBox()))
+  // the bar's last, the export, clear of the slab's right edge
+  const last = await box('.status .download')
+  assert.ok(panes.x + panes.width - last.x - last.width >= 12, `the export clear of the edge: ${panes.x + panes.width - last.x - last.width}`)
+  const buttons = await Promise.all(['Edits', 'Code'].map(name => page.getByRole('tab', { name, exact: true }).boundingBox()))
   assert.ok(buttons.every((b, i) => b.y < view.y && (!i || b.x > buttons[i - 1].x)) && buttons.at(-1).x > panes.x + panes.width * .8, 'the panels\' buttons in order at the slab\'s top right')
   assert.equal(await page.locator('.bar .history, .status .panels').count(), 0, 'none in the page\'s bar, none at the foot')
   await tab('Edits')
@@ -68,13 +67,10 @@ test('editor: no undo nor redo in the bar, the Edit menu\'s; a band\'s look in i
   // its button again closes it
   await page.getByRole('tab', { name: 'Edits', exact: true }).click()
   await page.locator('.side-slab').waitFor({ state: 'hidden' })
-  // another panel's button turns it to that one; again, it closes
+  // another panel's button turns it to that one
   await tab('Code')
   await page.locator('.script').waitFor()
-  await page.getByRole('tab', { name: 'Code', exact: true }).click()
-  await page.locator('.side-slab').waitFor({ state: 'hidden' })
   // its left edge drags its width, kept, and so is the panel shown
-  await tab('Export')
   const was = await box('.side-slab'), edge = await box('.panel-edge'), y = edge.y + edge.height / 2
   await page.mouse.move(edge.x + edge.width / 2, y)
   await page.mouse.down()
@@ -85,9 +81,9 @@ test('editor: no undo nor redo in the bar, the Edit menu\'s; a band\'s look in i
   await page.reload()
   // rendered: the readout says so, out of sight where the wider panel leaves the bar too narrow for it (editor.css)
   await wholeLevels().waitFor({ state: 'attached' })
-  await page.locator('.export').waitFor()
+  await page.locator('.script').waitFor()
   assert.ok(Math.abs((await box('.side-slab')).width - wider.width) < 2, 'its width kept')
-  await page.getByRole('tab', { name: 'Export', exact: true }).click()
+  await page.getByRole('tab', { name: 'Code', exact: true }).click()
   await page.locator('.side-slab').waitFor({ state: 'hidden' })
 })
 
@@ -107,7 +103,7 @@ test('editor: a panel opening, or the window narrowing, keeps where the picture 
   const edges = () => pixels(`const at = px => d[(60 * w + px) * 4]; let start = -1, end = -1; for (let px = 1; px < w - 60; px++) { if (start < 0 && at(px) > at(px - 1) + 4) start = px; else if (start >= 0 && end < 0 && px > start + 2 && at(px) < at(px - 1) - 4) end = px } return [start, end]`)
   const before = await edges()
   assert.ok(before[1] - before[0] > 190, JSON.stringify(before))
-  await tab('Export')
+  await tab('Code')
   await still()
   assert.deepEqual(await edges(), before, 'the panel open')
   await page.setViewportSize({ width: 1000, height: 720 })
@@ -115,9 +111,9 @@ test('editor: a panel opening, or the window narrowing, keeps where the picture 
   assert.deepEqual(await edges(), before, 'the window narrower')
 })
 
-// A phone held upright: the picture over the panel, half of the slab each, the bar between them; the panels' buttons
-// along the slab's foot, each staying where it is as its panel opens and closes; over the picture its head alone
-test('editor: on a phone the panel opens under the picture, its buttons at the foot where they stay', async () => {
+// A phone held upright: the picture over the code, half of the slab each, the bar between them; its button at the tabs'
+// right end, staying where it is as the code opens and closes
+test('editor: on a phone the code opens under the picture, its button by the tabs where it stays', async () => {
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
   const p = await phone.newPage()
   await chimeLeft(p)
@@ -126,8 +122,8 @@ test('editor: on a phone the panel opens under the picture, its buttons at the f
     await p.goto(origin + '/repl/')
     await p.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
     const box = selector => p.locator(selector).boundingBox(), edits = p.getByRole('tab', { name: 'Code', exact: true })
-    const [slab, status, button] = [await box('.panes'), await box('.status'), await edits.boundingBox()]
-    assert.ok(button.y >= status.y + status.height - 1 && slab.y + slab.height - (button.y + button.height) < 12, `at the foot: ${JSON.stringify({ slab, status, button })}`)
+    const [slab, picture, button] = [await box('.panes'), await box('.view-slab'), await edits.boundingBox()]
+    assert.ok(button.y + button.height <= picture.y + 1 && button.x + button.width > slab.x + slab.width - 24, `at the tabs' right end: ${JSON.stringify({ slab, picture, button })}`)
     assert.ok(button.width >= 44 && button.height >= 44, 'a finger\'s size')
     await edits.tap()
     await p.locator('.side-slab .script-editor').waitFor()
@@ -178,17 +174,17 @@ for (const width of [1280, 880]) test(`repl: the status bar holds still as a sel
 // The level and the facts after it one row of figures, as far apart each from the next, embedded as in the whole editor
 // (where nothing comes before the level, it keeps by the facts); a tablet's bar, an iPad's 768 px held upright, has
 // them all
-test('repl: the level and the facts as far apart as each other, embedded or not, a tablet\'s bar showing them', async () => {
+test('repl: the level, the check and the facts as far apart as each other, embedded or not, a tablet\'s bar showing them', async () => {
   const gaps = () => page.evaluate(() => {
     const text = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect() }
-    const all = [document.querySelector('.readout'), ...document.querySelectorAll('.facts .fact')].filter(e => getComputedStyle(e).display !== 'none' && e.getClientRects().length).map(text)
+    const all = [document.querySelector('.readout'), document.querySelector('.status .checked'), ...document.querySelectorAll('.facts .fact')].filter(Boolean).filter(e => getComputedStyle(e).display !== 'none' && e.getClientRects().length).map(text)
     return all.slice(1).map((b, i) => Math.round(b.left - all[i].right))
   })
   await page.setViewportSize({ width: 768, height: 720 })
   await open()
   await wholeLevels().waitFor()
   const whole = await gaps()
-  assert.ok(whole.length === 3 && whole.every(g => g === whole[0]), `the level and three facts, evenly: ${whole}`)
+  assert.ok(whole.length === 4 && whole.every(g => g === whole[0]), `the level, the check and three facts, evenly: ${whole}`)
   await page.goto(origin + '/blank.html')
   const src = await page.evaluate(async () => {
     await import('/repl/embed.js')
@@ -297,7 +293,7 @@ test('editor: a shared link restores the script; on a narrow screen the panel op
   const view = await page.locator('.view-slab').boundingBox(), chain = await page.locator('.side-slab').boundingBox(), bar = await page.locator('.status').boundingBox()
   assert.ok(chain.width >= view.width - 14 && chain.y >= bar.y + bar.height - 1 && bar.y >= view.y + view.height - 1, `under the output and its bar: ${JSON.stringify(chain)} under ${JSON.stringify(view)}`)
   assert.ok(Math.abs(chain.height - view.height) < 2, 'as tall as the picture')
-  for (const name of ['Code', 'Export']) assert.ok(await page.getByRole('tab', { name, exact: true }).isVisible(), name)
+  for (const name of ['Edits', 'Code']) assert.ok(await page.getByRole('tab', { name, exact: true }).isVisible(), name)
 })
 
 // ── Loading and the gestures ───────────────────────────────────

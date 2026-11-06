@@ -64,9 +64,8 @@ export function tabRenamed(event, t) {
   state.renamingTab = null
   if (event.key !== 'Escape') renameTab(t.id, to)
 }
-// A tab named anew: its title over its sound's name, or, emptied or that name, the sound's again (a sound alone, its
-// layer's name the tab's: tracks.js renamed)
-export function renameTab(id, to) {
+// A tab named anew: its title over its sound's name, or, emptied or that name, the sound's again
+function renameTab(id, to) {
   const d = docs.find(d => d.id === id)
   if (!d) return
   d.title = to && to !== nameOf(d.id === state.tab ? ed.code : d.code) ? to : null

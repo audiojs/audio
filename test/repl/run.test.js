@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, readdir } from 'node:fs/promises'
 import { dirname, relative, resolve, sep } from 'node:path'
-import { TOP, TRACK, root, browser, page, origin, errors, code, readout, wholeLevels, levelsTable, lengthText, open, settled, frames, poll, still, settings, selected, tab, menu, facts, noCues, write, renameTrack, muteTrack, drawn, tall, axis, drag, lengthIs, pixels, show, bursts, chime } from './page.js'
+import { TOP, TRACK, root, browser, page, origin, errors, code, readout, wholeLevels, levelsTable, lengthText, open, settled, frames, poll, still, settings, selected, tab, menu, facts, noCues, write, muteTrack, drawn, tall, axis, drag, lengthIs, pixels, show, bursts, chime } from './page.js'
 
 test('editor: opens on the chime with its script, drawn and measured', async () => {
   await open()
@@ -565,8 +565,7 @@ let b = audio('rhodes.wav').tick()`)
     ['mute', () => muteTrack(1)],
     ['unmute', () => muteTrack(1)],
     ['solo', () => muteTrack(0, true)],
-    ['unsolo', () => muteTrack(0, true)],
-    ['rename', async () => { await renameTrack(1, 'bed'); await page.waitForFunction(() => /\nlet bed = /.test(scriptText())) }]
+    ['unsolo', () => muteTrack(0, true)]
   ]) {
     const { runs, ticks } = await after(act)
     assert.ok(runs <= 1 && ticks === 0, `${name}: ${runs} runs, ${ticks} blocks made again`)

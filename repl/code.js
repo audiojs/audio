@@ -793,14 +793,6 @@ export function addTrack(code, sound, file, { last } = {}) {
   const text = own?.code ?? code, name = unused(text, identifier(file)), end = m ? mixing(text, statements(parse(text)).at(-1)).statement.from : last ? text.length : chain(text).end
   return { code: remix(placed(text, end, `let ${name} = ${sound}`), [name]), name }
 }
-// Track `from` named `to`, as a script names a sound (identifier: Lead vocal → leadVocal), a name no other sound has:
-// { code, name }, or null where there is no such track, or `to` makes no name or the one it has
-export function renameTrack(code, from, to) {
-  const base = identifier(to, '')
-  if (!tracks(code).some(t => t.name === from) || !base || base === from) return null
-  const name = unused(code, base)
-  return { code: rename(code, { [from]: name }), name }
-}
 // A master after the tracks: `first` a copy, each other track mixed into it; { code, name }, or null where the script
 // has a master, or no tracks
 export function addMaster(code, first) {

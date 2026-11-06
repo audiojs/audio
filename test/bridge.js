@@ -264,7 +264,7 @@ test('bridge: prints its address, key and agents; its own key random, kept for t
       `audio bridge on ${a.url}`, '',
       `  key     ${key}`,
       '  agents  Claude Code, Codex, Pi, Gemini CLI, Kimi Code', '',
-      '  In the repl\'s Agent panel, paste the key, then Connect. It stays the same next time.'
+      '  In the repl opened with ?ui={"agent":true}, paste the key in the line under the code, then Connect. It stays the same next time.'
     ], 'plain, not a terminal')
     t.ok(/^[0-9a-f]{32}$/.test(key), '128 random bits')
     t.is((await fetch(`${a.url}/health?key=${key}`)).status, 200, 'the printed key opens it')
@@ -277,7 +277,7 @@ test('bridge: prints its address, key and agents; its own key random, kept for t
     await again.close(), again = null
     b = await bridge([], { AUDIO_BRIDGE_KEY: 'from-env' }), c = await bridge()
     t.is([b.key, c.key], ['from-env', KEY])
-    t.is(c.printed.at(-1), '  In the repl\'s Agent panel, paste the key, then Connect.', 'a key given: not said to stay')
+    t.is(c.printed.at(-1), '  In the repl opened with ?ui={"agent":true}, paste the key in the line under the code, then Connect.', 'a key given: not said to stay')
     t.is(JSON.parse(readFileSync(file, 'utf8')), { url: last, key }, 'a key given is kept nowhere: the own one stays')
     await b.close(), b = null, await c.close(), c = null
     c = await bridge([])

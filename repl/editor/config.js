@@ -144,9 +144,6 @@ export const glyphs = { up: 'M12 19V5m-6 6 6-6 6 6', down: 'M12 5v14m-6-6 6 6 6-
 // (remove, insert), stretches it, the pitch kept (fn/stretch.js), or speeds it, the pitch following, as a tape
 // (fn/speed.js)
 export const gripModes = [['trim', 'Trim', 'Cut back, or silence added'], ['stretch', 'Stretch', 'The pitch kept'], ['speed', 'Speed', 'The pitch follows, as a tape’s']].map(([name, label, text]) => ({ name, label, text }))
-// The agent's icon, on the 24 grid of the others, a spark; the recipes', an open book
-export const AGENT_ICON = 'M12 3c.6 4.7 4.3 8.4 9 9-4.7.6-8.4 4.3-9 9-.6-4.7-4.3-8.4-9-9 4.7-.6 8.4-4.3 9-9Z'
-export const RECIPES_ICON = 'M3 5h5a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H3Zm18 0h-5a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h6Z'
 // What a band shows: the waveform, the spectrogram or the notes, one at a time (each zooms its own way), chosen by its
 // look (a sound's in its foot under its axis, a track's in its layer), from its track's menu, or for every band from View
 export const displays = [['wave', 'Waveform', 'The samples, their levels on the axis'], ['spec', 'Spectrogram', 'Each frequency\'s level, as a colour'], ['notes', 'Notes', 'A voice\'s notes on a piano\'s rows']].map(([name, label, hint]) => ({ name, label, hint }))
@@ -190,5 +187,9 @@ export const docsOf = list => Array.isArray(list) ? list.filter(d => typeof d?.c
 // The edits as a stack of cards (stack.js), the chain's steps each with its settings: only where the page asks for them
 // (?ui= edits, or a panel of them), never loaded otherwise, the code being where the chain is written by hand
 export const STACKED = UI.edits === true || UI.panel === 'edits'
-// the panel's tabs; one stored under a name it no longer has opens on the code, and a closed panel stays closed
-export const sides = ['recipes', 'chat', ...STACKED ? ['edits'] : [], 'code', 'export'], sideOf = name => name == null ? null : sides.includes(name) ? name : 'code'
+// The agent, a line under the code to ask it by (chat.js), and the recipes, Process › Recipes putting one's chain in the
+// code: each only where the page asks for it (?ui= agent, recipes), the page itself the picture and the code
+export const AGENTED = UI.agent === true, RECIPED = UI.recipes === true
+// the panel's tabs, the code's and the edits'; one stored under a name it no longer has opens on the code, and a closed
+// panel stays closed
+export const sides = [...STACKED ? ['edits'] : [], 'code'], sideOf = name => name == null ? null : sides.includes(name) ? name : 'code'

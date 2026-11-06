@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, open as openFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, menu, menuRow, write, LANES, NAMED, tall, gutter, tracksAt, lengthIs, gridShown, pixels, show, shown, themed, axis, noCues } from './page.js'
+import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, download, menu, menuRow, write, LANES, NAMED, tall, gutter, tracksAt, lengthIs, gridShown, pixels, show, shown, themed, axis, noCues } from './page.js'
 import { resolver, semantics } from '../../repl/theme.js'
 
 // The axis at the pictures' right is as wide as its labels and the pointer's value read out on it, five characters at
@@ -134,22 +134,19 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   assert.ok(await blank(), 'nothing with no sound')
 })
 
-// A spark for the agent, an open book for the recipes, the switches joined
-// (raised keys in one bezel), the export's icon an arrow down onto a tray; a band's look opens on a click alone
+// The export's icon an arrow down onto a tray, the switches in it joined (raised keys in one bezel); a band's look opens
+// on a click alone
 test('editor: the settled icons; the switches are keys in a bezel; a band\'s look right-clicked opens nothing', async () => {
   await open()
-  const icon = name => page.getByRole('tab', { name, exact: true }).locator('path').getAttribute('d')
-  assert.equal(await icon('Agent'), 'M12 3c.6 4.7 4.3 8.4 9 9-4.7.6-8.4 4.3-9 9-.6-4.7-4.3-8.4-9-9 4.7-.6 8.4-4.3 9-9Z', 'a spark, four curved points')
-  assert.equal(await icon('Export'), 'M12 4v11m-5-5 5 5 5-5M4 19h16', 'an arrow down onto a tray')
-  assert.equal(await icon('Recipes'), 'M3 5h5a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H3Zm18 0h-5a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h6Z', 'an open book')
-  await tab('Export')
+  assert.equal(await page.locator('.status .download path').getAttribute('d'), 'M12 4v11m-5-5 5 5 5-5M4 19h16', 'an arrow down onto a tray')
+  await download()
   // the switches, settled: raised keys in one bezel, each touching the next
   const group = page.locator('.export .choices').first()
   const [first, second] = await group.locator('button').evaluateAll(list => list.slice(0, 2).map(b => b.getBoundingClientRect()).map(r => [r.left, r.right]))
   assert.equal(second[0], first[1], 'raised keys in one bezel')
   assert.match(await group.evaluate(el => getComputedStyle(el).boxShadow), /0px 0px 0px 1px inset/, 'the bezel a ring round them')
   // a band's look right-clicked opens nothing, nor turns it
-  await page.getByRole('tab', { name: 'Export', exact: true }).click()
+  await page.keyboard.press('Escape')
   await page.locator(':is(.lane-look, .layer-look):visible').click({ button: 'right' })
   assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'no dropdown')
   assert.equal(await shown(), 'Waveform', 'not turned')

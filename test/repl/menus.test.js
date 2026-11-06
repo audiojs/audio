@@ -2,7 +2,7 @@
 // helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, menuRow, tab, edits, noCues, write, tall, axis, drag, lengthIs } from './page.js'
+import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, menuRow, tab, edits, menu, noCues, write, tall, axis, drag, lengthIs } from './page.js'
 
 // A control pointed at says what it is on a tag pointing at it, after a moment, the next at once; the browser's own
 // tooltip never, the title back once the pointer leaves
@@ -127,8 +127,9 @@ test('editor: the context menu, or K, keeps only the selection', async () => {
   await lengthIs('0:01.000')
 })
 
-// A click seen on the picture: selected, the context menu's Repair takes the clicks out there alone (declick over the
-// range), or rebuilds all of it from around it (repair); the length kept. Every method is there by its kind
+// A click seen on the picture: selected, the context menu takes the clicks out there alone (declick over the range), or
+// rebuilds all of it from around it (repair), each a row of its own, no submenu to go through; the length kept. Every
+// method is in Process by its kind, what it does said in its row
 test('editor: the context menu takes the clicks out of the selection, or rebuilds it', async () => {
   await open()
   await noCues()
@@ -137,20 +138,15 @@ test('editor: the context menu takes the clicks out of the selection, or rebuild
   const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
   await drag([x(2), y], [x(4) - x(2), 0])
   await page.mouse.click(x(3), y, { button: 'right' })
-  await menuRow('Process').click()
-  await menuRow('Repair').click()
   await menuRow('Remove the clicks here').click()
   await page.waitForFunction(() => /\.declick\(\{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
   await page.mouse.click(x(3), y, { button: 'right' })
-  await menuRow('Process').click()
-  await menuRow('Repair').click()
   await menuRow('Rebuild from around it').click()
   await page.waitForFunction(() => /\.repair\(\{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
   await lengthIs('0:08.000')
   // any method, by its kind: a filter over the selection
-  await page.mouse.click(x(3), y, { button: 'right' })
-  await menuRow('Process').click()
-  await menuRow('Filter').click()
+  await page.locator('.menubar-item', { hasText: /^Process$/ }).click()
+  await menuRow('Filter').hover()
   // what each does, said in its row (the menus' words once took the tooltip's place, all at the window's corner)
   const row = await menuRow('Highpass').boundingBox(), said = await menuRow('Highpass').locator('.menu-keys').boundingBox()
   assert.ok(said.y >= row.y && said.y + said.height <= row.y + row.height + 1 && said.x > row.x, 'its words in its row')
@@ -159,10 +155,11 @@ test('editor: the context menu takes the clicks out of the selection, or rebuild
   await page.waitForFunction(() => /\.highpass\(80, \{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
 })
 
-// A right-click, as in a text: inside the selection, the edits for it, then every method under one Process, by its kind,
-// one written for it offered again first there among the recent ones; what the picture has a handle for (the fades, the
-// level), how it draws, what the menus have for the sound as a whole (Select all, the voice split) are not its. Elsewhere
-// the caret goes there first, the selection gone, and the menu has what a caret takes
+// A right-click, as in a text: inside the selection, the edits for it; then the methods it is most often given, always
+// in the same places, and the search for any other; then those used last that are not among them, under Recent; in
+// sections, no submenu. What the picture has a handle for (the fades, the level), how it draws, what the menus have for
+// the sound as a whole (Select all, the voice split) are not its. Elsewhere the caret goes there first, the selection
+// gone, and the menu has what a caret takes
 test('editor: a right-click gives the edits for the selection, or puts the caret there and gives the caret\'s', async () => {
   await open()
   await noCues()
@@ -172,30 +169,25 @@ test('editor: a right-click gives the edits for the selection, or puts the caret
   const item = name => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${name}$`) }) })
   await drag([x(1), y], [x(3) - x(1), 0])
   await page.mouse.click(x(2), y, { button: 'right' })
-  // its own: the edits of what is there, then Process, the methods by kind and the search for one, no more
-  const own = () => page.locator('.menubar-menu > .menu-row .menu-label').allInnerTexts(), kinds = ['Edit', 'Level', 'Filter', 'Dynamics', 'Repair', 'Time & pitch', 'Effect', 'Color', 'Reverb', 'Space', 'Generate', 'Find an edit…']
-  const processed = () => page.locator('.menubar-sub:popover-open > .menu-row .menu-label').allInnerTexts()
-  assert.deepEqual(await own(), ['Cut', 'Copy', 'Paste', 'Delete', 'Crop', 'Mark it', 'Process', 'Track'])
-  await item('Process').click()
-  assert.deepEqual(await processed(), kinds)
-  // under its kind, Edit, the first of it
-  await item('Edit').click()
-  await item('Reverse').click()
+  const own = () => page.locator('.menubar-menu > .menu-row .menu-label').allInnerTexts()
+  const leads = ['Normalize', 'Remove the clicks here', 'Rebuild from around it', 'Find an edit…']
+  assert.deepEqual(await own(), ['Cut', 'Copy', 'Paste', 'Delete', 'Crop', 'Mark it', ...leads])
+  assert.equal(await page.locator('.menubar-menu .menu-row.has-sub').count(), 0, 'no submenu')
+  await page.keyboard.press('Escape')
+  // a method from Process, over the selection: offered again at once under Recent, kept with the page
+  await menu('Process', 'Edit', 'Reverse')
   await page.waitForFunction(() => /\.reverse\(\{ at: 1, d: 2 \}\)$/.test(scriptText()))
-  assert.equal(await page.locator('.menubar-menu').count(), 0)
   // an edit in place: no panel opens over the picture
-  assert.equal(await page.locator('.side-slab').isVisible(), false, 'the edits stay closed')
-  // offered again, at once, as it was worded; kept with the page
+  assert.equal(await page.locator('.side-slab').isVisible(), false, 'the panel stays closed')
   await page.mouse.click(x(2), y, { button: 'right' })
-  await item('Process').click()
-  assert.equal(await page.locator('.menubar-sub:popover-open > .menu-group').innerText(), 'Recent')
-  assert.deepEqual((await processed()).slice(0, 2), ['Reverse', 'Edit'])
-  await page.locator('.menubar-sub:popover-open > .menu-row', { hasText: /^Reverse/ }).click()
+  assert.deepEqual(await page.locator('.menubar-menu > .menu-group').allInnerTexts(), ['Recent'])
+  assert.deepEqual(await own(), ['Cut', 'Copy', 'Paste', 'Delete', 'Crop', 'Mark it', ...leads, 'Reverse'])
+  await item('Reverse').click()
   await page.waitForFunction(() => (scriptText().match(/\.reverse\(\{ at: 1, d: 2 \}\)/g) || []).length === 2)
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').recent?.[0] === 'reverse')
   await page.mouse.click(x(6), y, { button: 'right' })
   assert.equal(await page.locator('.time').innerText(), '0:06.000')
-  assert.deepEqual(await own(), ['Paste', 'Add a marker', 'Process', 'Track'], 'the caret\'s own, no Cut')
+  assert.deepEqual(await own(), ['Paste', 'Add a marker', 'Find an edit…', 'Reverse'], 'the caret\'s own, no Cut')
   // Esc closes it, the caret staying
   await page.keyboard.press('Escape')
   await page.locator('.menubar-menu').waitFor({ state: 'detached' })
@@ -211,10 +203,8 @@ test('editor: one Stretch, its algorithm a choice; the menus name each method in
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
-  await page.mouse.click(x(2), y, { button: 'right' })
-  await menuRow('Process').click()
-  await menuRow('Time & pitch').click()
+  await page.locator('.menubar-item', { hasText: /^Process$/ }).click()
+  await menuRow('Time & pitch').hover()
   const names = await page.locator('.menubar-sub:popover-open .menu-label').allInnerTexts()
   assert.deepEqual(names.filter(n => /^stretch/i.test(n)), ['Stretch'], names.join(', '))
   assert.deepEqual(names.filter(n => /^(pitch|formant shift|vocoder|paulstretch)/i.test(n)), ['Pitch'], 'the pitch shifts one Pitch, its method a choice')
@@ -308,7 +298,7 @@ test('desktop: the app is told the panels and the menus with the page\'s own ico
     }
   })
   assert.deepEqual(told.toolbar, panels, 'each panel, its button\'s icon')
-  assert.ok(panels.length >= 4 && panels.every(p => /<path d="[^"]+"/.test(p.icon)))
+  assert.ok(panels.length >= 1 && panels.every(p => /<path d="[^"]+"/.test(p.icon)))
   assert.deepEqual(told.menus, drawn, 'each item\'s icon as the page\'s menus draw it, none where it has none')
   const icons = told.menus.flat(Infinity).flatMap(function all(it) { return [it, ...(it.items ?? []).flatMap(all)] }).filter(it => it.icon)
   assert.ok(icons.length >= 11, 'the Process menu\'s kinds at least, an icon each')

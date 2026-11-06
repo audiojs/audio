@@ -1,37 +1,28 @@
-import { source, chain, number, between, tracks as tracksOf, focus, toTrack, voiceTrack, stemTracks, soundOf, addTrack, dropTrack, renameTrack, master as masterOf, addMaster } from '../code.js'
+import { source, chain, number, between, tracks as tracksOf, focus, toTrack, voiceTrack, stemTracks, soundOf, addTrack, dropTrack, master as masterOf, addMaster } from '../code.js'
 import opIcons from '../icons.js'
 import { snapshot, item } from './commands.js'
-import { root, icons, glyphs, displays } from './config.js'
+import { root, icons } from './config.js'
 import { state, eng, v, ed, rk, pl, output, assign } from './context.js'
 import { write } from './edits.js'
 import { label, note } from './format.js'
-import { setKind, trackKinds, shows, showAs } from './look.js'
+import { trackKinds } from './look.js'
 import { openDropdown } from './menus.js'
 import { store } from './persist.js'
 import { marks, describe } from './readouts.js'
 import { schedule } from './run.js'
-import { docs, docOf, newTab, closeTab, renameTab } from './tabs.js'
+import { docs, docOf, newTab, closeTab } from './tabs.js'
 import { envelopeShown, shiftOf } from './writers.js'
 
 // Tracks: their lanes and layers, the one edited, mute, solo and lock, a track made, named, moved, split out (a voice,
 // stems), lined up, matched, ducked, mastered, taken away or to a tab
 
-// A track's own menu (Track, in its lane's right-click): named anew, muted, heard alone, locked, shown as a waveform, a
-// spectrogram or its notes, taken away (the others are a press away: a marker, an edit, on its lane). A sound alone, a track as
-// any, its tab's name: named anew, shown as it shows
-export const trackMenu = i => !v.tracks ? [
-  { label: 'Rename…', hint: tabName(), run: () => renameLayer(tabName()), icon: glyphs.marker },
-  '-',
-  ...displays.map(d => ({ label: d.label, checked: shows(null) === d.name, run: () => showAs(d.name, null) }))
-] : [
-  { label: 'Rename…', hint: state.track ?? '', run: () => renameLayer(laneName(i)), icon: glyphs.marker },
+// A track's own acts (a right-click on its names, the Track section of its lane's): muted, heard alone, locked, taken
+// away. How it shows is its look's, at its head's right; its name the code's
+export const trackMenu = i => [
   { label: 'Mute', checked: state.muted.includes(laneName(i)), run: () => toggleMute(i) },
   { label: 'Solo', run: () => toggleMute(i, true), icon: icons.track },
   { label: 'Lock', checked: state.locked.includes(laneName(i)), run: () => toggleLock(laneName(i)) },
-  '-',
-  ...displays.map(d => ({ label: d.label, checked: shows(state.track) === d.name, run: () => setKind(state.track, d.name) })),
-  '-',
-  item('track.delete', snapshot(), { when: null, icon: opIcons.remove })
+  item('track.delete', snapshot(), { hint: null, when: null, icon: opIcons.remove })
 ]
 // a band's look pressed (its layer's, at its head's right, over the axis): how it shows, the dropdown by it
 export function layerLook(l, event) { state.dropLane = l.band; openDropdown(event.currentTarget) }
@@ -46,13 +37,6 @@ export function toggleLock(name) {
   showTracks(output?.tracks ? lanesShown(output) : v.tracks?.map(t => ({ ...t, locked: state.locked.includes(t.name) })) ?? null)
   store()
 }
-// A layer's name written anew where it stands (Rename in its menu, its name clicked): Enter or a press elsewhere names
-// the track (renameTrackTo), Esc leaves it
-export function renameLayer(name) {
-  if (!name) return
-  state.renaming = name
-  fieldFocus('.layer-field')
-}
 // A name's field, as it shows in place of the name: focused, its text selected, now and once it is drawn
 export function fieldFocus(selector) {
   const field = () => { const el = root.querySelector(selector); if (el && document.activeElement !== el) { el.focus(); el.select() } }
@@ -61,16 +45,6 @@ export function fieldFocus(selector) {
 }
 // a name's field as wide as what is written in it, a character more for the caret (a monospace font's)
 export function fitField(el) { el.style.width = `${Math.max(2, el.value.length) + 1}ch` }
-export function renamed(event, l) {
-  const input = event.currentTarget, to = input.value.trim()
-  if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== 'Escape') return
-  event.stopPropagation()
-  if (state.renaming !== l.name) return
-  state.renaming = null
-  if (event.key === 'Escape' || !to || to === l.name) return
-  if (l.single) renameTab(state.tab, to)
-  else renameTrackTo({ from: l.name, to })
-}
 // A track made empty (Track › New track, the room's + New track): its first marker's name asked for at its start, the
 // name a track has (none written, none)
 export function nameNewTrack() { if (newTrack()) v.ask(0) }
@@ -135,8 +109,6 @@ export function trackOf(name) {
 // The track lane `i` is, by its name, as the view lays it out: a track just made or taken away is laid out before the
 // output with it comes (relane), which has the tracks as they were
 export function laneName(i) { return v.tracks?.[i]?.name }
-// the tab's name, a sound alone's layer's
-const tabName = () => state.tabs?.find(t => t.id === state.tab)?.name ?? ''
 // The output's track edited ({ name, length, silences }), or null; its index, or none, without tracks
 export function lane(out = output) { return out?.tracks?.find(t => t.name === state.track) ?? null }
 export function laneIndex(out = output) { const i = out?.tracks?.findIndex(t => t.name === state.track) ?? -1; return i < 0 ? undefined : i }
@@ -201,20 +173,6 @@ export function relane() {
   showTracks(names.map(n => ({ name: n, end: by.get(n)?.end ?? 0, muted: state.muted.includes(n), locked: state.locked.includes(n) })))
   v.set(names.map(n => by.get(n)?.lane ?? silent), out.sampleRate)
   v.focus = Math.max(0, names.indexOf(state.track))
-}
-// A track named anew (its layer's name double-clicked, or Rename in its menu): its sound's name in the script (code.js
-// renameTrack, a script's name made of the words), its height, its mute, its lock, what it shows and its being edited
-// going with it
-export function renameTrackTo({ from, to }) {
-  const made = renameTrack(ed.code, from, to), d = docOf(state.tab)
-  if (!made) return false
-  if (d?.heights?.[from] != null) { const { [from]: h, ...rest } = d.heights; d.heights = { ...rest, [made.name]: h }; v.heights = d.heights }
-  if (d?.kinds?.[from] != null) { const { [from]: k, ...rest } = d.kinds; trackKinds(d, { ...rest, [made.name]: k }) }
-  state.muted = state.muted.map(n => n === from ? made.name : n)
-  state.locked = state.locked.map(n => n === from ? made.name : n)
-  if (state.track === from) { state.track = made.name; focus(made.name) }
-  ed.change(between(ed.code, made.code))
-  return true
 }
 // The voice to a track of its own under this one, by a separation model, the rest left here, so the two sound as the one
 // did (code.js voiceTrack); the new one the track edited, for its own repairs. One step; the model runs once for both

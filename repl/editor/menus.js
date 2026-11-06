@@ -3,8 +3,8 @@ import { steps as stepsOf, dropStep } from '../code.js'
 import { builtins } from '../sources.js'
 import menubar from '../menu.js'
 import opIcons from '../icons.js'
-import { root, EMBED, STACKED, quickOf, QUICK, formats, icons, glyphs, displays, stored } from './config.js'
-import { command, snapshot, item, keysOf } from './commands.js'
+import { root, STACKED, RECIPED, quickOf, QUICK, formats, icons, glyphs, displays, stored } from './config.js'
+import { snapshot, item, keysOf } from './commands.js'
 import { state, v, ed } from './context.js'
 import { editSelection, addOp } from './edits.js'
 import { pickFiles, reopenable, useSample, NOTE, SOUND, exportFiles } from './files.js'
@@ -29,26 +29,16 @@ function menus() {
     { name: 'Select', items: at('select.all', 'select.none', '-', 'select.fragment', 'select.sound', 'select.next', '-', 'caret') },
     { name: 'View', items: at(...displays.map(d => `display.${d.name}`), 'look.wave', 'look.spec', '-', 'minimap', 'grid', 'snap', 'pitch.curve', 'zoom', '-', 'panel', 'theme', '-', 'view.reset') },
     { name: 'Track', items: at('track.new', 'track.fromFile', 'track.move', 'track.voice', 'track.stems', '-', 'track.lineUp', 'track.match', 'track.duck', 'track.master', '-', 'track.toTab', 'track.delete') },
-    { name: 'Process', items: [...at('recipes', '-'), ...kinds().map(k => ({ ...k, disabled: s.none })), ...at('-', 'palette')] },
+    { name: 'Process', items: [...RECIPED ? at('recipes', '-') : [], ...kinds().map(k => ({ ...k, disabled: s.none })), ...at('-', 'palette')] },
     { name: 'Transport', items: at('play', 'loop', 'compare', 'speed', '-', 'record', 'record.track', 'record.take', 'takes') },
     { name: 'Help', items: at('help.keys', 'help.library', 'help.source') }
   ]
 }
-// Every method by kind, a submenu each, for the output or what is selected (addOp): first what the selection is most
-// often given of that kind (`lead`, by group), then every other method of it by name, but those the menu has already
-// (`skip`: a context menu's Cut, Copy, Paste)
+// Every method by kind, a submenu each, for the output or what is selected (addOp), by name
 const method = (name, open = true) => ({ label: labelOf(name), hint: ops[name].text, run: () => addOp(name, open), op: name })
-const kinds = (lead = {}, open = true, skip = []) => GROUPS.map(group => ({ label: group, icon: groupIcons[group], items: [
-  ...lead[group] ? [...lead[group], '-'] : [],
-  ...Object.values(ops).filter(op => op.group === group && !skip.includes(op.name) && !lead[group]?.some(it => it.op === op.name)).map(op => method(op.name, open))
-] }))
-// The methods last used (`recent`: addOp, from a menu or the palette), the newest first; the context menu offers them
-// again, each as that context words it where it has its own item for it (`lead`), else by its name
+const kinds = () => GROUPS.map(group => ({ label: group, icon: groupIcons[group], items: Object.values(ops).filter(op => op.group === group).map(op => method(op.name)) }))
+// The methods last used (`recent`: addOp, from a menu or the palette), the newest first
 export const used = name => { recent = [name, ...recent.filter(n => n !== name)].slice(0, 3); later() }
-const recents = (lead = {}) => {
-  const own = Object.values(lead).flat(), list = recent.filter(n => ops[n]).map(n => own.find(it => it.op === n) ?? { ...method(n, false), icon: opIcons[n] })
-  return list.length ? ['-', { group: 'Recent' }, ...list] : []
-}
 export let bar
 // How a band shows (its look, in its layer): a dropdown by it, as Figma's, every group in sight, no levels to go
 // through; the look again, a press outside or Esc closes it, another band's moves it there
@@ -94,41 +84,38 @@ export function placeList(event) {
   Object.assign(list.style, { left: `${r.left}px`, top: `${top}px`, minWidth: `${r.width}px` })
 }
 // The picture's context menu (a right-click on it): what is done to what is under the pointer and nothing else, as
-// Audacity's on a clip. What the picture has a handle for leaves it (the fades, the corners; the level, the pill), and
-// how it draws is the settings'. Then the methods last used, each written for it, and every method by kind, as Process
-// has them, what the selection is most often given of each kind leading its list (a crossfade across it; the clicks
-// taken out, a rebuild, the noise learned there), each a step of the chain; ⌘P finds any. At the caret: paste, a
-// marker, all of it, and the methods for all of it
+// Audacity's on a clip, in sections, no submenu to wait on or aim into. What the picture has a handle for leaves it (the
+// fades, the corners; the level, the pill), how a track shows is its look's, and how it draws the settings'. First what
+// the press means to do with what is there (`own`); then the methods it is most often given there (`leads`, as it words
+// them: the level, the clicks taken out, a rebuild), always the same, in the same places, and the palette for every
+// other (⌘P); the methods last used that are not among them, under Recent; last, the track's own (tracks.js trackMenu).
+// At the caret: paste, a marker, the takes there
 export function contextMenu() {
   const list = v.ranges, several = list.length > 1, here = takesHere(), s = snapshot()
-  const lead = (label, name) => ({ label, run: () => addOp(name, false), icon: opIcons[name], op: name })
-  // an edit of what is selected (`op`, its type, which the methods' lists then leave out): a command, worded and dimmed
-  // as here (`own`), or one only a context offers
-  const use = (id, own) => ({ ...item(id, s, own), op: command(id).edit })
+  // an edit of what is selected: a command, worded and dimmed as here (`own`), or one only a context offers
+  const use = (id, own) => item(id, s, own)
   const act = (label, type, when, icon) => ({ label, run: () => editSelection(type), disabled: !when, icon, op: type })
   const mark = label => item('mark', s, { label, tip: null, when: null, icon: glyphs.marker })
-  const repair = [act(several || v.boxes.length > 1 ? 'Remove the clicks in each' : 'Remove the clicks here', 'declick', true, opIcons.declick), act('Rebuild from around it', 'repair', !several, opIcons.repair), act('Take this noise out everywhere', 'denoise', true, opIcons.denoise)]
-  // the track pressed in, a sound alone's too: its own menu, as its layer's (tracks.js trackMenu); embedded, a sound
-  // alone has no layer to name
-  const track = v.tracks || !EMBED ? [{ label: 'Track', icon: icons.track, items: trackMenu(v.focus) }] : []
-  // what the press means to do with what is there, then every method under one Process, the last used first, none twice
-  const process = (own, leads = {}) => [...own, '-', { label: 'Process', icon: groupIcons.Level, items: [...recents(leads).slice(1), ...recents(leads).length ? ['-'] : [], ...kinds(leads, false, own.map(it => it.op)), '-', item('palette', s, { label: 'Find an edit…', when: null, icon: glyphs.find })] }, ...track]
+  const repair = [act(several || v.boxes.length > 1 ? 'Remove the clicks in each' : 'Remove the clicks here', 'declick', true, opIcons.declick), act('Rebuild from around it', 'repair', !several, opIcons.repair)]
+  const track = v.tracks ? ['-', { group: 'Track' }, ...trackMenu(v.focus)] : []
+  const sections = (own, leads = []) => {
+    const again = recent.filter(n => ops[n] && !leads.some(it => it.op === n)).map(n => ({ ...method(n, false), hint: null, icon: opIcons[n] }))
+    return [...own, '-', ...leads, item('palette', s, { label: 'Find an edit…', when: null, icon: glyphs.find }), ...again.length ? [{ group: 'Recent' }, ...again] : [], ...track]
+  }
   // a band has no pill: its level stays here
-  if (v.band) return process([use('delete', { label: 'Delete the band', when: null, icon: opIcons.remove }), act('6 dB quieter', 'quieter', true, glyphs.down), act('6 dB louder', 'louder', true, glyphs.up)], { Repair: repair })
-  if (!list.length) return process([
+  if (v.band) return sections([use('delete', { label: 'Delete the band', when: null, icon: opIcons.remove }), act('6 dB quieter', 'quieter', true, glyphs.down), act('6 dB louder', 'louder', true, glyphs.up)], repair)
+  if (!list.length) return sections([
     use('paste', { label: v.carets.length > 1 ? `Paste at all ${v.carets.length} carets` : 'Paste', icon: opIcons.paste }),
     mark(v.carets.length > 1 ? 'A marker at each caret' : 'Add a marker'),
     ...here ? takesMenu(here) : []
   ])
   // (to a new track by a drag under the tracks; zoomed to by the length in the bar)
-  return [
-    ...process([
-      use('cut', { when: () => !several, icon: opIcons.cut }), use('copy', { when: () => !several, icon: opIcons.copy }), use('paste', { when: () => state.canPaste && !several, icon: opIcons.paste }), use('delete', { when: null, icon: opIcons.remove }),
-      use('crop', { when: () => !several, icon: opIcons.crop }),
-      mark(several ? 'Mark each' : 'Mark it'),
-      ...here ? takesMenu(here) : []
-    ], { Edit: [lead('Reverse', 'reverse')], Level: [lead('Crossfade across it', 'crossfade'), lead('Normalize', 'normalize')], Repair: repair })
-  ]
+  return sections([
+    use('cut', { when: () => !several, icon: opIcons.cut }), use('copy', { when: () => !several, icon: opIcons.copy }), use('paste', { when: () => state.canPaste && !several, icon: opIcons.paste }), use('delete', { when: null, icon: opIcons.remove }),
+    use('crop', { when: () => !several, icon: opIcons.crop }),
+    mark(several ? 'Mark each' : 'Mark it'),
+    ...here ? takesMenu(here) : []
+  ], [{ label: 'Normalize', run: () => addOp('normalize', false), icon: opIcons.normalize, op: 'normalize' }, ...repair])
 }
 // The palette, a notch over the picture (⌘P, as Figma's quick actions and Sublime's Goto Anything, or ⌘K, as Slack's,
 // Linear's and GitHub's; the menus, Add an edit at the foot of the edits), the words to find
@@ -197,9 +184,9 @@ export function wire() {
     const m = event.target, by = invoker
     if (event.newState !== 'open' || !m.matches?.('.menu[popover]:not(.menubar-list)') || by?.getAttribute('popovertarget') !== m.id) return
     requestAnimationFrame(() => {
-      const r = by.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight
-      const top = r.bottom + 6 + h <= innerHeight - 8 ? r.bottom + 6 : Math.max(8, r.top - 6 - h)
-      Object.assign(m.style, { positionArea: 'none', inset: 'auto', margin: '0', left: `${Math.max(8, Math.min(r.left, innerWidth - 8 - w))}px`, top: `${top}px` })
+      const r = by.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight, under = r.bottom + 6 + h <= innerHeight - 8
+      // over it, held there by its foot, so what opens in it (the export's edit list) grows up, within the window
+      Object.assign(m.style, { positionArea: 'none', inset: 'auto', margin: '0', left: `${Math.max(8, Math.min(r.left, innerWidth - 8 - w))}px`, ...under ? { top: `${r.bottom + 6}px`, maxHeight: '' } : { bottom: `${innerHeight - r.top + 6}px`, maxHeight: `${r.top - 14}px` } })
     })
   }, true)
   // Esc with the keys in it (a choice just pressed) closes it too, the keys back on its button

@@ -94,10 +94,10 @@ svg { flex: none; }
 .icon-button svg { width: 18px; height: 18px; }
 .bar .icon-button:hover:not(:disabled) { background: var(--color-hover); }
 
-/* Panes: a head over the picture (the open sounds) and over the panel (the panels' buttons, at the slab's right, as an
-   editor's activity bar), the picture, the panel docked beside it when one is open (the recipes, the agent, the edits,
-   the code, the export), part of the slab, no line between, all one width so nothing moves as it turns from one to
-   another, and the bar along the foot of both. The panel's left edge drags its width (--panel, kept); the button that
+/* Panes: a head over the picture (the open sounds) and over the panel (its buttons, at the tabs' right end: the code,
+   and the edits where the link asks for them), the picture, the panel docked beside it when one is open, part of the
+   slab, no line between, all one width so nothing moves as it turns from one to another, and the bar along the foot of
+   both. The panel's left edge drags its width (--panel, kept); the button that
    opened it, again, closes it. Opening it, the picture keeps where it starts and its scale (view.js): it shows less of
    the sound, never squeezed. */
 .panes { --panel: clamp(320px, 30vw, 440px); position: relative; display: grid; container: bar / inline-size; min-height: 0; margin: 0 var(--gutter) var(--gutter); border-radius: var(--radius-slab); background: linear-gradient(var(--color-screen), var(--color-screen-low)); color: var(--color-screen-soft); box-shadow: var(--shadow-panes); grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) auto; }
@@ -136,7 +136,7 @@ svg { flex: none; }
    baseline is .3 of it under its middle (its line as tall as its digits), as far as the small line goes (--line, the
    time at its full size). The time made smaller on a narrow bar keeps that baseline, going down as it shrinks, play and
    record down with its digits' middle (.3 of its size over the baseline), the bar's left padding less */
-.status :is(.message, .heard, .readout, .facts, .before) { position: relative; top: var(--line); }
+.status :is(.message, .heard, .readout, .checked, .facts, .before) { position: relative; top: var(--line); }
 .panes[data-side="open"] .status-main { container: picture / inline-size; }
 :is(.slab, .status) .icon-button { color: var(--color-screen-muted); }
 :is(.slab, .status) .icon-button:hover:not(:disabled), :is(.slab, .status) .icon-button[aria-pressed="true"] { color: var(--color-screen-bright); background: var(--color-screen-hover); }
@@ -299,7 +299,7 @@ svg { flex: none; }
 .file [role="tab"] { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: 12px var(--font-mono); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A name written anew in place (a tab's, a track's): its text where the name's was, in its font and colour, no box
    round it, as wide as what is written (fitField); the caret and the selection say it is being written */
-.file-field, .layer-field { flex: none; min-width: 2ch; max-width: 100%; padding: 0; border: 0; border-radius: 0; outline: none; background: none; color: inherit; caret-color: var(--color-screen-bright); font: inherit; }
+.file-field { flex: none; min-width: 2ch; max-width: 100%; padding: 0; border: 0; border-radius: 0; outline: none; background: none; color: inherit; caret-color: var(--color-screen-bright); font: inherit; }
 .file-field { height: 100%; font: 12px var(--font-mono); }
 .file-close { display: grid; flex: none; place-items: center; width: 20px; height: 20px; margin-left: 4px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--color-screen-muted); opacity: 0; }
 .file:hover .file-close, .file.current .file-close, .file-close:focus-visible { opacity: 1; }
@@ -379,6 +379,20 @@ svg { flex: none; }
 .before:hover:not(:disabled) { background: var(--color-quiet-hover); color: var(--color-screen-ink); }
 .before[aria-pressed="true"]:not(:disabled) { background: var(--color-screen-accent); color: var(--color-screen); }
 .before:disabled { opacity: .4; }
+/* the spec checked against, its verdict by its name, before the facts as far from them as they are from each other:
+   Check alone, faint, with none; its rules pointed at, a table over it as the levels' */
+.checked { flex: none; margin-left: 4px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); white-space: nowrap; }
+.checked:hover, .checked:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.checked.pass, .checked.fail { color: var(--color-screen-soft); }
+.checked .mark { margin-right: 3px; }
+.checked.pass .mark { color: var(--color-screen-bright); }
+.checked.fail .mark { color: var(--color-screen-error); }
+.checked.stale { opacity: .6; }
+.checks td.fail { color: var(--color-screen-error); }
+.checks .check-note { max-width: 36ch; margin: 4px 0 0; white-space: normal; }
+/* the export, last at the bar's right end: a dropdown over it */
+.status .download { flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 28px; height: 28px; margin-left: 6px; border-radius: 6px; }
+.status .download svg { width: 17px; height: 17px; }
 .record-icon { display: block; width: 11px; height: 11px; border-radius: 50%; background: var(--color-screen-error); opacity: .8; }
 .record:hover .record-icon { opacity: 1; }
 /* Recording, a square to stop it, steady; armed, the microphone still opening, it blinks, as a deck's record key does */
@@ -474,30 +488,15 @@ svg { flex: none; }
 /* how the picture shows, a pair of keys after the levels, the one shown a press from its dropdown; with no sound,
    dimmed as undo is, in sight where it will be */
 .heard { display: block; flex: 0 1 auto; margin-left: 6px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); cursor: pointer; }
-/* Scenarios: a goal's whole chain each, found by their words, a card each: its name, what it does, the spec it delivers */
-.scenarios, .chat { display: flex; flex: 1; flex-direction: column; min-height: 0; }
-.scenarios { gap: 4px; overflow: auto; padding: 4px 14px 14px; }
-.scenario-search, .chat-form textarea { flex: none; min-height: 34px; padding: 0 12px; border: 1px solid var(--color-screen-rule); border-radius: 8px; background: var(--color-screen-well); color: var(--color-screen-ink); font: 13px var(--font-body); }
-.scenario-search:focus, .chat-form textarea:focus { border-color: var(--color-screen-accent); outline: none; }
-.scenario-search::placeholder, .chat-form textarea::placeholder { color: var(--color-screen-muted); }
-/* a group each, folded till opened or searched */
-.recipe-group > summary { display: flex; align-items: baseline; gap: 8px; padding: 8px 2px; color: var(--color-screen-ink); font-size: 12px; font-weight: 500; list-style: none; cursor: pointer; }
-.recipe-group > summary::-webkit-details-marker { display: none; }
-.recipe-group > summary::before { content: '›'; width: 8px; color: var(--color-screen-muted); transition: rotate var(--dur-micro) var(--ease-out); }
-.recipe-group[open] > summary::before { rotate: 90deg; }
-.recipe-group > summary em { color: var(--color-screen-muted); font: normal 11px var(--font-mono); }
-.recipe-group > summary:hover { color: var(--color-screen-bright); }
-.scenario { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none; text-align: left; }
-.scenario:hover { background: var(--color-screen-hover); }
-.scenario strong { color: var(--color-screen-ink); font-size: 13px; font-weight: 500; }
-.scenario:hover strong { color: var(--color-screen-bright); }
-.scenario span { grid-column: 1; overflow: hidden; color: var(--color-screen-muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
-.scenario em { grid-area: 1 / 2 / 3; align-self: center; color: var(--color-screen-muted); font: normal 11px var(--font-mono); }
+/* The agent, where the page asks for it: under the code, a line to ask it by; over the line, once there is one, the
+   conversation, newest at its foot, as tall as it needs to a half of the panel */
+.chat { display: flex; flex: none; flex-direction: column; max-height: 50%; min-height: 0; padding-bottom: 10px; border-top: 1px solid var(--color-screen-rule); }
+.chat-form textarea { flex: none; min-height: 34px; padding: 0 12px; border: 1px solid var(--color-screen-rule); border-radius: 8px; background: var(--color-screen-well); color: var(--color-screen-ink); font: 13px var(--font-body); }
+.chat-form textarea:focus { border-color: var(--color-screen-accent); outline: none; }
+.chat-form textarea::placeholder { color: var(--color-screen-muted); }
 /* The agent: the conversation, newest at the foot, what to say under it */
-.chat-log { flex: 1; min-height: 0; overflow: auto; padding: 8px 14px; }
-.chat-empty { color: var(--color-screen-muted); font-size: 12.5px; }
-.chat-empty p { margin: 0 0 10px; }
-.chat-empty code { padding: 2px 6px; border-radius: 5px; background: var(--color-quiet); color: var(--color-screen-bright); font: 12px var(--font-mono); }
+.chat-log { flex: 0 1 auto; min-height: 0; overflow: auto; padding: 8px 14px; }
+.chat-connect code { padding: 2px 6px; border-radius: 5px; background: var(--color-quiet); color: var(--color-screen-bright); font: 12px var(--font-mono); }
 .link { padding: 0; border: 0; background: none; color: var(--color-screen-bright); text-decoration: underline; text-underline-offset: 3px; }
 .chat-message { margin: 0 0 12px; font-size: 13px; line-height: 1.5; }
 .chat-message.user p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -580,8 +579,8 @@ svg { flex: none; }
 @media (hover: none) { .chat-drop { opacity: 1; } }
 .chat-error { display: block; margin-top: 4px; color: var(--color-screen-error); font-size: 12px; }
 .chat-form { display: flex; flex: none; align-items: flex-end; gap: 8px; padding: 8px 14px 0; }
-.chat-form textarea { flex: 1; min-height: 40px; max-height: 40vh; padding: 9px 12px; resize: none; line-height: 1.4; field-sizing: content; }
-.chat-send { display: grid; flex: none; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 9px; background: var(--color-button); color: var(--color-button-ink); }
+.chat-form textarea { flex: 1; min-height: 34px; max-height: 30vh; padding: 7px 12px; resize: none; line-height: 1.4; field-sizing: content; }
+.chat-send { display: grid; flex: none; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 9px; background: var(--color-button); color: var(--color-button-ink); }
 .chat-send svg { width: 17px; height: 17px; }
 /* the agent asked, under the message: a click lists the others the bridge found */
 .chat-agent { display: flex; align-self: flex-start; align-items: center; gap: 2px; max-width: calc(100% - 20px); height: 24px; margin: 4px 0 0 10px; padding: 0 6px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-muted); font-size: 11.5px; }
@@ -589,8 +588,11 @@ svg { flex: none; }
 .chat-agent svg { flex: none; width: 13px; height: 13px; color: var(--color-screen-muted); }
 .chat-agent:hover, .chat-agent:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 #agents-menu { position-area: top span-right; }
-/* the bridge, over the message: its address and key until it connects, then the agent on it */
-.chat-connect { flex: none; padding: 8px 14px 0; }
+/* until it connects, the line itself, pressed opening the bridge's address and key over it */
+.chat-line { flex: none; height: 34px; margin: 8px 14px 0; padding: 0 12px; border: 1px dashed var(--color-screen-rule); border-radius: 8px; background: none; color: var(--color-screen-muted); font: 13px var(--font-body); text-align: left; }
+.chat-line:hover, .chat-line:focus-visible, .chat-line[aria-expanded="true"] { border-color: var(--color-screen-muted); color: var(--color-screen-bright); }
+.chat-connect { flex: none; overflow: auto; padding: 8px 14px 0; }
+.chat-connect > .field-note:first-child { margin: 0 0 8px; overflow: visible; white-space: normal; line-height: 1.45; }
 .chat-connect .field { margin-bottom: 6px; }
 .chat-connect .field-note { margin: 2px 0 4px; }
 
@@ -613,7 +615,6 @@ svg { flex: none; }
 .layer:not(.hot) .layer-look:not(:hover, :focus-visible, [aria-expanded="true"]) { opacity: 0; }
 .layer-lock { top: 1px; right: calc(var(--axis, 48px) + 2px); color: var(--color-screen-accent) !important; }
 /* its name written anew (its menu's Rename), where its head starts */
-.layer-field { top: 1px; left: 0; height: 16px; padding-left: 2px; background: var(--color-screen); }
 /* the title a new track would have, under the last: a placeholder, as an empty field's, only as the room under the
    lanes is pointed at (view.js paintRoom, data-room) */
 .layer-new { position: absolute; left: 0; display: flex; align-items: center; color: var(--color-screen-soft); font: 11px/16px var(--font-mono); cursor: pointer; pointer-events: auto; visibility: hidden; }
@@ -703,20 +704,14 @@ svg { flex: none; }
 .dropdown { position: fixed; inset: auto; width: max-content; max-width: min(360px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); margin: 0; padding: 8px 10px 10px; overflow: auto; border: 0; border-radius: 12px; background: var(--color-menu); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
 .dropdown .option-group + .option-group { margin-top: 14px; }
 .dropdown .option-label { color: var(--color-screen-ink); font-weight: 500; }
-/* The export: the checks, rule by rule, and the file; the settings, laid out as it is */
-.export { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: 0 14px 14px; container-type: inline-size; }
-.export > .panel-group:first-child, .export > .form:first-child > .panel-group:first-child { margin-top: 4px; }
+/* The export, a dropdown over its button at the bar's right end: the file, then the edit list, folded */
+.menu.export { width: 360px; max-width: calc(100vw - 16px); padding: 0 14px 4px; container-type: inline-size; }
 .panel-group { display: flex; flex: none; align-items: baseline; gap: 8px; margin: 16px 0 8px; overflow: hidden; color: var(--color-screen-ink); font-size: 12px; font-weight: 500; white-space: nowrap; }
 /* what it is for, in a few words after it; its name a span of its own where the page writes it (the settings') */
 .panel-group span { min-width: 0; overflow: hidden; color: var(--color-screen-muted); font-weight: 400; text-overflow: ellipsis; }
 .panel-group .panel-name { flex: none; color: inherit; font-weight: inherit; }
 .export .choices button { min-height: 26px; padding: 0 9px; font-size: 11.5px; }
-.export .check-table { margin-top: 12px; }
-/* a long limit wraps in a narrow panel */
-.export .check-table .limit { white-space: normal; }
-.export .check-note { margin: 10px 2px 0; }
-/* The export's forms, one after another, a rule between, each folded or open: the file (open), the edit list, the
-   check (open while a spec is chosen). A field each: its name in a column of its own, its control, what it means. The
+/* The export's forms, one after another, a rule between, each folded or open: the file (open), the edit list. A field each: its name in a column of its own, its control, what it means. The
    settings' sections alike, a group of options each field */
 .export .form { padding-bottom: 6px; }
 .export .form + .form { border-top: 1px solid var(--color-screen-rule); }
@@ -836,20 +831,16 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
   .app .panes[data-side="none"] > .view-slab, .app .panes > .view-slab { grid-column: 1 / -1; }
   .app .panel-edge { display: none; }
 }
-/* A phone held upright: the slab split, the picture over the panel, half of it each, the bar between them; over the
-   picture its own head alone, the tabs' names in reach. The panels' buttons along the slab's foot, under the thumb, each
-   staying where it is as its panel opens and closes, so a press again on the one open closes it */
+/* A phone held upright: the slab split, the picture over the code, half of it each, the bar between them; </> at the
+   tabs' right end, a finger's size */
 @media (max-width: 760px) and (min-height: 521px) and (orientation: portrait) {
-  html:not(.embed) .app .panes { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto; }
-  html:not(.embed) .app .panes[data-side="open"] { grid-template-rows: auto minmax(0, 1fr) auto minmax(0, 1fr) auto; }
-  html:not(.embed) .app .panes > .view-head { grid-area: 1 / 1; }
-  html:not(.embed) .app .panes > .view-slab { grid-area: 2 / 1; }
-  html:not(.embed) .app .panes > .status { grid-area: 3 / 1; grid-template-columns: minmax(0, 1fr) auto; }
+  html:not(.embed) .app .panes { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) auto; }
+  html:not(.embed) .app .panes[data-side="open"] { grid-template-rows: auto minmax(0, 1fr) auto minmax(0, 1fr); }
+  html:not(.embed) .app .panes > .view-slab { grid-area: 2 / 1 / 3 / -1; }
+  html:not(.embed) .app .panes > .status { grid-area: 3 / 1 / 4 / -1; grid-template-columns: minmax(0, 1fr) auto; }
   html:not(.embed) .app :is(.status-main, .status-end) { padding-right: 0; }
-  html:not(.embed) .app .panes > .side-slab { position: relative; z-index: auto; grid-area: 4 / 1; inset: auto; height: auto; border-top: 1px solid var(--color-screen-rule); border-radius: 0; background: var(--color-side); box-shadow: none; }
-  html:not(.embed) .app .panes > .side-head { grid-area: -2 / 1; min-height: 0; padding: 0 6px env(safe-area-inset-bottom); border-top: 1px solid var(--color-screen-rule); }
-  html:not(.embed) .app .side-head .tabs.icons { flex: 1; justify-content: space-around; }
-  html:not(.embed) .app .side-head .tabs.icons button { width: 48px; min-height: 44px; }
+  html:not(.embed) .app .side-head .tabs.icons button { width: 44px; min-height: 44px; }
+  html:not(.embed) .app .panes > .side-slab { position: relative; z-index: auto; grid-area: 4 / 1 / 5 / -1; inset: auto; width: auto; height: auto; padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--color-screen-rule); border-radius: 0 0 var(--radius-slab) var(--radius-slab); background: var(--color-side); box-shadow: none; }
 }
 /* On a touchscreen there is nothing to drop: the empty track and Record say it
 /* A narrow bar: what the sound holds goes, then the digits are smaller, then the levels, the rate and the length, each
@@ -862,7 +853,7 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
 @container bar (max-width: 870px) { .clock { --time-size: 28px; } .deck-slot { translate: 0 calc(40px * .3 - 28px * .3); } .status { padding-left: 4px; } }
 @container bar (max-width: 400px) { .clock { --time-size: 22px; padding: 0; } .deck-slot { translate: 0 calc(40px * .3 - 22px * .3); } }
 @container bar (max-width: 720px) { .readout { display: none; } }
-@container bar (max-width: 670px) { .facts { display: none; } }
+@container bar (max-width: 670px) { .facts, .checked { display: none; } }
 @container bar (max-width: 515px) { .length { display: none; } }
 @container bar (max-width: 570px) { .before { display: none; } }
 @container bar (max-width: 380px) { .status .loop { display: none; } }

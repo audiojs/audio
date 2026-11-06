@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import audio from '../../audio.js'
-import { TOP, page, origin, sine, wavBytes, code, readout, tipOf, open, settled, frames, poll, still, choice, selected, tab, menu, noCues, write, TRACK, ROOM, HEAD, tall, tracksAt, gutter, axis, grab, drag, lengthIs, pixels, chime, contextRow, trackMenuOf, muteTrack, mutedTracks, renameTrack, ghostAt, onRow } from './page.js'
+import { TOP, page, origin, sine, wavBytes, code, readout, tipOf, open, settled, frames, poll, still, choice, selected, tab, menu, noCues, write, TRACK, ROOM, HEAD, tall, tracksAt, gutter, axis, grab, drag, lengthIs, pixels, chime, contextRow, trackMenuOf, muteTrack, mutedTracks, ghostAt, onRow } from './page.js'
 
 // A file dropped under the lanes, in the room: a track of its own, named for it, from where it was let go
 test('editor: a file dropped under the lanes goes into a new track of its own there', async () => {
@@ -585,23 +585,20 @@ test('editor: a track\'s lane shows a waveform, a spectrogram or notes, as its l
   // a lane's centre line through the quiet before the first strike, a waveform's: none on a spectrogram or under notes
   const line = y => pixels(`let n = 0; for (let x = 2; x < arg.x1; x++) for (let y = arg.y - 4; y <= arg.y + 4; y++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 360) n++ } return n`, { x1: Math.round(x(.4) - box.x), y: Math.round(y - box.y) })
   const kinds = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds)
-  const menuOf = () => trackMenuOf(1)
-  const choose = async label => { await menuOf(); await contextRow(label).click() }
+  // how it shows, from its look in its layer (its head's right)
+  const choose = async label => { await page.locator('.layer').nth(1).locator('.layer-look').click(); await choice('Shows', label).click(); await page.keyboard.press('Escape') }
   const wave = await line(middle)
   assert.ok(wave > 20, `b's centre line: ${wave}`)
   await choose('Spectrogram')
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds?.b === 'spec')
   await poll(() => line(middle), n => assert.ok(n < wave / 10, 'a spectrogram in b\'s lane'))
   assert.ok(await line(a.y + a.h / 2) > 10, 'a waveform in a\'s strip')
-  // kept: reloaded, b's lane a spectrogram again, its menu saying so
+  // kept: reloaded, b's lane a spectrogram again, its look saying so
   await page.reload()
   await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
   await settled()
   assert.ok(await line(middle) < wave / 10, 'b\'s spectrogram kept')
-  await menuOf()
-  assert.equal(await page.locator('.menubar-menu').last().locator('.menu-row[aria-checked="true"] .menu-label').textContent(), 'Spectrogram')
-  await page.keyboard.press('Escape')
-  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'b: Spectrogram', exact: true }).waitFor({ state: 'attached' })
   // Notes, from b's look in its layer: b's notes, one taking the pointer where its blob is, on the chime's first note
   await page.getByRole('button', { name: 'b: Spectrogram', exact: true }).click()
   await choice('Shows', 'Notes').click()
@@ -616,17 +613,18 @@ test('editor: a track\'s lane shows a waveform, a spectrogram or notes, as its l
   assert.deepEqual(await kinds(), {})
 })
 
-// A track's view goes with its name: named anew, it keeps it; taken away, it goes, so one made again under the name shows
-// the picture's. A silent track's notes are none: its lane a voice's keys, nothing taking the pointer, nothing failing
-test('editor: a track\'s view goes with its name; a silent track shows no notes', async () => {
+// A track's view goes with it: taken away, it goes, so one made again under the name shows the picture's. A silent
+// track's notes are none: its lane a voice's keys, nothing taking the pointer, nothing failing
+test('editor: a track\'s view goes with it; a silent track shows no notes', async () => {
   await open()
   await noCues()
   await write(`let a = audio('chime.wav')\n\nlet b = audio.from(t => 0, { duration: 8 })`)
   await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
   const { box, x } = await axis(8), top = (await tracksAt())[1].y
   const kinds = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds)
-  await trackMenuOf(1)
-  await contextRow('Notes').click()
+  await page.locator('.layer').nth(1).locator('.layer-look').click()
+  await choice('Shows', 'Notes').click()
+  await page.keyboard.press('Escape')
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds?.b === 'notes')
   // a while for the engine to find notes, were there any (eng.notes): nothing says it found none
   await page.waitForTimeout(1000)
@@ -634,24 +632,19 @@ test('editor: a track\'s view goes with its name; a silent track shows no notes'
     await page.mouse.move(x(2), y)
     assert.notEqual(await page.locator('.plot').evaluate(el => el.style.cursor), 'ns-resize', `no note at ${y - top}px`)
   }
-  // named anew from its menu
-  await renameTrack(1, 'bed')
-  await page.waitForFunction(() => /\nlet bed = audio\.from/.test(scriptText()))
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds?.bed === 'notes')
-  assert.deepEqual(await kinds(), { bed: 'notes' })
+  assert.deepEqual(await kinds(), { b: 'notes' })
   await trackMenuOf(1)
   await contextRow('Delete the track').click()
-  await page.waitForFunction(() => !/let bed\b/.test(scriptText()))
-  await page.waitForFunction(() => !JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds?.bed)
+  await page.waitForFunction(() => !/let b\b/.test(scriptText()))
+  await page.waitForFunction(() => !JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds?.b)
   assert.deepEqual(await kinds(), {})
 })
 
-// The tracks' layers, each over its band, its lane and its foot under it, the picture as wide as without them. Rename
-// in its menu, a field at its foot's left, Enter names the track, as a script names a sound. Each
+// The tracks' layers, each over its band, its lane and its foot under it, the picture as wide as without them. Each
 // lane as tall as its foot's grip was dragged (with Alt, every one), none grown for being edited; a locked one's taken
 // by no press, the edited one locked giving way to the next. More tracks than the picture holds scroll up and down
 // through it, their layers with them, as a DAW's, the room under them always in reach
-test('editor: the layers over each band name and lock the tracks; a foot dragged, its height, with Alt every one\'s; more tracks than fit scroll', async () => {
+test('editor: the layers over each band lock the tracks; a foot dragged, its height, with Alt every one\'s; more tracks than fit scroll', async () => {
   await open({ edits: true })
   await noCues()
   const wide = (await page.locator('.plot').boundingBox()).width
@@ -662,8 +655,6 @@ test('editor: the layers over each band name and lock the tracks; a foot dragged
   // over its band: its head, its lane under it
   const [a0] = await tracksAt(), band0 = await page.locator('.layer').first().boundingBox()
   assert.ok(Math.abs(band0.y + HEAD - a0.y) <= 1 && Math.abs(band0.height - a0.h - HEAD) <= 1, `over its band: ${band0.y}, ${band0.height}, ${a0.y}`)
-  await renameTrack(1, 'Lead vocal')
-  await page.waitForFunction(() => scriptText() === "let a = audio('chime.wav')\n\nlet leadVocal = audio('rhodes.wav')")
   // each TRACK px, the edited one too; a's foot dragged 60 px down, a 60 px taller, kept with the tab; double-clicked,
   // as it was made
   const card = () => page.evaluate(() => document.querySelector('.steps-list .step-name')?.textContent)
@@ -689,7 +680,7 @@ test('editor: the layers over each band name and lock the tracks; a foot dragged
   await page.keyboard.up('Alt')
   await page.waitForFunction(() => [...document.querySelectorAll('.layer')].every(e => e.dataset.lane.split(' ')[1] === '200'))
   assert.deepEqual(await tall(), [TRACK + 40, TRACK + 40], 'every band')
-  assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].heights, { a: TRACK + 40, leadVocal: TRACK + 40 })
+  assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].heights, { a: TRACK + 40, b: TRACK + 40 })
   // Alt let go on the way: the others as they were where it was pressed, the one dragged alone
   await page.mouse.move(box.x + 300, foot + 40)
   await page.mouse.down()
@@ -703,18 +694,18 @@ test('editor: the layers over each band name and lock the tracks; a foot dragged
   await page.mouse.dblclick(box.x + 300, foot + 50)
   await page.keyboard.up('Alt')
   await page.waitForFunction(() => [...document.querySelectorAll('.layer')].every(e => e.dataset.lane.split(' ')[1] === '160'))
-  // a locked while edited: leadVocal edited; a press in a's lane takes it no more
+  // a locked while edited: b edited; a press in a's lane takes it no more
   await trackMenuOf(0)
   await contextRow('Lock').click()
-  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent.startsWith('leadVocal '))
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent.startsWith('b '))
   await page.mouse.click(box.x + 300, (await tracksAt())[0].y + 20)
   await settled()
-  assert.match(await card(), /^leadVocal /, 'a locked, a press in its lane edits nothing there')
+  assert.match(await card(), /^b /, 'a locked, a press in its lane edits nothing there')
   assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].locked, ['a'])
   // a range dragged on the time row, through every track, deleted: a, locked, untouched
   await drag([box.x + 300, onRow(box)], [100, 0])
   await page.keyboard.press('Backspace')
-  await page.waitForFunction(() => /let leadVocal = audio\('rhodes\.wav'\)\n  \.remove\(/.test(scriptText()))
+  await page.waitForFunction(() => /let b = audio\('rhodes\.wav'\)\n  \.remove\(/.test(scriptText()))
   assert.match(await code(), /^let a = audio\('chime\.wav'\)\n\n/, 'a as it was')
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => !scriptText().includes('remove('))
@@ -768,9 +759,9 @@ test('editor: with tracks, the track\'s card deletes it', async () => {
 })
 
 // A sound alone is a track as any (view.js banded): one layer over its band, its lanes TRACK px all told under its
-// head line, the room for a new track under its foot; no volume or lock, one track being all there is. Its menu (under
-// Track in its lanes' right-click): named anew (the tab), shown as a waveform, a spectrogram or its notes
-test('editor: a sound alone is a track as any: one layer, its menu naming the tab', async () => {
+// head line, the room for a new track under its foot; no volume or lock, one track being all there is, and so no Track
+// section in its lanes' right-click
+test('editor: a sound alone is a track as any: one layer, no track menu', async () => {
   await open()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
@@ -780,13 +771,9 @@ test('editor: a sound alone is a track as any: one layer, its menu naming the ta
   assert.deepEqual([lane.y - plot.y, lane.h], [HEAD, TRACK], 'under its head line, TRACK px')
   assert.equal(await layer.locator('.layer-lock').count(), 0, 'no lock')
   assert.ok(await layer.evaluate(e => e.classList.contains('on')), 'the one edited')
-  await trackMenuOf(0)
-  for (const name of ['Rename…', 'Waveform', 'Spectrogram', 'Notes']) await contextRow(name).waitFor()
-  await page.keyboard.press('Escape')
-  await page.keyboard.press('Escape')
-  await renameTrack(0, 'Bell')
-  await page.locator('.file [role="tab"]', { hasText: /^Bell$/ }).waitFor()
-  assert.equal(await code(), `audio('chime.wav')`, 'the script as it was')
+  await page.mouse.click(plot.x + 300, lane.y + lane.h / 2, { button: 'right' })
+  await contextRow('Add a marker').waitFor()
+  assert.equal(await page.locator('.menubar-menu .menu-group', { hasText: /^Track$/ }).count(), 0, 'no Track section')
 })
 
 // A new tab is one empty track as any sound's, no words over it, its lane TRACK px
@@ -800,15 +787,17 @@ test('editor: a new tab is one empty track, nothing written over it', async () =
   assert.equal(await page.locator('.view').evaluate(v => v.innerText.includes('Drop audio')), false, 'no placeholder')
 })
 
-// With tracks, a right-click in a lane: the track's own menu under Track, as its layer's
-test('editor: right-clicked in a track\'s lane, its own menu under Track', async () => {
+// With tracks, a right-click in a lane: the track's own acts in a section under Track, no submenu to open, and none of
+// how it shows (its look's) nor a name (the code's)
+test('editor: right-clicked in a track\'s lane, its own acts under Track', async () => {
   await open()
   await write(`let a = audio('chime.wav')\nlet b = audio('rhodes.wav')`)
   const [, second] = await poll(tracksAt, l => assert.equal(l.length, 2), 15000)
   const { x } = await axis(9)
   await page.mouse.click(x(2), second.y + second.h / 2, { button: 'right' })
-  await contextRow('Track').hover()
-  for (const name of ['Rename…', 'Solo', 'Lock']) await contextRow(name).waitFor()
+  const rows = await page.locator('.menubar-menu').last().evaluate(m => [...m.querySelectorAll('.menu-group, .menu-row .menu-label')].map(e => e.textContent))
+  assert.deepEqual(rows.slice(rows.indexOf('Track')), ['Track', 'Mute', 'Solo', 'Lock', 'Delete the track'])
+  assert.equal(await page.locator('.menubar-menu .menu-row.has-sub').count(), 0, 'no submenu')
 })
 
 // Over any track's lane, the edited one's or another's, where a press would put the caret shows first, its ghost, grey:

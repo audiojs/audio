@@ -1,6 +1,6 @@
 import { NOTES, noteOf } from '../view.js'
 import { levels, spectra, ballistics } from '../meters.js'
-import { root, cueTimes, layouts, SHOWN } from './config.js'
+import { root, cueTimes, layouts, specs, SHOWN } from './config.js'
 import { state, eng, v, ed, pl, output, shown, carded, notesFor, assign } from './context.js'
 import { cuesOf } from './edits.js'
 import { dbfs, stamp, hertz, chordName } from './format.js'
@@ -146,6 +146,11 @@ export function pickReading(event) {
   root.querySelector('#levels')?.hidePopover?.()
   const pick = name => () => { state.reads = name; store(); describe() }
   bar.at([['peak', 'Peak'], ['rms', 'RMS'], ['loudness', 'Loudness']].map(([name, label]) => ({ label, hint: readings[name] ?? '', checked: state.reads === name, run: pick(name) })), 0, 0, event.currentTarget)
+}
+// The spec the output is checked against (the check in the bar pressed), or none, kept
+export function pickSpec(event) {
+  root.querySelector('#checks')?.hidePopover?.()
+  bar.at(specs.map(sp => ({ label: sp.label, checked: state.spec === sp.key, run: () => state.setSpec(sp.key) })), 0, 0, event.currentTarget)
 }
 // What is heard reads (it pressed): the note or the chords, the key, or the tempo, kept
 export function pickHeard(event) {

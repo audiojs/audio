@@ -458,8 +458,6 @@ test('editor: Alt and a drag on the spectrogram adds another box; Delete takes e
   await page.keyboard.press('Escape')
   // a method from the context menu, for each box's time: the clicks in each taken out
   await page.mouse.click(x(1.5), box.y + TOP + (lane - TOP) * .25, { button: 'right' })
-  await menuRow('Process').click()
-  await menuRow('Repair').click()
   await menuRow('Remove the clicks in each').click()
   await page.waitForFunction(() => (scriptText().match(/\.declick\(\{ at: [\d.]+, d: [\d.]+ \}\)/g) || []).length === 2)
   const clicks = [...(await code()).matchAll(/\.declick\(\{ at: ([\d.]+), d: ([\d.]+) \}\)/g)].map(m => +m[1]).sort((p, q) => p - q)
