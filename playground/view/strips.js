@@ -1,11 +1,11 @@
 import clock from '../time.js'
 import { markLane, marksOf, ownMarks, snappedTo, placed } from './data.js'
-import { ghost, CHUNK, pointedBand, plot, spare, lanes, floor, inRoom, inLanes, roomLane, banded, roof, rowEdge } from './geometry.js'
+import { ghost, CHUNK, pointedBand, plot, spare, lanes, floor, inRoom, inLanes, roomLane, banded, rowEdge } from './geometry.js'
 import { fine, nearCue } from './gestures.js'
-import { EDGE, ONTO, FOOT, KINDS, timeRow, mac, root, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, selection, band, cursor, playhead, cues, cueKinds, bounds, snapping, clips, aview, levelUnits, data, tracks, focus, across, sections, windows, lift, chosen, held, assign } from './model.js'
+import { EDGE, ONTO, HEAD, KINDS, mac, root, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, selection, band, cursor, playhead, cues, cueKinds, bounds, snapping, clips, aview, levelUnits, data, tracks, focus, across, sections, windows, lift, chosen, held, assign } from './model.js'
 import { clipMarks } from './notes.js'
 import { say, crossAt, washFrom, WASHED, lanesEnd, seenTo } from './overlay.js'
-import { drag, hot, caretGhost } from './pointer.js'
+import { drag, hot, caretGhost, lined } from './pointer.js'
 import { W, moved, invalidate, wash } from './render.js'
 import { THIN, THICK } from './ruler.js'
 import { ranges, carets } from './select.js'
@@ -14,12 +14,11 @@ import { x, X, time, snap, digits, seen, inside, fy, ay, sampled, decibel } from
 // The strips under the lanes and across them: the measure, the fades at the view's edges, each band's look, the room
 // under the tracks, the selection behind the sound, the cues, the markers and the names
 
-// in the measuring red, where the pointer is, dashed out to the axes as Figma's guides: up to the time row over the
-// bands (or down to it at the picture's foot), where its length is (paintRuler), and across to the level or frequency
-// axis, where its value is
+// in the measuring red, where the pointer is, dashed out to the axes as Figma's guides: down to the time row at the
+// picture's foot, where its length is (paintRuler), and across to the level or frequency axis, where its value is
 const DASHED = [4, 3]
 export function paintMeasure({ t }, py, rects) {
-  const px = X(t), { w } = plot(), y = Math.round(py), [y0, y1] = timeRow === 'top' ? [roof(), y] : [y, plot().h]
+  const px = X(t), { w } = plot(), y = Math.round(py), [y0, y1] = [y, plot().h]
   if (px < 0 || px > w) return
   c.fillStyle = gauge()
   for (let k = y0; k < y1; k += DASHED[0] + DASHED[1]) c.fillRect(px, k, 1, Math.min(DASHED[0], y1 - k))
@@ -47,11 +46,11 @@ export function waveAt(rect, t, py) {
 // would apply each frame they roll
 const FADE = 24
 export function placeFades(L) {
-  const end = lanesEnd(L), top = `${roof()}px`, h = `${Math.round(floor(L) - roof())}px`, on = [start > 1e-9, duration && seenTo() < duration - 1e-9]
+  const end = lanesEnd(L), h = `${Math.round(floor(L))}px`, on = [start > 1e-9, duration && seenTo() < duration - 1e-9]
   fades.forEach((el, k) => {
     if (el.hidden !== !on[k]) el.hidden = !on[k]
     const left = `${Math.round(k ? end - FADE : 0)}px`
-    if (on[k] && (el.style.left !== left || el.style.height !== h || el.style.top !== top)) Object.assign(el.style, { left, top, height: h })
+    if (on[k] && (el.style.left !== left || el.style.height !== h)) Object.assign(el.style, { left, height: h })
   })
 }
 // the box the ground the lanes lie on is painted on (the slab, or a page's): the first around the picture with a
@@ -65,7 +64,7 @@ export function ground(r) {
   root.style.setProperty('--ground-h', `${Math.round(g.height)}px`)
 }
 export function placeLook(L) {
-  const f = floor(L), seen = duration && !banded() && f + FOOT <= plot().h, top = `${Math.round(f + 1)}px`, left = `${Math.round(plot().w + 1)}px`, kind = L.all[0]?.kind
+  const f = (L.all[0]?.[1] ?? 0) - HEAD, seen = duration && !banded() && f >= 0, top = `${Math.round(f + 1)}px`, left = `${Math.round(plot().w + 1)}px`, kind = L.all[0]?.kind
   if (lookButton.hidden !== !seen) lookButton.hidden = !seen
   if (!seen) return
   if (lookButton.style.top !== top || lookButton.style.left !== left) Object.assign(lookButton.style, { top, left })
@@ -93,10 +92,9 @@ export function paintRoom(L, at) {
 // More bands than the picture holds: a scrollbar down its right edge, its thumb where those in sight are among them
 // all, dragged as any is (liftAt), drawn as the time's (paintBar): a round thumb on no track, there while the pointer
 // is over the picture, THICK and brighter under it
-// (under the time row, as the bands it scrolls are)
 const LIFT = 6
-export const thumb = () => { const r = roof(), h = plot().h - r, th = Math.max(24, h * h / (h + spare)); return { y: r + lift / spare * (h - th), h: th, room: h - th } }
-export const liftAt = (px, py) => spare > 0 && px >= W - LIFT && py >= roof() && py <= plot().h
+export const thumb = () => { const { h } = plot(), th = Math.max(24, h * h / (h + spare)); return { y: lift / spare * (h - th), h: th, room: h - th } }
+export const liftAt = (px, py) => spare > 0 && px >= W - LIFT && py <= plot().h
 export function paintLift(at) {
   if (!spare || !hovered && !drag?.lifting) return
   const t = thumb(), on = drag?.lifting || at && liftAt(...at), tw = on ? THICK : THIN
@@ -124,7 +122,7 @@ export function tag(text, px, py, align, fill = color('--color-screen-bright'), 
   c.textAlign = align
   c.fillText(text, px, py)
 }
-export const accent = () => color('--color-screen-accent'), gauge = () => color('--color-screen-error'), hinted = () => color('--color-screen-soft')
+export const accent = () => color('--color-screen-accent'), gauge = () => color('--color-screen-error')
 // the picture's words, its numbers and tags: the skin's label size, in its mono font
 export const size = () => parseFloat(color('--font-size-label')) || 10, label = () => `${size()}px ${color('--font-mono')}`
 export function paintSelection(L, sel) {
@@ -169,8 +167,7 @@ export const stamp = (t, d = digits()) => clock(t, units, { digits: d, rate })
 // of them, faint, the one under the pointer a press would take brighter; the one dragged, bright where it will land;
 // those an end measured to sits on (`lit`), lit. No words by them: where the sound is, a soft wash says (washFrom).
 // The primary ones, where sounds and ranges start and end, the markers' and the takes', plainer than the secondary,
-// the hits within. Grey, half as strong as the caret's ghost: what the caret may become, never a thing of its own
-// calling for the eye (the accent is a thing's that does: a file's place held over the picture)
+// the hits within. In the accent: there for now alone, what the caret or an end may become
 const on = (lit, px) => lit.some(t => Math.abs(x(t) - px) < .5)
 // The time a drag moves, as the caret or a range's end: the caret held, an edge, a range dragged out (Shift held before
 // the press or after it), a marker's serif moved (a range's end, the one held), else null
@@ -187,14 +184,14 @@ export function paintCues(rects, lit, all = false) {
     const at = t == null ? null : moved(t), px = at == null ? null : X(at)
     if (px != null && px >= 0 && px <= plot().w && !(drag && on(lit, px)) && !(lines.get(px)?.a >= a)) lines.set(px, { t, a })
   }
-  const faint = t => cueKinds[cues?.indexOf(t) ?? -1] === 'hit' ? .3 : .5
+  const faint = t => cueKinds[cues?.indexOf(t) ?? -1] === 'hit' ? .25 : .4
   if (all) for (const t of pool) put(t, faint(t))
   if (t0 != null && snapping) { const p = X(t0), was = pool.findLast(t => X(t) < p - .5), next = pool.find(t => X(t) > p + .5); put(was, faint(was)); put(next, faint(next)) }
   const near = !drag && hovered ? nearCue(...hovered, held) : -1
   if (near >= 0) put(cues[near], .7)
   for (const t of drag ? [] : lit) put(times.find(c => Math.abs(X(c) - X(t)) < .5), 1)
   if (drag?.cue != null) lines.set(X(drag.to), { t: drag.to, a: 1 })
-  c.fillStyle = hinted()
+  c.fillStyle = accent()
   for (const [px, { a }] of lines) {
     c.globalAlpha = a
     for (const [, ly, , lh] of rects) c.fillRect(px, ly, 1, lh)
@@ -219,7 +216,7 @@ export function caretTo(px, i = tracks ? focus : null, keys = held) {
 export const ghostOf = () => !drag && hovered && caretGhost ? { t: caretTo(hovered[0], caretGhost.i), i: caretGhost.i } : null
 // Ghosts of lines, faint, as the caret's would be: where a press over a band would put the caret (caretGhost), any
 // band's, in the caret's own colour, see-through, gone onto what it is by, the side of the sound there washed softly; a
-// marker's end or a moment pointed at in its foot, every other moment of its name with it; a marker dragged. And the
+// marker's end or a moment pointed at in its head, every other moment of its name with it; a marker dragged. And the
 // edited band's markers' lines, grey, always there to go by: a moment's, a range's ends
 export function paintMarkers(L, lit, pointedAt, hints = []) {
   const all = L.all, lanesOf = m => markLane(m) == null ? all : [all[markLane(m)]].filter(Boolean), ghosts = new Map(), marks = stripped(L).filter(m => m.kind === 'mark')
@@ -239,31 +236,34 @@ export function paintMarkers(L, lit, pointedAt, hints = []) {
   // the caret to be, a ghost of it
   if (g && !on(lit, X(g.t))) for (const [, y, , lh] of bandOf(g.i)) c.fillRect(X(g.t), y, 1, lh)
   c.globalAlpha = 1
-  if (!g || on(lit, X(g.t)) || Math.abs(X(g.t) - X(time(hovered[0]))) < .5) return
-  const { side } = snappedTo(g.t, g.i), end = tracks ? tracks[g.i]?.end ?? duration : duration
-  washFrom(X(g.t), side ?? (g.t <= 1e-9 ? 1 : Math.abs(g.t - end) < 1e-9 ? -1 : 0), bandOf(g.i), WASHED / 2)
+  // the side of the sound the ghost went onto, or the line a press takes is on (an edge's, the caret's): pointed at
+  // anywhere on it, the wash stays
+  const to = g ?? (!drag && hovered && lined)
+  if (!to) return
+  const { side } = snappedTo(to.t, to.i), end = tracks ? tracks[to.i]?.end ?? duration : duration
+  washFrom(X(to.t), side ?? (to.t <= 1e-9 ? 1 : Math.abs(to.t - end) < 1e-9 ? -1 : 0), bandOf(to.i), WASHED / 2)
 }
 // two markers one: the same track's, of the same kind at the same time, to half a millisecond (an output's, from the
 // time written)
 export const same = (m, n) => m.track === n.track && !m.duration === !n.duration && Math.abs(m.time - n.time) < 5e-4
-// ── The strips, each band's foot under its lanes (embedded too). In it its markers by their names alone, as a
-// transcript letters its sounds under them: a range's under its stretch from its start, cut short where it has no room,
+// ── The strips, each band's head over its lanes (embedded too). In it its markers by their names alone, as a
+// document's headings over what they name: a range's over its stretch from its start, cut short where it has no room,
 // a moment's from its time; one with no name its number among the band's, as they were made, faint. A name pointed at
 // lights the stretch it names over the sound, every other of its name in the band with it, as a press there selects
 // them all, as a text's occurrences are: pressed, the ranges selected, the one pressed heard while held; a moment's
 // name pressed, the carets there, dragged, it moves; a range's ends, REACH px either side, drag (one let go on the
 // other, a moment; a moment's held Alt, pulled apart into a range, as Photoshop's split slider's), snapping as an edge
-// does; double-clicked, named anew. Under each caret and range while the band is pointed at, faint, the number its
-// marker would have (placeholders): clicked, a name written there, the markers put with it under each, alike, nothing
-// written putting them with their numbers (ask). Anywhere else in the foot a press is the lanes': the caret, a range.
+// does; double-clicked, named anew. Over each caret and range while the band is pointed at, faint, the number its
+// marker would have (placeholders): clicked, a name written there, the markers put with it at each, alike, nothing
+// written putting them with their numbers (ask). Anywhere else in the head a press is the lanes': the caret, a range.
 // What forks the sound stands there too, at the end of what it forks, inside it: the takes' numbers (placeTakes), a
 // range's or the selection's fork (placeFork)
 export const REACH = 4, NAMES = 6, NAMEH = 14
 // where a name starts: at its marker's start, `x0`, its first letter's edge the caret's line there; held in sight
 const nameLeft = x0 => Math.max(x0, 0)
-// Each band's foot: { y, h, edge, i }, its top and height, the lanes' edge it lies along, its track's index (null: a
+// Each band's head: { y, h, edge, i }, its top and height, the lanes' edge it lies along, its track's index (null: a
 // sound's)
-export const feet = L => (tracks ? L.all.map(r => ({ edge: r[1] + r[3], i: r.i })) : L.all.length ? [{ edge: floor(L), i: null }] : []).map(r => ({ ...r, y: r.edge, h: FOOT }))
+export const heads = L => (tracks ? L.all.map(r => ({ edge: r[1], i: r.i })) : L.all.length ? [{ edge: L.all[0][1], i: null }] : []).map(r => ({ ...r, y: r.edge - HEAD, h: HEAD }))
 // A marker's number among its band's, as they were made (`n`, the page's: its mark() among its track's), else by time;
 // its name as shown, its own or that number; the number the band's next one has
 const numberOf = m => m.n ?? markers.filter(n => markLane(n) === markLane(m) && (n.time < m.time || n.time === m.time && markers.indexOf(n) < markers.indexOf(m))).length + 1
@@ -272,12 +272,12 @@ export const nextOf = lane => Math.max(0, ...markers.filter(m => markLane(m) ===
 // the markers a press on marker `i`'s name takes, by index: every one of its name in its band; one with none, itself
 export const kin = i => { const m = markers[i]; return m?.label ? markers.flatMap((n, j) => n.label === m.label && markLane(n) === markLane(m) ? [j] : []) : [i] }
 const wide = text => { c.font = label(); return c.measureText(text).width }
-// what the feet hold: [{ kind: 'mark' (a marker's, `i` its index, `text` its name; a moment's x1 its name's end,
+// what the heads hold: [{ kind: 'mark' (a marker's, `i` its index, `text` its name; a moment's x1 its name's end,
 // `moment`; one pulled apart into a range, a range) or 'takes' (`i`, the section's: their numbers at its end, inside
 // it), x0, x1, rects, and its row's y, h, edge }]. A marker a drag of the selection's edge or the caret takes with it
 // (`bound`: one the selection was made from, pointer.js) where they are
 export function stripped(L) {
-  const up = new Map(feet(L).map(s => [s.i, s])), lanesOf = i => i == null ? L.all : [L.all[i]].filter(Boolean), out = []
+  const up = new Map(heads(L).map(s => [s.i, s])), lanesOf = i => i == null ? L.all : [L.all[i]].filter(Boolean), out = []
   for (const [i, m] of markers.entries()) {
     const held = drag?.marker === i, tied = drag?.bound === m && drag.moved, span = tied && m.duration && selection
     const at = held ? drag.to : tied ? span ? selection[0] : cursor : placed(m), end = held ? drag.end : tied ? span ? selection[1] : at : at + (m.duration ?? 0), s = up.get(markLane(m)), text = nameOf(m)
@@ -298,7 +298,7 @@ export function notch(m, px) {
 }
 // what a press in a strip takes: a marker's end, a range or the takes' place under it; or null
 export function stripAt(px, py, L = lanes()) {
-  if (py > plot().h || py < roof()) return null
+  if (py > plot().h) return null
   const row = stripped(L).filter(m => py >= m.y && py < m.y + m.h)
   return row.find(m => notch(m, px) >= 0) ?? row.find(m => px >= m.x0 - REACH && px <= m.x1 + REACH) ?? null
 }
@@ -309,9 +309,9 @@ function nameOn(row, text, lx, room, ink) {
   while (text.length > 1 && c.measureText(text).width > room) text = text.slice(0, -2) + '…'
   const tw = c.measureText(text).width
   c.fillStyle = color('--color-screen')
-  c.fillRect(lx - 2, row.edge, tw + 4, MARKED + 2)
+  c.fillRect(lx - 2, row.edge - MARKED - 2, tw + 4, MARKED + 2)
   c.fillStyle = ink
-  c.fillText(text, lx, row.edge + NAMES)
+  c.fillText(text, lx, row.edge - NAMES)
 }
 const MARKED = 9
 export function paintStrips(L, pointedAt, selected) {
@@ -323,7 +323,7 @@ export function paintStrips(L, pointedAt, selected) {
   c.textAlign = 'left'
   for (const m of stripped(L)) {
     if (m.kind !== 'mark' || m.x1 + REACH < 0 || m.x0 - REACH > w) continue
-    // a name of its own in the marks' colour, a number faint; the accent is the hints' alone
+    // a name of its own in the marks' colour, a number faint
     const mark = markers[m.i], at = near && markLane(mark) === near.i ? X(near.t) : null
     const lit = selected(m) || chosen && same(chosen, mark) || drag?.marker === m.i || group.includes(m.i) || within(m) || at != null && (Math.abs(at - m.x0) < .5 || !m.moment && Math.abs(at - m.x1) < .5)
     const ink = color(lit ? '--color-screen-bright' : !mark.label || !edited(markLane(mark)) ? '--color-screen-muted' : '--color-screen-mark')
@@ -338,13 +338,13 @@ export function paintStrips(L, pointedAt, selected) {
   for (const p of to) nameOn(p.row, p.text, p.x0, Infinity, color(lit ? '--color-screen-bright' : '--color-screen-muted'))
   c.globalAlpha = 1
 }
-// The markers to be, under the edited band's carets and ranges while that band is pointed at, where no name is: each
+// The markers to be, over the edited band's carets and ranges while that band is pointed at, where no name is: each
 // with the number it would have, where its name would start (a range's from its start), [{ row, a, b, x0, x1, text }];
 // none while one is dragged or named, while it plays, in a player's view or with the band not pointed at
 const spans = () => band ? [[cursor, cursor]] : [...ranges(), ...carets().map(t => [t, t])].sort((p, q) => p[0] - q[0])
 export function placeholders(L) {
   if (drag || naming || playhead != null || !banded() || !duration || pointedBand !== (tracks ? focus : 0)) return []
-  const row = feet(L).find(s => s.i === (tracks ? focus : null)), n = nextOf(tracks ? focus : null)
+  const row = heads(L).find(s => s.i === (tracks ? focus : null)), n = nextOf(tracks ? focus : null)
   if (!row) return []
   // (none over a name, a range's under its stretch past its name too, pressed there taking the number)
   const names = stripped(L).filter(m => m.kind === 'mark' && m.y === row.y).map(m => [nameLeft(m.x0), nameLeft(m.x0) + wide(m.text)])
@@ -357,17 +357,17 @@ export function nameAt(L, at = hovered) {
   const all = placeholders(L), [px, py] = at, p = all.find(p => py >= p.row.y && py < p.row.y + p.row.h && px >= p.x0 - REACH && px <= p.x1 + REACH)
   return p ? { ...p, all } : null
 }
-// One clicked: a name written where its number is, put under each (ask)
+// One clicked: a name written where its number is, put at each (ask)
 export const placeMarker = p => ask(p.all.map(q => [q.a, q.b]), p.x0, p.text, true)
 // A first marker's name asked for at `t` (a track just made): put only if named
 export const askName = t => ask([[t, t]], nameLeft(X(t)), 'Name', false)
-// A name asked for in the edited band's foot, its field at `lx`, `hint` faint in it: Enter or a click away puts a
+// A name asked for in the edited band's head, its field at `lx`, `hint` faint in it: Enter or a click away puts a
 // marker at each of `list` ([[a, b], …], a moment where a = b), the name written, alike; nothing written, with none,
 // their numbers showing (`bare`; else none put); Escape, none
 function ask(list, lx, hint, bare) {
-  const row = feet(lanes()).find(s => s.i === (tracks ? focus : null))
+  const row = heads(lanes()).find(s => s.i === (tracks ? focus : null))
   if (!row || naming) return
-  const input = named('', 'Name', lx, row.edge + NAMES, hint)
+  const input = named('', 'Name', lx, row.edge - NAMES, hint)
   naming = { input }
   let done = false
   const end = keep => {
@@ -421,10 +421,10 @@ function named(value, aria, lx, my, hint = '') {
   return input
 }
 export function rename(i) {
-  const m = markers[i], strip = m && feet(lanes()).find(s => s.i === markLane(m))
+  const m = markers[i], strip = m && heads(lanes()).find(s => s.i === markLane(m))
   if (!strip) return
   naming?.input.remove()
-  const input = named(m.label || '', 'Name', nameLeft(X(placed(m) ?? m.time)), strip.edge + NAMES, `${numberOf(m)}`)
+  const input = named(m.label || '', 'Name', nameLeft(X(placed(m) ?? m.time)), strip.edge - NAMES, `${numberOf(m)}`)
   naming = { time: m.time, duration: m.duration, track: m.track, input }
   let done = false
   const end = keep => {

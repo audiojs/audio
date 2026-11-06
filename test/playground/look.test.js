@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, open as openFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, menu, menuRow, write, LANES, FOOT, tall, gutter, tracksAt, lengthIs, gridShown, pixels, show, shown, themed, axis, noCues } from './page.js'
+import { TOP, TRACK, page, origin, tipOf, wholeLevels, open, settled, frames, poll, still, choice, settings, tab, menu, menuRow, write, LANES, NAMED, tall, gutter, tracksAt, lengthIs, gridShown, pixels, show, shown, themed, axis, noCues } from './page.js'
 import { resolver, semantics } from '../../playground/theme.js'
 
 // The axis at the pictures' right is as wide as its labels and the pointer's value read out on it, five characters at
@@ -87,8 +87,8 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   assert.ok(await blank(), 'bare by default: nothing ruled')
   await menu('View', 'Grid')
   // the layers laid again, each only as its drawing changes (view.js, kept.js): the window a pixel narrower and back,
-  // the pointer on the band's foot (its axes drawn, none read out)
-  await page.locator('.plot').hover({ position: { x: 10, y: tall() + FOOT - 6 } })
+  // the pointer on the band's head (its axes drawn, none read out)
+  await page.locator('.plot').hover({ position: { x: 10, y: NAMED } })
   await page.evaluate(() => window.__ticks = [])
   await blank()
   const calls = await page.evaluate(() => window.__ticks), at = {}
@@ -118,7 +118,7 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   // the levels in decibels: a line across from −6 dB's tick
   await page.evaluate(() => window.__ticks = [])
   await settings('Levels in', 'Decibels')
-  await page.locator('.plot').hover({ position: { x: 10, y: tall() + FOOT - 6 } })
+  await page.locator('.plot').hover({ position: { x: 10, y: NAMED } })
   await settled()
   const db = await page.evaluate(() => window.__ticks), r6 = db.find((c, i) => c.w && c.h === 1 && db[i + 1]?.s === '−6')?.y
   assert.ok(Number.isFinite(r6), 'a tick at −6 dB')
@@ -992,10 +992,10 @@ test('editor: the level axis shows only while the band is pointed at; the time r
   await open()
   await settled()
   const box = await page.locator('.plot').boundingBox(), g = await gutter()
-  // light text in the axis' column by the lanes, or along the time row over them, from the overlay and the row as they
-  // show
+  // light text in the axis' column by the lanes, or along the time row at the picture's foot, from the overlay and the
+  // row as they show
   const ink = ([y0, y1], x0) => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = arg.x0; x < w; x++) { const i = (y * w + x) * 4; if (d[i] > 90 && Math.abs(d[i] - d[i + 2]) < 20) n++ } return n`, { y0, y1, x0 })
-  const axis = () => ink([TOP, TOP + TRACK], Math.round(box.width - g)), row = () => ink([0, TOP], 40)
+  const axis = () => ink([TOP, TOP + TRACK], Math.round(box.width - g)), row = () => ink([Math.round(box.height) - 14, Math.round(box.height)], 40)
   await page.mouse.move(box.x + 200, box.y + TOP + TRACK / 3)
   await poll(axis, n => assert.ok(n > 40, `pointed at, its axis: ${n}`), 3000)
   assert.ok(await row() > 100, 'the time row')

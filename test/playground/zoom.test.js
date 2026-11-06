@@ -1,7 +1,7 @@
 // Zoom: the pinch and the wheel, the view kept; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { TOP, TRACK, page, origin, readout, wholeLevels, open, settled, frames, selected, noCues, write, tall, gutter, spans, axis, boxDrag, lengthIs, hits, pixels, show, chime, crossed } from './page.js'
+import { TOP, TRACK, page, origin, readout, wholeLevels, open, settled, frames, selected, noCues, write, tall, gutter, spans, axis, boxDrag, lengthIs, hits, pixels, show, chime, crossed, onRow } from './page.js'
 
 // A trackpad's pinch (Chrome's: Ctrl and the wheel, no key held, −100·ln s of deltaY for a spread s) zooms twice as far
 // as the fingers spread, about the pointer, its events one by one or merged: spread 2×, the span a quarter. With Ctrl
@@ -83,7 +83,7 @@ test('editor: a pinch zooms the axis under the pointer, the frequencies or the t
   // on the times, Ctrl and the wheel zoom time
   await page.locator('.plot').focus()
   await page.keyboard.press('0')
-  await pinch(x(1), box.y + TOP / 2)
+  await pinch(x(1), onRow(box))
   const [, ruler] = await band()
   assert.notEqual(ruler, span)
   await page.locator('.plot').focus()

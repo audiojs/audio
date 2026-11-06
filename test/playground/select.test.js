@@ -2,7 +2,7 @@
 // helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { TRACK, TOP, hintsAt, hinted, page, code, readout, tipOf, wholeLevels, seconds, open, settled, frames, poll, menuRow, settings, selected, menu, noCues, write, tall, gutter, spans, axis, grab, boxDrag, drag, lengthIs, hits, handles, pixels, show, shown, bursts, struck, keyed, chime, marked, pointed, measuredOnRow, crossed } from './page.js'
+import { TRACK, TOP, hintsAt, hinted, page, code, readout, tipOf, wholeLevels, seconds, open, settled, frames, poll, menuRow, settings, selected, menu, noCues, write, tall, gutter, spans, axis, grab, boxDrag, drag, lengthIs, hits, handles, pixels, show, shown, bursts, struck, keyed, chime, marked, pointed, measuredOnRow, crossed, onRow } from './page.js'
 
 // A selection let go puts the caret at its start, however it was dragged (as it goes, at the end it moves, heard
 // there): the clock reads where the selection starts, as Play plays it from, and once the selection is gone it stays
@@ -164,12 +164,12 @@ test('editor: a caret dragged onto a cue or a marker shows what side its sound i
   const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.some(t => Math.abs(t - 1) < .02), `the cue at 1 s: ${cues}`), 8000)
   const start = cues.find(t => Math.abs(t - 1) < .02), end = cues.find(t => t > 1.1 && t < 1.45)
   const said = () => page.locator('.hint').evaluate(e => e.hidden ? '' : e.textContent)
-  // the hints' grey 5 px either side of the line (its wash WASH, 8 px), half way down the lane: [before, after]
+  // the hints' accent 5 px either side of the line (its wash WASH, 8 px), half way down the lane: [before, after]
   const washed = async t => (await hinted([-5, 5].map(dx => [Math.round(x(t) - box.x) + dx, Math.round(tall(box) / 2)]))).map(a => a > 8)
-  // the hints' grey by the line, its own column left out, in the 7 px square about the lanes' foot, by the marker's name
-  // in the foot under them
-  const crossed = async t => { const px = Math.round(x(t) - box.x), y = Math.round(tall(box)) - 1, pts = []; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (dx) pts.push([px + dx, y + dy]); return (await hinted(pts)).filter(a => a > 48).length }
-  // (no words: the wash says where the sound is, the marker's name lit in its foot)
+  // the hints' accent by the line, its own column left out, in the 7 px square about the lanes' top, by the marker's
+  // name in the head over them
+  const crossed = async t => { const px = Math.round(x(t) - box.x), y = TOP, pts = []; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (dx) pts.push([px + dx, y + dy]); return (await hinted(pts)).filter(a => a > 48).length }
+  // (no words: the wash says where the sound is, the marker's name lit in its head)
   for (const [t, wash, mark] of [[start, [false, true]], [end, [true, false]], [.75, null, true], [1.8, [true, false], true]]) {
     await page.mouse.move(x(.25), y)
     await page.mouse.down()
@@ -179,7 +179,7 @@ test('editor: a caret dragged onto a cue or a marker shows what side its sound i
     await frames()
     await poll(said, s => assert.equal(s, '', `onto ${t}`))
     if (wash) await poll(() => washed(t), w => assert.deepEqual(w, wash, `onto ${t}, the wash on the sound's side`))
-    if (mark) await poll(() => crossed(t), n => assert.ok(n >= 4, `onto ${t}, a cross at the lanes' foot, by its name: ${n}`))
+    if (mark) await poll(() => crossed(t), n => assert.ok(n >= 4, `onto ${t}, a cross at the lanes' top, by its name: ${n}`))
     await page.mouse.up()
   }
   // let go and moved off it, nothing said
@@ -187,8 +187,8 @@ test('editor: a caret dragged onto a cue or a marker shows what side its sound i
   await poll(said, s => assert.equal(s, ''))
 })
 
-// A marker by a cue is one snap with it, the marker's: the caret dragged there goes onto the marker's time, a cross over
-// its triangle on the line's foot and where the line meets the waveform, as onto the cue
+// A marker by a cue is one snap with it, the marker's: the caret dragged there goes onto the marker's time, a cross on
+// the line's top, by its name, and where the line meets the waveform, as onto the cue
 test('editor: a caret dragged onto a marker by a cue snaps once, a cross at each', async () => {
   await open()
   await write(hits + `\n  .mark({ at: 1, d: 0.2 }, 'Hit')`)
@@ -200,10 +200,11 @@ test('editor: a caret dragged onto a marker by a cue snaps once, a cross at each
   await page.mouse.down()
   await page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'ew-resize')
   await page.mouse.move(x(cue) + 1, y, { steps: 6 })
-  // the hints' grey just before the line (no wash there: the strike's sound is after it), about its foot and up the lane
+  // the hints' accent just before the line (no wash there: the strike's sound is after it), about its top and down the
+  // lane
   const px = Math.round(x(1) - box.x), pts = []
-  for (let py = TOP; py <= lane + 2; py++) for (let dx = -3; dx < 0; dx++) pts.push([px + dx, py])
-  await poll(async () => { const at = await hinted(pts); let foot = 0, up = 0; at.forEach((a, k) => { if (a > 48) pts[k][1] >= lane - 4 ? foot++ : up++ }); return { foot, up } }, marks => assert.ok(marks.foot >= 2 && marks.up >= 2, `a cross on its foot and where it meets the waveform: ${JSON.stringify(marks)}`))
+  for (let py = TOP - 2; py <= lane; py++) for (let dx = -3; dx < 0; dx++) pts.push([px + dx, py])
+  await poll(async () => { const at = await hinted(pts); let top = 0, down = 0; at.forEach((a, k) => { if (a > 48) pts[k][1] <= TOP + 2 ? top++ : down++ }); return { top, down } }, marks => assert.ok(marks.top >= 2 && marks.down >= 2, `a cross on its top and where it meets the waveform: ${JSON.stringify(marks)}`))
   await page.mouse.up()
   assert.equal(await page.locator('.time').innerText(), '0:01.000', 'the marker\'s time')
 })
@@ -476,7 +477,7 @@ test('editor: Alt and a drag on the spectrogram adds another box; Delete takes e
 // its start, the edge takes the press; only clicked, it is a click: the caret there alone
 test('editor: inside a selection the caret drags, the selection kept; on the selection\'s edge, the edge drags', async () => {
   await open()
-  const { box, x } = await axis(6.525), row = box.y + TOP / 2, lane = box.y + TOP + TRACK / 2
+  const { box, x } = await axis(6.525), row = onRow(box), lane = box.y + TOP + TRACK / 2
   const drag = async (a, b) => { await page.mouse.move(x(a), lane); await page.mouse.down(); for (let i = 1; i <= 8; i++) await page.mouse.move(x(a + (b - a) * i / 8), lane); await page.mouse.up() }
   const caret = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
   await drag(1, 3)
@@ -605,7 +606,7 @@ test('editor: a selection\'s dragged edge, or the caret, snaps to a cue near it'
   // the caret, pressed on the time row two pixels after a cue, goes onto it (with nothing selected, the clock is
   // the caret's)
   await page.keyboard.press('Escape')
-  await page.mouse.click(box.x + at + 2, box.y + TOP / 2)
+  await page.mouse.click(box.x + at + 2, onRow(box))
   const caret = +(await page.locator('.time').innerText()).split(':')[1]
   assert.ok(Math.abs(caret - end) < 1e-3, `the caret on the hit: ${caret}, the edge was ${end}`)
 })
@@ -728,13 +729,13 @@ test('editor: held ⌘, the pointer measures how far it is from the selection, d
   await page.keyboard.down('ControlOrMeta')
   await crossed()
   const [n, level] = [await measuredOnRow(box, x(2) + 2, x(4) - 2), await across()]
-  const above = await red(x(4) - box.x - 2, x(4) - box.x + 3, TOP, level.at - 4)
+  const below = await red(x(4) - box.x - 2, x(4) - box.x + 3, level.at + 4, box.height - 22)
   await page.keyboard.up('ControlOrMeta')
   assert.ok(n > span * .6, `a line across the time row: ${n} of ${Math.round(span)} px`)
   assert.ok(level.n > (x(5) - x(4) - 4) * .3, `dashed across to the axis: ${level.n} px lit`)
   // aiming, the value under the pointer itself, not the waveform's there
   assert.ok(Math.abs(level.at - (py - box.y)) <= 1, `at the pointer's height (${Math.round(py - box.y)}): ${level.at}`)
-  assert.ok(above > 20 && above < (level.at - 4 - TOP) * .8, `dashed up from it to the time row: ${above} px lit`)
+  assert.ok(below > 20 && below < (box.height - 22 - level.at - 4) * .8, `dashed down from it to the time row: ${below} px lit`)
   assert.equal(await measuredOnRow(box, x(2) + 2, x(4) - 2), 0, 'gone with the key')
 })
 
@@ -870,7 +871,7 @@ test('editor: a caret dragged with Shift held becomes a range from where it was 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), row = box.y + TOP / 2
+  const { box, x } = await axis(8), row = onRow(box)
   await page.mouse.move(x(2), row)
   await page.mouse.down()
   await page.mouse.move(x(2.5), row, { steps: 3 })

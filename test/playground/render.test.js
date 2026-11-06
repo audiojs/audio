@@ -183,8 +183,8 @@ test('editor: where the output clips is underlined red on the time row; zoomed o
   await write(`audio.from(t => (t > 0.5 ? 1.5 : 0.5) * Math.sin(2 * Math.PI * 220 * t), { duration: 1 })`)
   await lengthIs('0:01.000')
   await settled()
-  const box = await page.locator('.plot').boundingBox(), h = TOP - 3, w = box.width - (await gutter())
-  // red pixels along the time row's foot, over the lanes: their first and last x, as a share of the plot's width
+  const box = await page.locator('.plot').boundingBox(), h = Math.round(box.height) - 23, w = box.width - (await gutter())
+  // red pixels along the time row's top, under the lanes: their first and last x, as a share of the plot's width
   const red = () => pixels(`const y = Math.round(arg + 1), xs = []; for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; if (d[i] - d[i + 2] > 80 && d[i] > 120) xs.push(x) } return xs.length ? [xs[0], xs.at(-1)] : []`, h)
   await poll(red, ([first, last]) => assert.ok(Math.abs(first / w - .5) < .03 && last / w > .95, `clipping from ${first / w} to ${last / w} of the width`))
   // zoomed out past full scale: a red tint over what lies beyond ±1

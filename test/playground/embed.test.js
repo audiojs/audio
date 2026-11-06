@@ -263,13 +263,30 @@ test('editor: embedded, the parts the page names, its edits a press away, its fi
   for (const part of ['.embed-sound', '.embed-open-file', '.embed-save', '.embed-view']) assert.equal(await shown(`.panes ${part}`), false, part)
   assert.equal(await shown('.panes .lane-look'), true, 'the look, where no list names the parts')
   assert.notEqual(await page.evaluate(() => getComputedStyle(document.querySelector('.panes')).backgroundImage), 'none')
-  // the lanes fill the picture: no room kept under them for a new track, as the whole editor keeps
-  const gap = () => page.evaluate(() => document.querySelector('.plot').getBoundingClientRect().bottom - document.querySelector('.lane-look').getBoundingClientRect().bottom)
+  // the lanes fill the picture: no room kept under them for a new track, as the whole editor keeps. How far the
+  // caret's line, put in the middle, ends short of the picture's foot, CSS px (the pointer away: no time of its own on
+  // the time row)
+  const put = async () => {
+    const box = await page.locator('.plot').boundingBox()
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 3)
+    await page.mouse.move(0, 0)
+    await frames()
+  }
+  // (the caret where the press snapped it: of the columns within 10 px of the middle, the one lit down the most rows;
+  // its line's foot, down its lanes past the gaps between them, a tick on the time row under it apart)
+  const gap = () => page.evaluate(() => {
+    const cv = __overlay(), k = cv.width / cv.clientWidth, x0 = Math.round(cv.width / 2 - 10 * k), cw = Math.round(20 * k), d = cv.getContext('2d').getImageData(x0, 0, cw, cv.height).data
+    const lit = x => { let n = 0, last = -1; for (let y = 0; y < cv.height; y++) { const on = d[(y * cw + x) * 4 + 3] > 128; if (on) { n++; last = y } else if (last >= 0 && y - last > 3 * k) break } return { n, last } }
+    const { last } = Array.from({ length: cw }, (_, x) => lit(x)).reduce((a, b) => b.n > a.n ? b : a)
+    return cv.clientHeight - (last + 1) / k
+  })
+  await put()
   assert.ok(await gap() < 40, `embedded, the lanes reach the picture's foot (${await gap()} px short)`)
   const ruled = await gap()
   // no ruler asked for: no time row, the lanes reaching on into its place, and no time for the playhead on it
   await page.goto(origin + '/playground/?embed&ui=' + encodeURIComponent(JSON.stringify({ panel: 'none', controls: ['play', 'clock', 'look'] })) + url.hash)
   await length('0:08.000')
+  await put()
   assert.ok(await gap() < ruled - 15, `no time row: the lanes ${ruled - await gap()} px further down`)
   await page.locator('.play').click()
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
@@ -279,6 +296,7 @@ test('editor: embedded, the parts the page names, its edits a press away, its fi
   // the whole editor keeps its room under the lanes
   await page.goto(origin + '/playground/' + url.hash)
   await wholeLevels().waitFor()
+  await put()
   assert.ok(await gap() > 80, `whole, the room under the lanes kept (${await gap()} px)`)
   // a sound by its path from the site's root, as the page around it names its own files: opened, not asked for
   const rooted = await page.evaluate(async () => {

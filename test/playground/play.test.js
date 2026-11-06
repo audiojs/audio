@@ -2,7 +2,7 @@
 // page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { NAMED, TOP, TRACK, page, origin, readout, tipOf, muteTrack, mutedTracks, open, settled, frames, poll, settings, selected, menu, facts, noCues, write, LANES, FOOT, HEAD, tall, tracksAt, gutter, axis, grab, boxDrag, drag, lengthIs, tap, taken, heard, show, chime, measuredOnRow, crossed } from './page.js'
+import { NAMED, TOP, TRACK, page, origin, readout, tipOf, muteTrack, mutedTracks, open, settled, frames, poll, settings, selected, menu, facts, noCues, write, LANES, HEAD, tall, tracksAt, gutter, axis, grab, boxDrag, drag, lengthIs, tap, taken, heard, show, chime, measuredOnRow, crossed, onRow } from './page.js'
 
 // Before, a key at the bar's right end, after the rate and channels: pressed, the file as it opened, as B does, lit while it is heard; again, or B,
 // the output. A generated sound has no file to hear it against: the key is off
@@ -293,7 +293,7 @@ test('editor: scrolled while it plays, the view stays where it was put till the 
   // the clock and the view read in one go: a frame apart, the view's span is a few frames' play
   await poll(() => page.evaluate(() => { const [m, s] = document.querySelector('.time').textContent.split(':'), [p, q] = __view.range; return [p, (+m * 60 + +s - p) / (q - p)] }), ([c, at]) => assert.ok(c > put[0] && Math.abs(at - .5) < .15, `past the edge, followed: ${at.toFixed(2)} across`))
   // over the scrollbar, at the time row's top, the arrow, as over any scrollbar
-  await page.mouse.move(box.x + w / 2, box.y + box.height - 6)
+  await page.mouse.move(box.x + w / 2, box.y + box.height - 18)
   assert.equal(await page.locator('.plot').evaluate(e => e.style.cursor), 'default')
   await page.keyboard.press('Space')
 })
@@ -748,7 +748,7 @@ test('editor: a sound longer than the page holds sounds under the caret as it is
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .5, { duration: 1820, sampleRate: 48000 })`)
   await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('30:20.000'), null, { timeout: 120000 })
   await page.waitForFunction(() => !document.querySelector('.message').textContent, null, { timeout: 120000 })
-  const { box, x } = await axis(1820), row = box.y + TOP / 2
+  const { box, x } = await axis(1820), row = onRow(box)
   await settled()
   await heard()
   for (const t of [600, 1500]) {
@@ -966,7 +966,7 @@ test('editor: the caret put elsewhere while a selection loops plays from there, 
 // The pointer goes while an operation draws what it does: holding the caret to hear it, dragging a range
 test('editor: the pointer hides while the caret sounds, and comes back', async () => {
   await open()
-  const { box, x } = await axis(6.525), row = box.y + TOP / 2, cursor = () => page.locator('.plot').evaluate(el => el.style.cursor)
+  const { box, x } = await axis(6.525), row = onRow(box), cursor = () => page.locator('.plot').evaluate(el => el.style.cursor)
   await page.mouse.move(x(3), row)
   await page.mouse.down()
   assert.equal(await cursor(), 'none')
@@ -997,7 +997,7 @@ test('editor: the caret moves within a selection from the time row or the arrows
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, row = box.y + TOP / 2
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, row = onRow(box)
   const clock = () => page.locator('.time').innerText(), seconds = t => t.split(':').reduce((m, s) => m * 60 + +s, 0)
   await drag([x(1), y], [x(5) - x(1), 0])
   assert.equal(await selected(), '0:01.000–0:05.000')
@@ -1091,7 +1091,7 @@ let loud = audio.from([tone(330, .4), tone(330, .4)], { sampleRate: 48000 })`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:01.000')
   // each lane's middle as its layer has it
-  const { box, x } = await axis(1), row = box.y + TOP / 2, lane = async k => (r => r.y + r.h / 2)((await tracksAt())[k])
+  const { box, x } = await axis(1), row = onRow(box), lane = async k => (r => r.y + r.h / 2)((await tracksAt())[k])
   // a track pressed, then the caret held and dragged along the time row: that track heard
   const scrub = async k => {
     await page.mouse.click(x(.1), await lane(k))
@@ -1129,9 +1129,9 @@ let loud = audio.from([tone(330, .4), tone(330, .4)], { sampleRate: 48000 })`)
   await page.waitForFunction(re => new RegExp(re).test(document.querySelector('.readout').textContent), both.source)
 })
 
-// With tracks, a range pressed in a track's foot plays that track alone, as it is: the voice made of the tracks' mix
+// With tracks, a range pressed in a track's head plays that track alone, as it is: the voice made of the tracks' mix
 // with every other muted (engine.js voice, worker.js voice), never the mix of all of them
-test('editor: with tracks, a range pressed in a track\'s foot plays that track alone', async () => {
+test('editor: with tracks, a range pressed in a track\'s head plays that track alone', async () => {
   await page.route('**/playground/engine.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('    async voice({ held, ...what }) {', '    async voice({ held, ...what }) {\n      ;(globalThis.__voiced ??= []).push(what.muted ?? null)') }) })
   await open()
   await write(`let a = audio('chime.wav')\n  .mark({ at: 2, d: 2 }, 'Chorus')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
@@ -1140,7 +1140,7 @@ test('editor: with tracks, a range pressed in a track\'s foot plays that track a
   await settled()
   const { box, x } = await axis(8), [a] = await tracksAt()
   await page.evaluate(() => globalThis.__voiced = [])
-  await page.mouse.move(x(3), a.y + a.h + 6)
+  await page.mouse.move(x(3), a.y - 6)
   await page.mouse.down()
   await poll(() => page.evaluate(() => globalThis.__voiced), voiced => assert.deepEqual(voiced.at(-1), ['b'], `heard with b muted: ${JSON.stringify(voiced)}`))
   await page.mouse.up()

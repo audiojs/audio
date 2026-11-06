@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import audio from '../../audio.js'
-import { TOP, page, origin, sine, wavBytes, code, readout, tipOf, open, settled, frames, poll, still, choice, selected, tab, menu, noCues, write, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, axis, grab, drag, lengthIs, pixels, chime, contextRow, trackMenuOf, muteTrack, mutedTracks, renameTrack, ghostAt } from './page.js'
+import { TOP, page, origin, sine, wavBytes, code, readout, tipOf, open, settled, frames, poll, still, choice, selected, tab, menu, noCues, write, TRACK, ROOM, HEAD, tall, tracksAt, gutter, axis, grab, drag, lengthIs, pixels, chime, contextRow, trackMenuOf, muteTrack, mutedTracks, renameTrack, ghostAt, onRow } from './page.js'
 
 // A file dropped under the lanes, in the room: a track of its own, named for it, from where it was let go
 test('editor: a file dropped under the lanes goes into a new track of its own there', async () => {
@@ -16,7 +16,7 @@ test('editor: a file dropped under the lanes goes into a new track of its own th
     const at = { bubbles: true, cancelable: true, dataTransfer: data, clientX: x, clientY: y }
     target.dispatchEvent(new DragEvent('dragover', at))
     target.dispatchEvent(new DragEvent('drop', at))
-  }, { bytes: [...bytes], x: x(2), y: box.y + tall(box) + FOOT + ROOM / 2 })
+  }, { bytes: [...bytes], x: x(2), y: box.y + tall(box) + ROOM / 2 })
   await page.waitForFunction(() => /^let chime = audio\('chime\.wav'\)\n\nlet tone = audio\.from\(0\)\n  \.write\(audio\('tone\.wav'\), \{ at: (1\.99|2|2\.01) \}\)$/.test(scriptText()))
 })
 
@@ -101,7 +101,7 @@ test('editor: a range on the time row is every track\'s; a selection ⌘-dragged
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
   // the lanes' middles, as their layers have them; the time row over them
-  const { box, x } = await axis(8), mid = async i => (r => r.y + r.h / 2)((await tracksAt())[i]), row = box.y + TOP / 2
+  const { box, x } = await axis(8), mid = async i => (r => r.y + r.h / 2)((await tracksAt())[i]), row = onRow(box)
   await drag([x(2), row], [x(3) - x(2), 0])
   assert.equal(await selected(), '0:02.000–0:03.000')
   await page.keyboard.press('Backspace')
@@ -369,7 +369,7 @@ test('editor: under the lanes, a press puts a new track\'s caret; a paste there 
   await page.keyboard.press('ControlOrMeta+C')
   await page.waitForFunction(() => scriptText().includes('.copy('))
   // the room ROOM px tall, under the sound's lanes' foot
-  const under = box.y + tall(box) + FOOT + ROOM / 2
+  const under = box.y + tall(box) + ROOM / 2
   await page.mouse.dblclick(x(4), under)
   assert.equal(await selected(), '', 'pressed, the selection gone, the caret there')
   assert.ok(!/let track/.test(await code()), 'a double-click makes no track')
@@ -382,7 +382,7 @@ test('editor: under the lanes, a press puts a new track\'s caret; a paste there 
   await page.mouse.click(x(4), (r => r.y + r.h / 2)((await poll(tracksAt, l => assert.equal(l.length, 2)))[0]))
   await page.waitForFunction(() => (l => l.length === 2 && l.every(e => e.dataset.lane))([...document.querySelectorAll('.layer')]))
   const [, last] = await tracksAt()
-  await page.mouse.click(x(4), last.y + last.h + FOOT + ROOM / 2, { button: 'right' })
+  await page.mouse.click(x(4), last.y + last.h + ROOM / 2, { button: 'right' })
   await page.locator('.menu-row', { hasText: /^New track/ }).click()
   await page.waitForFunction(() => /\n\nlet track2 = audio\.from\(0\)$/.test(scriptText()))
 })
@@ -397,20 +397,20 @@ test('editor: the room under the tracks is a new track\'s lane as tall as the la
   await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
   const box = await page.locator('.plot').boundingBox(), short = TRACK - 40
   let [, b] = await tracksAt()
-  await drag([box.x + 300, b.y + b.h + FOOT - 2], [0, -40])
+  await drag([box.x + 300, b.y + b.h + 2], [0, -40])
   await page.waitForFunction(h => document.querySelectorAll('.layer')[1].dataset.lane.split(' ')[1] === String(h), short)
   ;[, b] = await tracksAt()
-  const top = b.y + b.h + FOOT, x = 300
+  const top = b.y + b.h + HEAD, x = 300
   await page.mouse.click(box.x + x, top + short / 2)
   // the pointer off it, over a's lane: none of the room's words over the caret
   await page.mouse.move(box.x + 40, b.y - 60)
-  // the caret's rows, CSS px from the plot's top: the column at x lit past half opacity, from b's foot down (the
-  // time rows' ticks over it)
+  // the caret's rows, CSS px from the plot's top: the column at x lit past half opacity, from the room's head down,
+  // over the time row
   const [from, to] = await page.evaluate(([x, y0]) => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {
     const cv = __overlay(), k = cv.width / cv.clientWidth, g = cv.getContext('2d'), d = g.getImageData(Math.round(x * k), 0, 1, cv.height - Math.round(22 * k)).data, lit = []
     for (let y = Math.round(y0 * k); y < d.length / 4; y++) if (d[y * 4 + 3] > 128) lit.push(y / k)
     done([Math.min(...lit), Math.max(...lit)])
-  }))), [x, b.y + b.h + FOOT - box.y])
+  }))), [x, b.y + b.h + HEAD - box.y])
   assert.ok(Math.abs(box.y + from - top) <= 2 && Math.abs(box.y + to - (top + short)) <= 2, `the caret down the new lane: ${box.y + from}…${box.y + to}, the lane ${top}…${top + short}`)
   await page.mouse.click(box.x + x, top + short / 2, { button: 'right' })
   await page.locator('.menu-row', { hasText: /^New track/ }).click()
@@ -434,10 +434,10 @@ test('editor: a paste into the room under the tracks makes a track as tall as th
   await drag([x(1), a.y + 40], [x(2) - x(1), 0])
   await page.keyboard.press('ControlOrMeta+C')
   await page.waitForFunction(() => scriptText().includes('.copy('))
-  await drag([box.x + 300, b.y + b.h + FOOT - 2], [0, -40])
+  await drag([box.x + 300, b.y + b.h + 2], [0, -40])
   await page.waitForFunction(h => document.querySelectorAll('.layer')[1].dataset.lane.split(' ')[1] === String(h), short)
   ;[, b] = await tracksAt()
-  await page.mouse.click(x(4), b.y + b.h + FOOT + HEAD + short / 2)
+  await page.mouse.click(x(4), b.y + b.h + HEAD + short / 2)
   await page.keyboard.press('ControlOrMeta+V')
   await page.waitForFunction(() => document.querySelectorAll('.layer').length === 3)
   assert.match(await code(), /\n\nlet track = audio\.from\(0\)\n  \.write\(/)
@@ -455,11 +455,11 @@ test('editor: under the tracks, New track where its title would be: pressed, mad
   await lengthIs('0:09.000')
   const placeholder = page.locator('.layer-new'), [, b] = await tracksAt()
   assert.ok(!await placeholder.isVisible(), 'none till the room is pointed at')
-  await page.mouse.move((await page.locator('.plot').boundingBox()).x + 300, b.y + b.h + FOOT + 40)
+  await page.mouse.move((await page.locator('.plot').boundingBox()).x + 300, b.y + b.h + 40)
   await placeholder.waitFor()
   assert.equal(await placeholder.innerText(), 'New track')
   const head = await placeholder.boundingBox()
-  assert.ok(Math.abs(head.y - (b.y + b.h + FOOT)) <= 1, `where its title would be: ${head.y}, under ${b.y + b.h + FOOT}`)
+  assert.ok(Math.abs(head.y - (b.y + b.h)) <= 1, `where its title would be: ${head.y}, under ${b.y + b.h}`)
   // the meters read the caret's place in a lane; in the room, nothing
   const box = await page.locator('.plot').boundingBox(), lit = () => page.evaluate(() => { const m = document.querySelector('.plot canvas.meters'), d = m.getContext('2d').getImageData(0, 0, m.width, m.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) n += d[i] > 0; return n })
   await page.mouse.click(box.x + 300, b.y + b.h / 2)
@@ -481,7 +481,7 @@ test('editor: Esc takes the caret under the lanes back; a paste then goes into t
   await drag([x(1), box.y + 40], [x(2) - x(1), 0])
   await page.keyboard.press('ControlOrMeta+C')
   await page.waitForFunction(() => scriptText().includes('.copy('))
-  await page.mouse.click(x(4), box.y + tall(box) + FOOT + ROOM / 2)
+  await page.mouse.click(x(4), box.y + tall(box) + ROOM / 2)
   await page.keyboard.press('Escape')
   // (Edit › Paste: the editor's own clip, not the system's clipboard, which the copy fills a while after)
   await menu('Edit', 'Paste')
@@ -498,7 +498,7 @@ test('editor: a piece dragged under the tracks goes to a new track; a track made
   await frames()
   await page.mouse.move(x(1.5), box.y + 40)
   await page.mouse.down()
-  const under = box.y + tall(box) + FOOT + ROOM / 2
+  const under = box.y + tall(box) + ROOM / 2
   for (let i = 1; i <= 8; i++) await page.mouse.move(x(1.5 + 2 * i / 8), box.y + 40 + (under - box.y - 40) * i / 8)
   await page.mouse.up()
   await page.waitForFunction(() => /^let chime = audio\('chime\.wav'\)\n  \.gain\(-Infinity, \{ at: 1, d: 1 \}\)\n\nlet track = audio\.from\(0\)\n  \.write\(audio\('chime\.wav'\)\.crop\(\{ at: 1, d: 1 \}\), \{ at: 3 \}\)$/.test(scriptText()))
@@ -510,7 +510,7 @@ test('editor: a piece dragged under the tracks goes to a new track; a track made
   await page.waitForFunction(() => !/let track\b/.test(scriptText()))
   await page.waitForFunction(() => !document.querySelector('.plot').dataset.tracks)
   const plot = await page.locator('.plot').boundingBox()
-  await page.mouse.click(plot.x + 300, plot.y + tall(plot) + FOOT + ROOM / 2, { button: 'right' })
+  await page.mouse.click(plot.x + 300, plot.y + tall(plot) + ROOM / 2, { button: 'right' })
   await page.locator('.menu-row', { hasText: /^New track/ }).click()
   await page.waitForFunction(() => /let track = audio\.from\(0\)$/.test(scriptText()))
   await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
@@ -659,9 +659,9 @@ test('editor: the layers over each band name and lock the tracks; a foot dragged
   await lengthIs('0:09.000')
   await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
   assert.equal((await page.locator('.plot').boundingBox()).width, wide, 'the picture as wide as with one sound')
-  // over its band: its lane, its foot under it
+  // over its band: its head, its lane under it
   const [a0] = await tracksAt(), band0 = await page.locator('.layer').first().boundingBox()
-  assert.ok(Math.abs(band0.y - a0.y) <= 1 && Math.abs(band0.height - a0.h - FOOT) <= 1, `over its band: ${band0.y}, ${band0.height}, ${a0.y}`)
+  assert.ok(Math.abs(band0.y + HEAD - a0.y) <= 1 && Math.abs(band0.height - a0.h - HEAD) <= 1, `over its band: ${band0.y}, ${band0.height}, ${a0.y}`)
   await renameTrack(1, 'Lead vocal')
   await page.waitForFunction(() => scriptText() === "let a = audio('chime.wav')\n\nlet leadVocal = audio('rhodes.wav')")
   // each TRACK px, the edited one too; a's foot dragged 60 px down, a 60 px taller, kept with the tab; double-clicked,
@@ -669,8 +669,8 @@ test('editor: the layers over each band name and lock the tracks; a foot dragged
   const card = () => page.evaluate(() => document.querySelector('.steps-list .step-name')?.textContent)
   const box = await page.locator('.plot').boundingBox(), heights = async () => (await tracksAt()).map(r => Math.round(r.h))
   assert.deepEqual(await heights(), [TRACK, TRACK], 'none grown for being edited')
-  // (its foot's last px, under its time row)
-  const [a1] = await tracksAt(), foot = a1.y + a1.h + FOOT - 2
+  // (its lanes' foot, the first px under them)
+  const [a1] = await tracksAt(), foot = a1.y + a1.h + 2
   await page.mouse.move(box.x + 300, foot)
   assert.equal(await page.locator('.plot').evaluate(el => el.style.cursor), 'row-resize', 'its foot, its height to drag')
   await drag([box.x + 300, foot], [0, 60])
@@ -712,7 +712,7 @@ test('editor: the layers over each band name and lock the tracks; a foot dragged
   assert.match(await card(), /^leadVocal /, 'a locked, a press in its lane edits nothing there')
   assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].locked, ['a'])
   // a range dragged on the time row, through every track, deleted: a, locked, untouched
-  await drag([box.x + 300, box.y + TOP / 2], [100, 0])
+  await drag([box.x + 300, onRow(box)], [100, 0])
   await page.keyboard.press('Backspace')
   await page.waitForFunction(() => /let leadVocal = audio\('rhodes\.wav'\)\n  \.remove\(/.test(scriptText()))
   assert.match(await code(), /^let a = audio\('chime\.wav'\)\n\n/, 'a as it was')
@@ -728,7 +728,7 @@ test('editor: the layers over each band name and lock the tracks; a foot dragged
   for (let i = 0; i < 8; i++) await page.mouse.wheel(0, 120)
   await page.waitForFunction(time => (([y, h]) => document.querySelector('.plot').getBoundingClientRect().y + y + h + 18 + 40 <= time + 1)(document.querySelectorAll('.layer')[3].dataset.lane.split(' ').map(Number)), time)
   const r = await last()
-  await page.mouse.move(box.x + 300, r.y + r.h + FOOT + ROOM / 2)
+  await page.mouse.move(box.x + 300, r.y + r.h + ROOM / 2)
   assert.equal(await page.locator('.plot').evaluate(el => el.style.cursor), '', 'the room in reach')
   // the scrollbar at the right edge, its thumb dragged to the top: the first in sight again
   await drag([box.x + box.width - 2, time - 30], [0, -(box.height - 22)])

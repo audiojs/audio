@@ -49,7 +49,10 @@ export function down(event) {
   // and to every other of its name (up); in a locked track's, nothing. A range's name or the takes' place: its stretch
   // selected at once, every other of its name with it, and heard from its start while held, as it is; nothing more
   // (dragged on, nothing moves)
-  // a marker to be, under a caret or a range, a name to write as the press is let go (clicked): nothing more
+  // a band's lanes' foot, but where a selection's tools are: its height, dragged (the head under it starts lower)
+  const foot = footAt(py)
+  if (foot != null && !gripAt(own(lanes()), px, py)) { drag = { foot, all: event.altKey, y: py, py, h0: tallOf(foot) }; return invalidate(true) }
+  // a marker to be, over a caret or a range, a name to write as the press is let go (clicked): nothing more
   blank = nameAt(lanes(), [px, py])
   if (blank) return
   const mark = !gripAt(own(lanes()), px, py) && stripAt(px, py)
@@ -71,9 +74,6 @@ export function down(event) {
     drag = { preview: true }
     return invalidate(true)
   }
-  // a band's foot, but where a selection's tools or takes are: its height, dragged
-  const foot = footAt(py)
-  if (foot != null && !gripAt(own(lanes()), px, py)) { drag = { foot, all: event.altKey, y: py, py, h0: tallOf(foot) }; return invalidate(true) }
   if (frozenAt(px, py)) return
   // a press in another track's lane makes it the one edited; in a locked one's, nothing
   if (lockedAt(py)) return
@@ -354,10 +354,11 @@ function overrun(reach) {
 // Where a press over a band's lanes would put the caret, any band's: its ghost (`caretGhost`, { i: the band's }, its
 // time where it is drawn, as what it goes onto comes: strips.js ghostOf); `opening`, Alt on a caret's line, silence
 // to open there
-export let hot = null, grabbing = false, caretGhost = null, opening = false
+export let hot = null, grabbing = false, caretGhost = null, opening = false, lined = null
 export function hover(px, py, keys = held) {
   assign({ held: keys })
   caretGhost = null
+  lined = null
   opening = false
   // the scrollbar's arrow, as a scrollbar's is everywhere
   if (onBar(px, py)) { hot = null; grabbing = false; root.style.cursor = 'default'; return }
@@ -365,12 +366,12 @@ export function hover(px, py, keys = held) {
   // the room under the lanes, a new track's caret, as a lane's
   if (liftAt(px, py)) { hot = null; grabbing = true; root.style.cursor = 'default'; return }
   if (inRoom(py)) { hot = null; grabbing = false; root.style.cursor = ''; return }
-  // in a band's foot: a marker to be, its name to write (the arrow, its number lit: placeholders); a range's end to
-  // drag; a name to press; at its bottom, the band's height to drag (where a selection's tools are not)
+  // under a band's lanes, their height to drag (where a selection's tools are not); in a band's head: a marker to be,
+  // its name to write (the arrow, its number lit: placeholders); a range's end to drag; a name to press
+  if (footAt(py) != null && !gripAt(own(lanes()), px, py)) { hot = null; grabbing = true; root.style.cursor = 'row-resize'; return }
   if (nameAt(lanes(), [px, py])) { hot = null; grabbing = false; root.style.cursor = 'default'; return }
   const mark = !gripAt(own(lanes()), px, py) && stripAt(px, py)
   if (mark) { hot = null; grabbing = notch(mark, px) >= 0; root.style.cursor = grabbing ? 'ew-resize' : 'pointer'; return }
-  if (footAt(py) != null && !gripAt(own(lanes()), px, py)) { hot = null; grabbing = true; root.style.cursor = 'row-resize'; return }
   // in another track's band, nothing to take hold of but a selection through it: a press there makes it the one
   // edited, the caret where its ghost is
   const bi = trackAt(lanes(), py), through = across?.includes(bi) && selection && !band && px >= x(selection[0]) - EDGE && px <= x(selection[1]) + EDGE
@@ -399,12 +400,14 @@ export function hover(px, py, keys = held) {
   const plain = !keys.shiftKey && !keys.altKey, caret = plain && caretAt(px, py)
   hot = end || taken == null && !spectral && plain && onOwn(py) ? edgeAt(px) : null
   grabbing = taken != null || !!hot || !!caret
+  // the line a press takes, an edge or a caret's, where it is (strips.js paintMarkers: the side its sound is on)
+  if (hot || caret) lined = { t: hot ? hot.t : caret.r ? caret.r[0] : cursor, i: tracks ? focus : null }
   // over the band, its foot too, where a press puts the caret, a range begun there or a caret added: its ghost
   if (!grabbing && !spectral && bi >= 0) caretGhost = { i: tracks ? focus : null }
   root.style.cursor = taken ?? (keys.shiftKey && !keys.altKey ? EXTEND[time(px) < origin() ? 1 : 0] : grabbing ? 'ew-resize' : aim ? 'crosshair' : keys.altKey ? ADD : '')
 }
 // (a touch leaves as it lifts: the bar it scrolled by stays its LINGER)
-export function leave(event) { assign({ hovered: null }); hot = null; caretGhost = null; opening = false; if (event.pointerType !== 'touch') assign({ reached: -Infinity }); invalidate(true) }
+export function leave(event) { assign({ hovered: null }); hot = null; caretGhost = null; lined = null; opening = false; if (event.pointerType !== 'touch') assign({ reached: -Infinity }); invalidate(true) }
 export function up(event) {
   pointers.delete(event.pointerId)
   const d = drag
@@ -520,12 +523,12 @@ export function clicked(event) {
   const named = blank
   blank = null
   if (named && !event.button && event.detail === 1) return placeMarker(named)
+  // a band's lanes' foot double-clicked: its height as it was made (with Alt, every band's)
+  const foot = footAt(local(event)[1])
+  if (foot != null && !gripAt(own(lanes()), ...local(event))) { if (event.detail === 2) { const names = event.altKey ? bands() : [foot], h = { ...heights }; for (const n of names) delete h[n]; assign({ heights: h }); onheight(Object.fromEntries(names.map(n => [n, null]))); invalidate() } return }
   // a marker's name double-clicked: named anew where its name is (the takes' place, its press alone)
   const mark = !gripAt(own(lanes()), ...local(event)) && stripAt(...local(event))
   if (mark) return mark.kind === 'mark' && event.detail === 2 && rename(mark.i)
-  // a band's foot double-clicked: its height as it was made (with Alt, every band's)
-  const foot = footAt(local(event)[1])
-  if (foot != null && !gripAt(own(lanes()), ...local(event))) { if (event.detail === 2) { const names = event.altKey ? bands() : [foot], h = { ...heights }; for (const n of names) delete h[n]; assign({ heights: h }); onheight(Object.fromEntries(names.map(n => [n, null]))); invalidate() } return }
   // in the room under the lanes, or a locked track's lane, nothing more than a press does
   if (duration && !event.button && (inRoom(local(event)[1]) || lockedAt(local(event)[1]))) return
   if (!duration || event.detail < 2 || event.button > 0) return

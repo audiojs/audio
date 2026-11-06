@@ -265,13 +265,15 @@ async function drawn(of = '.plot') {
 // The time axis spans the plot less the level axis at its right, as wide as its labels (view.js axisWidth, --axis on the
 // slab); the lanes are 2 px apart (GAP), over the time row (RULER, 22 px)
 const LANES = 2
-// A sound is a track as any (view.js banded): under the time row over the bands (HEAD px), its lanes TRACK px all told,
-// its foot (FOOT px), its markers' names in it, the room under it (ROOM px). `tall(box)`: where a sound's lanes end, px
-// from the top of the plot `box`
-const TRACK = 160, ROOM = 80, FOOT = 18, HEAD = 20
+// A sound is a track as any (view.js banded): its head (HEAD px), its markers' names in it, its lanes TRACK px all
+// told, their foot's first GRIP px dragging its height, the room under it (ROOM px); the time row at the picture's foot.
+// `tall(box)`: where a sound's lanes end, px from the top of the plot `box`
+const TRACK = 160, ROOM = 80, HEAD = 18, GRIP = 4
 const tall = () => HEAD + TRACK
-// where its lanes start, px from the plot's top: under the time row; the middle of its names' row, in its foot
-const TOP = HEAD, NAMED = TOP + TRACK + 6
+// where its lanes start, px from the plot's top: under its head; the middle of its names' row, in its head
+const TOP = HEAD, NAMED = HEAD - 6
+// the middle of the time row's labels, at the foot of the plot `box`, page px
+const onRow = box => box.y + box.height - 7
 // Each track's lane, as its layer has it (data-lane: its top and height from the picture's top), CSS px in the page:
 // { y, h } in order
 const tracksAt = () => page.locator('.layer').evaluateAll(els => els.map(e => { const [y, h] = e.dataset.lane.split(' ').map(Number), p = document.querySelector('.plot').getBoundingClientRect(); return { y: p.y + y, h } }))
@@ -495,9 +497,9 @@ async function marked() {
 // Shift sums, as Shift and a press in a text: the selection goes out to the press at once, from where it was begun, a
 // drag going on with it, never another range; held, the pointer an I-beam with a plus on the side it goes out from
 const pointed = () => page.locator('.plot').evaluate(el => decodeURIComponent(el.style.cursor))
-// Held ⌘, what the time row (over the bands) has in the measuring red between `a` and `b` (page x): on its row most lit,
-// how many pixels
-const measuredOnRow = (box, a, b) => pixels(`let best = 0; for (let y = 0; y < ${HEAD}; y++) { let n = 0; for (let x = ${Math.round(a - box.x)}; x < ${Math.round(b - box.x)}; x++) { const i = (y * w + x) * 4; if (d[i] - d[i + 2] > 60) n++ } best = Math.max(best, n) } return best`)
+// Held ⌘, what the time row (at the picture's foot) has in the measuring red between `a` and `b` (page x): on its row
+// most lit, how many pixels
+const measuredOnRow = (box, a, b) => pixels(`let best = 0; for (let y = h - 22; y < h; y++) { let n = 0; for (let x = ${Math.round(a - box.x)}; x < ${Math.round(b - box.x)}; x++) { const i = (y * w + x) * 4; if (d[i] - d[i + 2] > 60) n++ } best = Math.max(best, n) } return best`)
 // Where the caret's ghost is along the row `py` px down the picture, CSS px from its left: its line in the caret's
 // colour, half see-through (strips.js paintMarkers, caretTo), or null for none
 const ghostAt = py => page.evaluate(py => {
@@ -506,21 +508,21 @@ const ghostAt = py => page.evaluate(py => {
   for (let i = 0; i < cv.width; i++) if (d[i * 4 + 3] > 100 && d[i * 4 + 3] < 160 && Math.abs(d[i * 4] - r) < 8 && Math.abs(d[i * 4 + 1] - g) < 8 && Math.abs(d[i * 4 + 2] - b) < 8) return i / k
   return null
 }, py)
-// The hints' lines along the row `py` px down the picture (strips.js paintCues: what a time may go onto, the screen's
-// soft grey, faint, a third as strong at least: not a snap's soft wash), the snaps' crosses too: where each run of them starts, CSS px from its left, within
+// The hints' lines along the row `py` px down the picture (strips.js paintCues: what a time may go onto, the accent,
+// faint, at least a fifth as strong: not a snap's soft wash), the snaps' crosses too: where each run of them starts, CSS px from its left, within
 // [x0, x1); `strong`, those at least that opaque (0 to 1)
 const hintsAt = (py, x0 = 0, x1 = Infinity, strong = 0) => page.evaluate(([py, x0, x1, strong]) => {
   const cv = __overlay(), k = cv.width / cv.clientWidth, d = cv.getContext('2d').getImageData(0, Math.round(py * k), cv.width, 1).data, out = []
-  const [r, g, b] = getComputedStyle(document.documentElement).getPropertyValue('--color-screen-soft').match(/[\d.]+/g).map(Number)
+  const [r, g, b] = getComputedStyle(document.documentElement).getPropertyValue('--color-screen-accent').match(/[\d.]+/g).map(Number)
   let run = false
   for (let i = Math.round(x0 * k); i < Math.min(cv.width, x1 * k); i++) { const on = d[i * 4 + 3] > Math.max(48, strong * 255 - 8) && Math.abs(d[i * 4] - r) < 12 && Math.abs(d[i * 4 + 1] - g) < 12 && Math.abs(d[i * 4 + 2] - b) < 12; if (on && !run) out.push(i / k); run = on }
   return out
 }, [py, x0, x1, strong])
-// How strongly each of `points` ([[x, y], …], CSS px from the picture's top left) is in the hints' grey (hintsAt), 0 to
+// How strongly each of `points` ([[x, y], …], CSS px from the picture's top left) is in the hints' accent (hintsAt), 0 to
 // 255, 0 for none
 const hinted = points => page.evaluate(points => {
   const cv = __overlay(), k = cv.width / cv.clientWidth, g = cv.getContext('2d')
-  const [r, gr, b] = getComputedStyle(document.documentElement).getPropertyValue('--color-screen-soft').match(/[\d.]+/g).map(Number)
+  const [r, gr, b] = getComputedStyle(document.documentElement).getPropertyValue('--color-screen-accent').match(/[\d.]+/g).map(Number)
   return points.map(([x, y]) => { const d = g.getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data; return Math.abs(d[0] - r) < 12 && Math.abs(d[1] - gr) < 12 && Math.abs(d[2] - b) < 12 ? d[3] : 0 })
 }, points)
 const crossed = () => page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'crosshair')
@@ -574,4 +576,4 @@ const themed = async name => {
 // a test's own page in place of the one it was given, closed after it as that one is
 const setPage = p => { page = p }
 
-export { TOP, NAMED, endWay, endDrag, root, browser, page, origin, errors, made, CHIME, chimeLeft, RATE, sine, peakDb, wavBytes, engine, scrubbed, clicked, attack, code, readout, tipOf, wholeLevels, levelsTable, lengthText, seconds, open, settled, frames, poll, still, menuRow, choice, settings, selected, tab, edits, menu, facts, offered, palette, noCues, write, drawn, LANES, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, TAIL, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, taken, heard, hits, handles, dragCue, gridShown, pixels, show, shown, bursts, struck, scriptOf, keptFiles, takesLeft, recordFor, way, turn, keyed, chime, marked, pointed, measuredOnRow, crossed, ghostAt, hintsAt, hinted, contextRow, trackMenuOf, muteTrack, mutedTracks, renameTrack, tools, themed, setPage }
+export { TOP, NAMED, endWay, endDrag, root, browser, page, origin, errors, made, CHIME, chimeLeft, RATE, sine, peakDb, wavBytes, engine, scrubbed, clicked, attack, code, readout, tipOf, wholeLevels, levelsTable, lengthText, seconds, open, settled, frames, poll, still, menuRow, choice, settings, selected, tab, edits, menu, facts, offered, palette, noCues, write, drawn, LANES, TRACK, ROOM, HEAD, GRIP, onRow, tall, tracksAt, gutter, TAIL, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, taken, heard, hits, handles, dragCue, gridShown, pixels, show, shown, bursts, struck, scriptOf, keptFiles, takesLeft, recordFor, way, turn, keyed, chime, marked, pointed, measuredOnRow, crossed, ghostAt, hintsAt, hinted, contextRow, trackMenuOf, muteTrack, mutedTracks, renameTrack, tools, themed, setPage }

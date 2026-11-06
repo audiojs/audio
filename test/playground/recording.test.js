@@ -5,7 +5,7 @@ import { writeFile, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
-import { NAMED, TOP, page, origin, errors, code, tipOf, wholeLevels, lengthText, open, settled, frames, poll, still, choice, settings, selected, tab, menu, facts, noCues, write, drawn, TRACK, ROOM, FOOT, HEAD, tall, tracksAt, gutter, TAIL, axis, drag, lengthIs, pixels, show, keptFiles, takesLeft, recordFor, chime, contextRow, spans } from './page.js'
+import { NAMED, TOP, page, origin, errors, code, tipOf, wholeLevels, lengthText, open, settled, frames, poll, still, choice, settings, selected, tab, menu, facts, noCues, write, drawn, TRACK, ROOM, HEAD, tall, tracksAt, gutter, TAIL, axis, drag, lengthIs, pixels, show, keptFiles, takesLeft, recordFor, chime, contextRow, spans, onRow } from './page.js'
 
 // With nothing open, the take is the sound, drawn as it comes
 test('editor: a recording becomes a file the script opens', async () => {
@@ -263,7 +263,7 @@ test('editor: the record button records over the sound from the caret, into the 
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
   const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3
-  await page.mouse.click(x(7.5), box.y + TOP / 2)
+  await page.mouse.click(x(7.5), onRow(box))
   await page.getByRole('button', { name: 'Record', exact: true }).click()
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
   // the one or the other: Play is off while it records
@@ -370,7 +370,7 @@ test('editor: the record button records over the sound from the caret, into the 
   // ⌥R, Alt adding: another take of the place the caret is in, into it, to its end, heard (the picture narrower now,
   // the panel open)
   const narrow = await axis(8)
-  await page.mouse.click(narrow.x(2.25), narrow.box.y + TOP / 2)
+  await page.mouse.click(narrow.x(2.25), onRow(narrow.box))
   await page.keyboard.press('Alt+KeyR')
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
   await page.getByRole('button', { name: 'Record', exact: true }).waitFor({ timeout: 15000 })
@@ -526,7 +526,7 @@ test('editor: takes are marked over all they span, pressed there selecting it, t
   await chip.waitFor()
   // at its end inside it, here the sound's, on a name's line (NAMES, 6 px under the lanes' foot)
   const corner = await chip.boundingBox()
-  assert.ok(corner.x > x(8) && corner.x + corner.width <= x(9) + TAIL + 1 && Math.abs(corner.y + corner.height / 2 - box.y - NAMED) < 2, `in its foot, by its end: ${JSON.stringify(corner)}`)
+  assert.ok(corner.x > x(8) && corner.x + corner.width <= x(9) + TAIL + 1 && Math.abs(corner.y + corner.height / 2 - box.y - NAMED) < 2, `in its head, by its end: ${JSON.stringify(corner)}`)
   // its place in the foot, pressed near its end, before its numbers: all of it selected, to 9 s
   const strip = box.y + NAMED, near = corner.x - 4
   const line = async () => { await page.mouse.move(near, strip); return page.evaluate(() => document.querySelector('.plot').style.cursor) }
@@ -567,14 +567,14 @@ test('editor: a range over the takes\' place names it, its name at their start, 
   await open()
   await write(`audio('rhodes.wav')\n  // .write(audio('chime.wav'), { at: 1 })\n  .write(audio('birdsong.wav'), { at: 1 })\n  .pad(0, 3)\n  .mark({ at: 1, d: 8 }, 'Verse')`)
   await lengthIs('0:12.000')
-  const { box, x } = await axis(12), lane = Math.round(tall(box)), chip = page.locator('.plot .takes:not([hidden])')
+  const { box, x } = await axis(12), lane = 0, chip = page.locator('.plot .takes:not([hidden])')
   await chip.waitFor()
   const at = await chip.boundingBox()
   assert.ok(Math.abs(at.x + at.width - x(9) + 2) < 2, `at their end, inside: ${at.x + at.width - x(9)} px`)
-  // the rows the bright ink of columns [a, b) takes in the foot, under the lanes
-  const rows = (a, b) => pixels(`const out = []; for (let y = arg.y0; y < arg.y1; y++) { for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) { out.push(y); break } } } return out`, { a, b, y0: lane, y1: lane + FOOT })
-  // its name from its start, bright in the foot (once its marker has come with the output)
-  const ink = () => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) n++ } return n`, { a: Math.round(x(1) - box.x), b: Math.round(x(1) - box.x) + 34, y0: lane, y1: lane + FOOT })
+  // the rows the bright ink of columns [a, b) takes in the head, over the lanes
+  const rows = (a, b) => pixels(`const out = []; for (let y = arg.y0; y < arg.y1; y++) { for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) { out.push(y); break } } } return out`, { a, b, y0: lane, y1: lane + HEAD })
+  // its name from its start, bright in the head (once its marker has come with the output)
+  const ink = () => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) n++ } return n`, { a: Math.round(x(1) - box.x), b: Math.round(x(1) - box.x) + 34, y0: lane, y1: lane + HEAD })
   await poll(ink, lit => assert.ok(lit >= 15, `its name at their start: ${lit}`))
   // their numbers' text on its name's rows
   const named = await rows(Math.round(x(1) - box.x), Math.round(x(1) - box.x) + 34), numbers = await rows(Math.round(at.x - box.x), Math.round(at.x - box.x + at.width))
@@ -674,7 +674,7 @@ test('editor: recording with the spectrogram shown draws the take as a spectrogr
   await lengthIs('0:08.000')
   await show('spec')
   const { box, x } = await axis(8)
-  await page.mouse.click(x(1), box.y + TOP / 2)
+  await page.mouse.click(x(1), onRow(box))
   await page.getByRole('button', { name: 'Record', exact: true }).click()
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
   // past 3.5 s (a slow machine's clock, drawn seconds apart, may pass it between two looks)
@@ -696,7 +696,7 @@ test('editor: recording with the spectrogram shown draws the take as a spectrogr
 // made as the take starts, under the last, the take written into it where the caret was
 test('editor: R at the caret under the lanes records a new track there', async () => {
   const { box, x } = await chime()
-  await page.mouse.click(x(2), box.y + tall(box) + FOOT + ROOM / 2)
+  await page.mouse.click(x(2), box.y + tall(box) + ROOM / 2)
   await page.keyboard.press('r')
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
   await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 3 }, null, { timeout: 15000 })
@@ -707,7 +707,7 @@ test('editor: R at the caret under the lanes records a new track there', async (
 // The same with the Record button, as with R: the caret in the room makes the take a new track's, not the last one's
 test('editor: the Record button with the caret under the lanes records a new track there', async () => {
   const { box, x } = await chime()
-  await page.mouse.click(x(2), box.y + tall(box) + FOOT + ROOM / 2)
+  await page.mouse.click(x(2), box.y + tall(box) + ROOM / 2)
   await page.getByRole('button', { name: 'Record', exact: true }).click()
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
   await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 3 }, null, { timeout: 15000 })

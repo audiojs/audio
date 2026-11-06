@@ -346,12 +346,11 @@ svg { flex: none; }
 .plot { --end: 52px; }
 .plot .reel-cut { position: absolute; inset: 0; overflow: hidden; clip-path: inset(0 var(--end) 0 0); pointer-events: none; }
 .plot .reel { position: absolute; top: 0; left: 0; height: 100%; will-change: transform; }
-/* the lanes' pictures end at the time row over them (--top from the plot's top, view.js) and at its foot (--foot from
-   its foot): with more bands than the picture holds (data-deep), one scrolled past them cut there, the marks a guide
-   draws on the time row (view.js paintGuide: a range's bar) left to them. Only then: a clip on each window-wide layer
-   is a pass of its own for the compositor */
-.plot[data-deep] .reel > canvas:not(.row, .marks) { clip-path: inset(var(--top, 0px) 0 calc(var(--foot, 22px) - 2px) 0); }
-.plot[data-deep] .reel > canvas.marks { clip-path: inset(max(0px, var(--top, 0px) - 2px) 0 calc(var(--foot, 22px) - 2px) 0); }
+/* the lanes' pictures end at the time row (--foot from the plot's foot, view.js): with more bands than the picture
+   holds (data-deep), one scrolled past it cut there, the time row's top 2 px left to the marks a guide draws on it
+   (view.js paintGuide: a range's bar). Only then: a clip on each window-wide layer is a pass of its own for the
+   compositor */
+.plot[data-deep] .reel > canvas:not(.row) { clip-path: inset(0 0 calc(var(--foot, 22px) - 2px) 0); }
 /* How brightly the sound is drawn is the layer's own (view.js, light): none before any of it is here, dim while it is
    the file arriving, full once it is the output; what is drawn over it comes with it. It only ever fades between them,
    so a sound never blinks, and empty lanes never wait for one. */
@@ -603,18 +602,18 @@ svg { flex: none; }
 .lane-look[hidden] { display: none; }
 .lane-look svg, .layer button svg { width: 13px; height: 13px; }
 .lane-look:hover, .lane-look[aria-expanded="true"], .layer button:hover, .layer-look[aria-expanded="true"] { background: var(--color-screen-hover); color: var(--color-screen-bright); }
-/* The bands' layers (index.html .layers), over the picture, each over its band from its lanes to its foot (view.js
-   onlayout), cut at the time row over them, letting presses through to the picture but on its own buttons */
+/* The bands' layers (index.html .layers), over the picture, each over its band from its head to its lanes' foot
+   (view.js onlayout), letting presses through to the picture but on its own buttons */
 .layers { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 2; pointer-events: none; }
 .layer-rows { position: absolute; top: 0; left: 0; right: 0; overflow: hidden; }
 .layer { position: absolute; left: 0; right: 0; color: var(--color-screen-soft); font: 11px/16px var(--font-mono); }
 .layer > * { position: absolute; pointer-events: auto; }
-.layer-look { bottom: 1px; right: calc(var(--axis, 48px) - 17px); }
+.layer-look { top: 1px; right: calc(var(--axis, 48px) - 17px); }
 /* shown with its band pointed at, or itself, or how it shows open by it */
 .layer:not(.hot) .layer-look:not(:hover, :focus-visible, [aria-expanded="true"]) { opacity: 0; }
-.layer-lock { bottom: 1px; right: calc(var(--axis, 48px) + 2px); color: var(--color-screen-accent) !important; }
-/* its name written anew (its menu's Rename), where its foot starts */
-.layer-field { bottom: 1px; left: 0; height: 16px; padding-left: 2px; background: var(--color-screen); }
+.layer-lock { top: 1px; right: calc(var(--axis, 48px) + 2px); color: var(--color-screen-accent) !important; }
+/* its name written anew (its menu's Rename), where its head starts */
+.layer-field { top: 1px; left: 0; height: 16px; padding-left: 2px; background: var(--color-screen); }
 /* the title a new track would have, under the last: a placeholder, as an empty field's, only as the room under the
    lanes is pointed at (view.js paintRoom, data-room) */
 .layer-new { position: absolute; left: 0; display: flex; align-items: center; color: var(--color-screen-soft); font: 11px/16px var(--font-mono); cursor: pointer; pointer-events: auto; visibility: hidden; }

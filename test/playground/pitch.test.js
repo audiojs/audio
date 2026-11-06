@@ -1,7 +1,7 @@
 // Pitch: the pitch curve and line, the pitch tools, the notes lanes; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { TOP, TRACK, page, CHIME, code, open, settled, poll, menuRow, menu, noCues, write, tall, gutter, axis, grab, drag, lengthIs, tap, heard, pixels, show, shown, chime, tools } from './page.js'
+import { TOP, TRACK, page, CHIME, code, open, settled, poll, menuRow, menu, noCues, write, tall, gutter, axis, grab, drag, lengthIs, tap, heard, pixels, show, shown, chime, tools, onRow } from './page.js'
 
 // Pitch is edited in its own context (View > Pitch curve), on the spectrogram, which the picture turns to: the pitch curve
 // drawn on the voice's harmonics, none over the waveform; dragged up or down, by cents as the pitch tool goes (12 (dy /
@@ -206,7 +206,7 @@ test('editor: the tools set a voice\'s intonation and its formants, heard as the
   await menu('View', 'Pitch curve')
   const { box, x } = await axis(2), lh = TRACK, { intonation, formant } = tools(x, box, .5, 1.5), said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
   // selected from the time row, under the notes
-  await drag([x(.5), box.y + tall(box) + 8], [x(1.5) - x(.5), 0])
+  await drag([x(.5), onRow(box)], [x(1.5) - x(.5), 0])
   await page.mouse.move(...intonation)
   assert.equal(await said(), 'Intonation, wider or flatter')
   await heard()

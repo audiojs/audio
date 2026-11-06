@@ -1,14 +1,14 @@
 import { CURVES } from '../ops.js'
 import { lightness } from '../tint.js'
 import { ownMarks, snappedTo, SIDES, unwritten } from './data.js'
-import { frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, hotBand, pointedBand, plot, merged, spare, lanes, extent, own, through, roof, MAP, veils, placeFrozen, roomLane } from './geometry.js'
-import { ONTO, INSET, midiOf, noteOf, STRETCH, TICK, root, hint, timeRow, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, LEVEL_STEP, picked, tracks, focus, across, scroll, noted, held, assign } from './model.js'
+import { frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, hotBand, pointedBand, plot, merged, spare, lanes, extent, own, through, banded, MAP, veils, placeFrozen, roomLane } from './geometry.js'
+import { ONTO, INSET, midiOf, noteOf, STRETCH, TICK, root, hint, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, LEVEL_STEP, picked, tracks, focus, across, scroll, noted, held, assign } from './model.js'
 import { pitchRange, semis, pitchSays, intonationSays, median, pitched, clampY, paintGuide, BLACK, paintRoll, paintLine, bent, toneAt, paintContour } from './notes.js'
 import { drag, touch, hot, opening } from './pointer.js'
 import { decibels, drawn, W, H, dpr, half, invalidate, tape, rolled, onTape, running, wash, caretColour, rgba, shades } from './render.js'
 import { paintRuler, layHead, awayOf, onAway, paintAway, THICK, paintBar, barLight } from './ruler.js'
 import { gutter, onBar, X, time, free, snapF, seen, stick, stuck, pitchLine, inside, fy, yf, rowOf, keyY, keyRows, ay, ampLanes, pitchLanes, ticks, beside, hzMarks, noteMarks, levelMarks, levelTicks, reads, decibel, level, measured, probe, setRange } from './scales.js'
-import { paintMeasure, waveAt, ghostOf, placeFades, placeLook, paintRoom, paintLift, tag, accent, gauge, hinted, size, label, paintSelection, highlight, paintEdge, stamp, dragged, editing, paintCues, paintMarkers, feet, stripped, stripAt, kin, paintStrips, naming, paintOvers, paintClipped } from './strips.js'
+import { paintMeasure, waveAt, ghostOf, placeFades, placeLook, paintRoom, paintLift, tag, accent, gauge, size, label, paintSelection, highlight, paintEdge, stamp, dragged, editing, paintCues, paintMarkers, heads, stripped, stripAt, kin, paintStrips, naming, paintOvers, paintClipped } from './strips.js'
 
 // The overlay, over the reel: the axes, the pointer's readouts, what is measured; on the reel, the marks drawn in time
 // (markers, cues, carets, a range's edges) and its handles; the meters and the keys by the lanes' end
@@ -50,10 +50,10 @@ function onStrip(strip, x0, y0, x1, y1, fn) {
   assign({ c: strip.g })
   try { strip.draw(() => { c.setTransform(dpr, 0, 0, dpr, -px, -py); fn() }) } finally { assign({ c: oc }) }
 }
-// The time row on the reel, over the bands ('top') or from the lanes' foot down, the tape's width (laid as the marks
-// are, paint): drawn on in the tape's geometry, as the marks are
+// The time row on the reel, from the lanes' foot down, the tape's width (laid as the marks are, paint): drawn on in the
+// tape's geometry, as the marks are
 function onRow(fn) {
-  const top = timeRow === 'top' ? 0 : plot().h, bottom = timeRow === 'top' ? roof() : H
+  const top = plot().h, bottom = H
   const canvas = rowStrip.g.canvas, py = Math.floor(top * dpr), cw = marksCanvas.width, ch = Math.max(0, Math.round(bottom * dpr) - py)
   if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
   if (rowStrip.at !== py) { rowStrip.at = py; Object.assign(canvas.style, { top: `${py / dpr}px`, height: `${ch / dpr}px` }) }
@@ -187,31 +187,31 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
   // for all that is there (a cue within ONTO px of a marker, as stick has it, with it). A cue there, where the line
   // meets the waveform in each lane, at the waveform's top and foot
   // (a sound's start, where it rises from nothing, one on the centre line), a lane with no waveform at its top and
-  // foot; a marker or the takes' place, centred on the lanes' edge, its name lit in the foot (paintStrips). To the
-  // side the sound it went onto is, a faint wash fading from it. Grey, as the cues' lines are: hints
+  // foot; a marker or the takes' place, centred on the lanes' edge, its name lit in the head (paintStrips). To the
+  // side the sound it went onto is, a faint wash fading from it. In the accent, as the cues' lines are: hints
   const onto = dragged(), stuckTo = onto != null && stick(onto)
   if (stuckTo?.d < .5) {
     const rects = S.all, px = X(onto), here = t => Math.abs(X(t) - px) < 1, { side } = snappedTo(stuckTo.t)
-    const cue = seen().find(i => Math.abs(X(cues[i]) - px) <= ONTO), foot = ownMarks().some(here) ? feet(L).find(s => s.i === (tracks ? focus : null))?.edge : null
+    const cue = seen().find(i => Math.abs(X(cues[i]) - px) <= ONTO), head = ownMarks().some(here) ? heads(L).find(s => s.i === (tracks ? focus : null))?.edge : null
     // a clip's cross alike (paintOvers): a line a pixel wide, on pixels' middles
-    c.strokeStyle = hinted()
+    c.strokeStyle = accent()
     c.lineWidth = 1
-    if (foot != null) crossAt(px + .5, Math.round(foot) - .5)
-    if (cue != null || foot == null) for (const rect of rects) {
+    if (head != null) crossAt(px + .5, Math.round(head) + .5)
+    if (cue != null || head == null) for (const rect of rects) {
       const [, y, , lh] = rect, top = waveAt(rect, onto, y), low = top && waveAt(rect, onto, y + lh)
       for (const py of low ? [top.y, low.y] : [y + 3, y + lh - 3]) crossAt(px + .5, Math.round(py) + .5)
     }
     washFrom(px, cue != null ? SIDES[cueKinds[cue]] : side, rects, WASHED)
   }
 }
-// to the side the sound is of a line at `px` (`side`: 1 after it, -1 before, none: no wash), a wash of the hints' grey
+// to the side the sound is of a line at `px` (`side`: 1 after it, -1 before, none: no wash), a wash of the accent
 // fading from `a` to nothing WASH px off, a pixel clear of the line, so the line is its own colour whole. Each
 // gradient kept by where it is and how strong: a frame drawn as the last is then the same list (kept.js), the marks
 // not laid again as the reel follows the playhead under a pointer at rest
 export const WASH = 8, WASHED = .25, washes = new Map()
 export function washFrom(px, side, rects, a) {
   if (!side) return
-  const from = px + (side > 0 ? 2 : -1), to = from + side * WASH, fill = hinted(), key = `${from} ${to} ${a} ${fill}`
+  const from = px + (side > 0 ? 2 : -1), to = from + side * WASH, fill = accent(), key = `${from} ${to} ${a} ${fill}`
   let g = washes.get(key)
   if (!g) {
     if (washes.size > 64) washes.clear()
@@ -251,7 +251,7 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
   // what is drawn of the lanes ends at the time row: a band scrolled past it, cut there
   c.save()
   c.beginPath()
-  c.rect(0, roof(), W, plot().h - roof())
+  c.rect(0, 0, W, plot().h)
   c.clip()
   try { lanesOver() } finally { c.restore() }
   function lanesOver() {
@@ -282,10 +282,10 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
     c.textAlign = 'left'
     // the labels give way to the value read where it is written: at the waveform's level read, else the pointer's
     const near = rect => rect === lane ? Math.round(read?.y ?? at[1]) : null
-    // with tracks, the levels of the band pointed at (its foot too): one scale in sight, not every lane's; with none
-    // pointed at, none at all, the picture a player's then (the time row at the picture's foot, embedded: always)
-    const bands = timeRow !== 'top' ? all : pointedBand < 0 ? [] : tracks ? [all[pointedBand]] : all
-    for (const rect of tracks || timeRow === 'top' ? bands.filter(r => r.kind === 'wave') : L.wave) ticks(rect, levelMarks(rect), near(rect), levelTicks(rect))
+    // the levels of the band pointed at (its head too): one scale in sight, not every lane's; with none pointed at,
+    // none at all, the picture a player's then (embedded, the picture all there is: always)
+    const bands = !banded() ? all : pointedBand < 0 ? [] : tracks ? [all[pointedBand]] : all
+    for (const rect of bands.filter(r => r.kind === 'wave')) ticks(rect, levelMarks(rect), near(rect), levelTicks(rect))
     for (const rect of bands.filter(r => r.kind === 'spec')) ticks(rect, hzMarks(rect), near(rect))
     for (const rect of bands.filter(r => r.kind === 'notes')) ticks(rect, noteMarks(rect), near(rect))
     // the pointer's values; what a drag does, in a few words by it
@@ -349,12 +349,11 @@ const TAIL = 4
 export const reach = () => W > gutter + 1 ? Math.max(.5, (lanesEnd(lanes()) - TAIL) / plot().w) : 1
 export const seenTo = () => start + (end - start) * reach()
 export const fitTo = (a, b) => setRange(a, a + (b - a) / reach())
-let ends = null, footing = null, roofed = null
+let ends = null, footing = null
 function endLanes(L) {
   const end = lanesEnd(L)
   if (W - end !== ends) { ends = W - end; root.style.setProperty('--end', `${ends}px`) }
   if (H - plot().h !== footing) { footing = H - plot().h; root.style.setProperty('--foot', `${footing}px`) }
-  if (roof() !== roofed) { roofed = roof(); root.style.setProperty('--top', `${roofed}px`) }
   if (root.hasAttribute('data-deep') !== spare > 0) root.toggleAttribute('data-deep', spare > 0)
   c.save()
   c.globalCompositeOperation = 'destination-out'

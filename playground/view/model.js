@@ -10,12 +10,13 @@ import kept from '../kept.js'
 // 10 px reach; ONTO, how near a dragged time goes onto a cue or a marker, 3 px either side, so a drag goes where it is
 // put but by what it meets
 export const GUTTER = 48, RULER = 22, GAP = 2, EDGE = 6, SNAP = 6, STICK = 5, ONTO = 3, INSET = 3, NOTCH = Math.log(1.5)
-// A band: a track's lane, or a sound's lanes all told, GAP px apart; under it its foot, FOOT px, never over the sound:
-// its markers' names, as a transcript's words under its sounds, what forks it (its takes' numbers, the selection's
-// fork), its look at its right under the axis (editor.js layers); its last px dragged, the band's height (Finder's
-// column edge; with Alt, every band's), nothing drawn for it. Over the bands, the time row (`timeRow` 'top'), HEAD px,
-// one for them all, as a DAW's ruler: it stays as they scroll under it
-export const HEAD = 20, FOOT = 18
+// A band: a track's lane, or a sound's lanes all told, GAP px apart; over it its head, HEAD px, never over the sound:
+// its markers' names, as a document's headings over what they name, what forks it (its takes' numbers, the
+// selection's fork), its look at its right over the axis (editor.js layers), the one row between one band and the
+// next. Under its lanes, GRIP px dragged, the band's height (Finder's column edge; with Alt, every band's), nothing
+// drawn for it. Under them all, at the picture's foot, the time row, one for them all, as a DAW's: it stays as they
+// scroll over it
+export const HEAD = 18
 // A track's lane TRACK px tall, a sound's lanes the picture all told, unless its foot is dragged (LOW px at least); more
 // than the picture holds scroll up and down through it, as a DAW's tracks do, the room under the last always in reach:
 // ROOM px at least (all there is under the last lane, a lane's foot dragged up giving it more). Pointed at, a new
@@ -87,7 +88,7 @@ export const GLIDE = .3                               // a playhead past the vie
 
 
 // What view() is given (editor.js), kept as it mounts: its element, its callbacks, its zoom's limits and overshoot
-export let root, onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow, cueOrder
+export let root, onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, cueOrder
 export const element = (tag, className, parent) => parent.appendChild(Object.assign(document.createElement(tag), { className }))
 // a button of the picture's own pressed: the picture keeps the keys (its own, Undo's), as a press anywhere in it gives them
 export const keep = () => root.focus({ preventScroll: true })
@@ -268,7 +269,7 @@ export let ahead = false
 // The view mounted on its element, once: what it is given kept, its layers made and laid in their order
 export function mount(el, given) {
   root = el
-  ;({ onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow, cueOrder } = given)
+  ;({ onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, cueOrder } = given)
   // the selection under the pictures, as a selection is behind text: the sound drawn over it, a quiet spectrogram's
   // clear ground showing it; the grid over the spectrogram, under the waveform, in the waveform's canvas (paintGrid). The
   // pictures on a reel (roll), cut where the lanes end (editor.css --end): drawn past the view's right end, the reel

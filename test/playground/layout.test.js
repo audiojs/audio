@@ -1,7 +1,7 @@
 // The page's layout: the panel, a phone's and a tablet's, the bar; the server, the page and the helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, wholeLevels, open, settled, still, tab, edits, noCues, write, FOOT, tall, gutter, axis, drag, lengthIs, pixels, show, menu, setPage } from './page.js'
+import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, wholeLevels, open, settled, still, tab, edits, noCues, write, HEAD, tall, gutter, axis, drag, lengthIs, pixels, show, menu, setPage } from './page.js'
 
 // Over the picture: its tabs; at its foot, the bar, undo and redo none of its (the Edit menu's); what it shows
 // chosen by its look, in the sound's foot under its axis; none moving as the picture turns. At the slab's top
@@ -46,7 +46,7 @@ test('editor: no undo nor redo in the bar, the Edit menu\'s; a band\'s look in i
   const smaller = await baselines()
   assert.ok(Math.abs(smaller.time - wide.time) <= 1 && Math.abs(smaller.length - wide.length) <= 1, `the smaller time on the same baseline: ${JSON.stringify(smaller)}`)
   await page.setViewportSize(size)
-  assert.ok(look.x > plot.x + plot.width - await gutter() - 2 && look.y >= plot.y + tall() && look.y + look.height <= plot.y + tall() + FOOT, `the look at the sound's foot's right, under its axis: ${look.x}, ${look.y}; ${plot.x}, ${plot.y}`)
+  assert.ok(look.x > plot.x + plot.width - await gutter() - 2 && look.y >= plot.y && look.y + look.height <= plot.y + HEAD, `the look at the sound's head's right, over its axis: ${look.x}, ${look.y}; ${plot.x}, ${plot.y}`)
   await show('spec')
   assert.deepEqual((await heads()).map(b => b.x), [look.x], 'nothing moved as it turned')
   await show('wave')

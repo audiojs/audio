@@ -2,7 +2,7 @@
 // helpers in page.js
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { endWay, endDrag, TOP, TRACK, page, code, wholeLevels, levelsTable, open, settled, frames, poll, still, settings, selected, tab, menu, palette, noCues, write, LANES, tall, gutter, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, heard, hits, handles, dragCue, pixels, show, bursts, way, turn, keyed, chime } from './page.js'
+import { endWay, endDrag, TOP, TRACK, page, code, wholeLevels, levelsTable, open, settled, frames, poll, still, settings, selected, tab, menu, palette, noCues, write, LANES, tall, gutter, spans, axis, grab, STRETCHING, warps, boxDrag, drag, lengthIs, tap, heard, hits, handles, dragCue, pixels, show, bursts, way, turn, keyed, chime, onRow } from './page.js'
 
 // Moved past the sound's end, a slice opens silence up to where it lands: the sound gets longer
 test('editor: a slice moved past the end opens silence up to where it lands', async () => {
@@ -473,7 +473,7 @@ test('editor: a selection\'s fade squares sit on whole pixels, flush with its st
   const { box, x } = await axis(2)
   await drag([x(.5) + .3, box.y + TOP + 60], [x(1.5) - x(.5), 0])
   // the pointer by it, so its squares show, in its middle on the time row over the lanes, clear of the rows measured
-  await page.mouse.move(x(1), box.y + TOP / 2)
+  await page.mouse.move(x(1), onRow(box))
   await poll(() => pixels(`
     const at = (px, y) => d[(y * w + px) * 4]
     // on a row under the squares, between the grid's dots (a tenth of full scale apart, 8 px in a lane TRACK px tall):
