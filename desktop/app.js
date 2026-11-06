@@ -1,6 +1,6 @@
-// The playground in the Mac app (playground/?desktop, which loads this; editor.css lays it out): its menus to the Mac's
+// The repl in the Mac app (repl/?desktop, which loads this; editor.css lays it out): its menus to the Mac's
 // menu bar, its panels' buttons to the window's toolbar, an item picked there run here.
-import { glyph } from '../playground/icons.js'
+import { glyph } from '../repl/icons.js'
 
 const app = window.webkit?.messageHandlers?.app
 const post = message => app?.postMessage(message)
@@ -12,7 +12,7 @@ const panels = () => [...document.querySelectorAll('.side-head .panels button[ro
 function panel(label) { panels().find(b => b.getAttribute('aria-label') === label)?.click(); push() }
 
 // ---- the menus: the page's own, as its menu bar has them now (an icon where it has one), to the Mac's; an item
-// picked there runs here, by its command's id (playground/editor/commands.js), or one made for the menu by its place
+// picked there runs here, by its command's id (repl/editor/commands.js), or one made for the menu by its place
 // under it ----
 let runs = new Map(), queued = 0
 function serialize(menus) {
@@ -48,7 +48,7 @@ function push() {
     if (!menus) return
     const editing = !!document.activeElement?.closest?.('input, textarea, select, [contenteditable="true"], .cm-editor')
     const toolbar = panels().map(b => ({ label: b.getAttribute('aria-label'), icon: b.querySelector('svg')?.outerHTML ?? '', selected: b.getAttribute('aria-selected') === 'true' }))
-    const title = document.title.replace(/ · audio playground$/, '')
+    const title = document.title.replace(/ · audio repl$/, '')
     post({ menus: serialize(menus), recording: !!document.querySelector('button.record.on'), editing, background: colour(), toolbar, title })
   }, 30)
 }

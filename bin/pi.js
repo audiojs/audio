@@ -1,5 +1,5 @@
-// The playground's tools for pi (https://pi.dev), which takes no MCP server: each a tool of pi's, reaching the page through
-// the bridge as `audio --mcp --playground` does (bin/mcp.js). The bridge's chat loads it, `pi -e bin/pi.js`; pi on its own
+// The repl's tools for pi (https://pi.dev), which takes no MCP server: each a tool of pi's, reaching the page through
+// the bridge as `audio --mcp --repl` does (bin/mcp.js). The bridge's chat loads it, `pi -e bin/pi.js`; pi on its own
 // may too, the bridge then found as it left its address and key.
 import { EDITOR, reach } from './mcp.js'
 

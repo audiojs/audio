@@ -199,7 +199,7 @@ pages) is held by one lock for the instance's life.
   (`open`, the file held while the sound is). Past `max` bytes the oldest written goes. Without a name, or in Node, in
   memory (the least lately used first). `audio.memo` takes one.
 
-The editor's own files (`playground/keep.js`: the files a person opens and the takes they record, bytes kept as given,
+The editor's own files (`repl/keep.js`: the files a person opens and the takes they record, bytes kept as given,
 never evicted) are not sounds by key and stay its own, under its own lock (one editor writes at a time).
 
 ## Checkpoints

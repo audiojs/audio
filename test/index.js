@@ -4774,7 +4774,7 @@ test('stat(onsets) — silence returns empty array', async t => {
 
 test('stat(onsets) — a ring that beats as it decays is one hit, not one per swell', async t => {
   // a bar struck once a second: its tone and a weaker partial 1 Hz above, beating as the ring decays; each swell is
-  // a fraction of a dB, where a strike rises tens of dB (as the chime sample does, playground/samples.js)
+  // a fraction of a dB, where a strike rises tens of dB (as the chime sample does, repl/samples.js)
   let sr = 44100, x = new Float32Array(sr * 5), strikes = [.5, 1.5, 2.5, 3.5]
   for (let at of strikes) for (let i = Math.round(at * sr); i < x.length; i++) {
     let s = i / sr - at
@@ -6242,7 +6242,7 @@ const umxhq = neural && (await import('fs')).existsSync(`${process.env.AUDIO_NEU
   })
 })
 
-// A voice and the rest split apart (the playground's Split the voice to a new track): each its own chain, read at once,
+// A voice and the rest split apart (the repl's Split the voice to a new track): each its own chain, read at once,
 // one separation between them (core.js memo), and their sum the input, sample for sample
 test('vocals: a voice and its rest add back to the input, one separation between them', async t => {
   let calls = 0

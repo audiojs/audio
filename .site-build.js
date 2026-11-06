@@ -1,5 +1,5 @@
 // The website's bundles, which git ignores: node .site-build.js makes them all, as the Mac app's server does as it starts
-// and a test before it runs (bundles()). Watched (npm run serve, which starts the server with --watch): the playground's
+// and a test before it runs (bundles()). Watched (npm run serve, which starts the server with --watch): the repl's
 // output cleared first, each bundle made again as its sources change. node .site-build.js <dir>: the site as Pages
 // deploys it, in <dir> (site())
 import { build, context } from 'esbuild'
@@ -85,8 +85,8 @@ const named = [...new Set([...Object.values(audio.plugins), ...Object.keys(peerD
 // The editor's engine worker: the library with every plugin and codec as a chunk that loads on first use.
 // Workers have no import maps, so no bare import is left for the browser to resolve.
 const ENGINE = {
-  entryPoints: { worker: 'playground/worker.js', jobs: 'playground/jobs.js' },
-  outdir: 'playground/dist',
+  entryPoints: { worker: 'repl/worker.js', jobs: 'repl/jobs.js' },
+  outdir: 'repl/dist',
   chunkNames: 'chunks/[name]-[hash]',
   bundle: true,
   splitting: true,
@@ -120,11 +120,11 @@ const ENGINE = {
   legalComments: 'eof'
 }
 
-// The deck's worker (playground/voices.js): the library as playback needs it, which audio/worker's host takes for the
+// The deck's worker (repl/voices.js): the library as playback needs it, which audio/worker's host takes for the
 // whole library it would otherwise load (its `import('./audio.js')`, here core with the ops voices.js imports)
 const VOICES = {
-  entryPoints: { voices: 'playground/voices.js' },
-  outdir: 'playground/dist',
+  entryPoints: { voices: 'repl/voices.js' },
+  outdir: 'repl/dist',
   chunkNames: 'voices/[name]-[hash]',
   bundle: true,
   splitting: true,
@@ -158,22 +158,22 @@ async function assets(watch) {
   // the editor's pictures: gl-waveform and gl-spectrogram, each one ES module with no dependencies, as published
   for (const name of ['gl-waveform', 'gl-spectrogram']) await copyFile(`node_modules/${name}/index.js`, `assets/${name}.js`)
 }
-// The playground's workers in playground/dist: the engine and its jobs thread, the deck's voices
+// The repl's workers in repl/dist: the engine and its jobs thread, the deck's voices
 async function workers(watch) {
   // only serve clears: a test's build leaves the folder, as another session's suite may be serving it
-  if (watch) await rm('playground/dist', { recursive: true, force: true })
+  if (watch) await rm('repl/dist', { recursive: true, force: true })
   await make(ENGINE, watch)
   await make(VOICES, watch)
-  for (const [from, name] of FETCHED) try { await copyFile(fileURLToPath(import.meta.resolve(from)), `playground/dist/chunks/${name}`) } catch {}
+  for (const [from, name] of FETCHED) try { await copyFile(fileURLToPath(import.meta.resolve(from)), `repl/dist/chunks/${name}`) } catch {}
 }
 /** Every bundle made from the source as it is; watched, made again as it changes */
 export async function bundles(watch = false) { await assets(watch); await workers(watch) }
 
-// The playground's page as deployed: the modules and the stylesheet it names bundled and minified, each with what it
-// imports (what two of them share, a chunk; what one loads on first use, a chunk of its own), in playground/dist/page; the
+// The repl's page as deployed: the modules and the stylesheet it names bundled and minified, each with what it
+// imports (what two of them share, a chunk; what one loads on first use, a chunk of its own), in repl/dist/page; the
 // page naming them, its comments gone. npm run serve and the tests run the modules as they are (tests patch their text):
 // only the deployed page loads these, and test/live.js the page as deployed
-const ROOT = fileURLToPath(new URL('.', import.meta.url)), PAGE = 'playground/dist/page'
+const ROOT = fileURLToPath(new URL('.', import.meta.url)), PAGE = 'repl/dist/page'
 // a path a file names from its own place, named from the bundle's (a trailing slash kept)
 const moved = (file, path) => relative(PAGE, join(dirname(relative(ROOT, file)), path)) + (path.endsWith('/') ? '/' : '')
 // what a module fetches beside itself (new URL('./dist/worker.js', import.meta.url): a worker, a worklet, a theme), and
@@ -199,9 +199,9 @@ const given = html => [
 ]
 async function page(dir) {
   // the page without its comments and the modules it preloaded; what it names, in its order: the mark it waits on first
-  const file = 'playground/index.html', html = (await readFile(file, 'utf8')).replace(/[ \t]*<!--[\s\S]*?-->\n?/g, '').replace(/[ \t]*<link rel="modulepreload"[^>]*>\n/g, '')
+  const file = 'repl/index.html', html = (await readFile(file, 'utf8')).replace(/[ \t]*<!--[\s\S]*?-->\n?/g, '').replace(/[ \t]*<link rel="modulepreload"[^>]*>\n/g, '')
   const paths = [...new Set(given(html))].sort((a, b) => html.indexOf(a) - html.indexOf(b))
-  const entries = paths.map(path => ({ path, in: join('playground', path), out: path.replace(/^.*\/|\.\w+$/g, '') }))
+  const entries = paths.map(path => ({ path, in: join('repl', path), out: path.replace(/^.*\/|\.\w+$/g, '') }))
   const { metafile } = await build({
     entryPoints: entries.map(e => ({ in: e.in, out: e.out })),
     outdir: join(dir, PAGE),
@@ -217,11 +217,11 @@ async function page(dir) {
     plugins: [relocate]
   })
   // each output by the path the page writes it as (dist/page/…), and the modules it imports as it loads, every one
-  const { outputs } = metafile, at = out => relative(join(dir, 'playground'), resolve(out))
+  const { outputs } = metafile, at = out => relative(join(dir, 'repl'), resolve(out))
   const of = e => Object.keys(outputs).find(out => outputs[out].entryPoint === e.in)
   const loads = (out, seen = new Set()) => { if (!seen.has(out)) { seen.add(out); for (const i of outputs[out].imports) if (i.kind === 'import-statement') loads(i.path, seen) } return seen }
   // the stylesheets a bundled one imports, which the page preloaded beside it
-  const inlined = new Set(Object.keys(outputs).filter(out => out.endsWith('.css')).flatMap(out => Object.keys(outputs[out].inputs)).map(i => relative('playground', i)))
+  const inlined = new Set(Object.keys(outputs).filter(out => out.endsWith('.css')).flatMap(out => Object.keys(outputs[out].inputs)).map(i => relative('repl', i)))
   const modules = [...new Set(entries.filter(e => e.path.endsWith('.js')).flatMap(e => [...loads(of(e))]))].map(at)
   let out = html.replace(/[ \t]*<link rel="preload" href="([^"]+)" as="style">\n/g, (line, href) => inlined.has(href) ? '' : line)
   for (const e of entries) {
@@ -234,7 +234,7 @@ async function page(dir) {
   await writeFile(join(dir, file), out)
 }
 /** The site as Pages deploys it, in `dir`: the repository's files as they are served (none hidden, no node_modules), the
- *  bundles made before, and the playground's page as deployed (page) */
+ *  bundles made before, and the repl's page as deployed (page) */
 /** Whether folder `dir` is `root` or holds it: a folder the site is built into is cleared first, and never such a one */
 export const holds = (dir, root = ROOT) => { const up = relative(resolve(dir), root); return !up.startsWith('..') && !isAbsolute(up) }
 export async function site(dir) {

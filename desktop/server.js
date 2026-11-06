@@ -1,4 +1,4 @@
-/** Serve the playground and local media files for Audio.app on 127.0.0.1. */
+/** Serve the repl and local media files for Audio.app on 127.0.0.1. */
 import { createServer } from 'node:http'
 import { execFileSync } from 'node:child_process'
 import { createReadStream, fstatSync } from 'node:fs'
@@ -54,7 +54,7 @@ const server = createServer(async (req, res) => {
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') return res.writeHead(405).end()
     // This server supplies the isolation headers; the service worker only claims the page.
-    if (pathname === '/playground/sw.js') return res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }).end("self.addEventListener('install', () => self.skipWaiting())\nself.addEventListener('activate', e => e.waitUntil(self.clients.claim()))\n")
+    if (pathname === '/repl/sw.js') return res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }).end("self.addEventListener('install', () => self.skipWaiting())\nself.addEventListener('activate', e => e.waitUntil(self.clients.claim()))\n")
     // the repo's own files, as `npm run serve` serves them
     await serve(root, pathname, search, res)
   } catch (e) { reply(res, e.status ?? 500, { error: e.message, code: e.code }) }

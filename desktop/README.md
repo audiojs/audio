@@ -1,6 +1,6 @@
 # Audio.app
 
-The playground as a Mac app. Recording and export use the playground's existing flow.
+The repl as a Mac app. Recording and export use the repl's existing flow.
 
 ```sh
 npm run app

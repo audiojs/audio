@@ -34,7 +34,7 @@ jobs:
       - run: npm ci
         env:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
-      # the library's dist/, then the site's bundles (git holds none): a test importing the playground's modules in Node
+      # the library's dist/, then the site's bundles (git holds none): a test importing the repl's modules in Node
       # (code.js reads assets/lezer.js) finds them before it runs
       - run: npm run build && node .site-build.js
       - run: npx playwright install --with-deps chromium

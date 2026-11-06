@@ -1,6 +1,6 @@
 name: pages
-# The website, built: the bundles in assets/ and the playground's engine in playground/dist/ (which git ignores) made
-# from this commit, the site as served in _site, the playground's page minified there (node .site-build.js _site), then
+# The website, built: the bundles in assets/ and the repl's engine in repl/dist/ (which git ignores) made
+# from this commit, the site as served in _site, the repl's page minified there (node .site-build.js _site), then
 # deployed and opened as a visitor would (test/live.js)
 on:
   push:

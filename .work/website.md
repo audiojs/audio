@@ -29,7 +29,7 @@ Public npm download counts, same window: **2026-08-22 through 2026-09-20**, retr
 
 These are downloads, including dependency installation, automation, and repeat installation. They do not identify active developers, direct users, satisfaction, or intent to adopt `audio`. The current [`audio-decode` release metadata](https://registry.npmjs.org/audio-decode/latest) describes it as an unscoped alias of `@audio/decode`; historic versions and dependency trees make the counts especially unsuitable as a count of potential customers.
 
-The local package and registry both identify `audio@2.6.9`. The library already has editing, analysis, export, CLI, plugins, and a worker interface. The [current todo](todo.md) still lists a playground as unfinished (`.work/todo.md:9`), while counting 141 registry names (`:3`). This is evidence of substantial capability and an unfinished demonstration surface. It does **not** establish why adoption is low.
+The local package and registry both identify `audio@2.6.9`. The library already has editing, analysis, export, CLI, plugins, and a worker interface. The [current todo](todo.md) still lists a repl as unfinished (`.work/todo.md:9`), while counting 141 registry names (`:3`). This is evidence of substantial capability and an unfinished demonstration surface. It does **not** establish why adoption is low.
 
 **UNKNOWN:** active downstream projects, retention, the share of direct versus transitive installations, website search traffic, utility-to-library conversion, and which task users would switch tools for. No analytics or user interviews were available for this review.
 
@@ -96,7 +96,7 @@ The npm name and a polished landing page are not durable technical defenses. Rel
 
 2. **The facade must earn its installation.** Evidence: the download gap and the documented ability to use components without the engine. Implication: decoder popularity is not proof of demand for an editing abstraction. Move: offer direct component routes and demonstrate the precise step where `audio` saves work. Trade-off: some visitors correctly leave without installing it. This is the package consumer's interest, not lost conversion.
 
-3. **First success deserves priority over more breadth.** Evidence: the unfinished playground beside a large registry (`.work/todo.md:3–9`). Implication: adding GPU, MCP, or another processor cannot yet be justified as the adoption fix. Move: test the existing workflow before adding capabilities for positioning. Trade-off: less novelty; faster evidence about usefulness.
+3. **First success deserves priority over more breadth.** Evidence: the unfinished repl beside a large registry (`.work/todo.md:3–9`). Implication: adding GPU, MCP, or another processor cannot yet be justified as the adoption fix. Move: test the existing workflow before adding capabilities for positioning. Trade-off: less novelty; faster evidence about usefulness.
 
 4. **Utility success and library adoption require separate evidence.** Evidence: utilities already exist, but no conversion data was available. Implication: a popular converter could help many people without creating demand for `audio`. Move: show the actual implementation and a relevant recipe where a utility genuinely uses it. Trade-off: less speculative SEO expansion; a clearer link between use and integration.
 
@@ -231,7 +231,7 @@ The first release can be one static page with an interactive example and existin
 
 - If `audio-decode` keeps solving the larger need and the facade stays smaller, would that count as success for this work?
 - Which five developers with a current recording/editing problem can you reach, and which workflow are you willing to support closely for them?
-- The playground is still open beside a large processor registry. Will you reserve the next development interval for first-use failures and documentation, even if the requests are less interesting than new DSP?
+- The repl is still open beside a large processor registry. Will you reserve the next development interval for first-use failures and documentation, even if the requests are less interesting than new DSP?
 
 ## Verification
 

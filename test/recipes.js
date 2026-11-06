@@ -1,10 +1,10 @@
-// The editor's voice recipes (playground/recipes.js), run as the editor runs them, `$src` the open sound: each one that names
+// The editor's voice recipes (repl/recipes.js), run as the editor runs them, `$src` the open sound: each one that names
 // a delivery spec passes its check on a narration recorded at home: phrases and pauses, the room 35 dB under the
 // voice (nine Spoken Wikipedia narrations: 13 to 59 dB, median 39), the level 20 dB under a podcast's. A technique does
 // what its source says it does, measured (sources and numbers: .work/recipes.md §3, §4).
 import test, { ok, is, almost } from 'tst'
 import audio from '../audio.js'
-import recipes from '../playground/recipes.js'
+import recipes from '../repl/recipes.js'
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import os from 'node:os'

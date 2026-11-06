@@ -1,4 +1,4 @@
-// Audio.app: the editor (the playground, desktop/server.js serving it from this repo) in a window it fills, its menus the
+// Audio.app: the editor (the repl, desktop/server.js serving it from this repo) in a window it fills, its menus the
 // Mac's menu bar, and the server itself, started and stopped with the app. All the app does natively is what a page
 // cannot: windows and the menu bar, files opened from the Finder or the Dock, open and save panels, downloads, the
 // microphone permission. Everything else is the repo's own code (desktop/app.js joins the page to the app), so a change
@@ -165,7 +165,7 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelega
     w.center()
     w.setFrameAutosaveName(name)
     w.tabbingMode = .disallowed
-    titles.append(view.observe(\.title, options: [.new]) { v, _ in w.title = (v.title ?? "").replacingOccurrences(of: " · audio playground", with: "") })
+    titles.append(view.observe(\.title, options: [.new]) { v, _ in w.title = (v.title ?? "").replacingOccurrences(of: " · audio repl", with: "") })
     view.load(URLRequest(url: url))
     w.makeKeyAndOrderFront(nil)
     return w
@@ -371,7 +371,7 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelega
   var panels: [Panel] = []
   var panelIds: [NSToolbarItem.Identifier] { panels.map { NSToolbarItem.Identifier("panel." + $0.label) } }
 
-  // An icon of the page's (an SVG, playground/icons.js glyph) at `side` points, a template, so it takes the colour of
+  // An icon of the page's (an SVG, repl/icons.js glyph) at `side` points, a template, so it takes the colour of
   // the text it stands by, as the page's take theirs; each drawn once
   var glyphs: [String: NSImage] = [:]
   func glyph(_ svg: String, _ side: CGFloat = 16) -> NSImage? {

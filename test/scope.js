@@ -8,37 +8,37 @@ const LIB = ['audio.js', 'core.js', 'plan.js', 'cache.js', 'store.js', 'checkpoi
 // the website as served: its pages, their scripts and the bundles .site-build.js makes
 const SITE = ['index.html', 'logo/', 'assets/', '.site-build.js', 'package-lock.json']
 
-// The playground's suites, a test file each (test/playground/), and the modules it is about: a change to one of those
-// runs the suites it is of alone; to any other file of the playground (the boot, its context, the view's model, code.js,
+// The repl's suites, a test file each (test/repl/), and the modules it is about: a change to one of those
+// runs the suites it is of alone; to any other file of the repl (the boot, its context, the view's model, code.js,
 // the engine, and what the tests' helpers drive: the menus, the commands, the keys, the looks, the script editor, the
 // edits' panel), every one
 const FEATURES = {
-  engine: ['playground/meters.js', 'playground/scrub.js', 'playground/scrub-voice.js', 'playground/sources.js', 'playground/heard.js', 'playground/jobs.js', 'playground/voices.js'],
-  code: ['playground/help.js', 'playground/icons.js', 'playground/time.js', 'playground/doing.js', 'playground/markdown.js', 'playground/recipes.js', 'bin/'],
-  run: ['playground/editor/run.js', 'playground/view/data.js', 'playground/sw.js'],
-  look: ['playground/theme.js', 'playground/tint.js', 'playground/themes/', 'playground/themes.html', 'playground/skin.css', 'playground/scale.js'],
-  menus: ['playground/hint.js', 'desktop/app.js'],
-  edits: ['playground/editor/edits.js', 'playground/recipes.js'],
-  writers: ['playground/editor/writers.js', 'playground/view/gestures.js'],
-  pitch: ['playground/view/notes.js', 'playground/editor/writers.js'],
-  markers: ['playground/view/strips.js', 'playground/editor/writers.js'],
-  select: ['playground/view/select.js', 'playground/view/pointer.js', 'playground/view/gestures.js', 'playground/view/overlay.js'],
-  ruler: ['playground/view/ruler.js'],
-  zoom: ['playground/view/scales.js'],
-  render: ['playground/view/render.js', 'playground/view/overlay.js'],
-  readouts: ['playground/editor/readouts.js', 'playground/meters.js', 'playground/heard.js'],
-  play: ['playground/editor/play.js', 'playground/player.js', 'playground/scrub.js', 'playground/scrub-voice.js'],
-  recording: ['playground/editor/recording.js', 'playground/sources.js', 'playground/keep.js'],
-  tracks: ['playground/editor/tracks.js', 'playground/view/geometry.js'],
-  files: ['playground/editor/files.js', 'playground/keep.js', 'playground/kept.js', 'playground/samples.js', 'playground/jobs.js'],
-  tabs: ['playground/editor/tabs.js', 'playground/editor/persist.js'],
-  clipboard: ['playground/editor/clipboard.js'],
-  agent: ['playground/editor/tools.js', 'playground/editor/chat.js', 'playground/agent.js', 'playground/doing.js', 'playground/markdown.js', 'bin/'],
-  layout: ['playground/editor.css'],
-  embed: ['playground/embed.js']
+  engine: ['repl/meters.js', 'repl/scrub.js', 'repl/scrub-voice.js', 'repl/sources.js', 'repl/heard.js', 'repl/jobs.js', 'repl/voices.js'],
+  code: ['repl/help.js', 'repl/icons.js', 'repl/time.js', 'repl/doing.js', 'repl/markdown.js', 'repl/recipes.js', 'bin/'],
+  run: ['repl/editor/run.js', 'repl/view/data.js', 'repl/sw.js'],
+  look: ['repl/theme.js', 'repl/tint.js', 'repl/themes/', 'repl/themes.html', 'repl/skin.css', 'repl/scale.js'],
+  menus: ['repl/hint.js', 'desktop/app.js'],
+  edits: ['repl/editor/edits.js', 'repl/recipes.js'],
+  writers: ['repl/editor/writers.js', 'repl/view/gestures.js'],
+  pitch: ['repl/view/notes.js', 'repl/editor/writers.js'],
+  markers: ['repl/view/strips.js', 'repl/editor/writers.js'],
+  select: ['repl/view/select.js', 'repl/view/pointer.js', 'repl/view/gestures.js', 'repl/view/overlay.js'],
+  ruler: ['repl/view/ruler.js'],
+  zoom: ['repl/view/scales.js'],
+  render: ['repl/view/render.js', 'repl/view/overlay.js'],
+  readouts: ['repl/editor/readouts.js', 'repl/meters.js', 'repl/heard.js'],
+  play: ['repl/editor/play.js', 'repl/player.js', 'repl/scrub.js', 'repl/scrub-voice.js'],
+  recording: ['repl/editor/recording.js', 'repl/sources.js', 'repl/keep.js'],
+  tracks: ['repl/editor/tracks.js', 'repl/view/geometry.js'],
+  files: ['repl/editor/files.js', 'repl/keep.js', 'repl/kept.js', 'repl/samples.js', 'repl/jobs.js'],
+  tabs: ['repl/editor/tabs.js', 'repl/editor/persist.js'],
+  clipboard: ['repl/editor/clipboard.js'],
+  agent: ['repl/editor/tools.js', 'repl/editor/chat.js', 'repl/agent.js', 'repl/doing.js', 'repl/markdown.js', 'bin/'],
+  layout: ['repl/editor.css'],
+  embed: ['repl/embed.js']
 }
-// what every playground suite loads: the site, the playground, the library's worker and deck, the tests' page and fixtures
-const PLAYGROUND = [...SITE, 'playground/', 'worker.js', 'deck.js', 'fn/curves.js', 'test/playground/page.js', 'test/gen.js', 'test/fixture.wav']
+// what every repl suite loads: the site, the repl, the library's worker and deck, the tests' page and fixtures
+const REPL = [...SITE, 'repl/', 'worker.js', 'deck.js', 'fn/curves.js', 'test/repl/page.js', 'test/gen.js', 'test/fixture.wav']
 const OWNED = [...new Set(Object.values(FEATURES).flat())]
 
 // advice: on a shared runner the audio thread misses deadlines now and then, so these report and don't fail the run
@@ -49,11 +49,11 @@ const SUITES = [
   // its resources released and its heap bounded, on a bare page and on the demo
   { name: 'memory', run: 'npm run test:memory', on: [...LIB, ...SITE, 'test/memory.test.js', 'test/memory-core.test.js'] },
   // the editor, a feature a suite: its engine against the library in Node, its code against the CLI
-  ...Object.entries(FEATURES).map(([name, own]) => ({ name: `playground ${name}`, run: `node --test test/playground/${name}.test.js`, on: [...PLAYGROUND, ...own, `test/playground/${name}.test.js`], off: OWNED.filter(p => !own.includes(p)) })),
+  ...Object.entries(FEATURES).map(([name, own]) => ({ name: `repl ${name}`, run: `node --test test/repl/${name}.test.js`, on: [...REPL, ...own, `test/repl/${name}.test.js`], off: OWNED.filter(p => !own.includes(p)) })),
   // what a visitor sees first, as test/live.js checks the deployed site after each deploy: here, before one, on the site
-  // as Pages gets it (the playground's page minified), the home's hero held to its first-load budget
-  { name: 'live', run: 'node test/live.js --local', on: [...SITE, 'playground/', '.site-serve.js', 'test/live.js'] },
-  { name: 'recording', run: 'CI= node --test --test-name-pattern="recording with the spectrogram shown" test/playground/recording.test.js', advice: true, on: ['playground/', 'test/playground/page.js', 'test/playground/recording.test.js'] },
+  // as Pages gets it (the repl's page minified), the home's hero held to its first-load budget
+  { name: 'live', run: 'node test/live.js --local', on: [...SITE, 'repl/', '.site-serve.js', 'test/live.js'] },
+  { name: 'recording', run: 'CI= node --test --test-name-pattern="recording with the spectrogram shown" test/repl/recording.test.js', advice: true, on: ['repl/', 'test/repl/page.js', 'test/repl/recording.test.js'] },
   // real-time playback, clicks and gaps measured as heard
   { name: 'playback', run: 'TEST_PAGES=playback node test/browser.js', advice: true, on: [...LIB, 'test/play.html', 'test/play.js', 'test/browser.js'] },
 ]

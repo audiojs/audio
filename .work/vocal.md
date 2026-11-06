@@ -65,7 +65,7 @@ Modes Blob, Curve, Rhythm (Ctrl+1/2/3), tools 1 to 4 per mode, Ctrl+4 the Pitch 
 | VOCALTUNER | Ours | Status | Note |
 |---|---|---|---|
 | Pitch track (Harvest, 5 ms) | `contour()` (pYIN Viterbi, 5 or 10 ms), `fn/pitch-detect.js`; `stat('notes', { robust })` a neural first stage | ✅ | Not compared against Harvest here |
-| Note segmentation (slope peaks, plateaus) | Tony's note HMM (`@audio/pitch/pyin` `notes`), the Notes view's (`playground/worker.js` `notes`) and the new ops' | ✅ | A published, evaluated model (Mauch et al., TENOR 2015) |
+| Note segmentation (slope peaks, plateaus) | Tony's note HMM (`@audio/pitch/pyin` `notes`), the Notes view's (`repl/worker.js` `notes`) and the new ops' | ✅ | A published, evaluated model (Mauch et al., TENOR 2015) |
 | Consonant blocks | unvoiced audio passes untouched by every voice op | ✅ | No consonant "notes" to edit |
 | Move a note, snapped to its semitone | the Notes view's drag: `pitch(st, { at, d, voice: true })` | ◐ | The range glides in over ~90 ms where VOCALTUNER moves the note from its onset; see Notes view below |
 | Double-click: centre on its semitone | `center(0, { at, d })` | ✅ | From the note's first frame after silence (measured below) |
@@ -74,7 +74,7 @@ Modes Blob, Curve, Rhythm (Ctrl+1/2/3), tools 1 to 4 per mode, Ctrl+4 the Pitch 
 | Vibrato depth, natural or synthetic | `modulation(k)`: a ratio of the note's own | ◐ | A ratio, as Melodyne's: can double a vibrato (VOCALTUNER caps the natural one at 1.5×). No synthetic vibrato on a flat note, except `pitch(t => d * Math.sin(2 * Math.PI * f * t), { at, d, voice: true })` without fades |
 | Flatten | `modulation(0).drift(0)` | ✅ | |
 | Retune speed, humanize | `tune({ speed })` | ★ | |
-| Curve handles with falloff and time warp | the pitch line (`playground/editor.js` `pitchline`, `curveEdit('pitch')`): points, straight between | ◐ | No falloff to neighbours, no time warp of a point |
+| Curve handles with falloff and time warp | the pitch line (`repl/editor.js` `pitchline`, `curveEdit('pitch')`): points, straight between | ◐ | No falloff to neighbours, no time warp of a point |
 | Transition per joint | a fixed 100 ms crossover in the note ops; the pitch line | ◐ | No per-joint handle |
 | Volume per note | `gain` over the note's range (`level()` in the editor) | ✅ | |
 | Timing: move and stretch notes | `warp([[from, to], …])`, `stretch(f, { at, d, voice: true })` | ◐ | Engine yes; no gesture in the Notes view |
@@ -83,7 +83,7 @@ Modes Blob, Curve, Rhythm (Ctrl+1/2/3), tools 1 to 4 per mode, Ctrl+4 the Pitch 
 | Resynthesis | TD-PSOLA on the voice's own cycles (`@audio/tune-curve`), unvoiced and unchanged audio passed sample for sample | ★ | See "Better" |
 | Guide track: syllable timing by DTW, pitch to the reference | `align(ref)`: one lag and a rate (`fn/align.js`) | ✗ | The largest gap |
 | MIDI guide | `@audio/tune-midi` (YIN, per-note PSOLA crossfaded over dry), direct import only | ★ ◐ | Weaker than tune-snap's method; not in the registry |
-| Linked edits across tracks | a range through every track applies the op to each (`playground/editor.js` `spread`) | ◐ | Each track analysed on its own, not a copied delta |
+| Linked edits across tracks | a range through every track applies the op to each (`repl/editor.js` `spread`) | ◐ | Each track analysed on its own, not a copied delta |
 | Edits saved | the script is the edit | ★ | VOCALTUNER saves nothing |
 | Default 5% centring on every note | none | ⊘ | An edit nobody asked for changes the sound of untouched notes |
 | Rendered-artifact finder (`Source/Render/SpectralDiff.cpp`) | none | ✗ | A diagnostic: high band of the render 6 dB over the source's |
@@ -154,11 +154,11 @@ Two defects found on the way:
 
 ## 6. The Notes view: how each tool should appear
 
-What the notes already carry (`playground/worker.js` `notes`: `f0` every 10 ms, `level`) is enough to draw each tool's result before the audio comes: `layer(st, a, b, hop)` from `fn/intonation.js` gives a note's centre, line and vibrato period at any hop.
+What the notes already carry (`repl/worker.js` `notes`: `f0` every 10 ms, `level`) is enough to draw each tool's result before the audio comes: `layer(st, a, b, hop)` from `fn/intonation.js` gives a note's centre, line and vibrato period at any hop.
 
 - **Modulation and drift: two tools at the foot of the selected notes**, beside pitch, intonation and formants, dragged up or down as intonation is (half a lane up ×2, half a lane down 0), a detent at 1 and at 0; modulation goes on below 0 into inversion, as Melodyne's does. Double-click on the tool toggles between 1 and 0 (Melodyne). While dragging, draw each note's curve as it will be (modulation: `line + k × (f0 − line)`; drift: `c + k × (line − c)`) and say "vibrato ±38 cents at 5.6 Hz → ±19". The same tool again over the same range multiplies its factor (`voiced(name, k, range, (p, q) => p * q)`, as `tone`).
 - **Centre: double-click a note** writes `center(0, { at, d })`: onto its semitone from its first frame, all inside kept. Several selected: one call over the selection. A note dragged up or down should snap its centre to the semitone (Melodyne, VOCALTUNER), ⌘ for cents, as it does now.
-- **Correct Pitch, for a take or a selection**: a small panel with Center % and Drift % and a scale and root, defaulting to the key the status bar reads (`stat('key')`), writing `center(1 − c, { scale, root }).drift(1 − d)`. The tune grid `guides()` draws for `tune` (`playground/ops.js`) can draw for `center` too.
+- **Correct Pitch, for a take or a selection**: a small panel with Center % and Drift % and a scale and root, defaulting to the key the status bar reads (`stat('key')`), writing `center(1 − c, { scale, root }).drift(1 − d)`. The tune grid `guides()` draws for `tune` (`repl/ops.js`) can draw for `center` too.
 - **The note drag's onset**: `pitch(st, { at, d, voice: true })` glides in over ~90 ms even where the note starts after silence (measured above: −0.076 of −0.3 st in its first 50 ms). Where the note starts and ends at an unvoiced gap, write the shift as an unranged curve stepping in the gaps (`pitch({ t: [a − ε, a, b, b + ε], v: [0, s, s, 0] }, { voice: true })`), or use `center`'s path; keep the glide only where a neighbour is tied to it.
 - **Time**: a selected note dragged left or right writes `warp` markers at its ends, its neighbours' far ends held; its edge dragged writes `stretch(f, { at, d, voice: true })`. The engine has both.
 - **Level**: the note's thickness dragged writes `gain` over its range (the selection's pill does this already).

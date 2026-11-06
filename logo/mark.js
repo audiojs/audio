@@ -7,7 +7,7 @@
 import { logo } from './logo.js'
 import { motion } from './motion.js'
 
-// How a mark moves with what an editor does (playground/editor.js, and a page's own mark moved by the playground it
+// How a mark moves with what an editor does (repl/editor.js, and a page's own mark moved by the repl it
 // embeds, embed.js's mark event), by name: at rest, a mimic of the pointer; while the engine works, turning gently; while
 // a sound plays or records, at the pace it goes, the tab's icon turning while the page is hidden; under a scrub, held,
 // turned by the caret's travel. PACE: turns a second, a second of sound; FAINT: the axis, when it moves with the sound
@@ -31,7 +31,7 @@ export function mark(wordmark, settings = {}, look = {}) {
   if (view) {
     view.set({ figure: getComputedStyle(wordmark).color, window: 'cosine', gradient: 'rectangular', morph: 0, ...look })
     canvas.hidden = false
-    // in the wordmark's colour as that changes: a theme worn sets the page's colours on its root (playground/theme.js)
+    // in the wordmark's colour as that changes: a theme worn sets the page's colours on its root (repl/theme.js)
     new MutationObserver(() => { const figure = getComputedStyle(wordmark).color; if (figure !== view.state.figure) { view.set({ figure }); it?.set({}) } })
       .observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
   }

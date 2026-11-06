@@ -1,6 +1,6 @@
 // The website as deployed, in a browser: node test/live.js [URL] (default https://audio.js.org/audio/), or --local: this
-// checkout's site, as Pages deploys it (.site-build.js site: the playground's page minified), served before a deploy
-// (CI's browser suites), so the checks keep up with the page. Its root leads to the playground; the playground opens on an
+// checkout's site, as Pages deploys it (.site-build.js site: the repl's page minified), served before a deploy
+// (CI's browser suites), so the checks keep up with the page. Its root leads to the repl; the repl opens on an
 // empty tab, its ways in offered, and a link's script opens its sound, decoded and measured: what a visitor sees first,
 // from the files the server actually serves (CI builds them; a page that loads one of them from a path the deploy left
 // out hangs at "Decoding…"); the home's hero loads no more than its budget.
@@ -31,30 +31,30 @@ const check = async (name, fn) => {
   finally { await page.close() }
 }
 
-await check('the repository\'s root opens the playground', async page => {
+await check('the repository\'s root opens the repl', async page => {
   await page.goto(base)
-  await page.waitForURL(/\/playground\/$/, { timeout: 30000 })
+  await page.waitForURL(/\/repl\/$/, { timeout: 30000 })
 })
 // a link to a script, as Share copies it: the script deflated, base64url
-const link = async script => base + 'playground/#code=' + Buffer.from(await new Response(new Blob([script]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()).toString('base64url')
+const link = async script => base + 'repl/#code=' + Buffer.from(await new Response(new Blob([script]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()).toString('base64url')
 const chime = await link(`audio('chime.wav').trim().normalize(-1)`)
-await check('playground opens on an empty tab, its ways in offered', async page => {
-  await page.goto(base + 'playground/')
+await check('repl opens on an empty tab, its ways in offered', async page => {
+  await page.goto(base + 'repl/')
   await page.locator('.empty', { hasText: 'record' }).waitFor({ timeout: 30000 })
 })
-await check('playground opens a link\'s sound, measured', async page => {
+await check('repl opens a link\'s sound, measured', async page => {
   await page.goto(chime)
   await page.locator('.readout[data-of="all"]', { hasText: 'dBFS' }).waitFor({ timeout: 60000 })
 })
 // GitHub Pages sends no COOP or COEP: sw.js adds them, so a model's wasm runs on threads
-await check('playground cross-origin isolated', async page => {
+await check('repl cross-origin isolated', async page => {
   await page.goto(chime)
   await page.waitForFunction(() => crossOriginIsolated, null, { timeout: 30000 })
   await page.locator('.readout[data-of="all"]', { hasText: 'dBFS' }).waitFor({ timeout: 60000 })
 })
 
-// The home's hero (audio.js.org: <audio-repl> as the home writes it, playground/embed.js): what its frame loads before
-// the visitor does anything, gzipped as Pages sends it, the sound apart (playground/README.md, How it is built). The
+// The home's hero (audio.js.org: <audio-repl> as the home writes it, repl/embed.js): what its frame loads before
+// the visitor does anything, gzipped as Pages sends it, the sound apart (repl/README.md, How it is built). The
 // target is 300 KB; BUDGET holds what it is down to, so it can't creep back
 const BUDGET = 1024 * BUDGET_KB
 await check(`the home's hero loads ${BUDGET_KB} KB or less gzipped at first`, async page => {
@@ -66,7 +66,7 @@ await check(`the home's hero loads ${BUDGET_KB} KB or less gzipped at first`, as
     sizes.set(r.url(), gzipSync(await r.body().catch(() => Buffer.alloc(0))).length)
   })
   await page.setViewportSize({ width: 960, height: 320 })
-  await page.goto(base + 'playground/?embed&ui=' + encodeURIComponent(JSON.stringify(ui)) + new URL(await link(`audio('chime.wav')`)).hash)
+  await page.goto(base + 'repl/?embed&ui=' + encodeURIComponent(JSON.stringify(ui)) + new URL(await link(`audio('chime.wav')`)).hash)
   await page.locator('.readout[data-of="all"]', { hasText: 'LUFS' }).waitFor({ timeout: 60000 })
   // what comes after the sound (the deck, the cues' finders) till nothing has come for a while
   while (Date.now() - last < 2000) await page.waitForTimeout(250)

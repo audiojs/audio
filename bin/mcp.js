@@ -8,13 +8,13 @@
  * with and without a shell learn the same grammar. Hand-rolled JSON-RPC (a few tools need no
  * SDK); serves modern (2026-07-28, per-request _meta) and legacy (initialize) clients.
  *
- *   audio --mcp --playground [URL] [--key K]      (--editor, its former name, does the same)
+ *   audio --mcp --repl [URL] [--key K]      (--playground and --editor, its former names, do the same)
  *
- * adds the playground's tools (state, measure, edit, …) for the sound open in the user's audio playground,
+ * adds the repl's tools (state, measure, edit, …) for the sound open in the user's audio repl,
  * a browser page: each goes to the bridge (`audio --bridge`, bin/bridge.js), which hands it to the
  * page and returns its answer: JSON as text, a picture ({ image: data URL }) as image content.
  * Without URL and key, the bridge running now, as it left them in BRIDGE: one line installs it in
- * any agent, `npx -y audio --mcp --playground`.
+ * any agent, `npx -y audio --mcp --repl`.
  */
 import { spawn } from 'child_process'
 import { readFileSync } from 'fs'
@@ -30,7 +30,7 @@ const LIMIT = 20000  // chars of output per call: a beat/note list must not floo
 const SERVER = 'io.modelcontextprotocol/serverInfo'
 const CACHE = { ttlMs: 3600000, cacheScope: 'public' }  // modern lists must say how long they stay fresh: ours never change while the process lives
 const INVALID = { code: -32600, message: 'Invalid Request' }
-/** Where a running bridge keeps its address and key, for a playground tool to find it */
+/** Where a running bridge keeps its address and key, for a repl tool to find it */
 export const BRIDGE = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'audio', 'bridge.json')
 
 export const TOOL = {
@@ -47,7 +47,7 @@ export const TOOL = {
   }
 }
 
-// The playground's tools: the page implements them, the bridge carries them; names and arguments are the
+// The repl's tools: the page implements them, the bridge carries them; names and arguments are the
 // bridge protocol. Bare verbs: clients name them by the server, mcp__audio__edit. The descriptions
 // are all an agent knows of the page, so they teach the script.
 const def = (name, title, description, properties = {}, required = [], hints = {}) => ({
@@ -56,7 +56,7 @@ const def = (name, title, description, properties = {}, required = [], hints = {
 })
 const secs = description => ({ type: 'number', description })
 export const EDITOR = [
-  def('state', 'Playground state', "The sound open in the user's audio playground, a browser page connected through `audio --bridge`: { script, duration, sampleRate, channels, selection: [a, b] in seconds or null, band: [low, high] Hz or null, cursor, markers, stats: { peak dBFS, loudness LUFS }, steps: [{ call, on }] the script's edits in order (`step` takes their index), tracks: [{ name, duration }] or null, track: the one edited (its steps are `steps`; `edit` and `step` act on it), shown: { step, takes } where the Edits panel shows the output up to an edit, or what it takes out, else null, problem }, problem being the script's error or null. Read it first, and again when the user may have acted: they edit the same sound, every tool here acts on it, and each change shows and sounds in the page at once. Measure anything else with `measure`, see it with `look`.", {}, [], { readOnlyHint: true }),
+  def('state', 'Repl state', "The sound open in the user's audio repl, a browser page connected through `audio --bridge`: { script, duration, sampleRate, channels, selection: [a, b] in seconds or null, band: [low, high] Hz or null, cursor, markers, stats: { peak dBFS, loudness LUFS }, steps: [{ call, on }] the script's edits in order (`step` takes their index), tracks: [{ name, duration }] or null, track: the one edited (its steps are `steps`; `edit` and `step` act on it), shown: { step, takes } where the Edits panel shows the output up to an edit, or what it takes out, else null, problem }, problem being the script's error or null. Read it first, and again when the user may have acted: they edit the same sound, every tool here acts on it, and each change shows and sounds in the page at once. Measure anything else with `measure`, see it with `look`.", {}, [], { readOnlyHint: true }),
   def('script', 'Replace the script', `Replace the whole script and run it; answers once the sound has rendered: { ok, problem?, duration? }. One undo step.
 The script is JavaScript; its last expression is the sound the page shows and plays: the source, then a chain of the audio library's methods (API: https://github.com/audiojs/audio#api):
   audio('voice.wav')
@@ -101,11 +101,11 @@ Stats: db rms peak crest dc clipping loudness momentary shortterm dialog truepea
     { at: secs('Where it starts, seconds'), to: secs('Where it ends, seconds'), d: secs('How long, seconds') }, ['at']),
   def('step', 'Change an edit', 'Act on one edit of the chain, by its index in `state`.steps, as its card in the Edits panel does: on: false turns it off (commented out, kept), on: true back on; remove: true takes it away; to: n moves it to stand at index n; call writes it anew, as `edit` takes one. With at and d, a range of the output: on: false turns the edit off there alone, on: true back on (its mix 0 or 1 there, ramped over the page\'s splice setting, the range taken to where it was entering the edit: RX\'s Restore Selection, for one edit). One undo step; answers as `script` does.',
     { index: { type: 'integer', description: 'The edit, its index in `state`.steps' }, on: { type: 'boolean', description: 'Turn it on or off; with at and d, over that range alone' }, remove: { type: 'boolean', description: 'Take it away' }, to: { type: 'integer', description: 'Move it to this index' }, call: { type: 'string', description: 'The edit written anew, one method call: "deepfilter({ limit: 12 })"' }, at: secs('With on: the range\'s start, seconds of the output'), d: secs('With on: the range\'s length, seconds') }, ['index']),
-  def('open', 'Open a file', "Open an audio or video file of the user's machine in the playground, in a tab of its own, by its absolute path (~ the home): the bridge reads it. Answers as `script` does, with the name the script opens it by.",
+  def('open', 'Open a file', "Open an audio or video file of the user's machine in the repl, in a tab of its own, by its absolute path (~ the home): the bridge reads it. Answers as `script` does, with the name the script opens it by.",
     { path: { type: 'string', description: 'Absolute path, as /Users/me/voice.wav or ~/voice.wav' } }, ['path']),
   def('save', 'Save to a file', "Write the output, encoded as the path's extension says (wav, flac, mp3, ogg, aiff), to a file of the user's machine by its absolute path (~ the home): the bridge writes it, whole or not at all. With track, that track alone; with original: true, the file as it opened, its bytes as they are, under its own extension. A file already there stays unless force: true. Answers { path, bytes }. For a tool of your own (a model, a script) to work on the sound: save it, run yours, `open` what it made.",
     { path: { type: 'string', description: 'Absolute path, as /Users/me/voice.flac or ~/voice.flac' }, track: { type: 'string', description: 'With tracks, a track by its name (state.tracks): it alone' }, original: { type: 'boolean', description: 'The file as it opened, not the output' }, force: { type: 'boolean', description: 'Replace a file already at path' } }, ['path'], { destructiveHint: true }),
-  def('tabs', 'Tabs', "The playground's tabs, a sound each, as the strip over the picture shows them: [{ index, name, shown }]. With to, the tab at that index shown: every other tool acts on the tab shown (its script, edits, sound), the conversation with you going on as it was; with close, the tab at that index closed (⇧⌘T opens it again as it was). Answers the tabs as they then are. `open` puts a file in a new tab and shows it: come back with to.",
+  def('tabs', 'Tabs', "The repl's tabs, a sound each, as the strip over the picture shows them: [{ index, name, shown }]. With to, the tab at that index shown: every other tool acts on the tab shown (its script, edits, sound), the conversation with you going on as it was; with close, the tab at that index closed (⇧⌘T opens it again as it was). Answers the tabs as they then are. `open` puts a file in a new tab and shows it: come back with to.",
     { to: { type: 'integer', description: 'Show the tab at this index' }, close: { type: 'integer', description: 'Close the tab at this index' } }),
   def('play', 'Play', "Play the output on the user's speakers, from at for d seconds; without them, as the page's play button would. Let the user hear a change; `stop` stops. original: true plays the file as it opened, level-matched to the output, so the two compare fairly (the page's B key); false, the output again. step plays the output up to that edit, takes: true what it takes out, as its card chosen in the Edits panel shows them; it stays chosen until your next play or edit.",
     { at: secs('Start, seconds'), d: secs('Duration, seconds'), original: { type: 'boolean', description: 'true: the file as it opened, level-matched; false: the output' }, step: { type: 'integer', description: 'An edit, its index in `state`.steps: the output up to it' }, takes: { type: 'boolean', description: 'With step: what that edit takes out' } }),
@@ -133,7 +133,7 @@ export function split(str) {
 }
 
 const running = new Map(), cancelled = new Set()  // request id → what to kill (a child, a fetch); ids the client gave up on
-let bridge = null  // with --playground: { url, key } as given, either one possibly missing
+let bridge = null  // with --repl: { url, key } as given, either one possibly missing
 
 function run(id, argv) {
   return new Promise(resolve => {
@@ -160,22 +160,22 @@ async function call(id, { args }) {
   return text(cut(body, 'narrow with a range (0..30s) or fewer stats') || 'done', code !== 0 && !(argv.includes('check') && out.trim()))
 }
 
-/** The bridge a playground call goes to: URL and key as given, what is missing as the running bridge left it in BRIDGE. */
+/** The bridge a repl call goes to: URL and key as given, what is missing as the running bridge left it in BRIDGE. */
 function locate({ url, key } = {}) {
   let saved = {}
   if (!url || !key) try { saved = JSON.parse(readFileSync(BRIDGE, 'utf8')) } catch {}
   return { url: url || saved.url || 'http://127.0.0.1:7777', key: key || saved.key }
 }
-const given = () => ({ url: process.env.AUDIO_PLAYGROUND || process.env.AUDIO_EDITOR, key: process.env.AUDIO_BRIDGE_KEY })
+const given = () => ({ url: process.env.AUDIO_REPL || process.env.AUDIO_PLAYGROUND || process.env.AUDIO_EDITOR, key: process.env.AUDIO_BRIDGE_KEY })
 
 /**
- * A playground tool call, through the bridge to the page, as MCP content: its result as JSON text, a picture as an image;
+ * A repl tool call, through the bridge to the page, as MCP content: its result as JSON text, a picture as an image;
  * its error a tool error the model can act on (no bridge, no page, a timeout, the page's own). `to`: { url, key },
- * either one missing found as locate() finds it; by default AUDIO_PLAYGROUND (or AUDIO_EDITOR) and AUDIO_BRIDGE_KEY. Throws only aborted.
+ * either one missing found as locate() finds it; by default AUDIO_REPL (or AUDIO_PLAYGROUND, AUDIO_EDITOR) and AUDIO_BRIDGE_KEY. Throws only aborted.
  */
 export async function reach(tool, args, { signal, to = given() } = {}) {
   let { url, key } = locate(to), res
-  if (!key) return text(`${tool}: no bridge running: the user runs \`audio --bridge\` and opens the playground`, true)
+  if (!key) return text(`${tool}: no bridge running: the user runs \`audio --bridge\` and opens the repl`, true)
   try {
     res = await fetch(`${url}/call`, {
       method: 'POST', signal, body: JSON.stringify({ tool, args }),
@@ -183,7 +183,7 @@ export async function reach(tool, args, { signal, to = given() } = {}) {
     })
   } catch (e) {
     if (signal?.aborted) throw e
-    return text(`${tool}: no bridge at ${url} (${e.cause?.code ?? e.message}): the user runs \`audio --bridge\` and opens the playground`, true)
+    return text(`${tool}: no bridge at ${url} (${e.cause?.code ?? e.message}): the user runs \`audio --bridge\` and opens the repl`, true)
   }
   let { result, error } = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
   if (error != null) return text(`${tool}: ${error}`, true)
@@ -261,10 +261,10 @@ async function handle(msg) {
 }
 const answer = msg => handle(msg).catch(e => msg?.id != null ? { id: msg.id, error: { code: -32603, message: e.message } } : null)
 
-/** argv after --mcp: [--playground [URL]] [--key K] (--editor its former name), URL and key also from AUDIO_PLAYGROUND
- *  (AUDIO_EDITOR) and AUDIO_BRIDGE_KEY. */
+/** argv after --mcp: [--repl [URL]] [--key K] (--playground, --editor its former names), URL and key also from AUDIO_REPL
+ *  (AUDIO_PLAYGROUND, AUDIO_EDITOR) and AUDIO_BRIDGE_KEY. */
 function options(argv) {
-  let on = ['--playground', '--editor'].find(flag => argv.includes(flag))
+  let on = ['--repl', '--playground', '--editor'].find(flag => argv.includes(flag))
   if (!on) return null
   let value = flag => { let v = argv[argv.indexOf(flag) + 1]; return argv.includes(flag) && v && !v.startsWith('--') ? v : undefined }
   let url = value(on) || given().url
