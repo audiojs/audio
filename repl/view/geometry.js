@@ -1,5 +1,5 @@
 import { markLane } from './data.js'
-import { RULER, GAP, EDGE, HEAD, TRACK, LOW, ROOM, midiOf, TICK, VOICE, root, oncursor, onfocus, ontake, onghost, onlayout, onband, onbusy, keepRoom, element, keep, FORK, forkButton, count, rate, duration, display, hovered, markers, recording, empty, pieces, guest, start, end, selection, band, cursor, ruler, waveLook, tracks, focus, across, sections, scroll, heights, lift, kinds, noted, zoomed, assign } from './model.js'
+import { RULER, GAP, EDGE, HEAD, TRACK, LOW, ROOM, midiOf, TICK, VOICE, root, oncursor, onfocus, ontake, onghost, onlayout, onband, onbusy, keepRoom, element, keep, FORK, forkButton, count, rate, duration, display, hovered, markers, recording, empty, pieces, guest, start, end, selection, band, cursor, ruler, waveLook, tracks, focus, across, sections, scroll, heights, lift, kinds, noted, zoomed, sized, assign } from './model.js'
 import { lanesEnd } from './overlay.js'
 import { drag } from './pointer.js'
 import { W, H, invalidate } from './render.js'
@@ -136,16 +136,19 @@ export const plot = () => ({ w: Math.max(1, W - gutter), h: Math.max(1, H - rowH
 // a sound's channels in one lane: as the waveform's look has them, or its notes, a voice's, found on their mix
 export const merged = () => !tracks && (display === 'notes' || display === 'wave' && waveLook.lanes === 'one')
 // Each band's height by its name, a track's or '' for a sound's, as its lanes' foot was dragged (onheight); the bands
-// scrolled up `lift` px, as far as they and the room run past the picture (`spare` px). A sound is
-// a track as any is (`banded`): TRACK px, the room under it, an empty tab's track too; but where the picture is all
-// there is (`keepRoom` false: embedded), its lanes fill it
+// scrolled up `lift` px, as far as they and the room run past the picture (`spare` px). A sound is a track as any is
+// (`banded`): its share of the picture, the room under it, an empty tab's track too; but where the picture is all there
+// is (`keepRoom` false: embedded), its lanes fill it
 export let spare = 0
 export const bandOf = i => tracks ? tracks[i]?.name ?? '' : ''
 export const banded = () => !!tracks || keepRoom
 // the room kept under the lanes, with a sound or an empty track: a take into nothing, as it comes and done, in the
 // same lane, nothing moving as it stops
 const roomy = () => keepRoom && (duration || empty) ? ROOM : 0
-export const tallOf = name => Math.max(LOW, heights[name] ?? (banded() ? TRACK : plot().h - HEAD - GRIP))
+export const tallOf = name => Math.max(LOW, heights[name] ?? (banded() ? share() : plot().h - HEAD - GRIP))
+// a band's height as made: the picture shared among the bands, the room kept under them, as a DAW's tracks fit its
+// window; TRACK px at least, so that more than a few scroll; where the page sets it (`sized`, ?ui= track), that
+const share = () => sized ?? Math.max(TRACK, Math.floor((plot().h - ROOM) / (tracks?.length || 1)) - HEAD)
 export const kindOf = i => (tracks && kinds[bandOf(i)]) || display
 // The lanes, [x, y, w, h] each, with what it shows (`kind`) and its channel's or its track's index (`i`), a notes lane
 // its keys (keysOf): `all` in order, and by kind, `wave`, `spec` and `notes`; `spectral`, whether any of the picture's

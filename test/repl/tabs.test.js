@@ -412,15 +412,17 @@ test('editor: a tab shown again plays on where it is; pointed at, it says what i
   assert.ok(await at() > left + .3, `played on: ${left} s when left, ${await at()} s shown again`)
   await page.keyboard.press('Space')
   await page.locator('.file [role="tab"]').first().hover()
-  await page.locator('#tab-facts:popover-open').waitFor()
-  const facts = Object.fromEntries((await page.locator('#tab-facts tr').allInnerTexts()).map(r => r.split('\t')))
-  assert.equal(await page.locator('#tab-facts .levels-head').innerText(), 'chime.wav')
-  assert.deepEqual([facts.Length, facts.Sound, facts.Edits], ['0:06.525', '44.1kHz · stereo', '3'], JSON.stringify(facts))
-  assert.match(facts.Loudness, /^−\d+\.\dLUFS · peak −1\.0dBFS$/)
+  await page.locator('.tab-facts:popover-open').waitFor()
+  const card = page.locator('.tab-facts:popover-open'), facts = Object.fromEntries((await card.locator('tr').allInnerTexts()).map(r => r.split('\t')))
+  assert.equal(await card.locator('.levels-head').innerText(), 'chime.wav')
+  assert.deepEqual([facts.Length, facts.Rate, facts.Channels, facts.Edits, facts.Peak], ['6.5s', '44.1kHz', 'stereo', '3', '−1.0 dBFS'], JSON.stringify(facts))
+  assert.match(facts.Loudness, /^−\d+\.\d LUFS$/)
   assert.match(facts.Memory, /^\d+(\.\d)?MB$/)
-  // the new tab, made now, says so
+  assert.ok(Object.values(facts).every(v => !v.includes('·')), 'no dots between facts')
+  // the new tab, made now, says so, on its own card, the first's never showing it
   await page.locator('.file [role="tab"]').last().hover()
-  await page.waitForFunction(() => document.querySelector('#tab-facts .levels-head')?.textContent === 'untitled' && document.querySelector('#tab-facts').innerText.includes('Made\tnow'))
+  await page.waitForFunction(() => { const c = document.querySelector('.tab-facts:popover-open'); return c?.querySelector('.levels-head').textContent === 'untitled' && c.innerText.includes('Made\tnow') })
+  assert.equal(await page.locator('.tab-facts:popover-open').count(), 1)
 })
 
 // Each tab shows its own sound at once when it is shown again, before its script has run again

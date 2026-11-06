@@ -1091,9 +1091,30 @@ async function notes({ output, track }) {
 // (stat('key') 'pcp': Krumhansl-Schmuckler over its chroma, one key over the range and its halves) only over 6 s at
 // least, and over 3 minutes at most, the middle 3 of a longer range, so the reading (about 2 ms of work a second of
 // sound, three times over) never holds up a run for long. With tracks, of the one `track` (its index) where asked, as the page edits it, not their mix: a
-// bass under a chord would be the note
+// bass under a chord would be the note. A note, chords and a key only where the sound is tonal (tonality): claps, a
+// drum, noise have none, whatever a frame of them reads as; a tempo whatever it is
 const STEADY = 6, MOST = 180, HEARD = 20
 const lengthOf = r => r.length ?? r.sound.length
+// How much of [a, b] s has a pitch: the pitch curve's voiced frames among those that sound (their RMS a thirtieth of
+// the loudest frame's at least, −30 dB), read once a span; past HEARD s, over a second at each of HEARD places spread
+// over it, as the note is, so a long sound's reading never holds the worker up (a scrub waiting on it). The built-in
+// sounds: chime 98%, handpan 97%, birdsong 77%, a Rhodes' chords 65%; claps, dry or in a room, 0%. A note, chords and a
+// key are said past TONAL
+const TONAL = .35
+async function tonality(r, a, b) {
+  const key = `${a},${b}`
+  r.tonal ??= new Map()
+  if (r.tonal.has(key)) return r.tonal.get(key)
+  const rate = r.sampleRate, all = await mixdown(r), hop = Math.round(.01 * rate), f0 = [], rms = []
+  for (const [p, q] of b - a <= HEARD ? [[a, b]] : Array.from({ length: HEARD }, (_, k) => { const p = a + (b - a - 1) * k / (HEARD - 1); return [p, p + 1] })) {
+    const x = all.subarray(Math.round(p * rate), Math.round(q * rate)), f = pitchOf(x, rate).f0
+    f.forEach((v, i) => { let s = 0, n = 0; for (let k = Math.max(0, (i - 1) * hop); k < Math.min(x.length, (i + 1) * hop); k++, n++) s += x[k] * x[k]; f0.push(v); rms.push(Math.sqrt(s / (n || 1))) })
+  }
+  const top = rms.reduce((m, v) => Math.max(m, v), 0), loud = rms.map(v => v > top / 30), n = loud.filter(Boolean).length
+  const share = n ? f0.filter((f, i) => f && loud[i]).length / n : 0
+  r.tonal.set(key, share)
+  return share
+}
 async function listen({ output, note, span, track }) {
   const r = part(await whole(output), track)
   if (!r || !lengthOf(r)) return {}
@@ -1104,13 +1125,14 @@ async function listen({ output, note, span, track }) {
     f0.push(...pitchOf((await mixdown(r)).subarray(Math.round(p * rate), Math.round(q * rate)), rate).f0)
   const voiced = f0.filter(Boolean).sort((p, q) => p - q), at = q => voiced[Math.min(voiced.length - 1, Math.floor(q * voiced.length))]
   const sung = voiced.length * 2 < f0.length || !voiced.length ? null : 1200 * Math.log2(at(.75) / at(.25)) > 100 ? [at(.1), at(.9)] : [at(.5)]
+  // a span past MOST, its middle MOST s: a song's key and tempo hold through it (`span`, what was read), its tonality too
+  const [a0, b0] = [Math.max(0, span[0]), Math.min(end, span[1])], [a, b] = b0 - a0 > MOST ? [(a0 + b0 - MOST) / 2, (a0 + b0 + MOST) / 2] : [a0, b0], key = `${a},${b}`
+  const tonal = await tonality(r, a, b), tonic = tonal >= TONAL
   // the chords, where they sound (chordsOf), in place of the note: Chordino's labels in order, each once; none to read
   // where it is not installed. A melody's compass stands: a pitch moving over a chroma frame
   // (0.37 s) lights several pitch classes, as a chord does
-  const chords = sung?.length > 1 || n1 - n0 > MOST ? [] : (await chordsOf(r, n0, n1).catch(() => [])).map(c => c.label).filter((l, i, all) => l !== all[i - 1])
-  const pitch = chords.length ? null : sung
-  // a span past MOST, its middle MOST s: a song's key and tempo hold through it (`span`, what was read)
-  const [a0, b0] = [Math.max(0, span[0]), Math.min(end, span[1])], [a, b] = b0 - a0 > MOST ? [(a0 + b0 - MOST) / 2, (a0 + b0 + MOST) / 2] : [a0, b0], key = `${a},${b}`
+  const chords = !tonic || sung?.length > 1 || n1 - n0 > MOST ? [] : (await chordsOf(r, n0, n1).catch(() => [])).map(c => c.label).filter((l, i, all) => l !== all[i - 1])
+  const pitch = !tonic || chords.length ? null : sung
   r.heard ??= new Map()
   if (!r.heard.has(key)) r.heard.set(key, b - a < STEADY ? {} : await hearing(r.sound, async x => {
     const half = (b - a) / 2, parts = [[a, b - a], [a, half], [a + half, half]].map(([at, duration]) => ({ at, duration }))
@@ -1120,7 +1142,8 @@ async function listen({ output, note, span, track }) {
       key: keys[0] && keys[0].label !== 'N' && keys.every(k => k?.label === keys[0].label) ? { tonic: keys[0].tonic, mode: keys[0].mode } : null
     }
   }))
-  return { pitch, chords, span: [a, b], ...r.heard.get(key) }
+  const { bpm = null, key: k = null } = r.heard.get(key)
+  return { pitch, chords, span: [a, b], tonal, bpm, key: tonic ? k : null }
 }
 // The chords of an output over [a, b] s, in order: those of the blocks there (chordsIn), a chord only touching the range's
 // edge (a quarter second of it, or half of a shorter range) not counted

@@ -1,4 +1,5 @@
 import { append, between, chain, number, setArg, focus } from '../code.js'
+import { rates } from './config.js'
 import { state, v, ed, rk, pl, output } from './context.js'
 import { lastEdit, amend, write, applied } from './edits.js'
 import { quote, note } from './format.js'
@@ -14,6 +15,17 @@ import { lane } from './tracks.js'
 // The sound's rate or channels changed from the display: the chain's last resample() or remix() set again, else one
 // added at its end
 export function resampleTo(hz) { closeMenus(); retune('resample', hz, output?.sampleRate) }
+// The rate to resample to, aimed on a dial before it is set (index.html #rate-menu): the common rates its ticks, from
+// 8 kHz to 384 kHz an octave as far as any other (log), a rate within SNAP of a tick that rate, any other between
+// them, to 100 Hz; each common one said for what it is used for, another for the two it lies between
+const LO = rates[0].hz, HI = rates.at(-1).hz, SNAP = 8
+export const dialAt = hz => Math.round(Math.log(hz / LO) / Math.log(HI / LO) * 1000)
+export function aimRate(at) {
+  const hz = LO * (HI / LO) ** (at / 1000), near = rates.find(r => Math.abs(dialAt(r.hz) - at) <= SNAP), to = near?.hz ?? Math.round(hz / 100) * 100
+  const [below, above] = [rates.findLast(r => r.hz < to), rates.find(r => r.hz > to)]
+  state.rateAim = { hz: to, at: dialAt(to), label: `${+(to / 1000).toFixed(3)}kHz`, text: near?.text ?? `Between ${below?.label ?? ''} and ${above?.label ?? ''}`, nyquist: `up to ${+(to / 2000).toFixed(2)}kHz` }
+}
+export const rateOpen = event => { if (event.newState === 'open') aimRate(dialAt(output?.sampleRate ?? 48000)) }
 // Down, the ITU-R BS.775 downmix (remix(n), fn/remix.js); up from mono, the sound in the centre (5.1, 7.1) or on both
 // sides; from stereo to 5.1 the matrix upmix (surround(): the mid in the centre, the side delayed into the surrounds,
 // the LFE lowpassed), on to 7.1 the surrounds in the back pair too, as from 5.1

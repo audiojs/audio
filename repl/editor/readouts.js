@@ -141,6 +141,8 @@ export function unmarkLevel() {
   if (levelMarks.length) v.guides = v.guides.filter(g => !levelMarks.includes(g))
   levelMarks = []
 }
+// A time in a table pressed (the peak's): the caret there, brought into sight, what was selected let go
+export function seekTo(t) { root.querySelector('#levels')?.hidePopover?.(); v.select(0, 0); v.setCursor(t); v.bring() }
 // What the level reads (the readout pressed): the peak, the RMS or the loudness (all of it's), each with its value, kept
 export function pickReading(event) {
   root.querySelector('#levels')?.hidePopover?.()
@@ -152,52 +154,52 @@ export function pickSpec(event) {
   root.querySelector('#checks')?.hidePopover?.()
   bar.at(specs.map(sp => ({ label: sp.label, checked: state.spec === sp.key, run: () => state.setSpec(sp.key) })), 0, 0, event.currentTarget)
 }
-// What is heard reads (it pressed): the note or the chords, the key, or the tempo, kept
-export function pickHeard(event) {
-  const pick = name => () => { state.hears = name; store(); listen() }
-  bar.at([['note', 'Note or chord'], ['key', 'Key'], ['tempo', 'Tempo']].map(([name, label]) => ({ label, hint: hearings[name] ?? '', checked: state.hears === name, run: pick(name) })), 0, 0, event.currentTarget)
-}
-// each as its menu says it (listen), where it is clear
-let hearings = {}
 // What the sound holds, as a musician says it (worker.js listen()), before its levels: the note under the caret or over
-// the selection, or where chords sound, the chords there (at most four, in order), the tempo and key of the selection
-// or of all of it, each only where it is clear; with tracks, the edited one's; asked once the caret or the selection
-// rests, and dropped if they or the track have moved on since. A note's cents from 5 on: less is about the least
-// change of pitch heard (frequency DLs of 0.2–0.3% at mid frequencies, 3.5–5 cents: Moore, An Introduction to the
-// Psychology of Hearing, 6th ed., 2012, ch. 6), and as close as the pitch curve reads a steady tone (1 cent off on 440 Hz)
+// the selection, or where chords sound, the chords there (at most four, in order), and the tempo of the selection or
+// of all of it, each where it applies and is clear: a note, chords and a key only where the sound is tonal (claps, a
+// drum, noise are not: worker.js tonality), a tempo only over 6 s held steady. Pointed at, all of it in a table: the
+// note or chords, the key, the tempo, how tonal it is, each one not said with why. With tracks, the edited one's;
+// asked once the caret or the selection rests, and dropped if they or the track have moved on since. A note's cents
+// from 5 on: less is about the least change of pitch heard (frequency DLs of 0.2–0.3% at mid frequencies, 3.5–5 cents:
+// Moore, An Introduction to the Psychology of Hearing, 6th ed., 2012, ch. 6), and as close as the pitch curve reads a
+// steady tone (1 cent off on 440 Hz)
 // Embedded with parts named and the heard readout not among them (config.js SHOWN): nothing listened for, nothing loaded
 // for it in the engine (its key, tempo and chord finders)
 const HEARD = !SHOWN.length || SHOWN.includes('heard')
-let listening = 0
+let listening = 0, tonic = true
 export function listen() {
   clearTimeout(listening)
   state.heard = null
-  hearings = {}
   if (!HEARD || !output?.duration || pl.playing || state.band || state.boxes > 1) return
   const out = output, sel = state.selection, at = v.cursor, track = laneIndex(out), now = () => out === output && laneIndex() === track && `${state.selection}` === `${sel}` && (sel || v.cursor === at)
   listening = setTimeout(async () => {
     const r = await eng.listen(out.id, sel ? [...sel] : [at - .06, at + .06], sel ? [...sel] : [0, out.duration], track).catch(() => null)
     if (!r || !now()) return
     // what the key and the tempo were read over: a span past 3 min, its middle 3 (worker.js listen)
-    const { pitch, bpm, key } = r, part = r.span && r.span[1] - r.span[0] < (sel ? sel[1] - sel[0] : out.duration) - 1e-3
+    const { pitch, bpm, key, tonal = 0 } = r, part = r.span && r.span[1] - r.span[0] < (sel ? sel[1] - sel[0] : out.duration) - 1e-3
     const over = part ? `${stamp(r.span[0])}–${stamp(r.span[1])}` : sel ? 'the selection' : 'all of it', where = sel ? 'over the selection' : 'at the caret', chords = r.chords?.map(chordName)
     const chord = chords?.length ? chords.slice(0, 4).join(' – ') + (chords.length > 4 ? ' …' : '') : null
-    // the one thing chosen (pickHeard), said in a few words
     const note = pitch ? pitch.length > 1 ? `${noteOf(pitch[0], Infinity)}–${noteOf(pitch[1], Infinity)}` : noteOf(pitch[0], 5) : chord
-    hearings = { note, key: key && `${NOTES[key.tonic]} ${key.mode}`, tempo: bpm && `${bpm} BPM` }
-    // the key or the tempo chosen and none clear, said so, its menu still a press away (worker.js listen: 6 s at least,
-    // its halves agreeing)
-    state.heard = state.hears === 'key' ? key ? { text: hearings.key, title: `Key of ${over}` } : { text: 'no key', title: `No key clear in ${over}: 6 s at least, its halves in one key` }
-      : state.hears === 'tempo' ? bpm ? { text: hearings.tempo, title: `Tempo of ${over}` } : { text: 'no tempo', title: `No steady tempo in ${over}: 6 s at least, its halves within 4%` }
-      : pitch ? { text: note, title: pitch.length > 1 ? `Notes ${where}` : `Note ${where}` }
-      : chord ? { text: chord, title: `${chords.length > 1 ? 'Chords' : 'Chord'} ${where}` } : null
+    const short = (r.span?.[1] ?? 0) - (r.span?.[0] ?? 0) < 6, share = `${Math.round(tonal * 100)}% of it has a pitch`
+    tonic = tonal >= .35
+    const says = { note, tempo: bpm ? `${bpm} BPM` : null }
+    state.heard = !note && !bpm ? null : {
+      ...says,
+      head: [note && (pitch ? pitch.length > 1 ? `Notes ${where}` : `Note ${where}` : `${chords.length > 1 ? 'Chords' : 'Chord'} ${where}`), bpm && `Tempo of ${over}`].filter(Boolean).join(', '),
+      rows: [
+        [pitch ? 'Note' : chord ? 'Chord' : 'Note', note ?? '–', note ? where : tonic ? 'none clear here' : `none: unpitched, ${share}`],
+        ['Key', key ? `${NOTES[key.tonic]} ${key.mode}` : '–', key ? `of ${over}` : !tonic ? 'none: unpitched' : short ? 'none: 6 s at least' : 'none clear: its halves differ'],
+        ['Tempo', says.tempo ?? '–', bpm ? `of ${over}` : short ? 'none: 6 s at least' : 'none steady: its halves differ by 4%'],
+        ['Tonal', `${Math.round(tonal * 100)}%`, 'of it has a pitch']
+      ]
+    }
   }, 250)
 }
 // The chord at the playhead as it plays, in the status bar (worker.js chords): the output's chords a block at a time, the
 // one the playhead is in and the next a few seconds before it gets there, each asked for once; said as it changes
 export let live = { id: null, track: undefined, blocks: [], asking: false, off: false, text: null }
 export function chordAt(t) {
-  if (!HEARD) return
+  if (!HEARD || !tonic) return
   if (live.id !== output?.id || live.track !== laneIndex()) live = { id: output?.id, track: laneIndex(), blocks: [], asking: false, off: false, text: null }
   const has = at => live.blocks.some(b => at >= b.from && at < b.to), want = [t, t + 5].find(at => at < v.duration && !has(at))
   if (want != null && live.id != null && !live.asking && !live.off) {
@@ -208,5 +210,5 @@ export function chordAt(t) {
   const c = live.blocks.flatMap(b => b.chords).find(c => t >= c.time && t < c.end), text = c ? chordName(c.label) : null
   if (text === live.text) return
   live.text = text
-  if (state.hears === 'note') state.heard = text ? { text, title: 'Chord playing' } : null
+  if (state.heard?.note !== text) state.heard = text ? { note: text, tempo: state.heard?.tempo ?? null, head: 'Chord playing', rows: state.heard?.rows ?? [] } : state.heard?.tempo ? { ...state.heard, note: null } : null
 }

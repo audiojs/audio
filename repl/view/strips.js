@@ -75,19 +75,17 @@ export function placeLook(L) {
   lookButton.ariaLabel = label
   lookButton.title = `${label}\nClick for how it shows`
 }
-// The room under the lanes: pointed at, holding the caret (`ghost`) or a file held over it, a new track's lane there,
-// its centre line faint, as a lane with nothing in it yet; pointed at, named by the pointer
+// The room under the lanes: pointed at, holding the caret (`ghost`) or a file held over it, a new track's lane there, as
+// tall as the last, its centre line faint, as a lane with nothing in it yet; pointed at, named by the pointer, a plus
+// before the words, and nothing else: no title, no waveform
 export function paintRoom(L, at) {
   const lane = roomLane(L), on = at && !drag && inRoom(at[1], L)
-  // the placeholder by it lit as it is pointed at (editor.css .layer-new)
-  if (root.hasAttribute('data-room') !== !!(lane && on)) root.toggleAttribute('data-room', !!(lane && on))
   if (!lane || !on && !ghost && !droppedNew) return
   c.fillStyle = color('--color-screen-wave')
   c.globalAlpha = .35
   c.fillRect(0, Math.round(lane[1] + lane[3] / 2), lanesEnd(L), 1)
   c.globalAlpha = 1
-  // with tracks, its title to be names it (editor.js layers); without, the pointer does
-  if (on && !tracks) say('New track', at[0] + 12, at[1] - 16)
+  if (on) say('New track', at[0] + 12, at[1] - 16, 'left', 'M12 5v14M5 12h14')
 }
 // More bands than the picture holds: a scrollbar down its right edge, its thumb where those in sight are among them
 // all, dragged as any is (liftAt), drawn as the time's (paintBar): a round thumb on no track, there while the pointer
@@ -253,9 +251,10 @@ export const same = (m, n) => m.track === n.track && !m.duration === !n.duration
 // them all, as a text's occurrences are: pressed, the ranges selected, the one pressed heard while held; a moment's
 // name pressed, the carets there, dragged, it moves; a range's ends, REACH px either side, drag (one let go on the
 // other, a moment; a moment's held Alt, pulled apart into a range, as Photoshop's split slider's), snapping as an edge
-// does; double-clicked, named anew. Over each caret and range while the band is pointed at, faint, the number its
-// marker would have (placeholders): clicked, a name written there, the markers put with it at each, alike, nothing
-// written putting them with their numbers (ask). Anywhere else in the head a press is the lanes': the caret, a range.
+// does; double-clicked, named anew. Over a caret, or a range's start, while the pointer is over the head there, a
+// marker's tag, faint, lit on it (placeholders): clicked, a name written there, the number its marker would have faint
+// in the field, the markers put with it at each caret and range, alike, nothing written putting them with their
+// numbers (ask). Anywhere else in the head a press is the lanes': the caret, a range.
 // What forks the sound stands there too, at the end of what it forks, inside it: the takes' numbers (placeTakes), a
 // range's or the selection's fork (placeFork)
 export const REACH = 4, NAMES = 6, NAMEH = 14
@@ -332,11 +331,23 @@ export function paintStrips(L, pointedAt, selected) {
     if (naming && same(naming, mark) || room < 8) continue
     nameOn(m, m.text, lx, room, ink)
   }
-  // the markers to be, their numbers faint, lit together as one is pointed at
-  const to = placeholders(L), lit = !!nameAt(L)
-  c.globalAlpha = lit ? 1 : .6
-  for (const p of to) nameOn(p.row, p.text, p.x0, Infinity, color(lit ? '--color-screen-bright' : '--color-screen-muted'))
-  c.globalAlpha = 1
+  // the marker to be, a tag over the caret the pointer is over the head by, faint; lit on it
+  const to = nearTag(L)
+  if (to) pin(to.row, to.ix, color(nameAt(L) ? '--color-screen-bright' : '--color-screen-muted'))
+}
+// A marker's tag, as a map's pin: a square, its point down on the line at `ix` px
+const TAG = 8, NEAR = 12
+function pin(row, ix, ink) {
+  const l = Math.round(ix - TAG / 2) + .5, top = row.edge - 14 + .5, side = top + TAG - 2, tip = row.edge - 2
+  c.strokeStyle = ink
+  c.lineWidth = 1
+  c.beginPath(); c.moveTo(l, top); c.lineTo(l + TAG - 1, top); c.lineTo(l + TAG - 1, side); c.lineTo(ix + .5, tip); c.lineTo(l, side); c.closePath(); c.stroke()
+}
+// the marker to be whose tag the pointer is over the head by, NEAR px either side
+function nearTag(L, at = hovered) {
+  if (!at || drag || naming) return null
+  const [px, py] = at
+  return placeholders(L).find(p => py >= p.row.y && py < p.row.y + p.row.h && Math.abs(px - p.ix) <= NEAR) ?? null
 }
 // The markers to be, over the edited band's carets and ranges while that band is pointed at, where no name is: each
 // with the number it would have, where its name would start (a range's from its start), [{ row, a, b, x0, x1, text }];
@@ -348,13 +359,13 @@ export function placeholders(L) {
   if (!row) return []
   // (none over a name, a range's under its stretch past its name too, pressed there taking the number)
   const names = stripped(L).filter(m => m.kind === 'mark' && m.y === row.y).map(m => [nameLeft(m.x0), nameLeft(m.x0) + wide(m.text)])
-  const all = spans().map(([a, b], k) => { const text = `${n + k}`, x0 = nameLeft(X(a)); return { row, a, b, x0, x1: x0 + wide(text), text } })
-  return all.filter(p => p.x0 <= lanesEnd(L) && !names.some(([a, b]) => p.x1 + 2 > a && p.x0 - 2 < b))
+  const all = spans().map(([a, b], k) => { const text = `${n + k}`, x0 = nameLeft(X(a)), ix = Math.round(X(a)); return { row, a, b, x0, ix, text } })
+  return all.filter(p => p.x0 <= lanesEnd(L) && !names.some(([a, b]) => p.ix + TAG / 2 + 2 > a && p.ix - TAG / 2 - 2 < b))
 }
-// The marker to be pointed at, within REACH px of its number: it, with `all` (every one, named together), or null
+// The marker to be pointed at, its tag within REACH px: it, with `all` (every one, named together), or null
 export function nameAt(L, at = hovered) {
   if (!at || drag || naming) return null
-  const all = placeholders(L), [px, py] = at, p = all.find(p => py >= p.row.y && py < p.row.y + p.row.h && px >= p.x0 - REACH && px <= p.x1 + REACH)
+  const all = placeholders(L), [px, py] = at, p = all.find(p => py >= p.row.y && py < p.row.y + p.row.h && Math.abs(px - p.ix) <= TAG / 2 + REACH)
   return p ? { ...p, all } : null
 }
 // One clicked: a name written where its number is, put at each (ask)

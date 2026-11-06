@@ -32,7 +32,7 @@ export const store = () => {
   if (EMBED) return ed && link(ed.code).then(code => state.full = `${location.pathname}#code=${code}`)
   if (GIVEN) return
   if (!ed || !owner()) return
-  const all = { docs: docs.map(saved), doc: docs.findIndex(d => d.id === state.tab), closed: closed.map(({ doc, ...c }) => doc ? { ...saved(doc), at: c.at, shut: c.shut } : c), display: state.display, scale: state.scale, format: state.format, encoding: state.encoding, spec: state.spec, cuts: { format: state.cutFormat, fps: state.fps }, side: state.side, snap: state.snapping, curve: state.fadeCurve, levels: state.levels, scroll: state.scroll, grid: state.grid, look: state.look, wave: state.wave, agent: { url: state.bridgeUrl, key: state.bridgeKey }, reads: state.reads, hears: state.hears, grip: state.gripMode, panel: state.panel, recent, ...talks() }
+  const all = { docs: docs.map(saved), doc: docs.findIndex(d => d.id === state.tab), closed: closed.map(({ doc, ...c }) => doc ? { ...saved(doc), at: c.at, shut: c.shut } : c), display: state.display, scale: state.scale, format: state.format, encoding: state.encoding, spec: state.spec, cuts: { format: state.cutFormat, fps: state.fps }, side: state.side, snap: state.snapping, curve: state.fadeCurve, levels: state.levels, scroll: state.scroll, grid: state.grid, look: state.look, wave: state.wave, agent: { url: state.bridgeUrl, key: state.bridgeKey }, reads: state.reads, grip: state.gripMode, panel: state.panel, recent, ...talks() }
   try { localStorage.setItem(KEY, JSON.stringify(all)); full = false }
   catch {
     const { chats, chat, ...bare } = all

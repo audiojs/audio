@@ -31,14 +31,15 @@ test('editor: no undo nor redo in the bar, the Edit menu\'s; a band\'s look in i
   assert.equal(await page.locator('.status .history').count(), 0, 'no undo, no redo in the bar')
   const heads = () => Promise.all([page.locator(':is(.lane-look, .layer-look):visible')].map(b => b.boundingBox()))
   const [look] = await heads()
-  // one baseline: the time's, the length's, the status's words, the loop's middle; a narrower bar's smaller time keeps it
+  // the time and the length on one baseline; the status's words, the loop and the export on the length's middle; a
+  // narrower bar's smaller time keeps it
   const baselines = () => page.evaluate(() => {
     const base = e => { const i = document.createElement('i'); i.style.cssText = 'display: inline-block; width: 0; height: 0'; e.append(i); const y = i.getBoundingClientRect().y; i.remove(); return y }
-    const loop = document.querySelector('.status .loop').getBoundingClientRect(), length = document.querySelector('.length').getBoundingClientRect()
-    return { time: base(document.querySelector('.time')), length: base(document.querySelector('.length')), facts: base(document.querySelector('.facts .fact')), loop: loop.y + loop.height / 2 - (length.y + length.height / 2) }
+    const mid = s => { const r = document.querySelector(s).getBoundingClientRect(); return r.y + r.height / 2 }, length = mid('.length')
+    return { time: base(document.querySelector('.time')), length: base(document.querySelector('.length')), mids: ['.facts .fact', '.readout', '.status .loop', '.status .download'].map(s => +(mid(s) - length).toFixed(1)) }
   })
-  const wide = await baselines(), { loop, ...lines } = wide
-  assert.ok(Object.values(lines).every(y => Math.abs(y - wide.length) <= 1.5) && Math.abs(loop) <= 1, `on one baseline, the loop on the length's middle: ${JSON.stringify(wide)}`)
+  const wide = await baselines()
+  assert.ok(Math.abs(wide.time - wide.length) <= 1.5 && wide.mids.every(d => Math.abs(d) <= 1.5), `the time on the length's baseline, the rest on its middle: ${JSON.stringify(wide)}`)
   const size = await page.viewportSize()
   await page.setViewportSize({ width: 860, height: size.height })
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.clock')).getPropertyValue('--time-size').trim() === '28px')

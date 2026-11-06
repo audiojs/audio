@@ -367,7 +367,7 @@ export function hover(px, py, keys = held) {
   if (liftAt(px, py)) { hot = null; grabbing = true; root.style.cursor = 'default'; return }
   if (inRoom(py)) { hot = null; grabbing = false; root.style.cursor = ''; return }
   // under a band's lanes, their height to drag (where a selection's tools are not); in a band's head: a marker to be,
-  // its name to write (the arrow, its number lit: placeholders); a range's end to drag; a name to press
+  // its name to write (the arrow, its tag lit: placeholders); a range's end to drag; a name to press
   if (footAt(py) != null && !gripAt(own(lanes()), px, py)) { hot = null; grabbing = true; root.style.cursor = 'row-resize'; return }
   if (nameAt(lanes(), [px, py])) { hot = null; grabbing = false; root.style.cursor = 'default'; return }
   const mark = !gripAt(own(lanes()), px, py) && stripAt(px, py)

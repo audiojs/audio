@@ -17,12 +17,13 @@ export const GUTTER = 48, RULER = 22, GAP = 2, EDGE = 6, SNAP = 6, STICK = 5, ON
 // drawn for it. Under them all, at the picture's foot, the time row, one for them all, as a DAW's: it stays as they
 // scroll over it
 export const HEAD = 18
-// A track's lane TRACK px tall, a sound's lanes the picture all told, unless its foot is dragged (LOW px at least); more
-// than the picture holds scroll up and down through it, as a DAW's tracks do, the room under the last always in reach:
-// ROOM px at least (all there is under the last lane, a lane's foot dragged up giving it more). Pointed at, a new
-// track's lane there, under tracks where the one made there will be and as tall as the last (editor.js anew), its part
-// in sight; its centre line faint; pressed, its caret, which a take, a paste or a file dropped there makes a track of,
-// as a layer in Figma is made by drawing, never added empty
+// A track's lane its share of the picture (TRACK px at least), a sound's lanes too, unless its foot is dragged (LOW px
+// at least); more than the picture holds scroll up and down through it, as a DAW's tracks do, the room under the last
+// always in reach: ROOM px at least (all there is under the last lane, a lane's foot dragged up giving it more).
+// Pointed at, a new track's lane there, under tracks where the one made there will be and as tall as the last
+// (editor.js anew), its part in sight; its centre line faint, the pointer saying New track, nothing else; pressed, its
+// caret, which a take, a paste or a file dropped there makes a track of, as a layer in Figma is made by drawing, never
+// added empty
 export const TRACK = 160, LOW = 32, ROOM = 80
 // What a band shows, its look drawn as it: a waveform's bars, a spectrogram's lines, a voice's notes rising
 export const KINDS = {
@@ -88,7 +89,7 @@ export const GLIDE = .3                               // a playhead past the vie
 
 
 // What view() is given (editor.js), kept as it mounts: its element, its callbacks, its zoom's limits and overshoot
-export let root, onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, cueOrder
+export let root, onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, sized, closest, farthest, overshoot, cueOrder
 export const element = (tag, className, parent) => parent.appendChild(Object.assign(document.createElement(tag), { className }))
 // a button of the picture's own pressed: the picture keeps the keys (its own, Undo's), as a press anywhere in it gives them
 export const keep = () => root.focus({ preventScroll: true })
@@ -269,7 +270,7 @@ export let ahead = false
 // The view mounted on its element, once: what it is given kept, its layers made and laid in their order
 export function mount(el, given) {
   root = el
-  ;({ onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, cueOrder } = given)
+  ;({ onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, sized, closest, farthest, overshoot, cueOrder } = given)
   // the selection under the pictures, as a selection is behind text: the sound drawn over it, a quiet spectrogram's
   // clear ground showing it; the grid over the spectrogram, under the waveform, in the waveform's canvas (paintGrid). The
   // pictures on a reel (roll), cut where the lanes end (editor.css --end): drawn past the view's right end, the reel

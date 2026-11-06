@@ -158,8 +158,10 @@ const levelsTable = () => page.locator('#levels').evaluate(el => [el.querySelect
 const lengthText = () => page.evaluate(() => tabTip().split(' · ').pop())
 const seconds = async () => { const [m, s] = (await lengthText()).split(':'); return +m * 60 + +s }
 // (`ui`: the app's config, as the link gives it)
+// A page of the repl, as `ui` asks (?ui=), its tracks made TRACK px tall, as the tests measure them, not each its share of
+// the window (`track: 0`: their share, as a page left alone has them)
 async function open(ui = null) {
-  await page.goto(origin + '/repl/' + (ui ? `?ui=${encodeURIComponent(JSON.stringify(ui))}` : ''))
+  await page.goto(origin + '/repl/?ui=' + encodeURIComponent(JSON.stringify({ track: TRACK, ...ui })))
   // the whole sound's levels read, shown or not (a narrow bar gives them way)
   await wholeLevels().waitFor({ state: 'attached' })
 }

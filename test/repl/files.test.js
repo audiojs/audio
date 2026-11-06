@@ -8,30 +8,33 @@ import { TOP, root, page, origin, sine, peakDb, wavBytes, code, tipOf, wholeLeve
 
 // The check (fn/check.js) of the result beside the file as it opened. Apple Podcasts: -16 LKFS ±1, true peak ≤ -1 dBFS
 // (podcasters.apple.com/support/893). The default script peaks at -1 dBFS: its true peak sits above, and it is loud.
-// The check, in the bar by the facts: the spec's name, its verdict by it; pointed at, each rule, the result, the limit
+// The check, in the bar by Before: the spec's name, its verdict an icon by it; pointed at, a table: each rule, its
+// verdict, the result, the limit
 const checked = async () => {
   await page.locator('.status .checked').hover()
-  await page.locator('#checks:popover-open .levels-table').waitFor()
-  return (await page.locator('#checks .levels-table tr').allInnerTexts()).map(r => r.split('\t').map(c => c.trim()))
+  await page.locator('#checks:popover-open .check-rules').waitFor()
+  return page.locator('#checks .check-rules tbody tr').evaluateAll(rows => rows.map(r => [r.className, ...[...r.cells].map(c => c.textContent.trim())]))
 }
+const verdict = v => page.waitForFunction(v => { const b = document.querySelector('.status .checked'); return b?.textContent === 'Apple' && b.classList.contains(v) }, v)
 const checkAgainst = async label => { await page.locator('.status .checked').click(); await page.locator('.menubar-menu .menu-row', { hasText: label }).click() }
 test('editor: a delivery check shows each rule for the result, and follows the script', async () => {
   await open()
   assert.equal(await page.locator('.status .checked').innerText(), 'Check', 'none chosen: Check, alone')
   await checkAgainst('Apple Podcasts')
-  await page.waitForFunction(() => document.querySelector('.status .checked')?.textContent === '✗Apple')
+  await verdict('fail')
+  assert.equal(await page.locator('.status .checked svg.mark').count(), 1, 'its verdict an icon, no font\'s glyph')
   let [loud, peak] = await checked()
-  assert.equal(loud[0], 'Loudness')
-  assert.match(loud[1], /^✗ −1[0-4]\.\d\d$/, 'normalized to its peak, the result is too loud')
-  assert.equal(loud[2], '−17 to −15LUFS')
-  assert.match(peak[1], /^✗ −0\.9\d$/, 'true peak over a -1 dBFS sample peak')
+  assert.deepEqual([loud[0], loud[1], loud[2]], ['fail', 'Loudness', ''])
+  assert.match(loud[3], /^−1[0-4]\.\d\d LUFS$/, 'normalized to its peak, the result is too loud')
+  assert.equal(loud[4], '−17 to −15 LUFS')
+  assert.match(peak[3], /^−0\.9\d dBTP$/, 'true peak over a -1 dBFS sample peak')
   await page.mouse.move(0, 0)
   await tab('Code')
   await write(`audio('chime.wav').normalize('podcast')`)
-  await page.waitForFunction(() => document.querySelector('.status .checked')?.textContent === '✓Apple')
+  await verdict('pass')
   ;[loud, peak] = await checked()
-  assert.equal(loud[1], '✓ −16.00')
-  assert.match(peak[1], /^✓ −/)
+  assert.deepEqual([loud[0], loud[3]], ['pass', '−16.00 LUFS'])
+  assert.equal(await page.locator('#checks .verdict').innerText(), 'passes')
   await page.mouse.move(0, 0)
   await checkAgainst('Off')
   await page.waitForFunction(() => document.querySelector('.status .checked')?.textContent === 'Check')
@@ -41,7 +44,7 @@ test('editor: a delivery check shows each rule for the result, and follows the s
 test('editor: a recipe made for a delivery spec checks the output against it', async () => {
   await open({ recipes: true })
   await menu('Process', 'Recipes', 'Podcast episode')
-  await page.waitForFunction(() => document.querySelector('.status .checked')?.textContent === '✓Apple', null, { timeout: 30000 })
+  await page.waitForFunction(() => { const b = document.querySelector('.status .checked'); return b?.textContent === 'Apple' && b.classList.contains('pass') }, null, { timeout: 30000 })
   assert.match(await code(), /\.normalize\('podcast'\)$/)
 })
 

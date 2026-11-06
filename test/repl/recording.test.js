@@ -909,7 +909,7 @@ test('editor: a quiet take recorded into nothing is drawn at full scale', async 
         return (mid - top) / half
       }, [png.toString('base64'), TRACK, TOP])
     }
-    await p.goto(origin + '/repl/')
+    await p.goto(origin + '/repl/?ui=' + encodeURIComponent(JSON.stringify({ track: TRACK })))
     await p.locator('.plot[data-empty]').waitFor()
     await p.locator('button.record').click()
     await p.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 2.5 })

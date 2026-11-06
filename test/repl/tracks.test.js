@@ -445,30 +445,25 @@ test('editor: a paste into the room under the tracks makes a track as tall as th
   assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].heights.track, short)
 })
 
-// Under the tracks, where a new one's title would be, + New track, only while the room is pointed at: pressed, the
-// track made, empty, its first marker's name asked for, written and Enter, a marker so named at its start. The caret in the room a plus by its top;
-// the meters by the lanes read nothing there, nothing being there yet
-test('editor: under the tracks, New track where its title would be: pressed, made and named', async () => {
+// Under the tracks, the room pointed at: a new track's lane as tall as the last, its centre line faint, the pointer
+// saying New track, a plus before it, nothing else (no title, no waveform); the meters read nothing there; Track › New
+// track makes one, its first marker's name asked for at its start
+test('editor: under the tracks, the room says New track by the pointer alone; Track › New track makes one, named', async () => {
   await open()
   await noCues()
   await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')`)
   await lengthIs('0:09.000')
-  const placeholder = page.locator('.layer-new'), [, b] = await tracksAt()
-  assert.ok(!await placeholder.isVisible(), 'none till the room is pointed at')
-  await page.mouse.move((await page.locator('.plot').boundingBox()).x + 300, b.y + b.h + 40)
-  await placeholder.waitFor()
-  assert.equal(await placeholder.innerText(), 'New track')
-  const head = await placeholder.boundingBox()
-  assert.ok(Math.abs(head.y - (b.y + b.h)) <= 1, `where its title would be: ${head.y}, under ${b.y + b.h}`)
-  // the meters read the caret's place in a lane; in the room, nothing
-  const box = await page.locator('.plot').boundingBox(), lit = () => page.evaluate(() => { const m = document.querySelector('.plot canvas.meters'), d = m.getContext('2d').getImageData(0, 0, m.width, m.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) n += d[i] > 0; return n })
+  const [, b] = await tracksAt(), box = await page.locator('.plot').boundingBox()
+  assert.equal(await page.locator('.layer-new').count(), 0, 'no title over it')
+  await page.mouse.move(box.x + 300, b.y + b.h + 40)
+  await page.waitForFunction(() => { const h = document.querySelector('.hint'); return h && !h.hidden && h.textContent === 'New track' && !!h.querySelector('svg') })
+  const lit = () => page.evaluate(() => { const m = document.querySelector('.plot canvas.meters'), d = m.getContext('2d').getImageData(0, 0, m.width, m.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) n += d[i] > 0; return n })
   await page.mouse.click(box.x + 300, b.y + b.h / 2)
   await page.waitForFunction(() => { const m = document.querySelector('.plot canvas.meters'), d = m.getContext('2d').getImageData(0, 0, m.width, m.height).data; for (let i = 3; i < d.length; i += 4) if (d[i]) return true })
-  await page.mouse.click(box.x + 300, head.y + 40)
+  await page.mouse.click(box.x + 300, b.y + b.h + 40)
   await poll(lit, n => assert.equal(n, 0, 'in the room, no meters'))
-  await placeholder.click()
+  await menu('Track', 'New track')
   await page.waitForFunction(() => /\n\nlet track = audio\.from\(0\)$/.test(scriptText()))
-  // its first marker's name asked for at its start, the name a track has
   await page.waitForFunction(() => document.activeElement?.classList.contains('marker-name'))
   await page.keyboard.type('drums')
   await page.keyboard.press('Enter')
@@ -774,6 +769,21 @@ test('editor: a sound alone is a track as any: one layer, no track menu', async 
   await page.mouse.click(plot.x + 300, lane.y + lane.h / 2, { button: 'right' })
   await contextRow('Add a marker').waitFor()
   assert.equal(await page.locator('.menubar-menu .menu-group', { hasText: /^Track$/ }).count(), 0, 'no Track section')
+})
+
+// A page left alone shares the picture among its tracks, as a DAW's tracks fit its window: a sound alone its lanes all
+// of it but the room for a new track (ROOM px) and its head; two tracks a half each; never under TRACK px, so more
+// scroll
+test('editor: the tracks share the picture, the room under them kept; never under TRACK px', async () => {
+  await open({ track: 0 })
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  const box = await page.locator('.plot').boundingBox(), h = box.height - 22, share = n => Math.max(TRACK, Math.floor((h - ROOM) / n) - HEAD)
+  const [one] = await tracksAt()
+  assert.ok(Math.abs(one.h - share(1)) <= 1, `a sound alone: ${one.h} px, ${share(1)} its share`)
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await poll(tracksAt, ([a, b]) => assert.ok(Math.abs(a.h - share(2)) <= 1 && Math.abs(b.h - share(2)) <= 1, `two: ${a.h}, ${b.h} px, ${share(2)} each`))
 })
 
 // A new tab is one empty track as any sound's, no words over it, its lane TRACK px

@@ -136,7 +136,7 @@ svg { flex: none; }
    baseline is .3 of it under its middle (its line as tall as its digits), as far as the small line goes (--line, the
    time at its full size). The time made smaller on a narrow bar keeps that baseline, going down as it shrinks, play and
    record down with its digits' middle (.3 of its size over the baseline), the bar's left padding less */
-.status :is(.message, .heard, .readout, .checked, .facts, .before) { position: relative; top: var(--line); }
+.status :is(.message, .heard, .readout, .checked, .facts, .before) { position: relative; top: calc(var(--line) - var(--time-size) * .125); }
 .panes[data-side="open"] .status-main { container: picture / inline-size; }
 :is(.slab, .status) .icon-button { color: var(--color-screen-muted); }
 :is(.slab, .status) .icon-button:hover:not(:disabled), :is(.slab, .status) .icon-button[aria-pressed="true"] { color: var(--color-screen-bright); background: var(--color-screen-hover); }
@@ -379,18 +379,38 @@ svg { flex: none; }
 .before:hover:not(:disabled) { background: var(--color-quiet-hover); color: var(--color-screen-ink); }
 .before[aria-pressed="true"]:not(:disabled) { background: var(--color-screen-accent); color: var(--color-screen); }
 .before:disabled { opacity: .4; }
-/* the spec checked against, its verdict by its name, by the export: Check alone, faint, with none; its rules pointed at,
-   a table over it as the levels' */
-.checked { flex: none; margin-left: 12px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); white-space: nowrap; }
+/* the spec checked against, its verdict by its name, before Before: Check alone, faint, with none; its rules pointed at,
+   a table over it, its verdict an icon (an SVG, not a font's ✓, which no mono face here draws well) */
+.checked { display: flex; flex: none; align-items: center; gap: 3px; margin-left: 12px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); white-space: nowrap; }
 .checked:disabled { opacity: .4; }
 .checked:hover:not(:disabled), .checked:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .checked.pass, .checked.fail { color: var(--color-screen-soft); }
-.checked .mark { margin-right: 3px; }
+.checked .mark { width: 11px; height: 11px; }
 .checked.pass .mark { color: var(--color-screen-bright); }
 .checked.fail .mark { color: var(--color-screen-error); }
 .checked.stale { opacity: .6; }
-.checks td.fail { color: var(--color-screen-error); }
-.checks .check-note { max-width: 36ch; margin: 4px 0 0; white-space: normal; }
+.checks .levels-head { display: flex; justify-content: space-between; gap: 16px; }
+.checks .verdict { color: var(--popoff-muted); font-weight: 400; }
+.checks .verdict.fail { color: var(--color-screen-error); }
+.checks .check-note { max-width: 40ch; margin: 6px 0 0; color: var(--popoff-muted); white-space: normal; }
+/* its rules: a rule a row, a line between, the names soft, the verdict an icon, the value bright, the limit muted */
+.check-rules { margin-top: 2px; }
+.check-rules thead th { padding: 0 10px 2px 0; color: var(--popoff-muted); font: 10.5px/15px var(--font-body); text-align: left; }
+.check-rules thead th[colspan] { padding-left: 0; }
+.check-rules tbody tr { border-top: 1px solid var(--color-screen-rule); }
+.check-rules tbody :is(th, td) { padding-block: 3px; }
+.levels-table.check-rules td { padding-left: 0; padding-right: 10px; text-align: left; }
+.check-rules .verdict-icon { width: 11px; padding-right: 5px !important; }
+.check-rules .verdict-icon svg { display: block; width: 11px; height: 11px; color: var(--popoff-muted); }
+.check-rules .pass .verdict-icon svg { color: var(--popoff-ink); }
+.check-rules .fail .verdict-icon svg, .check-rules .fail td:not(.limit) { color: var(--color-screen-error); }
+.levels-table.check-rules td.limit { padding-right: 0; color: var(--popoff-muted); }
+/* the bar folded where it is narrow: an i by the export, what has no room in the bar in a list under it */
+.status .status-more { display: none; flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 28px; height: 28px; margin-left: 6px; border-radius: 6px; }
+.status .status-more svg { width: 17px; height: 17px; }
+.status-fold { width: auto; min-width: 220px; padding: 8px 12px; background: var(--popoff-bg); }
+.status-fold .levels-table th { padding-right: 16px; }
+.status-fold .levels-table td { padding-block: 2px; text-align: left; }
 /* the export, last at the bar's right end: a dropdown over it */
 .status .download { flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 28px; height: 28px; margin-left: 2px; border-radius: 6px; }
 .status .download svg { width: 17px; height: 17px; }
@@ -479,8 +499,12 @@ svg { flex: none; }
 .levels-table th { padding: 0 12px 0 0; color: var(--popoff-soft); font: 11.5px/17px var(--font-body); text-align: left; }
 .levels-table td { padding: 0; color: var(--popoff-ink); text-align: right; }
 .levels-table td + td { padding-left: 10px; color: var(--popoff-muted); text-align: left; }
-/* a tab's overview: each fact after its name */
-.levels-table .tab-fact { text-align: left; }
+/* facts, a name and its value, then what it means: each after its name, left as text reads */
+.levels-table.facts-table td { text-align: left; }
+/* a time in it pressed, the caret there: a link's underline, dotted */
+.levels-table .at { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline dotted var(--popoff-muted); text-underline-offset: 3px; cursor: pointer; }
+.levels-table .at:hover, .levels-table .at:focus-visible { color: var(--popoff-ink); text-decoration-color: currentColor; }
+.levels-table .at:disabled { color: var(--popoff-muted); text-decoration: none; cursor: default; }
 /* undo and redo after the length, a pair of keys, their arrows standing on the length's baseline as its digits do (an
    arrow's foot, its stroke's round end, 7 px under the key's middle; the digits' baseline 1.5 px under --line) */
 .status .history { position: relative; top: calc(var(--line) - 4.5px); display: flex; gap: 1px; }
@@ -490,7 +514,7 @@ svg { flex: none; }
 .status .history .icon-button:is([aria-disabled="true"], :disabled) { opacity: .35; }
 /* how the picture shows, a pair of keys after the levels, the one shown a press from its dropdown; with no sound,
    dimmed as undo is, in sight where it will be */
-.heard { display: block; flex: 0 1 auto; margin-left: 6px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); cursor: pointer; }
+.heard { display: flex; gap: 10px; flex: 0 1 auto; margin-left: 6px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); cursor: pointer; }
 /* The agent, where the page asks for it: under the code, a line to ask it by; over the line, once there is one, the
    conversation, newest at its foot, as tall as it needs to a half of the panel */
 .chat { display: flex; flex: none; flex-direction: column; max-height: 50%; min-height: 0; padding-bottom: 10px; border-top: 1px solid var(--color-screen-rule); }
@@ -618,11 +642,6 @@ svg { flex: none; }
 .layer:not(.hot) .layer-look:not(:hover, :focus-visible, [aria-expanded="true"]) { opacity: 0; }
 .layer-lock { top: 1px; right: calc(var(--axis, 48px) + 2px); color: var(--color-screen-accent) !important; }
 /* its name written anew (its menu's Rename), where its head starts */
-/* the title a new track would have, under the last: a placeholder, as an empty field's, only as the room under the
-   lanes is pointed at (view.js paintRoom, data-room) */
-.layer-new { position: absolute; left: 0; display: flex; align-items: center; color: var(--color-screen-soft); font: 11px/16px var(--font-mono); cursor: pointer; pointer-events: auto; visibility: hidden; }
-.layer-new svg { flex: none; width: 16px; height: 13px; margin-right: 4px; }
-.layer-new:hover, .view:has(> .plot[data-room]) .layer-new { visibility: visible; }
 /* Where the view stops short of the sound, its lanes fade out at that edge (view.js placeFades), as a list scrolled on
    does: the ground they lie on over them, from clear to whole, laid where the slab's lies (its gradient, from the
    slab's top: --ground-top, --ground-h), so it is the ground's own colour at every height; as tall as the lanes */
@@ -662,6 +681,7 @@ svg { flex: none; }
 
 /* The page's hints (hint.js): a few words by what they are about, over everything; a theme's to restyle */
 .hint { position: fixed; z-index: 20; top: 0; left: 0; max-width: min(380px, calc(100vw - 8px)); padding: 1px 6px; overflow: hidden; border-radius: 4px; background: var(--color-tip); color: var(--color-screen-bright); box-shadow: 0 0 0 1px var(--color-screen-rule); font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+.hint svg { width: 12px; height: 12px; margin: 0 4px -2px -1px; }
 /* The controls' tooltips (popoff): raised, as the menus are, the name bright, the keys in the mono, softer, after it */
 :root { --color-quiet-hover: color-mix(in oklab, var(--color-quiet), var(--color-screen-ink) 5%); }
 :root { --popoff-bg: var(--color-tip); --popoff-ink: var(--color-screen-bright); --popoff-soft: var(--color-screen-soft); --popoff-muted: var(--color-screen-muted); --popoff-font: 11.5px/16px var(--font-body); --popoff-keys-font: 11px var(--font-mono); --popoff-shadow: drop-shadow(0 0 .5px var(--color-bezel)) drop-shadow(0 3px 8px oklch(0% 0 0 / .28)); --popoff-fade: var(--dur-micro); }
@@ -672,6 +692,20 @@ svg { flex: none; }
 .menu.wide { width: 380px; }
 .menu.narrow { width: 230px; }
 #rate-menu, #channels-menu, #depth-menu { position-area: top span-right; }
+/* the rate dial: the rate aimed at over it, its ticks under it, the common rates, named where they have room; what it is
+   used for under them, and the press that sets it */
+.rate-menu { width: 300px; padding: 6px 12px 12px; }
+.rate-aim { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 6px; }
+.rate-aim strong { color: var(--color-screen-bright); font: 500 15px var(--font-mono); }
+.rate-aim span { color: var(--color-screen-muted); font-size: 11.5px; }
+.rate-menu input[type=range] { display: block; width: 100%; margin: 0; accent-color: var(--color-screen-bright); }
+.rate-ticks { position: relative; height: 22px; margin: 0 7px; }
+.rate-ticks span { position: absolute; left: calc(var(--at) * 100%); display: flex; flex-direction: column; align-items: center; translate: -50% 0; color: var(--color-screen-muted); font: 10px var(--font-mono); }
+.rate-ticks span::before { content: ''; width: 1px; height: 4px; margin-bottom: 2px; background: currentColor; }
+.rate-ticks span:not(.named):not(.on) { font-size: 0; }
+.rate-ticks span.on { color: var(--color-screen-bright); font-size: 10px; z-index: 1; }
+.rate-text { margin: 6px 0 10px; text-align: left; }
+.rate-menu .quiet-button { width: 100%; }
 /* Options, a group each: its name, its choices as keys, what each does in its tooltip (the settings, a picture's
    dropdown) */
 .option-label { margin: 0 0 6px; color: var(--color-screen-muted); font: 12px var(--font-body); }
@@ -841,22 +875,25 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
   html:not(.embed) .app .panes[data-side="open"] { grid-template-rows: auto minmax(0, 1fr) auto minmax(0, 1fr); }
   html:not(.embed) .app .panes > .view-slab { grid-area: 2 / 1 / 3 / -1; }
   html:not(.embed) .app .panes > .status { grid-area: 3 / 1 / 4 / -1; grid-template-columns: minmax(0, 1fr) auto; }
-  html:not(.embed) .app :is(.status-main, .status-end) { padding-right: 0; }
+  html:not(.embed) .app .status-main { padding-right: 0; }
+  html:not(.embed) .app .status-end { padding-right: 10px; }
   html:not(.embed) .app .side-head .tabs.icons button { width: 44px; min-height: 44px; }
   html:not(.embed) .app .panes > .side-slab { position: relative; z-index: auto; grid-area: 4 / 1 / 5 / -1; inset: auto; width: auto; height: auto; padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--color-screen-rule); border-radius: 0 0 var(--radius-slab) var(--radius-slab); background: var(--color-side); box-shadow: none; }
 }
 /* On a touchscreen there is nothing to drop: the empty track and Record say it
-/* A narrow bar: what the sound holds goes, then the digits are smaller, then the levels, the rate and the length, each
+/* A narrow bar: what the sound holds goes into the i by the export (its fold), then the digits are smaller, then the
+   levels, the rate and the length go there too, each
    whole where the bar has the room for it, a tablet's too (a message takes the level's place as it is said); the
    pictures' switch stays, on a
    phone Before giving way to it (the Transport menu has it: Hear it before the edits), and on the narrowest Loop (there
    too, and L), so undo and redo stay. With the panel open, the picture's
    side of the bar alone, the rate and Before under the panel: the same, by its own room */
-@container bar (max-width: 950px) { .heard { display: none; } }
+@container bar (max-width: 950px) { .heard { display: none; } .status .status-more { display: block; } }
 @container bar (max-width: 870px) { .clock { --time-size: 28px; } .deck-slot { translate: 0 calc(40px * .3 - 28px * .3); } .status { padding-left: 4px; } }
 @container bar (max-width: 400px) { .clock { --time-size: 22px; padding: 0; } .deck-slot { translate: 0 calc(40px * .3 - 22px * .3); } }
 @container bar (max-width: 720px) { .readout { display: none; } }
-@container bar (max-width: 670px) { .facts, .checked { display: none; } }
+@container bar (max-width: 670px) { .facts { display: none; } }
+@container bar (max-width: 870px) { .checked { display: none; } }
 @container bar (max-width: 515px) { .length { display: none; } }
 @container bar (max-width: 570px) { .before { display: none; } }
 @container bar (max-width: 380px) { .status .loop { display: none; } }

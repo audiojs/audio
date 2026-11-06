@@ -22,13 +22,13 @@ import { paint, setDisplay, laneGroups, setScale, setLevels, setLook, resizePane
 import { bar, openDropdown, dropToggle, placeList, contextMenu, openTools, closePalette, quick, toolKey, soundMenu, opsMenu, saveMenu, closeMenus, wire as wireMenus } from './editor/menus.js'
 import { writing, store, later, wire as wirePersist } from './editor/persist.js'
 import { playerOf, toggleAB, toggleLoop, plays, playPress, playClick, togglePlay, toggleTabMute, onscrub, wire as wirePlay } from './editor/play.js'
-import { meter, describe, markLevel, unmarkLevel, pickReading, pickHeard, pickSpec, listen } from './editor/readouts.js'
+import { meter, describe, markLevel, unmarkLevel, pickReading, pickSpec, seekTo, listen } from './editor/readouts.js'
 import { placed, toggleRecording, take, recorder, armRecording, startRecording, stopRecording, reach, span, useTakeOf, forkRange, takeList, wire as wireRecording } from './editor/recording.js'
 import { schedule, evaluate, stop, standIn, scheduleCheck, wire as wireRun } from './editor/run.js'
 import { docOf, initialDocs, retitle, tabPress, tabOver, tabRenamed, switchTab, scrollTabs, inSight, newTab, dragTab, closeTab, wire as wireTabs } from './editor/tabs.js'
 import { guidesOf } from './editor/tools.js'
-import { trackMenu, layerLook, toggleLock, fitField, nameNewTrack, roomMenu, toggleMute, focusOn, trackOf, laneName, untrack, wire as wireTracks } from './editor/tracks.js'
-import { resampleTo, remixTo, silence, stretch, trim, crossfade, lift, unmark, nameMarker, relabel, remark, fade, setGrip, setCurve, envelope, pitchline, envelopeShown, shiftOf, shift, tone, formant } from './editor/writers.js'
+import { trackMenu, layerLook, toggleLock, fitField, roomMenu, toggleMute, focusOn, trackOf, laneName, untrack, wire as wireTracks } from './editor/tracks.js'
+import { resampleTo, aimRate, rateOpen, dialAt, remixTo, silence, stretch, trim, crossfade, lift, unmark, nameMarker, relabel, remark, fade, setGrip, setCurve, envelope, pitchline, envelopeShown, shiftOf, shift, tone, formant } from './editor/writers.js'
 
 // The editor: its output, and at its right a panel that opens and closes, as Luminar's: the tools, every method by kind,
 // one click adding it; the edits, the chain that makes the output as a stack of steps; the same chain as code; and the
@@ -60,7 +60,7 @@ const state = sprae(root, {
   format: oneOf(stored.format, formats.map(f => f.name), 'wav'), encoding: { markers: true, ...stored.encoding }, snapping: stored.snap ?? true, fadeCurve: oneOf(stored.curve, curves.map(c => c.name), 'linear'), gripMode: ['trim', 'speed'].includes(stored.grip) ? stored.grip : 'stretch', pitch: false,
   levelList, levels: oneOf(stored.levels, ['db'], 'linear'),
   ruler: SHOWN.length && !SHOWN.includes('ruler') ? 'off' : 'labels', scroll: oneOf(UI.scroll ?? stored.scroll, ['bar', 'hover', 'overview'], 'hover'), grid: oneOf(stored.grid, ['none', 'lines'], 'none'), splice: Number.isFinite(UI.splice) ? UI.splice : 10, look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
-  reads: oneOf(SHOWN.find(w => ['peak', 'rms', 'loudness'].includes(w)) ?? stored.reads, ['peak', 'rms', 'loudness'], 'peak'), hears: oneOf(stored.hears, ['note', 'key', 'tempo'], 'note'),
+  reads: oneOf(SHOWN.find(w => ['peak', 'rms', 'loudness'].includes(w)) ?? stored.reads, ['peak', 'rms', 'loudness'], 'peak'),
   // the picture's groups
   // while its dropdown is open
   // how a band shows, the dropdown its look opens: the band's name (a sound's ''), what each track shows, its own
@@ -76,7 +76,7 @@ const state = sprae(root, {
   embed: EMBED, stacked: STACKED, agented: AGENTED, quick: QUICK, made: 0, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
   // the commands' keys and tooltips, as the menus have them (commands.js)
   shortcut, tip,
-  tabs: [], tabFacts: { id: null, head: '', rows: [] }, marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, hotBand: -1, trackRows: null, ghost: false, renamingTab: null,
+  tabs: [], tabFacts: {}, marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, hotBand: -1, trackRows: null, ghost: false, renamingTab: null,
   progress: '', figure: '', arrived: null, working: false, loading: false, arriving: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
   time: '0:00.000', held: null, span: 0, readout: '', reading: { of: '', head: '', rows: [] }, heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
   // the ring in Play's place (status), unless it plays or records
@@ -128,7 +128,7 @@ const state = sprae(root, {
   bringTime() { v.bring() },
   frameLength() { v.frameSelected() },
   // pointed at, in samples
-  get lengthTitle() { return this.recording ? 'Take' : this.lengthPending ? `Length\n${this.arrived == null ? 'On its way' : `${Math.floor(this.arrived * 100)}% here`}` : !this.span && !this.hasOutput ? 'Length\nNo sound' : `${this.span ? 'Selection' : 'Length'}\n${samples(this.span || this.duration)} samples` },
+  get lengthTitle() { return this.recording ? 'Take' : this.lengthPending ? `Length\n${this.arrived == null ? 'On its way' : `${Math.floor(this.arrived * 100)}% here`}` : !this.span && !this.hasOutput ? 'Length\nNo sound' : `${this.span ? 'Selected length' : 'Total length'}\n${samples(this.span || this.duration)} samples` },
   get timeTip() { this.time; return `${this.playing ? 'Playhead' : 'Caret'}\nSample ${samples(v && this.playing ? pl.time : v?.cursor ?? 0)}` },
   get timeTitle() {
     const sel = this.selection
@@ -137,7 +137,7 @@ const state = sprae(root, {
     return `Selected ${what}: ${clock(length)}, ${Math.round(length * rate)} samples`
   },
   get plotHelp() {
-    return `${displays.find(d => d.name === this.display).label}. Click to put the caret and hear the moment there, by a marker's line on the marker; drag to select a time range, a dragged edge or caret going onto the cues and markers near it; double-click selects the fragment between its cues, triple-click the sound between its pauses. Shift sums: a press or a drag extends the selection to it. Alt adds: another caret, range or fragment; dragged inside the selection, a copy of its audio, put in where it lands; and goes the other way: at a range's end it trims, stretches or speeds it, on the caret's line it opens silence. Dragged inside the selection, its audio moves over what is there. ⌘ aims and measures: held, every cue to snap to, the one under the pointer to drag, the pointer's place out to the axes, and how far it is from the selection, on the time row; on the spectrogram, a box of time and frequency; a drag aims finely. A caret's line or a range's edge drags, the others staying. On the time row under the tracks, a press moves the caret alone, a drag selects through every track, a hold drags the caret. Over the lanes, the number over the caret, clicked, asks a name and puts a marker there with it (over the selection, a range of it; over several carets, one each, named alike); a marker's name pressed selects it and every other of its name, Delete takes them away, and an edge or the caret dragged then takes the marker with it. A range's top corners fade it, outward crossfading; its pill sets its level; on notes, the tools at its foot a voice's intonation and formants. Right-click for the edits there; ⌘P finds any. The wheel scrolls; a pinch, or Ctrl and the wheel, zooms the frequencies or the levels over them and time elsewhere. On the notes, a press on a note selects it; dragged up or down, a row a semitone.${this.track ? ` Tracks, a lane each, play together: a press in a lane edits its track, a marker over it its own, a held caret there hears it alone; dragged on the time row, a range runs through every track, dragged from a lane into others through those, an edit of it each one's; dragged into another track's lane, a selection's audio goes into that track; its menu (right-click, Track) mutes, solos, locks and takes it away, its look at its head's right shows it as a waveform, a spectrogram or its notes; its lanes' bottom edge, dragged, its height (with Alt, every track's); under the last, a press puts a new track's caret, which a take, a paste or a file dropped there makes a track of; Move to a new track takes a selection to one of its own, Move the track to its own tab a track to a tab.` : ''}`
+    return `${displays.find(d => d.name === this.display).label}. Click to put the caret and hear the moment there, by a marker's line on the marker; drag to select a time range, a dragged edge or caret going onto the cues and markers near it; double-click selects the fragment between its cues, triple-click the sound between its pauses. Shift sums: a press or a drag extends the selection to it. Alt adds: another caret, range or fragment; dragged inside the selection, a copy of its audio, put in where it lands; and goes the other way: at a range's end it trims, stretches or speeds it, on the caret's line it opens silence. Dragged inside the selection, its audio moves over what is there. ⌘ aims and measures: held, every cue to snap to, the one under the pointer to drag, the pointer's place out to the axes, and how far it is from the selection, on the time row; on the spectrogram, a box of time and frequency; a drag aims finely. A caret's line or a range's edge drags, the others staying. On the time row under the tracks, a press moves the caret alone, a drag selects through every track, a hold drags the caret. Over the lanes, a marker's tag over the caret, pointed at there and clicked, asks a name and puts a marker there with it (over the selection, a range of it; over several carets, one each, named alike); a marker's name pressed selects it and every other of its name, Delete takes them away, and an edge or the caret dragged then takes the marker with it. A range's top corners fade it, outward crossfading; its pill sets its level; on notes, the tools at its foot a voice's intonation and formants. Right-click for the edits there; ⌘P finds any. The wheel scrolls; a pinch, or Ctrl and the wheel, zooms the frequencies or the levels over them and time elsewhere. On the notes, a press on a note selects it; dragged up or down, a row a semitone.${this.track ? ` Tracks, a lane each, play together: a press in a lane edits its track, a marker over it its own, a held caret there hears it alone; dragged on the time row, a range runs through every track, dragged from a lane into others through those, an edit of it each one's; dragged into another track's lane, a selection's audio goes into that track; its menu (right-click, Track) mutes, solos, locks and takes it away, its look at its head's right shows it as a waveform, a spectrogram or its notes; its lanes' bottom edge, dragged, its height (with Alt, every track's); under the last, a press puts a new track's caret, which a take, a paste or a file dropped there makes a track of; Move to a new track takes a selection to one of its own, Move the track to its own tab a track to a tab.` : ''}`
   },
   // a tab opens the panel on it; the tab shown, again, closes it (its tabs stay, to open it again)
   setSide(name) { state.side = state.side === name ? null : name; store() },
@@ -166,6 +166,19 @@ const state = sprae(root, {
   // The depth the export writes, in the bar after the rate and the channels: the source's kept, or another chosen
   // there or in Export, for the lossless formats (the edits run in 32-bit float); the depths the format writes
   get depth() { return this.sound && writtenDepth(this.format, this.encoding.bitDepth, this.sound.bits) },
+  // what the rate, the channels and the depth come to (index.html #sound-facts): the highest frequency it holds (half the
+  // rate, Nyquist), its bit rate and size as the WAV the export writes, the samples as the page edits them (32-bit float)
+  get soundRows() {
+    const s = this.sound
+    if (!s) return []
+    const bits = this.depth || 16, bps = s.hz * s.count * bits, d = this.duration
+    return [['Rate', s.rate, `up to ${+(s.hz / 2000).toFixed(2)}kHz`], ['Channels', s.channels, layouts.find(l => l.count === s.count)?.text ?? ''],
+      ['Bit rate', `${Math.round(bps / 1000)} kbps`, `${bits}-bit PCM`], ['As WAV', bytes(d * bps / 8), `${bits}-bit, ${clock(d)}`], ['In memory', bytes(d * s.hz * s.count * 4), '32-bit float, as edited']]
+  },
+  // the rate aimed at on the resample dial (writers.js aimRate)
+  rateAim: { hz: 48000, at: 0, label: '', text: '', nyquist: '' }, aimRate, rateOpen, dialAt,
+  // a verdict's icons: passes, fails, says only, waits
+  passIcon: 'M5 12.5 9.5 17 19 7.5', failIcon: 'm7 7 10 10M17 7 7 17', infoIcon: 'M6 12h12', waitIcon: 'M12 7v5l3 2',
   get depths() { return [null, ...ENCODING[this.format]?.[2] ?? []].map(d => ({ bits: d, label: d == null ? 'As the file' : `${d}-bit${d === 32 ? ' float' : ''}`, text: d == null ? `${writtenDepth(this.format, null, this.sound?.bits)}-bit` : DEPTH_USE[d] })) },
   pickDepth(d) { closeMenus(); state.setEncoding('bitDepth', d) },
   cutFormats, frameRates, cutFormat: oneOf(stored.cuts?.format, cutFormats.map(c => c.name), 'edl'), fps: oneOf(stored.cuts?.fps, frameRates, null), exportName: '',
@@ -183,9 +196,9 @@ const state = sprae(root, {
   exportCuts,
   setScale,
   toggleSnap() { state.snapping = v.snapping = !state.snapping; store() },
-  layerLook, toggleLock, toggleMute, nameNewTrack, fitField,
+  layerLook, toggleLock, toggleMute, fitField,
   setLevels, setLook,
-  blankView: on => { if (v) v.blank = on }, setDisplay, dropToggle, placeList, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo, pickReading, pickHeard, pickSpec, markLevel, unmarkLevel,
+  blankView: on => { if (v) v.blank = on }, setDisplay, dropToggle, placeList, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo, pickReading, pickSpec, seekTo, markLevel, unmarkLevel,
   togglePlay, playPress, playClick, stop, redo: () => command('redo').run(), mac, share, exportFiles,
   switchTab, tabPress, tabOver, tabRenamed, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
   openSearch, closeSearch, runSearch, typeSearch, preview, useResult
@@ -249,6 +262,7 @@ v = view(root.querySelector('.plot'), {
   // embedded, no room under the lanes for a new track: the sound fills the frame; how far it zooms and scrolls past the
   // sound's end, as the page asks (?ui= zoom, overshoot: README.md)
   keepRoom: !EMBED,
+  track: Number.isFinite(UI.track) && UI.track > 0 ? UI.track : null,
   zoom: UI.zoom,
   overshoot: UI.overshoot,
   // which cues come first where they crowd, zoomed out (?ui= cues: README.md)

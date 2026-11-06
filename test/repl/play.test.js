@@ -154,7 +154,7 @@ test('editor: the caret goes where the pointer presses; Play starts on its press
   assert.equal(await facts(), '44.1kHz stereo 16-bit')
   assert.match(await readout(), /^−/)
   // pointed at, in samples
-  assert.match(await page.locator('.length').evaluate(tipOf), /^Selection\n44,100 samples$/)
+  assert.match(await page.locator('.length').evaluate(tipOf), /^Selected length\n44,100 samples$/)
   assert.match(await page.locator('.time').evaluate(tipOf), /^Caret\nSample 88,200$/)
   // the press alone plays; the release changes nothing
   const play = await page.locator('button.play').boundingBox()

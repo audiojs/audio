@@ -2,7 +2,7 @@ import { SLOP, NOTES } from '../view.js'
 import { source, chain, steps as stepsOf, tracks as tracksOf, focus } from '../code.js'
 import { root, EMBED, displays, layouts, stored, docsOf } from './config.js'
 import { state, eng, v, ed, rk, pl, output, timer, steps, depthWas, assign } from './context.js'
-import { label, clock, dbfs, bytes, ago } from './format.js'
+import { label, dbfs, bytes, ago } from './format.js'
 import { saved, store } from './persist.js'
 import { playerOf, ticker, chase } from './play.js'
 import { places } from './recording.js'
@@ -93,21 +93,25 @@ export function tabOver(id) {
   const rows = [], has = !!out?.duration
   if (has) {
     const k = (out.channels ?? out.peaks)?.length ?? 0
-    rows.push(['Length', clock(out.duration)])
+    rows.push(['Length', span(out.duration)])
     if (tracks.length > 1) rows.push(['Tracks', `${tracks.length}`])
-    rows.push(['Sound', [`${+(out.sampleRate / 1000).toFixed(3)}kHz`, layouts.find(l => l.count === k)?.label ?? `${k} ch`, out.bitDepth && `${out.bitDepth}-bit`].filter(Boolean).join(' · ')])
-    if (out.stats) rows.push(['Loudness', `${Number.isFinite(out.stats.loudness) ? dbfs(out.stats.loudness) : '−∞'}LUFS · peak ${dbfs(out.stats.peak)}dBFS`])
-    if (out.heardAll) { const { bpm, key } = out.heardAll; if (bpm || key) rows.push(['Tempo', [bpm && `${bpm} BPM`, key && `${NOTES[key.tonic]} ${key.mode}`].filter(Boolean).join(' · ')]) }
+    rows.push(['Rate', `${+(out.sampleRate / 1000).toFixed(3)}kHz`], ['Channels', layouts.find(l => l.count === k)?.label ?? `${k}`])
+    if (out.bitDepth) rows.push(['Depth', `${out.bitDepth}-bit`])
+    if (out.stats) rows.push(['Loudness', `${Number.isFinite(out.stats.loudness) ? dbfs(out.stats.loudness) : '−∞'} LUFS`], ['Peak', `${dbfs(out.stats.peak)} dBFS`])
+    if (out.heardAll?.bpm) rows.push(['Tempo', `${out.heardAll.bpm} BPM`])
+    if (out.heardAll?.key) rows.push(['Key', `${NOTES[out.heardAll.key.tonic]} ${out.heardAll.key.mode}`])
   }
   rows.push(['Edits', `${edits}`])
   if (has) rows.push(['Memory', bytes(held(out))])
   if (d?.made) rows.push(['Made', ago(d.made)])
-  const doing = [state.sounding[id] === 'muted' ? 'Playing, muted' : state.sounding[id] || (shown && state.playing) ? 'Playing' : '', state.markWords[state.marks[id]] ?? ''].filter(Boolean).join(' · ')
+  const doing = [state.sounding[id] === 'muted' ? 'Playing, muted' : state.sounding[id] || (shown && state.playing) ? 'Playing' : '', state.markWords[state.marks[id]] ?? ''].filter(Boolean).join(', ')
   if (doing) rows.push(['Now', doing])
-  state.tabFacts = { id, head: state.tabs.find(t => t.id === id)?.name ?? '', rows }
+  state.tabFacts = { ...state.tabFacts, [id]: { head: state.tabs.find(t => t.id === id)?.name ?? '', rows } }
   // the tempo and the key, read once for all of it, then said
-  if (has && !out.heardAll && out.duration >= 6) eng.listen(out.id, [0, 0], [0, out.duration]).then(r => { out.heardAll = { bpm: r?.bpm ?? null, key: r?.key ?? null }; if (state.tabFacts.id === id) tabOver(id) }).catch(() => out.heardAll = {})
+  if (has && !out.heardAll && out.duration >= 6) eng.listen(out.id, [0, 0], [0, out.duration]).then(r => { out.heardAll = { bpm: r?.bpm ?? null, key: r?.key ?? null }; tabOver(id) }).catch(() => out.heardAll = {})
 }
+// a length as said at a glance: 6.5s, 18s, 2m 05s, 1h 02m
+const span = t => t < 10 ? `${+t.toFixed(1)}s` : t < 59.5 ? `${Math.round(t)}s` : t < 3600 ? `${Math.floor(t / 60)}m ${String(Math.floor(t % 60)).padStart(2, '0')}s` : `${Math.floor(t / 3600)}h ${String(Math.floor(t % 3600 / 60)).padStart(2, '0')}m`
 // the samples the page holds of an output: its channels, its tracks' lanes, its peaks
 const held = out => { let n = 0; const add = x => ArrayBuffer.isView(x) ? n += x.byteLength : Array.isArray(x) && x.forEach(add); for (const k of ['channels', 'lanes', 'peaks']) add(out[k]); return n }
 export function switchTab(id) {

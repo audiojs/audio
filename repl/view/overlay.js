@@ -18,9 +18,9 @@ let settle = 0
 // drag, a handle or an edge does is said in the page's hints, by the pointer (say), and goes when nothing says it.
 let said = false
 const self = {}
-export function say(text, px, py, align = 'left') {
+export function say(text, px, py, align = 'left', icon = '') {
   const r = root.getBoundingClientRect(), on = c === mc ? rolled / dpr : 0
-  hint?.show(text, { x: r.left + px - on, y: r.top + py }, self, align)
+  hint?.show(text, { x: r.left + px - on, y: r.top + py }, self, align, icon)
   said = true
 }
 // Both layers drawn: what is in time on the reel's marks, in the tape's geometry, the pointer where it is on the tape;

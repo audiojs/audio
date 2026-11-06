@@ -63,7 +63,7 @@ test('editor: the depth written is a click from another', async () => {
 // What the sound holds, in the status bar: the note at the caret (440 Hz is A4, ISO 16), a melody's compass over a
 // selection (A4 then E5, 659.26 Hz, 2^(7/12) × 440), and, over 6 s at least, the tempo and the key of all of it: clicks
 // every 0.5 s are 120 BPM, a C major triad (C4 E4 G4, 261.63, 329.63, 392 Hz) over them is in C major (Krumhansl-Kessler)
-test('editor: the status bar says the note at the caret, a selection\'s compass, or the tempo or the key, as chosen', async () => {
+test('editor: the status bar says the note at the caret, a selection\'s compass, and the tempo; the key pointed at', async () => {
   await open()
   await noCues()
   const heard = text => page.waitForFunction(text => document.querySelector('.heard')?.textContent === text, text)
@@ -74,7 +74,7 @@ test('editor: the status bar says the note at the caret, a selection\'s compass,
   await heard('A4')
   await page.mouse.click(x(1.5), y)
   await heard('E5')
-  assert.equal(await page.locator('.heard').evaluate(tipOf), 'Note at the caret')
+  assert.equal(await page.locator('#hearing .levels-head').textContent(), 'Note at the caret')
   await drag([x(.2), y], [x(1.8) - x(.2), 0])
   await heard('A4–E5')
   // no pitch, no note; too short for a tempo or a key
@@ -86,23 +86,36 @@ test('editor: the status bar says the note at the caret, a selection\'s compass,
   assert.equal(await page.locator('.heard').count(), 0)
   await write(`audio.from(t => { const b = t % 0.5; return (b < 0.03 ? Math.sin(2 * Math.PI * 1000 * t) * Math.exp(-b * 150) : 0) * .6 + [261.63, 329.63, 392].reduce((s, f) => s + Math.sin(2 * Math.PI * f * t), 0) / 15 }, { duration: 8 })`)
   await lengthIs('0:08.000')
-  // one thing said, chosen from its menu, pressed: the tempo, the key, each of all of it
-  const choose = async label => { await page.locator('.heard').click(); await menuRow(label).click() }
-  await page.locator('.heard').waitFor()
-  await choose('Tempo')
-  await heard('120 BPM')
-  assert.equal(await page.locator('.heard').evaluate(tipOf), 'Tempo of all of it')
-  await choose('Key')
-  await heard('C major')
-  assert.equal(await page.locator('.heard').evaluate(tipOf), 'Key of all of it')
-  // none clear (2 s, short of the 6 a key is read over): said so, its menu still there to choose another
+  // the tempo said by the note, the key in its table, each of all of it
+  await page.waitForFunction(() => document.querySelector('.heard-tempo')?.textContent === '120 BPM')
+  await page.locator('.heard').hover()
+  await page.locator('#hearing:popover-open').waitFor()
+  const rows = Object.fromEntries((await page.locator('#hearing tr').allInnerTexts()).map(r => r.split('\t')))
+  assert.deepEqual([rows.Key.split('\t')[0], rows.Tempo.split('\t')[0]].map(t => t.trim()), ['C major', '120 BPM'], JSON.stringify(rows))
+  await page.mouse.move(0, 0)
+  // none clear (2 s, short of the 6 a key and a tempo are read over): the note alone
   await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t) * .5, { duration: 2 })`)
   await lengthIs('0:02.000')
-  await heard('no key')
-  assert.match(await page.locator('.heard').evaluate(tipOf), /^No key clear in all of it: 6 s at least/)
-  await choose('Note or chord')
   await page.mouse.click(x(1), y)
   await heard('A4')
+})
+
+// Claps have no pitch: no note, no chord, no key said, however a frame of them reads (worker.js tonality, 0% voiced);
+// their tempo is: noise bursts every 0.5 s over 8 s, 120 BPM. Pointed at, why there is no note
+test('editor: claps say their tempo, never a note', async () => {
+  await open()
+  await noCues()
+  await write(`audio.from(t => { const b = t % 0.5; return b < 0.05 ? (Math.random() * 2 - 1) * Math.exp(-b * 80) * .5 : 0 }, { duration: 8 })`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK / 2
+  await page.mouse.click(x(1.01), y)
+  await page.waitForFunction(() => document.querySelector('.heard')?.textContent === '120 BPM')
+  assert.equal(await page.locator('.heard-note').textContent(), '', 'no note')
+  await page.locator('.heard').hover()
+  await page.locator('#hearing:popover-open').waitFor()
+  const rows = Object.fromEntries((await page.locator('#hearing tr').allInnerTexts()).map(r => { const [name, ...rest] = r.split('\t'); return [name, rest.map(c => c.trim())] }))
+  assert.deepEqual(rows.Note, ['–', 'none: unpitched, 0% of it has a pitch'], JSON.stringify(rows))
+  assert.deepEqual(rows.Tempo[0], '120 BPM')
 })
 
 // Where chords sound, the status bar names the chord at the caret, a selection's chords in order, and, as it plays, the
@@ -112,13 +125,13 @@ test('editor: the status bar says the note at the caret, a selection\'s compass,
 test('editor: the status bar names the chord at the caret, a selection\'s chords, and the chord playing', async () => {
   await open()
   await noCues()
-  const heard = re => page.waitForFunction(re => new RegExp(re).test(document.querySelector('.heard')?.textContent), re.source)
+  const heard = re => page.waitForFunction(re => new RegExp(re).test(document.querySelector('.heard-note')?.textContent), re.source)
   await write(`audio.from(t => [[261.63, 329.63, 392], [220, 261.63, 329.63], [174.61, 220, 261.63]][Math.min(2, Math.floor(t / 2))].reduce((s, f) => s + Math.sin(2 * Math.PI * f * t), 0) * .2, { duration: 6 })`)
   await lengthIs('0:06.000')
   const { box, x } = await axis(6), y = box.y + TOP + TRACK / 2
   await page.mouse.click(x(1), y)
   await heard(/^C$/)
-  assert.equal(await page.locator('.heard').evaluate(tipOf), 'Chord at the caret')
+  assert.match(await page.locator('#hearing .levels-head').textContent(), /^Chord at the caret/)
   await page.mouse.click(x(3), y)
   await heard(/^Am$/)
   await page.mouse.click(x(5), y)
@@ -132,7 +145,7 @@ test('editor: the status bar names the chord at the caret, a selection\'s chords
   const said = await page.evaluate(() => new Promise(done => {
     const out = []
     const look = () => {
-      const t = document.querySelector('.heard')?.textContent
+      const t = document.querySelector('.heard-note')?.textContent
       if (t && t !== out.at(-1)) out.push(t)
       if (+document.querySelector('.time').textContent.split(':')[1] > 5.8) return done(out)
       requestAnimationFrame(look)
@@ -147,7 +160,7 @@ test('editor: the status bar names the chord at the caret, a selection\'s chords
 test('editor: with tracks, the status bar names what the edited track holds', async () => {
   await open()
   await noCues()
-  const heard = re => page.waitForFunction(re => new RegExp(re).test(document.querySelector('.heard')?.textContent), re.source)
+  const heard = re => page.waitForFunction(re => new RegExp(re).test(document.querySelector('.heard-note')?.textContent), re.source)
   await write(`let keys = audio.from(t => [261.63, 329.63, 392].reduce((s, f) => s + Math.sin(2 * Math.PI * f * t), 0) * .15, { duration: 8 })\nlet bass = audio.from(t => Math.sin(2 * Math.PI * 65.41 * t) * .8, { duration: 8 })`)
   await lengthIs('0:08.000')
   await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
@@ -230,24 +243,31 @@ test('editor: held ⌘ over the spectrogram, the spectrum meter reads under the 
   await poll(meter, m => assert.equal(m, rest, 'let go, the caret\'s'))
 })
 
-// What the sound is, on the display: its rate resamples it, its channels mix it, each setting the chain's one call
+// What the sound is, on the display: its rate resamples it, on a dial (the common rates its ticks, any rate between
+// them), its channels mix it, each setting the chain's one call
 test('editor: the display\'s rate resamples and its channels mix, each the chain\'s one call', async () => {
   await open()
+  // the dial at a rate: as far along it as its octaves from 8 kHz of the 48 to 384 kHz (writers.js dialAt)
+  const dial = async hz => { const at = Math.round(Math.log(hz / 8000) / Math.log(48) * 1000); await page.locator('#rate-menu input[type=range]').fill(String(at)) }
   await page.getByRole('button', { name: '44.1kHz', exact: true }).click()
-  await page.locator('#rate-menu .menu-item', { hasText: '48kHz' }).click()
+  await dial(48000)
+  assert.equal(await page.locator('#rate-menu .rate-text').innerText(), 'Video, professional audio')
+  await page.locator('#rate-menu .quiet-button').click()
   await page.waitForFunction(() => scriptText().includes('.resample(48000)'))
   await page.waitForFunction(() => document.querySelector('.facts').textContent.startsWith('48kHz'))
   await page.getByRole('button', { name: '48kHz', exact: true }).click()
-  await page.locator('#rate-menu .menu-item', { hasText: '22.05kHz' }).click()
+  await dial(22050)
+  await page.locator('#rate-menu .quiet-button').click()
   await page.waitForFunction(() => { const t = scriptText(); return t.includes('.resample(22050)') && !t.includes('48000') })
   await page.getByRole('button', { name: 'stereo', exact: true }).click()
   await page.locator('#channels-menu .menu-item', { hasText: 'mono' }).click()
   await page.waitForFunction(() => scriptText().includes('.remix(1)'))
   await page.waitForFunction(() => document.querySelector('.facts').innerText.replace(/\s+/g, ' ').trim() === '22.05kHz mono 16-bit')
-  // the standard rates (audiojs/sample-rate), each with what it is for; layouts up to 7.1
+  // the standard rates (audiojs/sample-rate) its ticks; a rate between two, to 100 Hz, said as between them
   await page.getByRole('button', { name: '22.05kHz', exact: true }).click()
-  assert.deepEqual(await page.locator('#rate-menu .menu-item strong').allInnerTexts(), ['8kHz', '11.025kHz', '16kHz', '22.05kHz', '44.1kHz', '48kHz', '88.2kHz', '96kHz', '176.4kHz', '192kHz', '352.8kHz', '384kHz'])
-  assert.ok((await page.locator('#rate-menu .menu-item span').allInnerTexts()).every(t => t.split(/\s+/).length >= 2 && t.split(/\s+/).length <= 4))
+  assert.deepEqual(await page.locator('#rate-menu .rate-ticks span').allTextContents(), ['8', '11.025', '16', '22.05', '44.1', '48', '88.2', '96', '176.4', '192', '352.8', '384'])
+  await page.locator('#rate-menu input[type=range]').fill('500')
+  assert.deepEqual([await page.locator('#rate-menu .rate-aim strong').innerText(), await page.locator('#rate-menu .rate-text').innerText()], ['55.4kHz', 'Between 48kHz and 88.2kHz'])
   await page.keyboard.press('Escape')
   const fact = () => page.evaluate(() => document.querySelector('.facts').innerText.replace(/\s+/g, ' ').trim())
   const layout = async (from, to, call) => {

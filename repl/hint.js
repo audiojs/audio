@@ -7,10 +7,14 @@ export default function hint(parent = document.body) {
   el.setAttribute('aria-hidden', 'true')
   let owner = null
   // By a point in the window, { x, y }: its middle at y, from x on, up to it, or centred on it (`align`: 'left',
-  // 'right', 'center'). Kept in the window.
-  function show(text, at, by = null, align = 'left') {
+  // 'right', 'center'); an icon before its words where it has one (`icon`, a path on the 24 grid). Kept in the window.
+  function show(text, at, by = null, align = 'left', icon = '') {
     owner = by
-    if (el.textContent !== text) el.textContent = text
+    if (el.textContent !== text || (el.dataset.icon ?? '') !== icon) {
+      el.dataset.icon = icon
+      el.innerHTML = icon ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${icon}"/></svg>` : ''
+      el.append(text)
+    }
     el.hidden = false
     const w = el.offsetWidth, h = el.offsetHeight
     const x = align === 'center' ? at.x - w / 2 : align === 'right' ? at.x - w : at.x, y = at.y - h / 2
