@@ -704,14 +704,20 @@ test('editor: the layers over each band lock the tracks; a foot dragged, its hei
   assert.match(await code(), /^let a = audio\('chime\.wav'\)\n\n/, 'a as it was')
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => !scriptText().includes('remove('))
-  // four tracks: more than the picture holds; the wheel over the lanes brings the last into sight, its layer with it, and
-  // the room under it, where a press puts a new track's caret
+  // four tracks: more than the picture holds; Shift and the wheel over the lanes bring the last into sight, its layer
+  // with it, and the room under it, where a press puts a new track's caret; the wheel alone scrolls time, as with one
   await write(Array.from({ length: 4 }, (_, i) => `let t${i} = audio.from(t => Math.sin(2 * Math.PI * ${220 + 20 * i} * t) * .2, { duration: 2 })`).join('\n\n'))
   await page.locator('.layer').nth(3).waitFor({ state: 'attached' })
   const time = box.y + box.height - 10, last = async () => (await tracksAt())[3]
   assert.ok((r => r.y + r.h > time)(await last()), 'the last out of sight')
   await page.mouse.move(box.x + box.width / 2, box.y + 100)
+  const top = (await tracksAt())[0].y
+  await page.mouse.wheel(0, 120)
+  await frames()
+  assert.equal((await tracksAt())[0].y, top, 'the wheel alone: time, the tracks where they were')
+  await page.keyboard.down('Shift')
   for (let i = 0; i < 8; i++) await page.mouse.wheel(0, 120)
+  await page.keyboard.up('Shift')
   await page.waitForFunction(time => (([y, h]) => document.querySelector('.plot').getBoundingClientRect().y + y + h + 18 + 40 <= time + 1)(document.querySelectorAll('.layer')[3].dataset.lane.split(' ').map(Number)), time)
   const r = await last()
   await page.mouse.move(box.x + 300, r.y + r.h + ROOM / 2)
@@ -771,14 +777,13 @@ test('editor: a sound alone is a track as any: one layer, no track menu', async 
   assert.equal(await page.locator('.menubar-menu .menu-group', { hasText: /^Track$/ }).count(), 0, 'no Track section')
 })
 
-// A page left alone shares the picture among its tracks, as a DAW's tracks fit its window: a sound alone its lanes all
-// of it but the room for a new track (ROOM px) and its head; two tracks a half each; never under TRACK px, so more
-// scroll
+// A page left alone shares the picture among its tracks, as a DAW's tracks fit its window, two at least: a sound alone
+// half of it but the room for a new track (ROOM px), as two tracks each; never under TRACK px, so more scroll
 test('editor: the tracks share the picture, the room under them kept; never under TRACK px', async () => {
   await open({ track: 0 })
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const box = await page.locator('.plot').boundingBox(), h = box.height - 22, share = n => Math.max(TRACK, Math.floor((h - ROOM) / n) - HEAD)
+  const box = await page.locator('.plot').boundingBox(), h = box.height - 22, share = n => Math.max(TRACK, Math.floor((h - ROOM) / Math.max(2, n)) - HEAD)
   const [one] = await tracksAt()
   assert.ok(Math.abs(one.h - share(1)) <= 1, `a sound alone: ${one.h} px, ${share(1)} its share`)
   await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')`)

@@ -41,23 +41,13 @@ test('editor: with tracks, the readout marks the mix\'s level on every track\'s 
   await poll(rows, got => assert.ok(got.length === 2 && got.every(n => n > w * .8), `a line at its level across each lane: ${got} of ${w}`), 3000)
 })
 
-// The depth the export writes, after the rate and the channels: the source's kept, or another picked there, which
-// the export's Bits says too
-test('editor: the depth written is a click from another', async () => {
+// The depth is the export's alone (the edits run in 32-bit float): none in the bar, its Bits in the export, kept
+test('editor: the depth written is the export\'s, not the bar\'s', async () => {
   await open()
-  await page.locator('.facts .fact', { hasText: '16-bit' }).click()
-  await page.locator('#depth-menu .menu-item', { hasText: '24-bit' }).click()
-  await page.locator('.facts', { hasText: '24-bit' }).waitFor()
+  assert.equal(await page.locator('.facts .fact', { hasText: /bit/ }).count(), 0, 'none in the bar')
   await download()
-  assert.equal(await page.locator('.choices button[aria-pressed="true"]', { hasText: /^24$/ }).count(), 1)
-  // a format that writes no 24 bits keeps its own
-  await page.locator('.choices button', { hasText: /^MP3$/ }).click()
-  await page.locator('.facts .fact', { hasText: '-bit' }).waitFor({ state: 'detached' })
-  await page.locator('.choices button', { hasText: /^WAV$/ }).click()
-  await page.locator('.facts .fact', { hasText: '24-bit' }).waitFor()
-  await page.locator('.facts .fact', { hasText: '24-bit' }).click()
-  await page.locator('#depth-menu .menu-item', { hasText: 'As the file' }).click()
-  await page.locator('.facts .fact', { hasText: '16-bit' }).waitFor()
+  await page.locator('.export').getByRole('group', { name: 'Bits' }).getByRole('button', { name: '24', exact: true }).click()
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').encoding?.bitDepth === 24)
 })
 
 // What the sound holds, in the status bar: the note at the caret (440 Hz is A4, ISO 16), a melody's compass over a
@@ -243,47 +233,45 @@ test('editor: held ⌘ over the spectrogram, the spectrum meter reads under the 
   await poll(meter, m => assert.equal(m, rest, 'let go, the caret\'s'))
 })
 
-// What the sound is, on the display: its rate resamples it, on a dial (the common rates its ticks, any rate between
-// them), its channels mix it, each setting the chain's one call
+// What the sound is, on the display: its rate resamples it (a common rate, or any written in), its channels mix it,
+// each setting the chain's one call; fewer channels each way to get there (mixed down, or some kept), two swapped or
+// one's polarity flipped, again taking it back
 test('editor: the display\'s rate resamples and its channels mix, each the chain\'s one call', async () => {
   await open()
-  // the dial at a rate: as far along it as its octaves from 8 kHz of the 48 to 384 kHz (writers.js dialAt)
-  const dial = async hz => { const at = Math.round(Math.log(hz / 8000) / Math.log(48) * 1000); await page.locator('#rate-menu input[type=range]').fill(String(at)) }
+  const rate = label => page.locator('#rate-menu .menu-item', { has: page.locator('strong', { hasText: new RegExp(`^${label.replace('.', '\\.')}$`) }) })
   await page.getByRole('button', { name: '44.1kHz', exact: true }).click()
-  await dial(48000)
-  assert.equal(await page.locator('#rate-menu .rate-text').innerText(), 'Video, professional audio')
-  await page.locator('#rate-menu .quiet-button').click()
+  await rate('48kHz').click()
   await page.waitForFunction(() => scriptText().includes('.resample(48000)'))
   await page.waitForFunction(() => document.querySelector('.facts').textContent.startsWith('48kHz'))
   await page.getByRole('button', { name: '48kHz', exact: true }).click()
-  await dial(22050)
-  await page.locator('#rate-menu .quiet-button').click()
+  // the standard rates (audiojs/sample-rate), each with what it is for; another written in
+  assert.deepEqual(await page.locator('#rate-menu .menu-item strong').allInnerTexts(), ['8kHz', '11.025kHz', '16kHz', '22.05kHz', '44.1kHz', '48kHz', '88.2kHz', '96kHz', '176.4kHz', '192kHz', '352.8kHz', '384kHz'])
+  await page.locator('#rate-menu input[name=hz]').fill('22050')
+  await page.locator('#rate-menu input[name=hz]').press('Enter')
   await page.waitForFunction(() => { const t = scriptText(); return t.includes('.resample(22050)') && !t.includes('48000') })
-  await page.getByRole('button', { name: 'stereo', exact: true }).click()
-  await page.locator('#channels-menu .menu-item', { hasText: 'mono' }).click()
-  await page.waitForFunction(() => scriptText().includes('.remix(1)'))
-  await page.waitForFunction(() => document.querySelector('.facts').innerText.replace(/\s+/g, ' ').trim() === '22.05kHz mono 16-bit')
-  // the standard rates (audiojs/sample-rate) its ticks; a rate between two, to 100 Hz, said as between them
-  await page.getByRole('button', { name: '22.05kHz', exact: true }).click()
-  assert.deepEqual(await page.locator('#rate-menu .rate-ticks span').allTextContents(), ['8', '11.025', '16', '22.05', '44.1', '48', '88.2', '96', '176.4', '192', '352.8', '384'])
-  await page.locator('#rate-menu input[type=range]').fill('500')
-  assert.deepEqual([await page.locator('#rate-menu .rate-aim strong').innerText(), await page.locator('#rate-menu .rate-text').innerText()], ['55.4kHz', 'Between 48kHz and 88.2kHz'])
-  await page.keyboard.press('Escape')
-  const fact = () => page.evaluate(() => document.querySelector('.facts').innerText.replace(/\s+/g, ' ').trim())
-  const layout = async (from, to, call) => {
+  const mix = async (from, to, call) => {
     await page.getByRole('button', { name: from, exact: true }).click()
     await page.locator('#channels-menu .menu-item', { has: page.locator('strong', { hasText: new RegExp(`^${to.replace('.', '\\.')}$`) }) }).click()
     await page.waitForFunction(call => scriptText().trimEnd().endsWith(call), call)
-    await page.waitForFunction(to => document.querySelector('.facts').innerText.replace(/\s+/g, ' ').trim() === `22.05kHz ${to} 16-bit`, to)
   }
-  assert.deepEqual(await page.locator('#channels-menu .menu-item strong').allInnerTexts(), ['mono', 'stereo', '5.1', '7.1'])
-  // up from mono, the sound in the centre; 5.1 to 7.1, its surrounds in the back pair too; down, the ITU downmix
-  await layout('mono', '5.1', '.remix([null, null, 0, null, null, null])')
-  await layout('5.1', '7.1', '.remix([0, 1, 2, 3, 4, 5, 4, 5])')
-  await layout('7.1', 'stereo', '.remix(2)')
+  // two: mono averaged, or one side alone; swapped; a side's polarity flipped, again taken back
+  await page.getByRole('button', { name: 'stereo', exact: true }).click()
+  assert.deepEqual(await page.locator('#channels-menu .menu-item strong').allInnerTexts(), ['Mono', 'Mono, the left alone', 'Mono, the right alone', '5.1', '7.1', 'Swap them', 'Flip the left\'s polarity', 'Flip the right\'s polarity'])
+  await page.keyboard.press('Escape')
+  await mix('stereo', 'Flip the right\'s polarity', '.phase(180, { channel: 1 })')
+  await mix('stereo', 'Flip the right\'s polarity', '.resample(22050)')
+  await mix('stereo', 'Swap them', '.remix([1, 0])')
+  await mix('stereo', 'Mono', '.remix(1)')
+  await page.waitForFunction(() => document.querySelector('.facts').innerText.replace(/\s+/g, ' ').trim() === '22.05kHz mono')
+  // up from mono, the sound in the centre; 5.1 to 7.1, its surrounds in the back pair too; down, the ITU downmix, or the
+  // fronts alone
+  await mix('mono', '5.1', '.remix([null, null, 0, null, null, null])')
+  await mix('5.1', '7.1', '.remix([0, 1, 2, 3, 4, 5, 4, 5])')
+  await mix('7.1', '5.1, the backs dropped', '.remix([0, 1, 2, 3, 6, 7])')
+  await mix('5.1', 'Stereo', '.remix(2)')
   // stereo to 5.1: the matrix upmix
-  await layout('stereo', '5.1', '.surround()')
-  assert.equal(await fact(), '22.05kHz 5.1 16-bit')
+  await mix('stereo', '5.1', '.surround()')
+  await page.waitForFunction(() => document.querySelector('.facts').innerText.replace(/\s+/g, ' ').trim() === '22.05kHz 5.1')
 })
 
 // The level at the bar's right, one measure, chosen from its menu (the readout pressed) and kept: the peak, the RMS, the

@@ -134,11 +134,11 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   assert.ok(await blank(), 'nothing with no sound')
 })
 
-// The export's icon an arrow down onto a tray, the switches in it joined (raised keys in one bezel); a band's look opens
+// The export's icon an arrow down onto a line (Iconoir's download), the switches in it joined (raised keys in one bezel); a band's look opens
 // on a click alone
 test('editor: the settled icons; the switches are keys in a bezel; a band\'s look right-clicked opens nothing', async () => {
   await open()
-  assert.equal(await page.locator('.status .download path').getAttribute('d'), 'M12 4v11m-5-5 5 5 5-5M4 19h16', 'an arrow down onto a tray')
+  assert.equal(await page.locator('.status .download path').getAttribute('d'), 'M6 20h12M12 4v12m0 0 3.5-3.5M12 16l-3.5-3.5', 'an arrow down onto a line, Iconoir\'s')
   await download()
   // the switches, settled: raised keys in one bezel, each touching the next
   const group = page.locator('.export .choices').first()

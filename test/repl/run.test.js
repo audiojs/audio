@@ -11,7 +11,7 @@ test('editor: opens on the chime with its script, drawn and measured', async () 
   assert.equal(await code(), `audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)`)
   assert.equal(await page.locator('.source').innerText(), 'chime.wav')
   // the depth the export writes, the library's 16 for a sound of no depth (fn/save.js)
-  assert.equal(await facts(), '44.1kHz stereo 16-bit')
+  assert.equal(await facts(), '44.1kHz stereo')
   assert.equal(await readout(), '−1.0dBFS')
   assert.match(await levelsTable(), /^Peak −1\.0dBFS at 0:0\d\.\d{3}\nRMS −\d+\.\ddBFS\nCrest \d+\.\ddB\nLoudness −\d+\.\dLUFS integrated$/)
   // its lanes TRACK px of the plot, the room under them

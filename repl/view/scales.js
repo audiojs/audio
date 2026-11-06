@@ -183,22 +183,27 @@ export const noteMarks = rect => keyRows(rect, true).sort((p, q) => KEYED.indexO
 // a lane's marks, as its axis has them: levels, frequencies or notes
 export const axisMarks = rect => rect.keys ? noteMarks(rect) : rect.kind === 'spec' ? hzMarks(rect) : levelMarks(rect)
 // Levels within the values a lane shows, the most telling first: as sample values, 0 and full scale, then 1-2-5 steps
-// of what shows, two or so across it; in dB, mirrored about 0 and clear of it, the halvings first, the top's 0 with
+// of what shows, as fine as the lane has room for (labelStep); in dB, mirrored about 0 and clear of it, the halvings first, the top's 0 with
 // its unit
 export function levelMarks(rect, units = levelUnits) {
   const [lo, hi] = aview, within = v => v >= lo - 1e-9 && v <= hi + 1e-9
-  if (units === 'linear') return [...new Set([0, 1, -1, ...multiples(lo, hi, labelStep())])].filter(within).map(v => [ay(rect, v), linear(v), Math.abs(v)])
+  if (units === 'linear') return [...new Set([0, 1, -1, ...multiples(lo, hi, labelStep(rect))])].filter(within).map(v => [ay(rect, v), linear(v), Math.abs(v)])
   const zero = ay(rect, 0)
   return LEVELS.flatMap(db => [1, -1].map(sign => [sign * 10 ** (db / 20), db, sign])).filter(([v]) => within(v) && Math.abs(ay(rect, v) - zero) >= 16)
     .map(([v, db, sign]) => [ay(rect, v), db ? `${db > 0 ? '+' : '−'}${Math.abs(db)}` : sign > 0 ? '0dB' : '0', db])
 }
 const linear = v => v ? `${v < 0 ? '−' : ''}${+Math.abs(v).toPrecision(3)}` : '0'
-// the 1-2-5 step the sample values are read to, four or so across what a lane shows; labelled by, two or so (1 across
-// full scale); ticked between by, its next finer that parts it evenly (a half of a 1 or a 2, a fifth of a 5), unlabelled
-const valueStep = () => nice((aview[1] - aview[0]) / 4), labelStep = () => nice((aview[1] - aview[0]) / 2)
-const finer = s => s / (Math.round(s / 10 ** Math.floor(Math.log10(s) + 1e-9)) === 5 ? 5 : 2)
+// the 1-2-5 step the sample values are read to, four or so across what a lane shows. Labelled by the finest 1-2-5 step
+// whose labels stand LABELLED px apart in the lane (1 across a short one, every 0.2 across a tall one), as the time
+// row's; ticked between, unlabelled, by the finest 1-2-5 step that parts it evenly TICKED px apart (each 0.1, where
+// there is room), as a ruler's
+const LABELLED = 64, TICKED = 10, STEPS = [-4, -3, -2, -1, 0].flatMap(e => [1, 2, 5].map(m => +(m * 10 ** e).toPrecision(3)))
+const valueStep = () => nice((aview[1] - aview[0]) / 4)
+const perUnit = rect => Math.abs(ay(rect, 1) - ay(rect, 0))
+const labelStep = rect => STEPS.find(s => s * perUnit(rect) >= LABELLED) ?? 1
+const tickStep = rect => { const s = labelStep(rect); return STEPS.find(t => t < s && t * perUnit(rect) >= TICKED && Math.abs(s / t - Math.round(s / t)) < 1e-6) ?? null }
 // the levels ticked between the labelled, as sample values, [y, …]; none in dB, whose marks are each labelled
-export const levelTicks = rect => levelUnits === 'linear' ? multiples(...aview, finer(labelStep())).map(v => [ay(rect, v)]) : []
+export const levelTicks = rect => { const t = levelUnits === 'linear' && tickStep(rect); return t ? multiples(...aview, t).map(v => [ay(rect, v)]) : [] }
 // the multiples of `step` in [a, b], clear of float error
 const multiples = (a, b, step) => { const out = []; for (let k = Math.ceil(a / step - 1e-9); k * step <= b + 1e-9; k++) out.push(+(k * step).toPrecision(12)); return out }
 // Frequencies to mark, roundest first: the scale's own when all of it shows; zoomed in, the round values in view,

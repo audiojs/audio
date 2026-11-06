@@ -187,13 +187,13 @@ export function moveOn() {
   fitTo(mid - w / 2, mid + w / 2)
 }
 // The scrollbar's thumb, a pixel under the lanes: THIN px, as a native overlay scrollbar's at rest; under the pointer or
-// dragged, THICK and brighter, as the page's scrollbars draw theirs (editor.css)
+// dragged, brighter, never wider, as the page's scrollbars draw theirs (editor.css); THICK, the height it takes
 export const THIN = 4, THICK = 6
 export function paintBar() {
   if (scroll === 'overview') return paintMap()
   const b = bar()
   if (!b) return
-  const lit = drag?.scroll || !drag && hovered && onBar(...hovered), t = lit ? THICK : THIN
+  const lit = drag?.scroll || !drag && hovered && onBar(...hovered), t = THIN
   c.globalAlpha = lit ? .6 : .3
   c.fillStyle = color('--color-screen-soft')
   c.beginPath()

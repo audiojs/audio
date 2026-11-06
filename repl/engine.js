@@ -263,6 +263,8 @@ export default function engine(url = WORKER) {
     notes: (output, track) => call({ type: 'notes', output, track }).then(r => r.notes ?? []),
     // what it holds, as a musician says it: the note over `note` [from, to] s, the tempo and key over `span`
     listen: (output, note, span, track) => call({ type: 'listen', output, note, span, track }),
+    // what the rate and the channels come to (worker.js facts): { top, correlation, balance, summed, levels }
+    facts: (output, track) => call({ type: 'facts', output, track }),
     chords: (output, at, track) => call({ type: 'chords', output, at, track }),
     // [at, at + duration] s of an output as WAV bytes, at `bitDepth`; null once a newer output replaced it
     wav: (output, at, duration, bitDepth) => call({ type: 'wav', output, at, duration, bitDepth }).then(r => r.bytes ?? null),

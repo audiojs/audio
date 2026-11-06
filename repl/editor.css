@@ -21,7 +21,7 @@ button:disabled { cursor: default; opacity: .4; }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
 ::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 4px; background: transparent padding-box; }
 :hover::-webkit-scrollbar-thumb { background-color: var(--color-scroll); }
-::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { border-width: 1px; background-color: color-mix(in oklab, var(--color-scroll), var(--color-screen-soft) 40%); }
+::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { background-color: color-mix(in oklab, var(--color-scroll), var(--color-screen-soft) 40%); }
 [hidden] { display: none !important; }
 /* Until the script takes the page over, its conditional and repeated parts stay out of sight and the rest takes no
    clicks, never shown dead. Sprae drops each directive attribute as it takes that element, so any version of the
@@ -384,7 +384,7 @@ svg { flex: none; }
 .checked { display: flex; flex: none; align-items: center; gap: 3px; margin-left: 12px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); white-space: nowrap; }
 .checked:disabled { opacity: .4; }
 .checked:hover:not(:disabled), .checked:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
-.checked.pass, .checked.fail { color: var(--color-screen-soft); }
+.checked.pass, .checked.fail { color: var(--color-screen-muted); }
 .checked .mark { width: 11px; height: 11px; }
 .checked.pass .mark { color: var(--color-screen-bright); }
 .checked.fail .mark { color: var(--color-screen-error); }
@@ -406,14 +406,14 @@ svg { flex: none; }
 .check-rules .fail .verdict-icon svg, .check-rules .fail td:not(.limit) { color: var(--color-screen-error); }
 .levels-table.check-rules td.limit { padding-right: 0; color: var(--popoff-muted); }
 /* the bar folded where it is narrow: an i by the export, what has no room in the bar in a list under it */
-.status .status-more { display: none; flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 28px; height: 28px; margin-left: 6px; border-radius: 6px; }
-.status .status-more svg { width: 17px; height: 17px; }
+.status .status-more { display: none; flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 24px; height: 24px; margin-left: 6px; border-radius: 6px; }
+.status .status-more svg { width: 16px; height: 16px; }
 .status-fold { width: auto; min-width: 220px; padding: 8px 12px; background: var(--popoff-bg); }
 .status-fold .levels-table th { padding-right: 16px; }
 .status-fold .levels-table td { padding-block: 2px; text-align: left; }
 /* the export, last at the bar's right end: a dropdown over it */
-.status .download { flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 28px; height: 28px; margin-left: 2px; border-radius: 6px; }
-.status .download svg { width: 17px; height: 17px; }
+.status .download { flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 24px; height: 24px; margin-left: 4px; border-radius: 6px; }
+.status .download svg { width: 16px; height: 16px; }
 .record-icon { display: block; width: 11px; height: 11px; border-radius: 50%; background: var(--color-screen-error); opacity: .8; }
 .record:hover .record-icon { opacity: 1; }
 /* Recording, a square to stop it, steady; armed, the microphone still opening, it blinks, as a deck's record key does */
@@ -471,9 +471,9 @@ svg { flex: none; }
 .message, .heard { overflow: hidden; text-overflow: ellipsis; }
 /* what is happening, one line after the time: a note, a problem in red, the engine's work; the room that is left, whole
    or none: what the sound is is never cut short, it goes whole as the bar narrows (below) */
-.message { flex: 1 1 0; justify-content: flex-end; margin-left: 6px; color: var(--color-screen-soft); }
+.message { flex: 1 1 0; justify-content: flex-start; margin-left: 6px; color: var(--color-screen-soft); }
 /* said, it stands where the level is, the level giving it the room */
-.status-main:has(.message-words:not(:empty)) .readout { display: none; }
+.status-main:has(.message-words:not(:empty)) :is(.readout, .heard) { display: none; }
 /* the words cut short before the figure after them (how far, how long) is: it stands apart by its room and its tone */
 .message-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* while the engine works: a quarter of a ring turning before its words, still where motion is asked to be less */
@@ -485,10 +485,10 @@ svg { flex: none; }
 .fact { flex: none; margin: 0 -3px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; }
 .fact:hover, .fact:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 /* after the level, as far from it as from each other: one row of figures */
-.facts { margin-left: 7px; color: var(--color-screen-soft); }
+.facts { margin-left: auto; padding-left: 7px; color: var(--color-screen-muted); }
 /* the level, one measure, a press from the others: its value alone, the menu and the tip saying which (room for the
    longest, −10.0dBFS, −16.0LUFS); at the bar's end by the facts, with a message before it or none (embedded) */
-.readout { display: flex; align-items: center; justify-content: flex-end; min-width: 9ch; margin-left: auto; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-soft); font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; cursor: pointer; }
+.readout { display: flex; align-items: center; justify-content: flex-start; min-width: 9ch; margin-left: 4px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; cursor: pointer; }
 .readout:hover:not(:disabled), .heard:hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .readout:disabled { cursor: default; }
 /* pointed at, every level: a table as a tooltip is drawn (popoff), the names soft, the values bright, where the peak is
@@ -692,20 +692,10 @@ svg { flex: none; }
 .menu.wide { width: 380px; }
 .menu.narrow { width: 230px; }
 #rate-menu, #channels-menu, #depth-menu { position-area: top span-right; }
-/* the rate dial: the rate aimed at over it, its ticks under it, the common rates, named where they have room; what it is
-   used for under them, and the press that sets it */
-.rate-menu { width: 300px; padding: 6px 12px 12px; }
-.rate-aim { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 6px; }
-.rate-aim strong { color: var(--color-screen-bright); font: 500 15px var(--font-mono); }
-.rate-aim span { color: var(--color-screen-muted); font-size: 11.5px; }
-.rate-menu input[type=range] { display: block; width: 100%; margin: 0; accent-color: var(--color-screen-bright); }
-.rate-ticks { position: relative; height: 22px; margin: 0 7px; }
-.rate-ticks span { position: absolute; left: calc(var(--at) * 100%); display: flex; flex-direction: column; align-items: center; translate: -50% 0; color: var(--color-screen-muted); font: 10px var(--font-mono); }
-.rate-ticks span::before { content: ''; width: 1px; height: 4px; margin-bottom: 2px; background: currentColor; }
-.rate-ticks span:not(.named):not(.on) { font-size: 0; }
-.rate-ticks span.on { color: var(--color-screen-bright); font-size: 10px; z-index: 1; }
-.rate-text { margin: 6px 0 10px; text-align: left; }
-.rate-menu .quiet-button { width: 100%; }
+/* another rate, written in under the common ones */
+.rate-other { display: flex; gap: 6px; margin: 6px 4px 2px; padding-top: 8px; border-top: 1px solid var(--color-screen-rule); }
+.rate-other .name-input { flex: 1; }
+.rate-other input::-webkit-inner-spin-button { display: none; }
 /* Options, a group each: its name, its choices as keys, what each does in its tooltip (the settings, a picture's
    dropdown) */
 .option-label { margin: 0 0 6px; color: var(--color-screen-muted); font: 12px var(--font-body); }
@@ -893,7 +883,7 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
 @container bar (max-width: 400px) { .clock { --time-size: 22px; padding: 0; } .deck-slot { translate: 0 calc(40px * .3 - 22px * .3); } }
 @container bar (max-width: 720px) { .readout { display: none; } }
 @container bar (max-width: 670px) { .facts { display: none; } }
-@container bar (max-width: 870px) { .checked { display: none; } }
+@container bar (max-width: 870px) { .checked > span { display: none; } .checked:not(:has(svg)) { display: none; } }
 @container bar (max-width: 515px) { .length { display: none; } }
 @container bar (max-width: 570px) { .before { display: none; } }
 @container bar (max-width: 380px) { .status .loop { display: none; } }

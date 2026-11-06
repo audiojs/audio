@@ -1145,6 +1145,42 @@ async function listen({ output, note, span, track }) {
   const { bpm = null, key: k = null } = r.heard.get(key)
   return { pitch, chords, span: [a, b], tonal, bpm, key: tonic ? k : null }
 }
+// What the rate and the channels come to, as the bar says them pointed at, read over all of it, or past HEARD s over a
+// second at each of HEARD places spread over it. The rate: the highest frequency the sound holds within 60 dB of its
+// loudest band (Hann frames of 4096, their power averaged), which the rate alone never says (an MP3's 16 kHz, a 48 kHz
+// file made from a 22.05 kHz one). Two channels: how alike they are (their correlation over all of it: +1 one sound
+// twice, 0 apart, −1 one inverted), which side is louder and by how much, how much quieter they are summed to mono
+// (0 dB alike, −3 dB apart, far below with one inverted). More: each one's level. { top, correlation, balance, summed,
+// levels: [dBFS] }
+const BAND = 4096
+async function facts({ output, track }) {
+  const r = part(await whole(output), track)
+  if (!r || !lengthOf(r)) return {}
+  const rate = r.sampleRate, end = lengthOf(r) / rate, k = r.sound.channels, win = Float64Array.from({ length: BAND }, (_, i) => .5 - .5 * Math.cos(2 * Math.PI * i / BAND))
+  const power = new Float64Array(BAND / 2), energy = new Float64Array(k), frame = new Float64Array(BAND)
+  let lr = 0, sum = 0, count = 0
+  for (const [p, q] of end <= HEARD ? [[0, end]] : Array.from({ length: HEARD }, (_, i) => { const p = (end - 1) * i / (HEARD - 1); return [p, p + 1] })) {
+    const pcm = await r.sound.read({ at: p, duration: q - p }), n = pcm[0].length
+    count += n
+    for (let c = 0; c < k; c++) for (let i = 0; i < n; i++) energy[c] += pcm[c][i] * pcm[c][i]
+    if (k === 2) for (let i = 0; i < n; i++) { const m = pcm[0][i] + pcm[1][i]; lr += pcm[0][i] * pcm[1][i]; sum += m * m }
+    for (let at = 0; at + BAND <= n; at += BAND / 2) {
+      for (let i = 0; i < BAND; i++) { let v = 0; for (let c = 0; c < k; c++) v += pcm[c][at + i]; frame[i] = v / k * win[i] }
+      const [re, im] = fft(frame)
+      for (let b = 0; b < BAND / 2; b++) power[b] += re[b] * re[b] + im[b] * im[b]
+    }
+  }
+  const loudest = power.reduce((m, v) => Math.max(m, v), 0)
+  let top = 0
+  for (let b = BAND / 2 - 1; b > 0; b--) if (power[b] >= loudest * 1e-6) { top = b * rate / BAND; break }
+  const db = v => v > 0 ? 10 * Math.log10(v) : -Infinity
+  return {
+    top: loudest ? top : null,
+    ...k === 2 && energy[0] && energy[1] && { correlation: lr / Math.sqrt(energy[0] * energy[1]), balance: db(energy[0] / energy[1]), summed: db(sum / (2 * (energy[0] + energy[1]))) },
+    levels: Array.from(energy, e => db(e / Math.max(1, count)))
+  }
+}
+
 // The chords of an output over [a, b] s, in order: those of the blocks there (chordsIn), a chord only touching the range's
 // edge (a quarter second of it, or half of a shorter range) not counted
 async function chordsOf(r, a, b) {
@@ -1561,7 +1597,7 @@ const handlers = {
     for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k)
     return { held: [...passes].some(p => p.tab === tab) }
   },
-  run: execute, cues, contour: curve, notes, listen, chords, wav, export: exporting, describe, check: checking, original, voice, samples, heard: levelsHeard, eval: evaluate,
+  run: execute, cues, contour: curve, notes, listen, facts, chords, wav, export: exporting, describe, check: checking, original, voice, samples, heard: levelsHeard, eval: evaluate,
   // a tab closed: its output goes
   close: ({ tab }) => { newest.delete(tab); stopped.delete(tab); for (const r of outputs.values()) if (r.tab === tab) drop(r); for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k); return {} },
   // a script's sound whole, as the edits make it there (the chain flattened up to a step): from the renders kept, as a

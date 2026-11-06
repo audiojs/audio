@@ -1,5 +1,4 @@
-import { append, between, chain, number, setArg, focus } from '../code.js'
-import { rates } from './config.js'
+import { append, between, chain, number, setArg, focus, steps as stepsOf, dropStep } from '../code.js'
 import { state, v, ed, rk, pl, output } from './context.js'
 import { lastEdit, amend, write, applied } from './edits.js'
 import { quote, note } from './format.js'
@@ -14,18 +13,7 @@ import { lane } from './tracks.js'
 
 // The sound's rate or channels changed from the display: the chain's last resample() or remix() set again, else one
 // added at its end
-export function resampleTo(hz) { closeMenus(); retune('resample', hz, output?.sampleRate) }
-// The rate to resample to, aimed on a dial before it is set (index.html #rate-menu): the common rates its ticks, from
-// 8 kHz to 384 kHz an octave as far as any other (log), a rate within SNAP of a tick that rate, any other between
-// them, to 100 Hz; each common one said for what it is used for, another for the two it lies between
-const LO = rates[0].hz, HI = rates.at(-1).hz, SNAP = 8
-export const dialAt = hz => Math.round(Math.log(hz / LO) / Math.log(HI / LO) * 1000)
-export function aimRate(at) {
-  const hz = LO * (HI / LO) ** (at / 1000), near = rates.find(r => Math.abs(dialAt(r.hz) - at) <= SNAP), to = near?.hz ?? Math.round(hz / 100) * 100
-  const [below, above] = [rates.findLast(r => r.hz < to), rates.find(r => r.hz > to)]
-  state.rateAim = { hz: to, at: dialAt(to), label: `${+(to / 1000).toFixed(3)}kHz`, text: near?.text ?? `Between ${below?.label ?? ''} and ${above?.label ?? ''}`, nyquist: `up to ${+(to / 2000).toFixed(2)}kHz` }
-}
-export const rateOpen = event => { if (event.newState === 'open') aimRate(dialAt(output?.sampleRate ?? 48000)) }
+export function resampleTo(hz) { if (!(hz >= 1000 && hz <= 768000)) return note('A rate from 1000 to 768000 Hz'); closeMenus(); retune('resample', Math.round(hz), output?.sampleRate) }
 // Down, the ITU-R BS.775 downmix (remix(n), fn/remix.js); up from mono, the sound in the centre (5.1, 7.1) or on both
 // sides; from stereo to 5.1 the matrix upmix (surround(): the mid in the centre, the side delayed into the surrounds,
 // the LFE lowpassed), on to 7.1 the surrounds in the back pair too, as from 5.1
@@ -35,6 +23,32 @@ export function remixTo(n) {
   if (!now || n === now) return
   if (n < now || now === 1 && n === 2) return retune('remix', n, now)
   write(now === 1 ? `remix([${Array.from({ length: n }, (_, c) => c === 2 ? 0 : 'null').join(', ')}])` : now === 2 ? `surround()${n === 8 ? `.${wide}` : ''}` : now === 6 && n === 8 ? wide : `remix(${n})`)
+}
+// What the channels menu offers for the sound as it is (index.html #channels-menu): fewer channels each way to get there,
+// mixed down (ITU-R BS.775, remix(n); two to one averaged) or some kept and the rest dropped (remix([…]): the left alone,
+// the fronts, 7.1's sides); more, as remixTo makes them; with two, the sides swapped, or one's polarity flipped
+// (phase(180) on it, fn/phase.js), again taking it back. [{ label, text, run, now }]; 7.1 is L R C LFE Lb Rb Ls Rs
+// (WAV/SMPTE order, fn/remix.js)
+export function channelActions(n) {
+  if (!n) return []
+  const keep = list => () => { closeMenus(); write(`remix([${list.join(', ')}])`) }, mix = to => () => remixTo(to)
+  const down = {
+    1: [[1, 'Mono', n === 2 ? 'Left and right averaged' : 'All of them mixed down (ITU)', mix(1)], ...n === 2 ? [[1, 'Mono, the left alone', 'The right dropped', keep([0])], [1, 'Mono, the right alone', 'The left dropped', keep([1])]] : []],
+    2: n > 2 ? [[2, 'Stereo', 'Mixed down: the centre and surrounds into the sides (ITU)', mix(2)], [2, 'Stereo, the fronts alone', 'Left and right kept, the rest dropped', keep([0, 1])]] : [],
+    6: n === 8 ? [[6, '5.1', 'Mixed down: each back into its side', mix(6)], [6, '5.1, the backs dropped', 'The sides kept as the surrounds', keep([0, 1, 2, 3, 6, 7])]] : []
+  }
+  const flipped = ch => stepsOf(ed.code).findIndex(x => x.on && x.text.replace(/\s+/g, '') === `.phase(180,{channel:${ch}})`)
+  const flip = ch => () => { closeMenus(); const at = flipped(ch); at >= 0 ? ed.change(dropStep(ed.code, at)) : write(`phase(180, { channel: ${ch} })`) }
+  return [
+    ...[1, 2, 6].flatMap(to => to < n ? down[to] : []).map(([, label, text, run]) => ({ label, text, run })),
+    ...[2, 6, 8].filter(to => to > n).map(to => ({ label: { 2: 'Stereo', 6: '5.1', 8: '7.1' }[to], text: n === 1 ? 'The sound in the centre' : 'Spread round, as a matrix upmix does', run: mix(to) })),
+    ...n === 2 ? [
+      { group: 'Left and right' },
+      { label: 'Swap them', text: 'The left the right', run: keep([1, 0]) },
+      { label: 'Flip the left\'s polarity', text: flipped(0) >= 0 ? 'Flipped: again, as it was' : 'Its samples negated', run: flip(0), now: flipped(0) >= 0 },
+      { label: 'Flip the right\'s polarity', text: flipped(1) >= 0 ? 'Flipped: again, as it was' : 'Its samples negated', run: flip(1), now: flipped(1) >= 0 }
+    ] : []
+  ]
 }
 function retune(name, value, now) {
   const last = amend(name), arg = last?.call.args[0]

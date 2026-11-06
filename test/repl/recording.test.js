@@ -991,8 +991,8 @@ test('editor: a recording is mono over nothing, as the sound under it over one, 
   await page.keyboard.press('Space')
   await page.waitForFunction(() => scriptText().startsWith("audio('recording.wav')"))
   await wholeLevels().waitFor()
-  // as it was written down, 32-bit float
-  assert.match(await facts(), / mono 32-bit$/)
+  // one channel, as it was written down
+  assert.match(await facts(), / mono$/)
   // what the microphone is asked for: one channel over the mono sound, two over a stereo one, two by the config
   const asked = () => page.evaluate(() => { const md = navigator.mediaDevices, ask = md.getUserMedia.bind(md); window.__ideal = []; md.getUserMedia = c => { window.__ideal.push(c.audio.channelCount.ideal); return ask(c) } })
   await write(`audio('chime.wav')`)

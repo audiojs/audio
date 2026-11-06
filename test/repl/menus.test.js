@@ -26,16 +26,16 @@ test('editor: a control pointed at says what it is and does, on a tag pointing a
   assert.ok(!await tip.isVisible(), 'not at once')
   await page.waitForFunction(() => document.querySelector('.popoff-tip:popover-open .popoff-tip-name')?.textContent === 'Loop')
   assert.equal(await tip.locator('.popoff-tip-keys').innerText(), 'L')
-  // a control whose popover is open has none
-  const depth = page.locator('.facts .fact', { hasText: '-bit' })
-  await depth.click()
-  await page.locator('#depth-menu:popover-open').waitFor()
+  // a control whose popover is open has none: no tip, no card
+  const rate = page.locator('.facts .fact').first()
+  await rate.click()
+  await page.locator('#rate-menu:popover-open').waitFor()
   // left and pointed at again, the press forgotten: still none while its menu is open
   await page.mouse.move(4, 4)
-  await depth.hover({ position: { x: 3, y: 3 } })
+  await rate.hover({ position: { x: 3, y: 3 } })
   // past popoff's 500 ms: a tip that would show has
   await page.waitForTimeout(700)
-  assert.ok(!await tip.isVisible(), 'none over its open menu\'s control')
+  assert.ok(!await tip.isVisible() && !await page.locator('#rate-facts:popover-open').count(), 'none over its open menu\'s control')
   await page.keyboard.press('Escape')
   await page.mouse.move(4, 4)
   await tip.waitFor({ state: 'hidden' })

@@ -7,7 +7,7 @@ import { clipMarks } from './notes.js'
 import { say, crossAt, washFrom, WASHED, lanesEnd, seenTo } from './overlay.js'
 import { drag, hot, caretGhost, lined } from './pointer.js'
 import { W, moved, invalidate, wash } from './render.js'
-import { THIN, THICK } from './ruler.js'
+import { THIN } from './ruler.js'
 import { ranges, carets } from './select.js'
 import { x, X, time, snap, digits, seen, inside, fy, ay, sampled, decibel } from './scales.js'
 
@@ -89,13 +89,13 @@ export function paintRoom(L, at) {
 }
 // More bands than the picture holds: a scrollbar down its right edge, its thumb where those in sight are among them
 // all, dragged as any is (liftAt), drawn as the time's (paintBar): a round thumb on no track, there while the pointer
-// is over the picture, THICK and brighter under it
+// is over the picture, brighter under it, never wider
 const LIFT = 6
 export const thumb = () => { const { h } = plot(), th = Math.max(24, h * h / (h + spare)); return { y: lift / spare * (h - th), h: th, room: h - th } }
 export const liftAt = (px, py) => spare > 0 && px >= W - LIFT && py <= plot().h
 export function paintLift(at) {
   if (!spare || !hovered && !drag?.lifting) return
-  const t = thumb(), on = drag?.lifting || at && liftAt(...at), tw = on ? THICK : THIN
+  const t = thumb(), on = drag?.lifting || at && liftAt(...at), tw = THIN
   c.globalAlpha = on ? .6 : .3
   c.fillStyle = color('--color-screen-soft')
   c.beginPath()
@@ -332,10 +332,12 @@ export function paintStrips(L, pointedAt, selected) {
     nameOn(m, m.text, lx, room, ink)
   }
   // the marker to be, a tag over the caret the pointer is over the head by, faint; lit on it
-  const to = nearTag(L)
-  if (to) pin(to.row, to.ix, color(nameAt(L) ? '--color-screen-bright' : '--color-screen-muted'))
+  const to = nearTag(L), on = to && nameAt(L)
+  if (to) pin(to.row, to.ix, color(on ? '--color-screen-bright' : '--color-screen-muted'))
+  // on it, what a click does, and its key (commands.js mark)
+  if (on) say(on.all.length > 1 ? `A marker at each (M)` : 'Add a marker (M)', to.ix + 10, to.row.edge - 22)
 }
-// A marker's tag, as a map's pin: a square, its point down on the line at `ix` px
+// A marker's tag, as a map's pin: a square, its point down on the line at `ix` px; pointed at, the pointer says it
 const TAG = 8, NEAR = 12
 function pin(row, ix, ink) {
   const l = Math.round(ix - TAG / 2) + .5, top = row.edge - 14 + .5, side = top + TAG - 2, tip = row.edge - 2

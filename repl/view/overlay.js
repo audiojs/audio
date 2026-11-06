@@ -262,7 +262,8 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
     placeFork(L)
     paintRoom(L, at)
     endLanes(L)
-    paintLift(!drag && at)
+    // (the pointer over the bar is past the picture's width, where `at` stops)
+    paintLift(!drag && hovered)
     // held ⌘, the pointer's guides out to the axes, at once, wherever it is over a lane: with what it measures, or on
     // the caret with nothing to; and as a drag sets a time, the caret held, an edge, a range Shift goes on with
     const guide = measure ?? (at && editing(held) ? dragged() != null ? { t: dragged() } : li >= 0 ? { t: pointed } : null : null)

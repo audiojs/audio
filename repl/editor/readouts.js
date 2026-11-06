@@ -69,8 +69,8 @@ export function meter(t = null, probe = null) {
   v.meters = read(t != null ? live(l) : l, () => spectra(w.x, s0, s1, { size }), rate)
 }
 // What the output is, at the status bar's right: its level, short (the output's peak, or the selection's, or the band
-// selected), all of them when pointed at (the loudness, the RMS); then its rate, channels and the depth it is written
-// at, a click away from resampling, remixing and another depth.
+// selected), all of them when pointed at (the loudness, the RMS); then its rate and channels, a click away from
+// resampling and remixing.
 // The peak of samples [from, to), where it is, the sum of their squares and how many: of `chs`, their samples; else of
 // `leaves`, a long output's (gl-waveform's, 256 samples a leaf: min, max, sum of squares, count), those the range
 // touches whole, within 256 samples at either end, the peak at its leaf's start. { peak, at, sum, n }
@@ -99,6 +99,9 @@ export function describe() {
   if (!output?.duration) { state.readout = ''; return }
   const { sampleRate, channels, peaks, stats, bitDepth } = output, k = (channels ?? peaks).length
   state.sound = { hz: sampleRate, rate: `${+(sampleRate / 1000).toFixed(3)}kHz`, count: k, channels: layouts.find(l => l.count === k)?.label ?? `${k} ch`, bits: bitDepth }
+  // what they come to, read once an output (worker.js facts)
+  state.soundFacts = output.facts?.then ? null : output.facts ?? null
+  if (!output.facts) { const out = output; out.facts = eng.facts(out.id).then(f => { out.facts = f; if (out === output) state.soundFacts = f }).catch(() => { out.facts = {} }) }
   const sel = state.selection, lufs = Number.isFinite(stats.loudness) ? `${dbfs(stats.loudness)}LUFS` : '−∞LUFS', clips = output.clips?.length
   // pointed at, every level in a table (index.html #levels), the peak's place among them, and marked on the sound (the
   // tracks mixed, having no lane of their own, on every track's: `every`)

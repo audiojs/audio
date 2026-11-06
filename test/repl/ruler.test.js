@@ -292,17 +292,19 @@ test('editor: zoomed in, the scrollbar at the time row\'s top moves the view, th
   assert.ok(before > .5 && before < 2, `zoomed in: the view from ${before}`)
   // the thumb's middle, where the view shows
   const thumb = t => box.x + (t + span / 2) / 8 * w
-  // a pixel under the lanes, 4 px thick at rest, as a native overlay scrollbar's; under the pointer 6 px, as the page's
-  // scrollbars draw theirs (editor.css). The rows lit down the thumb's middle on its strip (view.js onStrip, the view's
-  // width, from the lanes' foot): [thick, off], CSS px
+  // a pixel under the lanes, 4 px thick, as a native overlay scrollbar's; under the pointer brighter, never wider, as
+  // the page's scrollbars draw theirs (editor.css). The rows lit down the thumb's middle on its strip (view.js onStrip,
+  // the view's width, from the lanes' foot): [thick, off, its alpha], CSS px
   const drawn = () => page.evaluate(px => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {
     const cv = document.querySelector('.plot canvas.scrollbar'), k = cv.width / cv.getBoundingClientRect().width, { data } = cv.getContext('2d').getImageData(Math.round(px * k), 0, 1, cv.height), rows = []
     for (let y = 0; y < cv.height; y++) if (data[y * 4 + 3] > 0) rows.push(y)
-    done([rows.length / k, rows[0] / k])
+    done([rows.length / k, rows[0] / k, Math.max(...rows.map(y => data[y * 4 + 3]))])
   }))), thumb(before) - box.x)
-  assert.deepEqual(await drawn(), [4, 1], 'the thumb, 4 px thick, a pixel under the lanes')
+  const [thick, off, rest] = await drawn()
+  assert.deepEqual([thick, off], [4, 1], 'the thumb, 4 px thick, a pixel under the lanes')
   await page.mouse.move(thumb(before), foot)
-  assert.deepEqual(await drawn(), [6, 1], 'under the pointer, 6 px')
+  const [under, , lit] = await drawn()
+  assert.ok(under === 4 && lit > rest, `under the pointer as thick, brighter: ${under} px, ${rest} → ${lit}`)
   // the strip laid anew as the thumb moves, cleared as its canvas is resized (kept.js), never by reset(): WebKit's
   // clears the bitmap but leaves the thumbs laid before on screen, a trail of them along the row
   await page.evaluate(() => { const reset = CanvasRenderingContext2D.prototype.reset; window.__resets = 0; CanvasRenderingContext2D.prototype.reset = function () { window.__resets++; return reset.call(this) } })

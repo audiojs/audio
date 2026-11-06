@@ -83,9 +83,9 @@ export function wheel(event) {
   // zoomed keys scroll up and down over their lane, as zoomed-in frequencies do
   if (notes && zoomed[bandOf(notes.i)] && !across) return setKeys(notes, notes.keys[0] - .5 - event.deltaY * lines / rowOf(notes))
   // zoomed-in levels scroll up and down over the waveform, as zoomed-in frequencies do over the spectrogram
-  // more bands than the picture holds: up and down through them, as a DAW's tracks (zoomed-in levels then on their
-  // axis alone); time by a swipe across, or Shift
-  if (spare && !across && !event.shiftKey && py <= plot().h && !levels) { assign({ lift: Math.max(0, Math.min(spare, lift + event.deltaY * lines)) }); return invalidate() }
+  // more bands than the picture holds: up and down through them with Shift (a mouse's Shift and wheel comes as a swipe
+  // across), the wheel through time as with one band, so it does the same whatever the picture holds
+  if (spare && event.shiftKey && py <= plot().h && !levels) { assign({ lift: Math.max(0, Math.min(spare, lift + (event.deltaY || event.deltaX) * lines)) }); return invalidate() }
   if (wave && aview[1] - aview[0] < 2 && !across) return scrollLevels(aview[0] - event.deltaY * lines / wave[3] * (aview[1] - aview[0]))
   const delta = (across ? event.deltaX : event.deltaY) * lines
   steer()

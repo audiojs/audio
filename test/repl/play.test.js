@@ -151,7 +151,7 @@ test('editor: the caret goes where the pointer presses; Play starts on its press
   const white = await page.evaluate(() => { const i = document.body.appendChild(document.createElement('i')); i.style.color = 'var(--color-screen-bright)'; const c = getComputedStyle(i).color; i.remove(); return c })
   assert.equal(await page.locator('.length').evaluate(el => getComputedStyle(el).color), white)
   assert.match(await page.locator('.clock').evaluate(tipOf), /^Selected 0:02\.000–0:03\.000: 0:01\.000, 44100 samples/)
-  assert.equal(await facts(), '44.1kHz stereo 16-bit')
+  assert.equal(await facts(), '44.1kHz stereo')
   assert.match(await readout(), /^−/)
   // pointed at, in samples
   assert.match(await page.locator('.length').evaluate(tipOf), /^Selected length\n44,100 samples$/)

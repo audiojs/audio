@@ -68,7 +68,6 @@ export const writtenDepth = (format, chosen, source) => {
   if (e?.[0] !== 'bitDepth') return null
   return e[2].includes(chosen) ? chosen : source > 16 ? e[2].find(d => d >= source) ?? e[2].at(-1) : 16
 }
-export const DEPTH_USE = { 16: 'CD, most players', 24: 'Masters, further editing', 32: 'Never clips' }
 export const mime = { wav: 'audio/wav', flac: 'audio/flac', mp3: 'audio/mpeg', ogg: 'audio/ogg', aiff: 'audio/aiff', m4a: 'audio/mp4', edl: 'text/plain', otio: 'application/json', fcpxml: 'application/xml' }
 // The cuts as an edit list for a video editor (the library's cuts(): where each piece of the source goes, at a frame
 // rate), and the rates offered: the video's own (its file's), film, PAL, NTSC's and their round neighbours

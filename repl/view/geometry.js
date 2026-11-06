@@ -146,9 +146,10 @@ export const banded = () => !!tracks || keepRoom
 // same lane, nothing moving as it stops
 const roomy = () => keepRoom && (duration || empty) ? ROOM : 0
 export const tallOf = name => Math.max(LOW, heights[name] ?? (banded() ? share() : plot().h - HEAD - GRIP))
-// a band's height as made: the picture shared among the bands, the room kept under them, as a DAW's tracks fit its
-// window; TRACK px at least, so that more than a few scroll; where the page sets it (`sized`, ?ui= track), that
-const share = () => sized ?? Math.max(TRACK, Math.floor((plot().h - ROOM) / (tracks?.length || 1)) - HEAD)
+// a band's height as made: the picture shared among the bands, two at least (a sound alone half of it), the room kept
+// under them, as a DAW's tracks fit its window; TRACK px at least, so that more than a few scroll; where the page sets
+// it (`sized`, ?ui= track), that
+const share = () => sized ?? Math.max(TRACK, Math.floor((plot().h - ROOM) / Math.max(2, tracks?.length ?? 1)) - HEAD)
 export const kindOf = i => (tracks && kinds[bandOf(i)]) || display
 // The lanes, [x, y, w, h] each, with what it shows (`kind`) and its channel's or its track's index (`i`), a notes lane
 // its keys (keysOf): `all` in order, and by kind, `wave`, `spec` and `notes`; `spectral`, whether any of the picture's

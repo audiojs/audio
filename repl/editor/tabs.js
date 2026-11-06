@@ -96,7 +96,6 @@ export function tabOver(id) {
     rows.push(['Length', span(out.duration)])
     if (tracks.length > 1) rows.push(['Tracks', `${tracks.length}`])
     rows.push(['Rate', `${+(out.sampleRate / 1000).toFixed(3)}kHz`], ['Channels', layouts.find(l => l.count === k)?.label ?? `${k}`])
-    if (out.bitDepth) rows.push(['Depth', `${out.bitDepth}-bit`])
     if (out.stats) rows.push(['Loudness', `${Number.isFinite(out.stats.loudness) ? dbfs(out.stats.loudness) : '−∞'} LUFS`], ['Peak', `${dbfs(out.stats.peak)} dBFS`])
     if (out.heardAll?.bpm) rows.push(['Tempo', `${out.heardAll.bpm} BPM`])
     if (out.heardAll?.key) rows.push(['Key', `${NOTES[out.heardAll.key.tonic]} ${out.heardAll.key.mode}`])

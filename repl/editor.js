@@ -12,7 +12,7 @@ import md from './markdown.js'
 import { connectAgent, pickAgent, partsOf, showChat, newChat, openChat, dropChat, visit, elapsed, sendChat, chatKey, wire as wireChat } from './editor/chat.js'
 import { wire as wireClipboard } from './editor/clipboard.js'
 import { command, shortcut, tip, scriptKeys, pressed } from './editor/commands.js'
-import { root, params, EMBED, UI, STACKED, AGENTED, SHOWN, QUICK, GIVEN, formats, ENCODING, writtenDepth, DEPTH_USE, cutFormats, frameRates, KEEPS, LOOK, looks, specMethods, WAVE, waveLooks, levelList, curves, glyphs, gripModes, displays, SHUTTLE, times, tenths, rates, layouts, specs, stored, oneOf, sideOf } from './editor/config.js'
+import { root, params, EMBED, UI, STACKED, AGENTED, SHOWN, QUICK, GIVEN, formats, ENCODING, writtenDepth, cutFormats, frameRates, KEEPS, LOOK, looks, specMethods, WAVE, waveLooks, levelList, curves, glyphs, gripModes, displays, SHUTTLE, times, tenths, rates, layouts, specs, stored, oneOf, sideOf } from './editor/config.js'
 import { ed, rk, pl, output, incoming, rechoose, shown, carded, queued, turning, assign } from './editor/context.js'
 import { remember, undoList, goTo, editSelection, warp, carry, toTab, addOp, spread, flatten, switchTake } from './editor/edits.js'
 import { lengthOf, pickFiles, openFiles, taken, recover, useSample, useCode, useRecipe, openSearch, closeSearch, typeSearch, runSearch, preview, useResult, exportFiles, exportCuts, share, wire as wireFiles } from './editor/files.js'
@@ -28,7 +28,7 @@ import { schedule, evaluate, stop, standIn, scheduleCheck, wire as wireRun } fro
 import { docOf, initialDocs, retitle, tabPress, tabOver, tabRenamed, switchTab, scrollTabs, inSight, newTab, dragTab, closeTab, wire as wireTabs } from './editor/tabs.js'
 import { guidesOf } from './editor/tools.js'
 import { trackMenu, layerLook, toggleLock, fitField, roomMenu, toggleMute, focusOn, trackOf, laneName, untrack, wire as wireTracks } from './editor/tracks.js'
-import { resampleTo, aimRate, rateOpen, dialAt, remixTo, silence, stretch, trim, crossfade, lift, unmark, nameMarker, relabel, remark, fade, setGrip, setCurve, envelope, pitchline, envelopeShown, shiftOf, shift, tone, formant } from './editor/writers.js'
+import { resampleTo, remixTo, channelActions, silence, stretch, trim, crossfade, lift, unmark, nameMarker, relabel, remark, fade, setGrip, setCurve, envelope, pitchline, envelopeShown, shiftOf, shift, tone, formant } from './editor/writers.js'
 
 // The editor: its output, and at its right a panel that opens and closes, as Luminar's: the tools, every method by kind,
 // one click adding it; the edits, the chain that makes the output as a stack of steps; the same chain as code; and the
@@ -163,24 +163,34 @@ const state = sprae(root, {
     return e && { key: e[0], label: e[1], values: [null, ...e[2]].map(v => ({ value: v, label: v == null ? 'Default' : e[3](v) })) }
   },
   setEncoding(key, value) { state.encoding = { ...state.encoding, [key]: value }; store() },
-  // The depth the export writes, in the bar after the rate and the channels: the source's kept, or another chosen
-  // there or in Export, for the lossless formats (the edits run in 32-bit float); the depths the format writes
-  get depth() { return this.sound && writtenDepth(this.format, this.encoding.bitDepth, this.sound.bits) },
-  // what the rate, the channels and the depth come to (index.html #sound-facts): the highest frequency it holds (half the
-  // rate, Nyquist), its bit rate and size as the WAV the export writes, the samples as the page edits them (32-bit float)
-  get soundRows() {
-    const s = this.sound
+  // What the rate and the channels come to, pointed at (index.html #rate-facts, #channels-facts; worker.js facts read
+  // once an output): the rate, the highest frequency it holds (half the rate, Nyquist), where its sound ends, the
+  // samples as the page edits them; the channels, how alike two are, which side is louder, how they sum to mono, or
+  // each one's level
+  soundFacts: null,
+  get rateRows() {
+    const s = this.sound, f = this.soundFacts
     if (!s) return []
-    const bits = this.depth || 16, bps = s.hz * s.count * bits, d = this.duration
-    return [['Rate', s.rate, `up to ${+(s.hz / 2000).toFixed(2)}kHz`], ['Channels', s.channels, layouts.find(l => l.count === s.count)?.text ?? ''],
-      ['Bit rate', `${Math.round(bps / 1000)} kbps`, `${bits}-bit PCM`], ['As WAV', bytes(d * bps / 8), `${bits}-bit, ${clock(d)}`], ['In memory', bytes(d * s.hz * s.count * 4), '32-bit float, as edited']]
+    const nyquist = s.hz / 2, khz = hz => `${+(hz / 1000).toFixed(1)}kHz`
+    return [['Rate', s.rate, 'samples a second'], ['Holds', `up to ${khz(nyquist)}`, 'half its rate'],
+      ...f?.top ? [['Sound', `up to ${khz(f.top)}`, f.top < nyquist * .85 ? 'nothing above: a lower rate or a lossy file once' : 'all the way up']] : [],
+      ['In memory', bytes(this.duration * s.hz * s.count * 4), '32-bit float, as edited']]
   },
-  // the rate aimed at on the resample dial (writers.js aimRate)
-  rateAim: { hz: 48000, at: 0, label: '', text: '', nyquist: '' }, aimRate, rateOpen, dialAt,
+  get channelRows() {
+    const s = this.sound, f = this.soundFacts
+    if (!s) return []
+    const db = v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)}dB`, names = { 6: ['L', 'R', 'C', 'LFE', 'Ls', 'Rs'], 8: ['L', 'R', 'C', 'LFE', 'Lb', 'Rb', 'Ls', 'Rs'] }[s.count]
+    const head = ['Channels', s.channels, layouts.find(l => l.count === s.count)?.text ?? '']
+    if (s.count === 2 && f?.correlation != null) {
+      const c = f.correlation
+      return [head, ['Alike', `${c >= 0 ? '+' : '−'}${Math.abs(c).toFixed(2)}`, c > .9 ? 'nearly one sound twice' : c > .3 ? 'mostly alike, some width' : c > -.2 ? 'wide, apart' : 'one inverted? its menu flips it'],
+        ['Balance', Math.abs(f.balance) < .5 ? 'centred' : `${f.balance > 0 ? 'left' : 'right'} ${db(Math.abs(f.balance))}`, 'the louder side'],
+        ['To mono', db(f.summed), 'summed, how much quieter']]
+    }
+    return [head, ...(f?.levels ?? []).length > 1 ? f.levels.map((l, i) => [names?.[i] ?? `${i + 1}`, Number.isFinite(l) ? `${l.toFixed(1)}dBFS` : 'silent', 'its level']) : []]
+  },
   // a verdict's icons: passes, fails, says only, waits
   passIcon: 'M5 12.5 9.5 17 19 7.5', failIcon: 'm7 7 10 10M17 7 7 17', infoIcon: 'M6 12h12', waitIcon: 'M12 7v5l3 2',
-  get depths() { return [null, ...ENCODING[this.format]?.[2] ?? []].map(d => ({ bits: d, label: d == null ? 'As the file' : `${d}-bit${d === 32 ? ' float' : ''}`, text: d == null ? `${writtenDepth(this.format, null, this.sound?.bits)}-bit` : DEPTH_USE[d] })) },
-  pickDepth(d) { closeMenus(); state.setEncoding('bitDepth', d) },
   cutFormats, frameRates, cutFormat: oneOf(stored.cuts?.format, cutFormats.map(c => c.name), 'edl'), fps: oneOf(stored.cuts?.fps, frameRates, null), exportName: '',
   // the file's name as it would be, and what the format does with the markers
   get exportBase() { return `${this.name === 'untitled' || this.name === 'generated' ? 'audio' : this.name.replace(/\.\w+$/, '').replace(/ \+ .*/, '')}-edited` },
@@ -198,7 +208,7 @@ const state = sprae(root, {
   toggleSnap() { state.snapping = v.snapping = !state.snapping; store() },
   layerLook, toggleLock, toggleMute, fitField,
   setLevels, setLook,
-  blankView: on => { if (v) v.blank = on }, setDisplay, dropToggle, placeList, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo, pickReading, pickSpec, seekTo, markLevel, unmarkLevel,
+  blankView: on => { if (v) v.blank = on }, setDisplay, dropToggle, placeList, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo, channelActions, pickReading, pickSpec, seekTo, markLevel, unmarkLevel,
   togglePlay, playPress, playClick, stop, redo: () => command('redo').run(), mac, share, exportFiles,
   switchTab, tabPress, tabOver, tabRenamed, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
   openSearch, closeSearch, runSearch, typeSearch, preview, useResult

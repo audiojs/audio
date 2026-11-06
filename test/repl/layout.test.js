@@ -172,20 +172,22 @@ for (const width of [1280, 880]) test(`repl: the status bar holds still as a sel
   assert.ok(await page.locator('.readout').evaluate(e => e.scrollWidth <= e.clientWidth), 'the levels whole')
 })
 
-// The level and the facts after it one row of figures, as far apart each from the next, embedded as in the whole editor
-// (where nothing comes before the level, it keeps by the facts); a tablet's bar, an iPad's 768 px held upright, has
-// them all
-test('repl: the level and the facts as far apart as each other, embedded or not, a tablet\'s bar showing them', async () => {
-  const gaps = () => page.evaluate(() => {
-    const text = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect() }
-    const all = [document.querySelector('.readout'), ...document.querySelectorAll('.facts .fact')].filter(e => getComputedStyle(e).display !== 'none' && e.getClientRects().length).map(text)
-    return all.slice(1).map((b, i) => Math.round(b.left - all[i].right))
-  })
+// The level by the length, what it comes to (the loop between them); the facts at the bar's right, as far apart each
+// from the next, embedded as in the whole editor; a tablet's bar, an iPad's 768 px held upright, has them all
+test('repl: the level by the length, the facts as far apart as each other, embedded or not, a tablet\'s bar showing them', async () => {
+  const text = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect() }
+  const gaps = () => page.evaluate(text => {
+    const at = new Function('return ' + text)()
+    const all = [...document.querySelectorAll('.facts .fact')].filter(e => getComputedStyle(e).display !== 'none' && e.getClientRects().length).map(at)
+    const loop = document.querySelector('.status .loop').getBoundingClientRect(), level = at(document.querySelector('.readout'))
+    return { facts: all.slice(1).map((b, i) => Math.round(b.left - all[i].right)), level: Math.round(level.left - loop.right) }
+  }, text.toString())
   await page.setViewportSize({ width: 768, height: 720 })
   await open()
   await wholeLevels().waitFor()
   const whole = await gaps()
-  assert.ok(whole.length === 3 && whole.every(g => g === whole[0]), `the level and three facts, evenly: ${whole}`)
+  assert.ok(whole.facts.length === 1 && whole.facts[0] === 10, `the rate and the channels, 10 px apart: ${whole.facts}`)
+  assert.ok(whole.level >= 0 && whole.level <= 16, `the level right after the loop: ${whole.level} px`)
   await page.goto(origin + '/blank.html')
   const src = await page.evaluate(async () => {
     await import('/repl/embed.js')
@@ -196,7 +198,7 @@ test('repl: the level and the facts as far apart as each other, embedded or not,
   await page.goto(new URL(src, origin).href)
   await page.waitForFunction(() => /LUFS$/.test(document.querySelector('.readout')?.textContent))
   const embedded = await gaps()
-  assert.ok(embedded.length === 2 && embedded.every(g => g === whole[0]), `embedded, as far apart: ${embedded}, the whole editor's ${whole[0]}`)
+  assert.ok(embedded.facts.length >= 1 && embedded.facts.every(g => g === whole.facts[0]), `embedded, as far apart: ${embedded.facts}, the whole editor's ${whole.facts[0]}`)
 })
 
 // Nothing in the bar runs past its end at any width, the panel shut or open: as it narrows, its parts give way (editor.css
