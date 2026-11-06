@@ -35,6 +35,29 @@ test('engine: a voice gliding as speech does has a pitch curve whole, and a comp
   assert.ok(pitch?.length === 2 && pitch[0] > 105 && pitch[0] < 125 && pitch[1] > 155 && pitch[1] < 182, JSON.stringify(pitch))
 })
 
+// A whistle, as birdsong's, 1.9 to 2.9 kHz: the notes view's notes and the pitch curve through them one reading, one
+// range for both (worker.js pitches), each at the whistle's own pitch. With the library's ranges (the curve to 1 kHz,
+// the notes to 2 kHz) each read a subharmonic of its own, the curve a fifth under the blob (birdsong.wav, Nov 2026).
+// The curve reads the sound averaged to about 12 kHz, a period of 2.3 kHz five samples: a third of a semitone off at most
+test('engine: a whistle\'s notes and the pitch curve through them are one reading, at its pitch', async () => {
+  const notes = [[.1, 2100], [.5, 2500], [.9, 2300]], rate = 48000, x = new Float32Array(rate * 1.3)
+  for (const [at, f] of notes) for (let i = 0; i < .25 * rate; i++) x[Math.round(at * rate) + i] = .5 * Math.sin(Math.PI * i / (.25 * rate)) * Math.sin(2 * Math.PI * f * i / rate)
+  await page.goto(origin + '/blank.html')
+  const got = await page.evaluate(async channel => {
+    const { default: engine } = await import('/repl/engine.js'), { prepare } = await import('/repl/code.js')
+    const e = engine(new URL('/repl/dist/worker.js', location.href))
+    await e.file('w.wav', { channels: [Float32Array.from(channel)], sampleRate: 48000 })
+    const r = await e.render(prepare(`audio('w.wav')`))
+    return (await e.notes(r.id)).map(n => { const f0 = n.f0.filter(Boolean).sort((p, q) => p - q); return [n.time, n.freq, f0[f0.length >> 1]] })
+  }, [...x])
+  assert.equal(got.length, 3, JSON.stringify(got))
+  for (const [k, [time, freq, curve]] of got.entries()) {
+    const st = (a, b) => Math.abs(12 * Math.log2(a / b))
+    assert.ok(st(freq, notes[k][1]) < .5, `note ${k} at ${time.toFixed(2)} s: ${freq.toFixed(0)} Hz, the whistle ${notes[k][1]}`)
+    assert.ok(st(curve, freq) < .4, `note ${k}: the curve through it ${curve?.toFixed(0)} Hz, the note ${freq.toFixed(0)}`)
+  }
+})
+
 // A long file decoding, the worker answers the page meanwhile, at once: the decoder gives way with a task of its own
 // (core.js yieldTask), not scheduler.yield(), whose turn comes before the tasks waiting, so that the worker said nothing
 // till the file had all come (a 2 h MP3: 0% for 11 s, a click's sound none)

@@ -9,7 +9,7 @@ import { LOAD, pacer } from '../core.js'
 import plugins from 'editor:plugins'
 import { attacks, rises, plainness } from '../fn/hits.js'
 import { steadyTempo } from '../fn/beat.js'
-import { contour as pitchOf, harmony } from '../fn/pitch-detect.js'
+import { contour, harmony } from '../fn/pitch-detect.js'
 import { notes as noted } from '@audio/pitch/pyin'
 import { heard } from './heard.js'
 import { fft } from 'fourier-transform'
@@ -1047,8 +1047,14 @@ function carry(times, markers, end) {
 }
 
 // The output's pitch, the pitch curve the page draws: f0 in Hz every 10 ms, 0 where unvoiced or silent, the library's
+// The pitches the curve and the notes are read over, one range for both, so a note's blob and the curve through it are
+// one reading: 60 Hz to a piano's top (C8, 4186 Hz), as birdsong and whistles go; the library's own (contour() to 1 kHz,
+// a voice's; notes() to 2 kHz) read a whistle at 2.3 kHz a fifth and an octave under it, each its own way. A low rate's
+// top, a quarter of it
+const pitches = fs => ({ minFreq: 60, maxFreq: Math.min(4200, fs / 4) })
+const pitchOf = (x, fs) => contour(x, fs, pitches(fs))
 // contour() (pYIN, as intonation() reads it) on the mono mix; or a track's
-async function contour({ output, track }) {
+async function curve({ output, track }) {
   const p = part(await whole(output), track)
   if (!p?.sound.length) return { times: [], f0: [] }
   return p.contour ??= pitchOf(await mixdown(p), p.sampleRate)
@@ -1061,7 +1067,7 @@ async function notes({ output, track }) {
   const p = part(await whole(output), track)
   if (!p?.sound.length) return { notes: [] }
   const x = await mixdown(p), fs = p.sampleRate, { times, f0 } = p.contour ??= pitchOf(x, fs), hop = times[1] - times[0] || .01, w = Math.round(hop * fs)
-  p.notes ??= noted(x, { fs }).map(({ time, duration, freq, midi }) => {
+  p.notes ??= noted(x, { fs, ...pitches(fs) }).map(({ time, duration, freq, midi }) => {
     const k0 = Math.max(0, Math.ceil(time / hop)), k1 = Math.min(times.length, Math.floor((time + duration) / hop) + 1), pitch = [], level = []
     for (let k = k0; k < k1; k++) {
       const at = Math.round(times[k] * fs), a = Math.max(0, at - w), b = Math.min(x.length, at + w)
@@ -1532,7 +1538,7 @@ const handlers = {
     for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k)
     return { held: [...passes].some(p => p.tab === tab) }
   },
-  run: execute, cues, contour, notes, listen, chords, wav, export: exporting, describe, check: checking, original, voice, samples, heard: levelsHeard, eval: evaluate,
+  run: execute, cues, contour: curve, notes, listen, chords, wav, export: exporting, describe, check: checking, original, voice, samples, heard: levelsHeard, eval: evaluate,
   // a tab closed: its output goes
   close: ({ tab }) => { newest.delete(tab); stopped.delete(tab); for (const r of outputs.values()) if (r.tab === tab) drop(r); for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k); return {} },
   // a script's sound whole, as the edits make it there (the chain flattened up to a step): from the renders kept, as a
