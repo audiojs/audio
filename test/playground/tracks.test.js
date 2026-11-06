@@ -46,7 +46,7 @@ test('editor: a muted track\'s waveform is dim, its lane\'s ground as it was', a
 // edited, its steps the edits'. A press in the other lane edits that track: Delete takes out of it alone. The
 // track deleted (the Edit menu), one sound again; undone, the tracks again
 test('editor: a selection moved to a track of its own, a lane each, each edited apart', async () => {
-  await open()
+  await open({ edits: true })
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
@@ -95,7 +95,7 @@ test('editor: a selection moved to a track of its own, a lane each, each edited 
 // one step, so they stay in time. A range in a lane is that track's: ⌘-dragged up into the other lane, its audio goes
 // into that track over what is there (write(), its sound written out), silence where it was, that track edited then
 test('editor: a range on the time row is every track\'s; a selection ⌘-dragged into another lane goes into that track', async () => {
-  await open()
+  await open({ edits: true })
   await noCues()
   await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
@@ -127,7 +127,7 @@ test('editor: a range on the time row is every track\'s; a selection ⌘-dragged
 // list them first, the tracks sharing them said under them; the steps after are its own. The other part deleted, the
 // shared steps go back into the one left
 test('editor: the steps two tracks share are written once, listed in each, said to be shared', async () => {
-  await open()
+  await open({ edits: true })
   await noCues()
   await write(`audio('chime.wav')\n  .gain(-3)`)
   await lengthIs('0:08.000')
@@ -157,7 +157,7 @@ test('editor: the steps two tracks share are written once, listed in each, said 
 // a double-click on its sound keeps to it, one past it takes the time from its end on, as a pause; one on a lane not
 // edited, before its cues are found, keeps to the sound between its pauses
 test('editor: a track ends where its sound does, its lane running on past it', async () => {
-  await open()
+  await open({ edits: true })
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
@@ -189,7 +189,7 @@ test('editor: a track ends where its sound does, its lane running on past it', a
 // rest here, the new one edited, the model the GPU's where there is one; undone, one sound. Its sound is the engine test's (the voice split… sounds as before)
 test('editor: the voice split to a track of its own, edited apart, undone in one step', async () => {
   await page.route(/huggingface\.co/, route => route.abort())
-  await open()
+  await open({ edits: true })
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
@@ -209,7 +209,7 @@ test('editor: the voice split to a track of its own, edited apart, undone in one
 // A part taken elsewhere and brought back: a track exported alone, named after it; another lined up with it (the Edit
 // menu), its sound written out as the reference, so both stay tracks
 test('editor: a track exported alone; another lined up with it, both tracks still', async () => {
-  await open()
+  await open({ edits: true })
   await write(`let chime = audio('chime.wav')\n\nlet late = audio('chime.wav')\n  .pad(0.25, 0)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'late · chime.wav')
@@ -228,7 +228,7 @@ test('editor: a track exported alone; another lined up with it, both tracks stil
 // Automix: a bed ducked under the voice (Edit › Duck under, the key read by name, both still tracks), a master added
 // (Edit › Add a master: the tracks' sum, a lane of its own, edited as one), taken away again (Delete the track)
 test('editor: a bed ducked under the voice, a master over both, a lane of its own', async () => {
-  await open()
+  await open({ edits: true })
   await write(`let chime = audio('chime.wav')\n\nlet bed = audio('chime.wav')\n  .gain(-12)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'bed · chime.wav')
@@ -254,7 +254,7 @@ test('editor: a link to a script with tracks and a master opens, the master edit
   await page.goto(origin + '/blank.html')
   const url = await page.evaluate(async text => {
     const bytes = new Uint8Array(await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer())
-    return location.origin + '/playground/#code=' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    return location.origin + '/playground/?ui=' + encodeURIComponent('{"edits":true}') + '#code=' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
   }, `let chime = audio('chime.wav')\n\nlet bed = audio('chime.wav')\n  .ducker({ key: chime })\n\nchime.clone().mix(bed)\n  .gain(-6)`)
   await page.goto(url)
   await page.waitForFunction(() => document.querySelector('.plot')?.dataset.tracks === '3')
@@ -265,7 +265,7 @@ test('editor: a link to a script with tracks and a master opens, the master edit
 // With tracks, the caret is the edited track's: out of sight, it stays at the edge in that track's lane, none in
 // another's; its chevron on the time row, which runs under them all
 test('editor: with tracks, the caret out of sight stays at the edge in its track\'s lane', async () => {
-  await open()
+  await open({ edits: true })
   await noCues()
   await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
@@ -294,7 +294,7 @@ test('editor: with tracks, the caret out of sight stays at the edge in its track
 // both stay so at once, frozen (veiled, a light passing along, nothing pressed there) till the output comes, as Suno
 // Studio's parts calculating; it was gone from both till then
 test('editor: a piece dragged into another track shows there as it goes; dropped, both lanes as they will be, frozen till done', async () => {
-  await open()
+  await open({ edits: true })
   await noCues()
   await write(`let a = audio('chime.wav')\n\nlet b = audio.from(t => 0, { duration: 8 })`)
   await page.locator('.layer').nth(1).waitFor()
@@ -329,7 +329,7 @@ test('editor: a piece dragged into another track shows there as it goes; dropped
 // The edited track flattened (a row's menu): that track's chain made one sound, its own (not another its chain makes on
 // the way, a mix's source): the mix sounds as it did; the other track as it was
 test('editor: with tracks, the edited track flattened is that track alone', async () => {
-  await open()
+  await open({ edits: true })
   await write(`let a = audio('chime.wav')\n  .gain(-6)\n\nlet b = audio('chime.wav')\n  .reverse()\n  .mix(audio.from(1))`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
@@ -346,7 +346,7 @@ test('editor: with tracks, the edited track flattened is that track alone', asyn
 // A file opened as a track of its own (File): under the one edited, named for it, the one edited after; the sound as
 // long as the longer of the two
 test('editor: a file opened as a new track goes under the one edited', async () => {
-  await open()
+  await open({ edits: true })
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
   const chooser = page.waitForEvent('filechooser')
@@ -550,7 +550,7 @@ test('editor: a mute kept by a name the script lost, back with the name', async 
 // A track taken away is laid out at once, before the mix without it comes, the mix playing still with it: a lane pressed
 // then edits the track it shows, and its speaker mutes no track it does not show
 test('editor: a track taken away, a lane pressed before the mix without it comes is the track it shows', async () => {
-  await open()
+  await open({ edits: true })
   await noCues()
   await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')\n\nlet c = audio('handpan.wav')\n\nlet d = audio('chime.wav')`)
   await page.locator('.layer').nth(3).waitFor({ state: 'attached' })
@@ -652,7 +652,7 @@ test('editor: a track\'s view goes with its name; a silent track shows no notes'
 // by no press, the edited one locked giving way to the next. More tracks than the picture holds scroll up and down
 // through it, their layers with them, as a DAW's, the room under them always in reach
 test('editor: the layers over each band name and lock the tracks; a foot dragged, its height, with Alt every one\'s; more tracks than fit scroll', async () => {
-  await open()
+  await open({ edits: true })
   await noCues()
   const wide = (await page.locator('.plot').boundingBox()).width
   await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')`)
@@ -738,7 +738,7 @@ test('editor: the layers over each band name and lock the tracks; a foot dragged
 // With tracks, the first card of the edits is the track's: its ×, or its right-click, deletes the track, as a DAW's track
 // header does; one step, undone in one
 test('editor: with tracks, the track\'s card deletes it', async () => {
-  await open()
+  await open({ edits: true })
   const A = `let a = audio('chime.wav')\n  .gain(-3)`, B = `let b = audio('chime.wav')\n  .gain(-6)`
   await write(`${A}\n\n${B}`)
   await tab('Edits')

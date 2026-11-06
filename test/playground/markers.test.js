@@ -417,7 +417,7 @@ test('editor: with tracks, a marker of a track not edited is taken away from its
 // A marker is its track's alone: a double-click in another track's lane goes past it, in its own stops at it; a press
 // on its line edits its track
 test('editor: with tracks, a track\'s markers are its own', async () => {
-  await open()
+  await open({ edits: true })
   await write(`let a = audio('chime.wav')\n  .mark(1)\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')

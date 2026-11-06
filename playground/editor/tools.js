@@ -1,6 +1,5 @@
-import { valuesOf } from '../stack.js'
 import { ops, guides, fromManifest, reshapes } from '../ops.js'
-import { prepare, chain, number, setArg, unsetArg, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, useTake, takes } from '../code.js'
+import { prepare, chain, valuesOf, number, setArg, unsetArg, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, useTake, takes } from '../code.js'
 import { bridge } from './chat.js'
 import { command } from './commands.js'
 import { formats, scaleNames } from './config.js'

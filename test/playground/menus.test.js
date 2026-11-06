@@ -53,7 +53,7 @@ test('editor: a control pointed at says what it is and does, on a tag pointing a
 // typed find one, the arrows go through them, Enter adds it, on the selection, and the panel turns to the edits with
 // its card open. One the library can't run without a value gets its default written. Escape closes it.
 test('editor: an edit from the palette goes on the selection, its card open among the edits', async () => {
-  await open()
+  await open({ edits: true })
   const { box, x } = await axis(6.525), y = box.y + TOP + TRACK * .3
   await drag([x(1.01), y], [x(2.01) - x(1.01), 0])
   await page.keyboard.press('ControlOrMeta+K')
@@ -207,7 +207,7 @@ test('editor: a right-click gives the edits for the selection, or puts the caret
 // A stretch is one method, its algorithm a choice on its card (fn/stretch.js, { method }), and so is a pitch shift
 // (fn/pitch.js): the menus list Stretch once and Pitch once, as they name every method, in capitals; a method chosen is written into its call, the output as long as the factor says
 test('editor: one Stretch, its algorithm a choice; the menus name each method in capitals', async () => {
-  await open()
+  await open({ edits: true })
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
@@ -308,7 +308,7 @@ test('desktop: the app is told the panels and the menus with the page\'s own ico
     }
   })
   assert.deepEqual(told.toolbar, panels, 'each panel, its button\'s icon')
-  assert.ok(panels.length >= 5 && panels.every(p => /<path d="[^"]+"/.test(p.icon)))
+  assert.ok(panels.length >= 4 && panels.every(p => /<path d="[^"]+"/.test(p.icon)))
   assert.deepEqual(told.menus, drawn, 'each item\'s icon as the page\'s menus draw it, none where it has none')
   const icons = told.menus.flat(Infinity).flatMap(function all(it) { return [it, ...(it.items ?? []).flatMap(all)] }).filter(it => it.icon)
   assert.ok(icons.length >= 11, 'the Process menu\'s kinds at least, an icon each')

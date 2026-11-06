@@ -257,7 +257,7 @@ test('editor: the microphone kept between takes, let go once the page is hidden,
 // Recording over a sound, as a dictaphone or a tape: from the caret, into the waveform as it comes, what it covers
 // replaced and the end extended past; one write() step, which Undo takes back. Into a selection, it ends at its end.
 test('editor: the record button records over the sound from the caret, into the waveform, one step Undo takes back', async () => {
-  await open()
+  await open({ edits: true })
   // a selection's edges go where they are let go: the take's own hits, still shown a moment after Undo, take none
   await noCues()
   await write(`audio('chime.wav')`)
@@ -363,7 +363,9 @@ test('editor: the record button records over the sound from the caret, into the 
   const chip = page.locator('.plot .takes')
   const numbers = () => chip.locator('button').evaluateAll(b => b.map(x => [x.value === 'add' ? 'fork' : x.textContent, x.getAttribute('aria-pressed')]))
   await page.waitForFunction(k => document.querySelector('.plot .takes:not([hidden]) button[aria-pressed="true"]')?.value === k, String(n))
-  assert.deepEqual(await numbers(), [['1', 'false'], ...Array.from({ length: n }, (_, k) => [String(k + 2), String(k === n - 1)]), ['fork', null]])
+  // (more than four, three about the one heard, … before them: the passes are two or three, as the microphone starts)
+  const all = [['1', 'false'], ...Array.from({ length: n }, (_, k) => [String(k + 2), String(k === n - 1)])]
+  assert.deepEqual(await numbers(), [...all.length > 4 ? [['…', null], ...all.slice(-3)] : all, ['fork', null]])
   await chip.locator('button[value="2"]').click()
   await hearing(Array.from({ length: n }, (_, i) => i === 1))
   await page.waitForFunction(() => document.querySelector('.plot .takes button[aria-pressed="true"]')?.value === '2')
@@ -445,7 +447,7 @@ test('editor: Alt and Record make a take as they are pressed, one take or more, 
 // A take switched changes its place alone. One past the sound's end makes it longer or shorter: the view stays where it
 // is, at its scale, the rest of the picture still, either way (a view refit to the new length moved every column)
 test('editor: a take switched moves nothing outside its place, one past the sound\'s end too', async () => {
-  await open()
+  await open({ edits: true })
   await write(`audio('chime.wav')\n  .write(audio('chime.wav'), { at: 4 })\n  // .write(audio.from(1), { at: 4 })`)
   await lengthIs('0:12.000')
   const { box, x } = await axis(12), to = Math.round(x(4) - box.x) - 3

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { endWay, endDrag, TOP, TRACK, page, code, tipOf, wholeLevels, seconds, open, settled, frames, poll, selected, tab, menu, palette, noCues, write, LANES, tall, spans, axis, grab, drag, lengthIs, pixels, bursts, turn, chime, contextRow } from './page.js'
 
 test('editor: a slider rewrites its argument, the output and its guide follow', async () => {
-  await open()
+  await open({ edits: true })
   // a press on its card opens its settings
   await tab('Edits')
   await page.locator('.step-name', { hasText: 'Normalize' }).click()
@@ -23,7 +23,7 @@ test('editor: a slider rewrites its argument, the output and its guide follow', 
 // Pointed at, a setting says what it does and which way to move it (help.js), with its range and where it starts; the
 // ones few touch wait under Advanced, which opens with the card where the code sets one of them
 test('editor: a card\'s settings say what they do; the engine\'s own wait under Advanced', async () => {
-  await open()
+  await open({ edits: true })
   const rows = page.locator('.step.open .param'), shown = () => rows.locator('label:visible').allInnerTexts(), more = page.locator('.step.open .step-more')
   // a card opened afresh: a press on the one open closes it, and another opens it
   const reopen = async name => {
@@ -83,7 +83,7 @@ test('editor: a card\'s settings say what they do; the engine\'s own wait under 
 // its settings, one card at a time; a press again, or its badge on the picture, shows the whole chain. The sound the chain
 // starts from comes first.
 test('editor: a step chosen among the edits shows the output up to it and opens its settings; × removes one', async () => {
-  await open()
+  await open({ edits: true })
   await tab('Edits')
   assert.deepEqual(await page.locator('.step-name').allInnerTexts(), ['chime.wav', 'Trim', 'Normalize', 'Fade'])
   // each says what it is set to
@@ -181,7 +181,7 @@ test('editor: a number in the code drags, the output following, one step of the 
 // The edits as a stack of layers: a step chosen shows the output up to it; an edit made then goes in right after it, the
 // steps after it kept, its own card chosen; undo takes it back, the step chosen as it was
 test('editor: an edit made with the output rolled back to a step goes in right after it, the steps after it kept', async () => {
-  await open()
+  await open({ edits: true })
   await tab('Edits')
   await page.locator('.step-name', { hasText: 'Trim' }).click()
   await page.locator('.viewing', { hasText: 'Up to Trim: ' }).waitFor()
@@ -198,7 +198,7 @@ test('editor: an edit made with the output rolled back to a step goes in right a
 // Rolled back, a choice that sets the last step again in place (⌘ at a range's end, its way; a fade's curve) leaves the steps after
 // the one shown alone: only what shows is set again, never a step hidden
 test('editor: rolled back to a step, the end\'s way leaves a stretch after it as it is', async () => {
-  const { box, x, y } = await chime(), lh = (TRACK - LANES) / 2
+  const { box, x, y } = await chime({ edits: true }), lh = (TRACK - LANES) / 2
   await write(`audio('chime.wav').stretch(1.5, { at: 1, duration: 1 })`)
   await lengthIs('0:08.500')
   await tab('Edits')
@@ -236,7 +236,7 @@ test('editor: undo brings back what was selected before the step, redo what was 
 })
 
 test('editor: Undo steps back through the script, a slider drag one step however long it pauses', async () => {
-  await open()
+  await open({ edits: true })
   // Edit > Undo, as the keys, what there is to undo named
   const row = name => page.locator('.menubar-list .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${name}$`) }) })
   const undoable = async () => { await page.locator('.menubar-item', { hasText: /^Edit$/ }).click(); const off = await row('Undo').getAttribute('aria-disabled'); await page.keyboard.press('Escape'); return off !== 'true' }
@@ -287,7 +287,7 @@ test('editor: deleting a selection writes remove() and shortens the output by it
 })
 
 test('editor: completion lists methods by group and a chosen one opens its sliders', async () => {
-  await open()
+  await open({ edits: true })
   await tab('Code')
   await page.locator('.cm-content').click()
   await page.keyboard.press('ControlOrMeta+End')
@@ -359,7 +359,7 @@ test('editor: pauses selected together are shortened or deleted together, in one
 // A card's switches: a step turned off (its eye) is commented out where it stands; open, its Δ plays and draws what it
 // takes out
 test('editor: a step turns off and on, Δ shows what it takes out', async () => {
-  await open()
+  await open({ edits: true })
   await tab('Edits')
   const card = name => page.locator('.step', { has: page.locator('.step-name', { hasText: name }) })
   await card('Normalize').hover()
@@ -384,7 +384,7 @@ test('editor: a step turns off and on, Δ shows what it takes out', async () => 
 // A generated sound's first call makes it: the source has nothing to turn off, take away or remove; chosen, it is the
 // sound alone. A step that changes time, rate or channels has nothing to take away (Δ): it doesn't line up.
 test('editor: a generated sound\'s source has no switches and shows the sound alone; a step that reshapes has no Δ', async () => {
-  await open()
+  await open({ edits: true })
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 440 * t), { duration: 1, channels: 2 }).gain(-3).filter('highpass', 80).remix(1).speed(2)`)
   await lengthIs('0:00.500')
   await tab('Edits')
@@ -406,7 +406,7 @@ test('editor: a generated sound\'s source has no switches and shows the sound al
 // What each card says of its step: numbers with their units, a band in hertz, a range by its times, a gain curve by its
 // points, warp's markers as from → to, a sound by its name
 test('editor: each card says what its step is set to, whatever its arguments are', async () => {
-  await open()
+  await open({ edits: true })
   await write(`audio('chime.wav')\n  .gain({ t: [0, 1, 2], v: [0, -6, 0] })\n  .spectral([500, 2000], -6, { at: 1, duration: 0.5 })\n  .warp([[1, 1.2], [2, 2.1]])\n  .mix(audio('chime.wav'), { at: 2 })\n  .normalize(-16, 'lufs')`)
   await lengthIs('0:08.000')
   await tab('Edits')
@@ -438,7 +438,7 @@ test('editor: a number selected in the code steps with the arrows, saying what i
 // The edits' cards are as wide as the panel: a long call's settings, folded, are cut short with an ellipsis, never
 // widening the card past the panel
 test('editor: a long step is cut short in its card, the card no wider than the panel', async () => {
-  await open()
+  await open({ edits: true })
   await write(`audio('chime.wav')\n  .warp([${Array.from({ length: 12 }, (_, i) => `[${i / 2 + .5}, ${i / 2 + .6}]`).join(', ')}])`)
   await lengthIs('0:08.000')
   await tab('Edits')
@@ -452,7 +452,7 @@ test('editor: a long step is cut short in its card, the card no wider than the p
 // all away. An edit made after it is a step of its own, not the group's. Its de-reverb model is not fetched
 test('editor: a recipe is one card of the edits, its steps folded under it, turned off or removed together', async () => {
   await page.route(/huggingface\.co/, route => route.abort())
-  await open()
+  await open({ edits: true })
   const chime = `audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)`
   await menu('Process', 'Recipes', 'Remove room echo')
   const grouped = `${chime}\n  // Remove room echo\n    .highpass(80)\n    .dereverb()`
@@ -503,7 +503,7 @@ test('editor: a recipe found by its words goes on the sound open; its groups fol
 // History as Photoshop's: a card chosen rolls the output back to it; an edit made then goes in right after it, its card
 // chosen; undone, the card chosen before is chosen again; redone, the edit's card
 test('editor: an edit made rolled back to a card, undone and redone, brings back the card chosen with it', async () => {
-  await open()
+  await open({ edits: true })
   await noCues()
   await write(`audio('chime.wav')\n  .gain(-3)\n  .reverse()\n  .highpass(80)`)
   await lengthIs('0:08.000')
@@ -530,7 +530,7 @@ test('editor: an edit made rolled back to a card, undone and redone, brings back
 // if it was, the output whole; its settings set in its comment, nothing run, till it is back on
 test('editor: a card dragged takes its step along the chain; one bypassed stays where it is, as it was', async () => {
   await page.addInitScript(() => { const post = Worker.prototype.postMessage; window.runs = 0; Worker.prototype.postMessage = function (m, ...r) { if (m?.type === 'run') runs++; return post.call(this, m, ...r) } })
-  await open()
+  await open({ edits: true })
   await write(`audio('chime.wav')\n  .gain(-3)\n  .reverse()\n  .highpass(80)`)
   await lengthIs('0:08.000')
   await tab('Edits')
@@ -574,7 +574,7 @@ test('editor: a card dragged takes its step along the chain; one bypassed stays 
 // name double-clicked, named anew; a step dragged by a step of it goes into it, out by one outside; the group dragged
 // whole; ⇧⌘G unmakes it. Each one step of the history
 test('editor: the edits as layers: picked rows grouped, named, dragged in and out, the group moved whole, unmade', async () => {
-  await open()
+  await open({ edits: true })
   await write(`audio('chime.wav')\n  .gain(-3)\n  .reverse()\n  .highpass(80)\n  .fade(1)`)
   await lengthIs('0:08.000')
   await tab('Edits')
@@ -616,7 +616,7 @@ test('editor: the edits as layers: picked rows grouped, named, dragged in and ou
 // right-clicked: muted and back on, moved, grouped, the chain up to it made one sound (a file kept as a take is, the
 // script opening it, its marks marked on it again, the steps after it going on from it), one step of the history each
 test('editor: layers: a chevron while open; a row\'s menu mutes, moves, groups and flattens the chain up to it', async () => {
-  await open()
+  await open({ edits: true })
   await write(`audio('chime.wav')\n  .gain(-3)\n  .mark(1, 'one')\n  .reverse()\n  .highpass(80)`)
   await lengthIs('0:08.000')
   await tab('Edits')

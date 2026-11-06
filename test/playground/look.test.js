@@ -12,7 +12,7 @@ import { resolver, semantics } from '../../playground/theme.js'
 // frequency to three digits (1.23k), the spectrogram's level whole (−100); it goes on to the right of its tick, never
 // back over the meters. Either picture, either unit, the same, so nothing moves as one turns to the other
 test('editor: the axis is five characters wide at full scale, the same for either picture and either unit', async () => {
-  await open()
+  await open({ edits: true })
   await tab('Edits')
   const axis = () => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.panes')).getPropertyValue('--axis')))
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.panes')).getPropertyValue('--axis'))

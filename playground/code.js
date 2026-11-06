@@ -929,3 +929,9 @@ export function cli(code, spec = () => null) {
   }
   return out.join(' ')
 }
+
+// The value each parameter has in a call now, by position or by name in an options object; undefined if unset.
+export function valuesOf(spec, call) {
+  const positional = call.args.filter(a => a.kind !== 'object'), options = call.args.find(a => a.kind === 'object')
+  return spec.map((s, i) => options?.props.find(p => p.name === s.name)?.value ?? positional[i]?.value)
+}

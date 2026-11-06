@@ -2,7 +2,7 @@ import { ops, methods } from '../ops.js'
 import { prepare, offCalls, append, source, chain, number, declared, inline, between, tracks as tracksOf, focus, soundOf, addTrack, master as masterOf, retake } from '../code.js'
 import { unique } from '../sources.js'
 import { clip, paste, pasteNew, pasting } from './clipboard.js'
-import { keep } from './config.js'
+import { keep, STACKED } from './config.js'
 import { state, eng, v, ed, rk, steps, depthWas, queued, assign } from './context.js'
 import { lengthOf, shelf, saving, taken } from './files.js'
 import { label, quote, brief, note } from './format.js'
@@ -263,7 +263,7 @@ export function addOp(name, open = true, args) {
     const end = change.from + change.insert.length, at = chain(ed.code)?.calls.findLast(k => k.list.from >= change.from && k.list.from < end)?.list.from
     if (at == null) return change
     ed.select(at + 1)
-    if (open && state.side !== 'edits') { state.side = 'edits'; store() }
+    if (open && STACKED && state.side !== 'edits') { state.side = 'edits'; store() }
     if (state.side === 'edits') rk.choose(at)
     return change
   }

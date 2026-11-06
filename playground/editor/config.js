@@ -187,5 +187,8 @@ export const stored = EMBED ? { side: UI.panel === 'none' ? null : UI.panel || '
 })()
 export const oneOf = (value, list, fallback) => list.includes(value) ? value : fallback
 export const docsOf = list => Array.isArray(list) ? list.filter(d => typeof d?.code === 'string') : []
-// the panel's tabs; one stored under a name it no longer has opens on the edits, and a closed panel stays closed
-export const sides = ['recipes', 'chat', 'edits', 'code', 'export'], sideOf = name => name == null ? null : sides.includes(name) ? name : 'edits'
+// The edits as a stack of cards (stack.js), the chain's steps each with its settings: only where the page asks for them
+// (?ui= edits, or a panel of them), never loaded otherwise, the code being where the chain is written by hand
+export const STACKED = UI.edits === true || UI.panel === 'edits'
+// the panel's tabs; one stored under a name it no longer has opens on the code, and a closed panel stays closed
+export const sides = ['recipes', 'chat', ...STACKED ? ['edits'] : [], 'code', 'export'], sideOf = name => name == null ? null : sides.includes(name) ? name : 'code'

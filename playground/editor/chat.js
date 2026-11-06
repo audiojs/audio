@@ -1,7 +1,7 @@
 import { chain } from '../code.js'
 import agent from '../agent.js'
 import doing, { measures, noted } from '../doing.js'
-import { root, specs, stored, docsOf } from './config.js'
+import { root, specs, stored, docsOf, STACKED } from './config.js'
 import { state, ed, rk } from './context.js'
 import { ago, stamp, ruled, note } from './format.js'
 import { store } from './persist.js'
@@ -120,8 +120,9 @@ export function visit(show) {
   else if (show.edit) {
     const k = chain(ed.code)?.calls.findLast(k => ed.code.slice(k.dot + 1, k.to) === show.edit)
     if (!k) return note('That edit is no longer in the chain')
-    state.side = 'edits'
-    rk.choose(k.list.from)
+    // its card chosen among the edits; with none, its call in the code
+    if (STACKED) { state.side = 'edits'; rk.choose(k.list.from) }
+    else { state.side = 'code'; ed.select(k.list.from + 1) }
   }
 }
 // How long a turn has run, kept current while one runs

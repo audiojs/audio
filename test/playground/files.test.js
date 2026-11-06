@@ -101,7 +101,7 @@ test('editor: a file opens where nothing plays, goes in where its caret shows ov
 // Several files dropped at once open together, a track each in one tab, the first edited; exported, a file each. Over
 // the tabs, a tab each
 test('editor: several files dropped open as tracks of one tab, exported a file each; over the tabs, a tab each', async () => {
-  await open()
+  await open({ edits: true })
   const bytes = [await wavBytes([sine(.5, 440, .5)]), await wavBytes([sine(.75, 220, .5)])]
   const hold = (selector, names) => page.evaluate(({ selector, names, bytes }) => {
     const target = document.querySelector(selector), rect = target.getBoundingClientRect(), data = new DataTransfer()

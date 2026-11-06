@@ -3,7 +3,7 @@ import { steps as stepsOf, dropStep } from '../code.js'
 import { builtins } from '../sources.js'
 import menubar from '../menu.js'
 import opIcons from '../icons.js'
-import { root, EMBED, quickOf, QUICK, formats, icons, glyphs, displays, stored } from './config.js'
+import { root, EMBED, STACKED, quickOf, QUICK, formats, icons, glyphs, displays, stored } from './config.js'
 import { command, snapshot, item, keysOf } from './commands.js'
 import { state, v, ed } from './context.js'
 import { editSelection, addOp } from './edits.js'
@@ -25,7 +25,7 @@ function menus() {
   const at = (...ids) => ids.map(id => id === '-' ? '-' : item(id, s))
   return [
     { name: 'File', items: at('tab.new', 'file.open', 'file.recent', 'sound.find', 'sound.make', '-', 'export', 'export.as', 'check', 'link.copy', '-', 'tab.close', 'tab.reopen') },
-    { name: 'Edit', items: at('undo', 'redo', 'history', '-', 'cut', 'copy', 'paste', 'delete', 'crop', '-', 'mark', '-', 'group', 'ungroup') },
+    { name: 'Edit', items: at('undo', 'redo', 'history', '-', 'cut', 'copy', 'paste', 'delete', 'crop', '-', 'mark', ...STACKED ? ['-', 'group', 'ungroup'] : []) },
     { name: 'Select', items: at('select.all', 'select.none', '-', 'select.fragment', 'select.sound', 'select.next', '-', 'caret') },
     { name: 'View', items: at(...displays.map(d => `display.${d.name}`), 'look.wave', 'look.spec', '-', 'minimap', 'grid', 'snap', 'pitch.curve', 'zoom', '-', 'panel', 'theme', '-', 'view.reset') },
     { name: 'Track', items: at('track.new', 'track.fromFile', 'track.move', 'track.voice', 'track.stems', '-', 'track.lineUp', 'track.match', 'track.duck', 'track.master', '-', 'track.toTab', 'track.delete') },

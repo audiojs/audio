@@ -2,7 +2,7 @@ import recipes from '../recipes.js'
 import { tracks as tracksOf, master as masterOf } from '../code.js'
 import { builtins } from '../sources.js'
 import { THEMES } from '../theme.js'
-import { root, generators, formats, displays, SPEEDS, specs } from './config.js'
+import { root, generators, formats, displays, SPEEDS, specs, STACKED, sides } from './config.js'
 import { state, v, ed, rk, output, steps } from './context.js'
 import { undoList, goTo, editSelection } from './edits.js'
 import { pickFiles, shelved, unshelve, useSample, useCode, useRecipe, openSearch, exportFiles, share } from './files.js'
@@ -70,9 +70,9 @@ export const commands = [
   { id: 'delete', label: 'Delete', keys: '⌫', edit: 'remove', scope: 'view', press: e => (e.key === 'Delete' || e.key === 'Backspace') && v.ranges.length > 0, when: s => s.sel, run: e => e ? editSelection('remove', v.band ? v.selection : v.ranges) : editSelection('remove') },
   { id: 'crop', label: 'Crop', keys: 'K', edit: 'crop', scope: 'page', press: e => plain(e, 'k') && state.selection && !state.band, when: s => s.sel && !s.band, run: () => editSelection('crop') },
   { id: 'mark', label: s => s.sel ? 'Mark the selection' : 'Add a marker', keys: 'M', tip: 'A click on a marker\'s name renames it', edit: 'mark', scope: 'page', press: e => plain(e, 'm') && state.whole, when: s => !s.none, run: () => addMarker() },
-  // the edits picked made a group, or the group unmade (stack.js), but in a field being written
-  { id: 'group', label: 'Group the edits', hint: 'Those picked with Shift, or the one chosen', keys: keys('⌘G'), scope: 'any', press: e => mod(e) && !e.shiftKey && is(e, 'g') && !e.target.closest?.('input, textarea, select, dialog'), when: s => !s.none, run: () => rk.group() },
-  { id: 'ungroup', label: 'Ungroup', keys: keys('⇧⌘G'), scope: 'any', press: e => mod(e) && e.shiftKey && is(e, 'g') && !e.target.closest?.('input, textarea, select, dialog'), when: s => !s.none, run: () => rk.ungroup() },
+  // the edits picked made a group, or the group unmade (stack.js), but in a field being written; with the edits shown
+  { id: 'group', label: 'Group the edits', hint: 'Those picked with Shift, or the one chosen', keys: keys('⌘G'), scope: 'any', press: e => STACKED && mod(e) && !e.shiftKey && is(e, 'g') && !e.target.closest?.('input, textarea, select, dialog'), when: s => STACKED && !s.none, run: () => rk.group() },
+  { id: 'ungroup', label: 'Ungroup', keys: keys('⇧⌘G'), scope: 'any', press: e => STACKED && mod(e) && e.shiftKey && is(e, 'g') && !e.target.closest?.('input, textarea, select, dialog'), when: s => STACKED && !s.none, run: () => rk.ungroup() },
 
   // Select
   { id: 'select.all', label: 'All', keys: keys('⌘A'), scope: 'view', press: e => mod(e) && is(e, 'a'), when: s => !s.none, run: () => v.select(0, v.duration) },
@@ -109,7 +109,7 @@ export const commands = [
   { id: 'panel', label: 'Panel', items: () => [
     check('Shown', !!state.side, () => state.toggleSide()),
     '-',
-    ...[['recipes', 'Recipes'], ['chat', 'Agent'], ['edits', 'Edits'], ['code', 'Code'], ['export', 'Export']].map(([name, label]) => check(label, state.side === name, () => state.setSide(name)))
+    ...[['recipes', 'Recipes'], ['chat', 'Agent'], ['edits', 'Edits'], ['code', 'Code'], ['export', 'Export']].filter(([name]) => sides.includes(name)).map(([name, label]) => check(label, state.side === name, () => state.setSide(name)))
   ] },
   { id: 'theme', label: 'Theme', items: () => [
     check('The screen', !worn, () => dress(null), { hint: 'Grey on black, as the site draws it' }),

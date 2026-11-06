@@ -10,7 +10,7 @@ import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, wholeLevels
 // it (its button says which); its button again closes it; its left edge drags its width; the choice and the width are
 // remembered. Undo is undo, nothing else
 test('editor: no undo nor redo in the bar, the Edit menu\'s; a band\'s look in its layer, none moving; the panels\' buttons at the top right; a panel docks beside the picture', async () => {
-  await open()
+  await open({ edits: true })
   const box = name => page.locator(name).boundingBox()
   const [panes, view] = await Promise.all(['.panes', '.view-slab'].map(box))
   assert.ok(Math.abs(view.width - panes.width) < 2, 'the picture the whole width')
@@ -125,12 +125,12 @@ test('editor: on a phone the panel opens under the picture, its buttons at the f
   try {
     await p.goto(origin + '/playground/')
     await p.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
-    const box = selector => p.locator(selector).boundingBox(), edits = p.getByRole('tab', { name: 'Edits', exact: true })
+    const box = selector => p.locator(selector).boundingBox(), edits = p.getByRole('tab', { name: 'Code', exact: true })
     const [slab, status, button] = [await box('.panes'), await box('.status'), await edits.boundingBox()]
     assert.ok(button.y >= status.y + status.height - 1 && slab.y + slab.height - (button.y + button.height) < 12, `at the foot: ${JSON.stringify({ slab, status, button })}`)
     assert.ok(button.width >= 44 && button.height >= 44, 'a finger\'s size')
     await edits.tap()
-    await p.locator('.side-slab .add-step').waitFor()
+    await p.locator('.side-slab .script-editor').waitFor()
     assert.deepEqual(await edits.boundingBox(), button, 'where it was')
     const [view, side, under] = [await box('.view-slab'), await box('.side-slab'), await box('.status')]
     assert.ok(view.y + view.height <= under.y + 1 && side.y >= under.y + under.height - 1, 'the picture, the bar, the panel')
@@ -146,7 +146,7 @@ test('editor: on a phone the panel opens under the picture, its buttons at the f
 // message between them is the one that gives way)
 for (const width of [1280, 880]) test(`repl: the status bar holds still as a selection is made, scrubbed and played, a ${width}px window`, async () => {
   await page.setViewportSize({ width, height: 720 })
-  await open()
+  await open({ edits: true })
   const still = () => page.evaluate(() => {
     const rect = s => { const r = document.querySelector(`#status ${s}`).getBoundingClientRect(); return [Math.round(r.left), Math.round(r.width)] }
     return { ...Object.fromEntries(['.play', '.record', '.loop', '.clock', '.readout', '.facts'].map(s => [s, rect(s)])), message: rect('.message')[0] }
@@ -206,7 +206,7 @@ test('repl: the level and the facts as far apart as each other, embedded or not,
 // @container bar, picture), the time and the length keeping their size where they did before undo and redo came after them
 test('repl: the status bar never runs past its end, from a wide window to a phone\'s', async () => {
   await page.setViewportSize({ width: 1280, height: 720 })
-  await open()
+  await open({ edits: true })
   assert.equal(await page.locator('.clock').evaluate(e => getComputedStyle(e).getPropertyValue('--time-size').trim()), '40px', 'the time at its full size, wide')
   const over = []
   for (const side of [false, true]) {
@@ -247,7 +247,7 @@ test('editor: resizing the panes never shows a blank frame', async () => {
 // One block: a head over the picture and the panel, the bar along the foot of both, the transport at its start, a
 // status bar as an editor's; the panel docked at the picture's right
 test('editor: output and bar are one block, the panel docked at the output\'s right, from under the head to the bar', async () => {
-  await open()
+  await open({ edits: true })
   await tab('Edits')
   const box = name => page.locator(name).boundingBox()
   const [panes, bar, record, play, view, side, head] = await Promise.all(['.panes', '.status', 'button.record', 'button.play', '.view-slab', '.side-slab', '.view-head'].map(box))
@@ -272,7 +272,7 @@ test('editor: output and bar are one block, the panel docked at the output\'s ri
 // Wide and short, a laptop's window or a landscape phone's: the panel beside the picture, not a sheet over its tracks
 test('editor: a wide, short window keeps the panel beside the picture', async () => {
   await page.setViewportSize({ width: 1280, height: 480 })
-  await open()
+  await open({ edits: true })
   await tab('Edits')
   const [side, view] = await Promise.all(['.side-slab', '.view-slab'].map(s => page.locator(s).boundingBox()))
   assert.ok(side.x >= view.x + view.width - 1 && side.y < view.y + view.height / 2, `the panel at ${side.x},${side.y}, the picture ${view.x}–${view.x + view.width}`)
@@ -281,7 +281,7 @@ test('editor: a wide, short window keeps the panel beside the picture', async ()
 // On a narrow screen held upright a panel opens under the output, the whole width, the bar between them, as much of the
 // slab as the picture keeps; its buttons stay in reach
 test('editor: a shared link restores the script; on a narrow screen the panel opens under the output, the whole width', async () => {
-  await open()
+  await open({ edits: true })
   await write(`audio('chime.wav').reverse()`)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
   await page.getByRole('button', { name: 'Share' }).click()

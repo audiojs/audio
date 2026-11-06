@@ -133,7 +133,7 @@ test('editor: a cue dragged over a sustained sound leaves every other cue where 
 // The gain line shows once there is a curve: a level change on a selection makes one (a trapezoid, its ramps 5 ms)
 // The line shows while its step is chosen in the edits, to be worked on; else it is out of sight
 test('editor: a level change draws the gain line; its points drag, above or mirrored below, and a double-click takes one away', async () => {
-  await open()
+  await open({ edits: true })
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 440 * t), { duration: 2 })`)
   await lengthIs('0:02.000')
   // the edits open, beside the picture, all of the sound shown again in what is left of it
@@ -302,7 +302,7 @@ test('editor: a selection fades from its top corners: inward from its edge, outw
 // Denoise: where the noise plays alone is selected, learned there and taken out everywhere, in one step; the rack sets how
 // far down, the selection stays the noise. Nothing selected, it asks for that first.
 test('editor: Denoise learns the noise where it is selected and takes it out everywhere', async () => {
-  await open()
+  await open({ edits: true })
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
   await menu('Process', 'Repair', 'Denoise')

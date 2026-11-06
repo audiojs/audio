@@ -31,7 +31,8 @@ The app's one config: a JSON object, the `ui` attribute's, which the frame reads
 
 | Key | Value | Default |
 |---|---|---|
-| `panel` | `code` (the script beside the picture), `edits` (its steps, each with its settings) or `none` | `code` |
+| `panel` | `code` (the script beside the picture), `edits` (its steps, each with its settings; asking for it gives the edits, as `edits` does) or `none` | `code` |
+| `edits` | `true`: the edits, the chain's steps as cards with their settings, a panel beside the code (stack.js, loaded only then) | `false` |
 | `display` | `wave` or `spec` | `wave` |
 | `controls` | the parts shown, each in its own place whatever the list's order. Over the picture: `sound` (its name, a menu of its ways in), `link` and `name` (the way to the playground), `ruler` (the time row), `look` (a band's dropdown of how it draws). In the bar: `play` `record` `loop` `clock` `history` `message` `heard`, a level (`level`, or what it reads: `peak` `rms` `loudness`), `rate` `channels` `depth` `before`, `view` (a switch: the waveform, the spectrogram), `open` and `save` (in the format picked from its menu) | all but `sound`, `view`, `open`, `save` |
 | `ops` | edits a press away, one button after the history, a menu of them: calls with their own arguments, or the defaults the menus write, as `["trim", "normalize(-1)", "stretch(1.25)"]`; each with a line on what it does, the edits made listed first, checked, a press taking one away, and counted on the button | none |

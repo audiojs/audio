@@ -1,6 +1,6 @@
 import { ops, methods, format, fromManifest, reshapes, labelOf, icons } from './ops.js'
 import opIcons from './icons.js'
-import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing, unsplit, useTake, takes } from './code.js'
+import { chain, valuesOf, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing, unsplit, useTake, takes } from './code.js'
 import { SLOP } from './view.js'
 
 // What each setting does and which come first (help.js), the largest text the page has: loaded with the first card's
@@ -559,11 +559,6 @@ export default function stack(root, { ed, ontake = change => ed.change(change), 
   return { refresh, choose, ahead, at, shown, group: makeGroup, ungroup: () => unmakeGroup() }
 }
 
-// The value each parameter has in a call now, by position or by name in an options object; undefined if unset.
-export function valuesOf(spec, call) {
-  const positional = call.args.filter(a => a.kind !== 'object'), options = call.args.find(a => a.kind === 'object')
-  return spec.map((s, i) => options?.props.find(p => p.name === s.name)?.value ?? positional[i]?.value)
-}
 
 // What a step is set to, in a few words: its values with their units, a range by its times, a curve by its points, a
 // sound by its name; what the words can't say, as written

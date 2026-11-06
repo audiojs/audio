@@ -2,7 +2,6 @@ import sprae from '../assets/sprae.js'
 import engine from './engine.js'
 import codeEditor from './script.js'
 import view, { KINDS } from './view.js'
-import stack from './stack.js'
 import recipes from './recipes.js'
 import { ops, previews, GROUPS, labelOf, icons as groupIcons } from './ops.js'
 import { source, steps as stepsOf, focus, addTake } from './code.js'
@@ -14,7 +13,7 @@ import md from './markdown.js'
 import { connectAgent, pickAgent, partsOf, showChat, newChat, openChat, dropChat, visit, elapsed, sendChat, chatKey, wire as wireChat } from './editor/chat.js'
 import { wire as wireClipboard } from './editor/clipboard.js'
 import { command, shortcut, tip, scriptKeys, pressed } from './editor/commands.js'
-import { root, params, EMBED, UI, SHOWN, QUICK, GIVEN, formats, ENCODING, writtenDepth, DEPTH_USE, cutFormats, frameRates, KEEPS, LOOK, looks, specMethods, WAVE, waveLooks, levelList, curves, glyphs, gripModes, AGENT_ICON, RECIPES_ICON, displays, SHUTTLE, times, tenths, rates, layouts, specs, stored, oneOf, sideOf } from './editor/config.js'
+import { root, params, EMBED, UI, STACKED, SHOWN, QUICK, GIVEN, formats, ENCODING, writtenDepth, DEPTH_USE, cutFormats, frameRates, KEEPS, LOOK, looks, specMethods, WAVE, waveLooks, levelList, curves, glyphs, gripModes, AGENT_ICON, RECIPES_ICON, displays, SHUTTLE, times, tenths, rates, layouts, specs, stored, oneOf, sideOf } from './editor/config.js'
 import { ed, rk, pl, output, incoming, rechoose, shown, carded, queued, assign } from './editor/context.js'
 import { remember, undoList, goTo, editSelection, warp, carry, toTab, addOp, spread, flatten, switchTake } from './editor/edits.js'
 import { lengthOf, pickFiles, openFiles, taken, recover, useSample, useCode, useRecipe, openSearch, closeSearch, typeSearch, runSearch, preview, useResult, exportFiles, exportCuts, share, wire as wireFiles } from './editor/files.js'
@@ -75,7 +74,7 @@ const state = sprae(root, {
   get shuttleAt() { return SHUTTLE.at(this.shuttle ?? this.speed) },
   display: oneOf(stored.display, displays.map(d => d.name), 'wave'), scale: scales[stored.scale] ? stored.scale : 'log', rates, layouts, sound: null, viewing: '',
   show: { meters: true, spectrum: true, keys: true, gain: true, guides: true }, units: oneOf(UI.units, UNITS.map(u => u[0]), 'clock'),
-  embed: EMBED, quick: QUICK, made: 0, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
+  embed: EMBED, stacked: STACKED, quick: QUICK, made: 0, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
   // the commands' keys and tooltips, as the menus have them (commands.js)
   shortcut, tip,
   tabs: [], marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, hotBand: -1, trackRows: null, ghost: false, renaming: null, renamingTab: null,
@@ -144,7 +143,7 @@ const state = sprae(root, {
   },
   // a tab opens the panel on it; the tab shown, again, closes it (its tabs stay, to open it again)
   setSide(name) { state.side = state.side === name ? null : name; store() },
-  toggleSide() { state.side = state.side ? null : 'edits'; store() },
+  toggleSide() { state.side = state.side ? null : STACKED ? 'edits' : 'code'; store() },
   get sideTitle() { return { recipes: 'Recipes', chat: 'Agent', edits: 'Edits', code: 'Code', export: 'Export' }[this.side] ?? 'Panel' },
   // The recipes by group, those whose words have every word typed
   scenarioQuery: '',
@@ -392,10 +391,12 @@ standIn(first)
 // already drew. Shown after the view's first frame, so what comes up is the sound where it was left, never an empty
 // picture that fills in after (editor.css, data-boot).
 requestAnimationFrame(() => requestAnimationFrame(() => root.removeAttribute('data-boot')))
-// The edits, the stack of the chain's steps; the card under the pointer draws what it sets over the output (ops.js
-// guides), and none pointed at, what the agent's last edit sets. What the output shows when it is not the whole chain
-// (the chain up to the step chosen, what a step takes out) runs in place of the script.
-assign({ rk: stack(root.querySelector('.steps'), {
+// The edits, the stack of the chain's steps, where the page asks for them (config.js STACKED); the card under the
+// pointer draws what it sets over the output (ops.js guides), and none pointed at, what the agent's last edit sets.
+// What the output shows when it is not the whole chain (the chain up to the step chosen, what a step takes out) runs
+// in place of the script.
+const stack = STACKED && (await import('./stack.js')).default
+if (stack) assign({ rk: stack(root.querySelector('.steps'), {
   ed,
   ontake: switchTake,
   describe: name => eng.describe(name),

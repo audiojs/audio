@@ -3,8 +3,9 @@
 
 // the page's state (sprae), the engine and the view, each made once by the boot (editor.js) and assigned here
 let state, eng, v
-// the script's editor (script.js) and its edits (stack.js), swapped for a moment by spread()
-let ed, rk
+// the script's editor (script.js) and its edits (stack.js), swapped for a moment by spread(); with no stack
+// (config.js STACKED), one with nothing chosen, as the whole chain is shown
+let ed, rk = { refresh() {}, choose() {}, ahead: () => null, at: () => null, shown: () => ({ id: null }), group() {}, ungroup() {} }
 // the shown tab's player (switchTab)
 let pl = null
 // the whole output the page has; the newest run's output as it arrives; the run whose output the view shows

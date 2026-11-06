@@ -52,7 +52,7 @@ const out = l => process.stdout.write(JSON.stringify(l) + '\\n'), wait = ms => n
     const url = await new Promise(resolve => proc.stdout.on('data', d => { const m = String(d).match(/http:\/\/127\.0\.0\.1:\d+/); if (m) resolve(m[0]) }))
     // the bridge is the one other address the page may reach
     await page.route(url + '/**', route => route.continue())
-    await open()
+    await open({ edits: true })
     await tab('Agent')
     await page.getByRole('textbox', { name: 'The bridge\'s address' }).fill(url)
     await page.getByLabel('The bridge\'s key').fill(KEY)
