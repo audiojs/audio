@@ -54,7 +54,7 @@ Open:
 - `npx skills add audiojs/audio` already installs. The skills CLI clones the repo and finds `skills/audio/SKILL.md` (`npx skills add audiojs/audio --list` → "Found 1 skill"). It scans root, `skills/`, `skills/.curated/`, `.claude/skills/` and others, three levels deep ([vercel-labs/skills](https://github.com/vercel-labs/skills)).
 - skills.sh has no submission step: the leaderboard ranks by anonymous install telemetry ([skills.sh/docs](https://skills.sh/docs)). First installs list it.
 - Keep the skill here. Its body is also the MCP tool description ([bin/mcp.js](../bin/mcp.js), asserted ≤ 2048 chars in [test/mcp.js](../test/mcp.js)), and it teaches this CLI's grammar, so it changes in the same commit as the grammar. A separate `audiojs/skills` would hold one skill drifting from its tool. Revisit only when a skill does not teach this CLI.
-- Growth: one skill, progressive disclosure. `SKILL.md` stays grammar + measure/edit/verify loop (MCP-sized); workflows go to `skills/audio/references/<workflow>.md`, read on demand. The five skills planned in [mcp.md](mcp.md) (master, clean, analyze, match, edit) become references, not five skills competing for the same trigger with five copies of the grammar.
+- Growth: one skill, progressive disclosure. `SKILL.md` stays grammar + measure/edit/verify loop (MCP-sized); workflows go to `skills/audio/references/<workflow>.md`, read on demand. The five skills planned in mcp.md (`cb14d8c:.work/mcp.md`) (master, clean, analyze, match, edit) become references, not five skills competing for the same trigger with five copies of the grammar.
 - Drift guard: a test that runs every `audio …` line in `skills/**/*.md` against fixtures.
 
 ## Delivery specs

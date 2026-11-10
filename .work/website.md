@@ -173,7 +173,7 @@ Avoid leading with segment maps, atoms, compilers, GPU, or “300+ packages”. 
 
 `web-audio-api` is a sibling with its own use cases, not an `audio` plugin or a compulsory foundation for users. Distinguish its shipped polyfill from the separate `audio-ponyfill` idea still listed in `.work/todo.md:11`.
 
-MCP remains planned in this repository (`.work/todo.md:8`, [MCP notes](mcp.md)). GPU readiness was not established in this review. Neither deserves a primary navigation item until there is a maintained release, a tested example, and a user task it improves. “Atom” can remain a term in extension documentation; most visitors need to find an effect by what it does.
+MCP remains planned in this repository (`.work/todo.md:8`, MCP notes, `cb14d8c:.work/mcp.md`). GPU readiness was not established in this review. Neither deserves a primary navigation item until there is a maintained release, a tested example, and a user task it improves. “Atom” can remain a term in extension documentation; most visitors need to find an effect by what it does.
 
 ### 6. Evidence and maintenance information
 
