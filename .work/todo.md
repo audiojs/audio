@@ -1,3 +1,7 @@
+## Next
+
+* [ ] rendering and editing modes possible: staff notes, wrapped waveform (wavefont), pianoroll (midi), formula.
+* [ ] per track control: volume
 
 ## Adoption
 
@@ -91,15 +95,6 @@ Have, not measured: `defeedback()` (analyzer, tracker, notch bank).
 Checked 2026-10-09 in Node: a 6.8 s MUSDB clip split into voice (`rebalance(0, -∞, -∞, -∞)`) and rest (`rebalance(-∞)`) in 8.4 s on CPU, voice through `deepfilter().dereverb()` in 2.0 s, mixed back. Voice + rest misses the mix by −32.4 dB: SCNet's residual counted twice.
 Missing: true harmonic resynthesis (`sbr` is a waveshaper exciter, not the voice's own harmonics) · generative restoration (DFN3 masks; it can't rebuild lost bandwidth, mic colour, codec damage, heavy rooms) · the split → regenerate → merge glue.
 
-### 1. Split, merge (glue: days)
-- [x] Voice and rest that add back to the input: `vocals({ model })` and `vocals('remove', { model })`, SCNet-large hosted (−155 dB from the mix on a MUSDB clip); no new op (`split()` is the time split)
-- [x] Playground: Edit › Split the voice to a new track (right-click at the caret, ⌘P too): `voice` under it, the rest left, each its own chain
-- [x] Playground: four stems to four tracks: Edit › Split into four stems, voice, bass and drums each alone (`rebalance(…, { residual: -Infinity })`, the residual's own level new), the rest with the residual left; the four add back to the song (> 90 dB in the page), one SCNet-large run
-- [x] `align(ref)`: GCC-PHAT to the sample where the waveforms are shared, else onset envelopes (a part remade); CLI `align REF`; 3.6 s for a 4-minute song
-- [x] `align()`: drift, where both last 20 s: a copy on another clock by its waveform at three places, read back by `speed(1/ρ, { type: 'sinc' })` (new), within half a sample; a part at another tempo (±10 %) by its onsets, coarse to fine over the rate, then its thirds' lags, stretched back; ends within 2 ms on most of bench/align.mjs (a film's music under dialogue 25 ms, a sparse melody 8 ms); `{ drift: false }`
-- [x] Suno hand-off by file: File › Export the track alone; File › Open as a new track; Edit › Line up with (`align`), Match with (`match` + `normalize` to the original part)
-- [x] Automix voice over a bed: Edit › Duck under ‹track› (`ducker({ key: voice, range: -15 })`, a key read by name keeps its track); Edit › Add a master (`voice.clone().mix(bed)` and steps of its own, the output, a lane of its own); the podcast recipe in that form
-- [x] `memo()` shared while it is made and until the store holds it: two tracks, one model run (in the page: the split 101 s, one track alone 84 s; in Node, both at once with no store: one run); Node: `audio.memo = new Map()`
 
 ### 2. Harmonic resynthesis, DSP (a week)
 - [x] `recover(cutoff?)`: f0 by pYIN, the harmonics in the octave under the cutoff set the level, k·f0 synthesized above it falling 12 dB/oct, the noise between them falling 2 (slopes chosen on 26 training utterances: a take's own measured slope did worse, 15.1 against 14.2 dB); added only where the long-term spectrum lacks the band; the cutoff found where it falls 25 dB in a third of an octave and stays down (natural voices: 19.6 at most over 269 takes)

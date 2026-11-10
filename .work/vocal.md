@@ -1,14 +1,61 @@
-# Vocal tuning against VOCALTUNER and Melodyne
+# Vocal tuning against VOCALTUNER, Melodyne and Audimee
 
-What a voice's pitch tools do here, against [chjogit/VOCALTUNER](https://github.com/chjogit/VOCALTUNER) (1.0.0, commit 325f0cb, read in full, not built or run) and Melodyne's pitch tools. VOCALTUNER refs are `path:line` in its repo; ours are paths in this one.
+What a voice's pitch tools do here, against [chjogit/VOCALTUNER](https://github.com/chjogit/VOCALTUNER) (1.0.0, commit 325f0cb, read in full, not built or run), Melodyne's pitch tools and [Audimee](https://audimee.com)'s two editors (§8). VOCALTUNER refs are `path:line` in its repo; ours are paths in this one. What to build from all three, in order: [Parity](#parity-what-to-build-in-order).
 
-**Status:** ✅ we have it · ◐ partly · ✗ missing · ⊘ not wanted (the reason is given) · ★ we have it and VOCALTUNER doesn't
+**Status:** ✅ we have it · ◐ partly · ✗ missing · ⊘ not wanted (the reason is given) · ★ we have it and the tool compared doesn't
 
 ## Verdict
 
 Ours covers VOCALTUNER's pitch correction and goes past it in the parts that decide how a corrected voice sounds: formants (it has none), resynthesis (it runs WORLD over every 10 s chunk that holds an edit; we re-space the voice's own cycles and pass everything else sample for sample), scales (it has major and natural minor), note segmentation (Tony's HMM against slope-peak heuristics), retune speed and tolerance (it has neither), and persistence (it saves no edits at all). With `modulation`, `drift` and `center` added here, Melodyne's three pitch layers are ops, measured apart.
 
 It is stronger in three places, all editor or alignment work rather than DSP: a guide mode that aligns a double's syllables and pitch to a reference track (DTW on MFCCs, Whisper lyrics as anchors), note editing in the roll (cut and join notes, move and stretch them in time, a handle per curve extremum with a time warp), and edits mirrored across tracks. None of those exist in our Notes view yet; the engine has the parts for all but the DTW alignment.
+
+Audimee's 2024 pitch editor has a note's pitch, a Vibrato and a Pitch (tuning strength) knob with a key, Vibrato and Drift modes per note, and a Cut mode that splits notes. Its pitch layers are all ops here; what it has that we lack is the gestures: splitting a note, tuning a take to a key with one control. Its Text to Vocals editor (October 2026) sings with a model (lyrics, phonemes, re-singing, breathiness, singers), a different job from editing a take, except for four things that carry over: a vibrato's rate, note timing in the roll, harmonies from one voice, and MIDI out.
+
+## Parity: what to build, in order
+
+Every gap the three tools show, ordered by what a singer's take needs first. A row is here for an edit a singer makes, not to close a table ([editor.md](editor.md)'s rule). Each names who has it, what our engine already does, and what is left. Tick a row when its gesture ships with a test. Status read from the code on 2026-11-10.
+
+Sources: VOCALTUNER and Melodyne as in §1 and §4. Audimee as in §8: **seen** in a saved screenshot, **text** from a vendor page or its video's captions, **code** only a string in its client JavaScript.
+
+### 1. The op exists; the Notes view lacks the gesture
+
+- [ ] **Tune a take to its key, with a strength.** Audimee: the Pitch knob and key menu, its Quick Tuning card (seen); Melodyne: Correct Pitch; VOCALTUNER: Pitch Balance. Ours: `center(k, { scale, root })` and `tune({ scale, root, strength, speed, tolerance })`, palette only; the status bar reads the key already (`listen()`, repl/editor/readouts.js). Left: one control on the notes (the selection, else the take) that starts at the key read, its strength dragged as the foot tools are, the scale's rows drawn while it is held (`guides()` draws them for `tune`, repl/ops.js).
+- [ ] **Centre a note on its semitone in one gesture.** VOCALTUNER and Melodyne: double-click a note; Audimee: double-click snaps every note to the key (text). Ours: `center(0, { at, d })`, palette only. Left: the gesture. A double-click selects the fragment everywhere else in the picture, so either a double-click on a note alone does it, said in the help, or a key does.
+- [ ] **Split and join notes.** Audimee: Cut mode, a click splits a note and the parts move apart (tab seen, gesture text), and Text to Vocals' slicer (C) and tie (L) (code); VOCALTUNER's cut tool; Melodyne's note separation. Ours: Tony's notes as found. The engine needs nothing: a part of a note is a range, its edits ranged ops. Left: a split kept with the tab where Tony found one note and the singer sang two, each part then pressed, dragged and heard alone; a join, the reverse.
+- [ ] **Move a note in time, stretch its edges.** All three (Audimee: Text to Vocals, code). Ours: `warp([[from, to]])`, `stretch(f, { at, d, voice: true })`, no gesture. Left: §6 "Time": a note dragged sideways writes warp markers at its ends, the neighbours' far ends held; its edge dragged writes the stretch.
+- [ ] **Vibrato depth and drift as tools at the notes' foot.** Melodyne's Modulation and Drift tools; Audimee's Vibrato and Drift modes (seen); VOCALTUNER's. Ours: `modulation(k)`, `drift(k)`, palette only; the foot has intonation and formants. Left: the two tools as §6 designs them (detents at 1 and 0, a double-click toggling, each note's curve drawn as it will be).
+
+### 2. Engine work first
+
+- [ ] **A vibrato's rate.** Audimee Text to Vocals: a Speed knob, 3 to 8 Hz (code); VOCALTUNER: 3.5 to 8 Hz on its synthetic vibrato. Ours: depth only. `layer()` (fn/intonation.js) already parts each note's vibrato from its line; the rate is that part read faster or slower, its phase continuous, its depth kept.
+- [ ] **Vibrato on a note sung straight, faded in.** VOCALTUNER: a sine, faded in over min(0.3 × length, 0.25 s) and out (§1). Ours: the `vibrato` effect, a delay line over the range (rate, depth), blind to the voice and its notes, no fades. Left: a voice op adding a faded sine to each note's line, depth in cents, rate in Hz.
+- [ ] **Transition length per joint (portamento).** VOCALTUNER: a dot at each joint; Melodyne: the pitch transition tool; Audimee: none found. Ours: a fixed 100 ms crossover in the note ops. Left: the crossover as a parameter, then a handle at the joint.
+- [ ] **Draw the pitch freehand.** Audimee Text to Vocals: Draw pitch (D) (code). Ours: the pitch line's points, the whole curve dragged, Praat's bends as handles. Left: a draw gesture writing one `pitch()` curve, the pointer's path simplified to points.
+- [ ] **The notes to a MIDI file; MIDI in as a guide.** Audimee: MIDI export on every plan (seen in its pricing), import keeping notes, timing and velocities (code); Melodyne exports MIDI. Ours: `stat('notes')` carries each note's MIDI number, with no .mid writer; `@audio/tune-midi` tunes to a MIDI guide, imported directly, not in the registry. Left: a Standard MIDI File writer behind `save('x.mid')` and the export menu, then tune-midi registered.
+
+### 3. New jobs
+
+- [ ] **Harmonies from one voice.** Audimee's Harmony maker: up to 5 harmony tracks from a recording, 35 presets, pitch and timing varied a little, under 75 s of audio (text). Ours: none, but the parts are here: `pitch(…, { voice: true })`, tracks, the key read, `center`'s scales. Left: a shift per note within the key (a third above is 3 or 4 semitones by the note), each harmony a track of its own.
+- [ ] **Doubles, varied in time and pitch.** Audimee: unison layers in Text to Vocals (synthesised), variation in the Harmony maker. Ours: `chorus` and `microshift`, detuned copies with no timing variation. Left: a double as a track, its timing warped by a slow random curve of some tens of ms, its pitch by a few cents.
+- [ ] **A double aligned to a guide track.** VOCALTUNER's guide mode (§1). Ours: `align(ref)`, one lag and a rate. The largest engine gap, a module of its own: banded DTW on MFCCs and frame classes, lyrics as optional anchors, then each note's pitch to the reference's.
+- [ ] **A tempo grid, notes snapped to it.** Audimee Text to Vocals: BPM, time signature, grid and snap (J) (bar seen in thumbnails); Melodyne: a time grid. Ours: the tempo read in the status bar, the ruler in seconds, snapping to cues and markers. Left: bars from the tempo and the first downbeat, a snap target beside the cues.
+- [ ] **Edits linked across tracks.** VOCALTUNER copies an edit's deltas onto the overlapping blocks of other tracks. Ours: a range through every track applies the op to each, each analysed on its own (§2).
+
+### ⊘ Not for an editor of recordings
+
+Audimee's Text to Vocals sings with a model: lyrics and phonemes per note, Re-Sing, singers, Tension and Breathiness from −100 to +100, synthesised unison layers (all code; the Expression and Re-Sing buttons seen). Its Convert page swaps the voice for another (216 voices, or your own trained one). Each needs a singing or conversion model, not an edit of the take. The one that could return for a recording is breathiness: it needs the voice parted into periodic and aperiodic sound, which `stat('harmonic')` measures and no op edits.
+
+### Where we lead: keep it so
+
+- Formants moved, the pitch kept: Audimee has none, VOCALTUNER none.
+- The voice itself heard as it will sound while a note or a tool is dragged (repl/editor.js, the audition of a drag); Audimee plays a preview tone (text).
+- A melody's rises and falls wider or flatter (`intonation`), and its drift, vibrato and centre apart, measured (§5); Text to Vocals has no drift.
+- Praat's bends as handles on the pitch curve, and a pitch line of points.
+- Several pitch-shift methods, the voice's own cycles re-spaced, unvoiced audio passed sample for sample (§3).
+- Timing by onsets (⌘-drag a cue, the audio either side stretching to it), a part lined up with a reference (`align`).
+- Every edit a line of the script, kept with the tab; VOCALTUNER saves none.
+- The user's own machine, any length: Audimee's Convert takes 7 minutes at most (seen), its Harmony maker under 75 s.
 
 ## 1. VOCALTUNER: what it is
 
@@ -67,14 +114,14 @@ Modes Blob, Curve, Rhythm (Ctrl+1/2/3), tools 1 to 4 per mode, Ctrl+4 the Pitch 
 | Pitch track (Harvest, 5 ms) | `contour()` (pYIN Viterbi, 5 or 10 ms), `fn/pitch-detect.js`; `stat('notes', { robust })` a neural first stage | ✅ | Not compared against Harvest here |
 | Note segmentation (slope peaks, plateaus) | Tony's note HMM (`@audio/pitch/pyin` `notes`), the Notes view's (`repl/worker.js` `notes`) and the new ops' | ✅ | A published, evaluated model (Mauch et al., TENOR 2015) |
 | Consonant blocks | unvoiced audio passes untouched by every voice op | ✅ | No consonant "notes" to edit |
-| Move a note, snapped to its semitone | the Notes view's drag: `pitch(st, { at, d, voice: true })` | ◐ | The range glides in over ~90 ms where VOCALTUNER moves the note from its onset; see Notes view below |
+| Move a note, snapped to its semitone | the Notes view's drag: a note sung apart (30 ms of quiet or more either side) a `pitch()` curve stepping in the quiet, moved from its first cycle to its last; a note tied to the next, `pitch(st, { at, d, voice: true })`, gliding as a voice does (repl/view/gestures.js `apart`, repl/editor/writers.js `stepped`) | ✅ | Was ◐: every range glided in over ~90 ms |
 | Double-click: centre on its semitone | `center(0, { at, d })` | ✅ | From the note's first frame after silence (measured below) |
 | Pitch Balance: centre %, key, tolerance | `center(k, { scale, root, a4 })` (`fn/intonation.js`); `tune({ scale, root, strength, speed, tolerance })` (`@audio/tune-snap`) | ★ | 11 scales or any degrees, against major and natural minor |
 | Drift −1..1 | `drift(k)`, any k | ★ | Separated by the vibrato's own period, measured below |
 | Vibrato depth, natural or synthetic | `modulation(k)`: a ratio of the note's own | ◐ | A ratio, as Melodyne's: can double a vibrato (VOCALTUNER caps the natural one at 1.5×). No synthetic vibrato on a flat note, except `pitch(t => d * Math.sin(2 * Math.PI * f * t), { at, d, voice: true })` without fades |
 | Flatten | `modulation(0).drift(0)` | ✅ | |
 | Retune speed, humanize | `tune({ speed })` | ★ | |
-| Curve handles with falloff and time warp | the pitch line (`repl/editor.js` `pitchline`, `curveEdit('pitch')`): points, straight between | ◐ | No falloff to neighbours, no time warp of a point |
+| Curve handles with falloff and time warp | the pitch line (`repl/editor.js` `pitchline`, `curveEdit('pitch')`): points, straight between; the curve's bends (Praat's stylization, 2 st, repl/view/model.js `stylize`) as hollow handles, one dragged bending the voice between the handles either side | ◐ | Linear between neighbours, not a raised cosine; no time warp of a point |
 | Transition per joint | a fixed 100 ms crossover in the note ops; the pitch line | ◐ | No per-joint handle |
 | Volume per note | `gain` over the note's range (`level()` in the editor) | ✅ | |
 | Timing: move and stretch notes | `warp([[from, to], …])`, `stretch(f, { at, d, voice: true })` | ◐ | Engine yes; no gesture in the Notes view |
@@ -109,7 +156,7 @@ Melodyne 5's pitch modulation and drift tools: "100% represents in this case the
 
 | Melodyne | Ours | Status |
 |---|---|---|
-| Pitch tool: a note dragged, its centre snapped to the semitone | Notes view drag, `pitch()` over the note | ◐ (onset glide) |
+| Pitch tool: a note dragged, its centre snapped to the semitone | Notes view drag, `pitch()` over the note, from its first cycle where it is sung apart | ✅ |
 | Pitch tool double-click / Correct Pitch: pitch center | `center(k, { scale, root })` | ✅ |
 | Pitch Modulation tool | `modulation(k)` | ✅ |
 | Pitch Drift tool / Correct Pitch: drift | `drift(k)` | ✅ |
@@ -159,15 +206,50 @@ What the notes already carry (`repl/worker.js` `notes`: `f0` every 10 ms, `level
 - **Modulation and drift: two tools at the foot of the selected notes**, beside pitch, intonation and formants, dragged up or down as intonation is (half a lane up ×2, half a lane down 0), a detent at 1 and at 0; modulation goes on below 0 into inversion, as Melodyne's does. Double-click on the tool toggles between 1 and 0 (Melodyne). While dragging, draw each note's curve as it will be (modulation: `line + k × (f0 − line)`; drift: `c + k × (line − c)`) and say "vibrato ±38 cents at 5.6 Hz → ±19". The same tool again over the same range multiplies its factor (`voiced(name, k, range, (p, q) => p * q)`, as `tone`).
 - **Centre: double-click a note** writes `center(0, { at, d })`: onto its semitone from its first frame, all inside kept. Several selected: one call over the selection. A note dragged up or down should snap its centre to the semitone (Melodyne, VOCALTUNER), ⌘ for cents, as it does now.
 - **Correct Pitch, for a take or a selection**: a small panel with Center % and Drift % and a scale and root, defaulting to the key the status bar reads (`stat('key')`), writing `center(1 − c, { scale, root }).drift(1 − d)`. The tune grid `guides()` draws for `tune` (`repl/ops.js`) can draw for `center` too.
-- **The note drag's onset**: `pitch(st, { at, d, voice: true })` glides in over ~90 ms even where the note starts after silence (measured above: −0.076 of −0.3 st in its first 50 ms). Where the note starts and ends at an unvoiced gap, write the shift as an unranged curve stepping in the gaps (`pitch({ t: [a − ε, a, b, b + ε], v: [0, s, s, 0] }, { voice: true })`), or use `center`'s path; keep the glide only where a neighbour is tied to it.
+- **The note drag's onset** (built: §2, "Move a note"): `pitch(st, { at, d, voice: true })` glides in over ~90 ms even where the note starts after silence (measured above: −0.076 of −0.3 st in its first 50 ms). Where the note starts and ends at an unvoiced gap, write the shift as an unranged curve stepping in the gaps (`pitch({ t: [a − ε, a, b, b + ε], v: [0, s, s, 0] }, { voice: true })`), or use `center`'s path; keep the glide only where a neighbour is tied to it.
 - **Time**: a selected note dragged left or right writes `warp` markers at its ends, its neighbours' far ends held; its edge dragged writes `stretch(f, { at, d, voice: true })`. The engine has both.
 - **Level**: the note's thickness dragged writes `gain` over its range (the selection's pill does this already).
-- **Precise pitch line**: offer the curve's extrema as the pitch line's starting points (VOCALTUNER's 0.3 st zigzag), and drag a point with a raised-cosine falloff to the points either side rather than straight lines, so the inner shape stays. A point's time warp is not in the engine.
+- **Precise pitch line** (in part: the bends as handles, Praat's rather than VOCALTUNER's extrema, linear between them): offer the curve's extrema as the pitch line's starting points (VOCALTUNER's 0.3 st zigzag), and drag a point with a raised-cosine falloff to the points either side rather than straight lines, so the inner shape stays. A point's time warp is not in the engine.
 
 ## 7. Left undone
 
-- Guide-track alignment (DTW on MFCC + class, lyric anchors) and following a reference's pitch: the largest gap, a module of its own.
-- Synthetic vibrato with fades on a note sung straight.
-- A per-joint transition length (the crossover is a fixed 100 ms).
+The gaps against the tools are in [Parity](#parity-what-to-build-in-order). In the engine:
+
 - Passing the contour's f0 to tune-curve (it takes `f0`) to save its second pYIN pass: a note op reads pYIN three times (contour, notes, the retuner); 196 s of a take took 9.4 s.
 - tune-curve's period patch, to apply in `@audio/tune` after its own review.
+
+## 8. Audimee
+
+Read 2026-11-09 by an agent that neither signed in nor used the app. Its screenshots and their index: `.work/ui/audimee/`, `.work/ui/INDEX.md` (gitignored).
+
+- **Pitch editor (2024)**, a modal in the voice-conversion page: seen in full-resolution screenshots from audimee.com (`pitch-editor-full-modal.png`, `pitch-editor-notes-20s-26s.png`, `pitch-editor-quick-tuning-callout.png`); how its modes work, from the auto-captions of the vendor's how-to video ([F1jQq9hysTs](https://www.youtube.com/watch?v=F1jQq9hysTs), 3 Jul 2024), which are noisy.
+- **Text to Vocals (October 2026)**, a note editor that sings with a model: behind a sign-in, so seen only in YouTube thumbnails partly covered by presenters (`ttv-*-thumb.jpg`); its features from UI strings in the public client JavaScript (`audimee.com/_next/static/chunks`), not used. A string there may be flagged off or an alpha's; one thumbnail shows a preview build's URL. No video frames: YouTube refused the downloads.
+
+| Audimee | Ours | Status | Seen |
+|---|---|---|---|
+| Pitch mode: a note dragged up or down, a preview tone heard (a speaker toggles it), Ctrl to select more | the Notes view's drag, by semitones (⌘ by cents), the voice itself heard as it will sound | ★ | mode seen, gesture text |
+| Quick tuning: a Pitch knob (strength) and a key menu, "No Key" by default; a double-click snaps every note to the key | `center(k, { scale, root })`, `tune({ strength })`, palette only; the key read in the status bar, not linked | ◐ | seen; double-click text |
+| Vibrato: a knob for the take, a mode for a note | `modulation(k)` over a range, palette only | ◐ | seen |
+| Drift mode, for notes sung sharp or flat | `drift(k)` | ◐ | tab seen, behaviour text |
+| Cut mode (labelled Point in an older build): a click splits a note, the parts moved apart | none | ✗ | tab seen, gesture text |
+| Notes moved, resized by their edges, sliced (C), tied (L), timing locked | `warp`, `stretch(f, { voice: true })`, no gesture | ◐ | code |
+| Key and scale: Major, Minor, Major and Minor pentatonic, Blues, Dorian, Mixolydian, Harmonic minor, Spanish, Arabic; the key detected; rows shaded by the scale | 11 scales or any degrees (`SCALES`, repl/ops.js), no Spanish or Arabic; the key detected; rows shaded as a piano's keys, a tune's notes drawn over its range | ◐ | code |
+| Tune, per selection | `tune({ strength, speed })`, `center(k)` | ◐ | code (no knob here) |
+| Vibrato amount and Speed (3 to 8 Hz), per selection | amount only | ◐ | code |
+| Draw pitch freehand (D) | the pitch line's points, the curve dragged, its bends | ◐ | code |
+| A pencil adds a note; paint notes (B) lays a run | none | ⊘ | code; a note from nothing needs a singer |
+| Expression: Tension and Breathiness, −100 to +100, "As sung" by default | none | ⊘ | code; the button seen |
+| Lyrics per note, a phoneme strip (each sound retimed by its edges), a pronunciation dictionary | none | ⊘ | strip seen, the rest code |
+| Re-Sing, takes, up to 6 singers, unison layers (4 or 16 by plan, with Spread), harmony presets | none | ⊘ | plan limits seen in pricing, the rest code |
+| Harmony maker: up to 5 harmony tracks from a recording, 35 presets, pitch and timing varied, under 75 s | none | ✗ | text |
+| MIDI: import (notes, timing, velocities; bends dropped), export (every plan), audio to notes and lyrics | the notes with MIDI numbers (`stat('notes')`), no .mid; `@audio/tune-midi` tunes to a MIDI guide | ◐ | export seen in pricing, the rest code |
+| BPM, time signature, grid, snap (J), metronome; tempo and key detected | tempo and key read; a click track (`rhythm`); no grid | ◐ | bar seen in thumbnails |
+| Effects for all singers: presets Studio, Radio, Velvet, Vintage, Dream, Arena; Brightness, Compression, De-esser, Saturation, Delay, Reverb | each an op (`tilt`, `exciter`, `compressor`, `deesser`, `tape`, `delay`, `plate`), recipes for whole chains | ✅ | seen |
+| Voice parameters overlay: energy, breathiness, voicing, tension (the model's) | the spectrogram, the pitch curve on it | ◐ | code |
+| Singer's Range overlay | a melody's compass in the status bar | ◐ | code |
+| Convert: the voice to another singer (216 voices, or your own trained on 1 to 30 min) | none | ⊘ | text; a model's job |
+| Undo history naming each edit ("Drew pitch") | the script, a line per edit | ✅ | code |
+| Formants | `formant(st)` | ★ | not found in captions or code |
+| Portamento, vibrato onset, a quantize command | none here either: a fixed 100 ms crossover (Parity §2) | | not found |
+
+Unresolved: its tool page says only paying users get the manual pitch editor; its pricing table ticks it on every plan, Free included.
