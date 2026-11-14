@@ -106,19 +106,19 @@ test('fix package.json — the site\'s build copies the repository into a folder
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-// A publish runs no suite the commit already passed: .tested.js asks GitHub for the commit's `test` workflow (the
-// suites of npm run test:node on three Nodes) and runs them here only where that cannot be told
-test('fix package.json — a publish is tested by CI where its tests passed for the commit, here otherwise', async () => {
+// A publish goes out only tested by CI at the latest commit: .tested.js asks GitHub for the branch's tip and the
+// commit's `test` workflow (the suites of npm run test:node on three Nodes), and stops the publish on anything else
+test('fix package.json — a publish needs CI\'s tests passed for the commit, and the package\'s files the commit\'s', async () => {
   let { verdict, changed } = await import('../.tested.js'), T = '.github/workflows/test.yml', B = '.github/workflows/browser.yml'
   let run = (path, status, conclusion) => ({ path, status, conclusion })
   ok(/&& node \.tested\.js$/.test(pkg.scripts.prepublishOnly), 'prepublishOnly ends on it')
-  is(verdict([]).is, 'none', 'no run for the commit (not pushed): the suites run here')
+  is(verdict([]).is, 'none', 'no run for the commit')
   is(verdict([run(B, 'completed', 'success')]).is, 'none', 'another workflow\'s pass is not the tests\'')
   is(verdict([run(B, 'completed', 'failure'), run(T, 'completed', 'success')]).is, 'passed', 'the tests passed, whatever the pages\' suites did')
   is(verdict([run(T, 'in_progress', null)]).is, 'running', 'a run still going is waited for')
   is([verdict([run(T, 'completed', 'failure')]).is, verdict([run(T, 'completed', 'cancelled')]).is], ['failed', 'failed'], 'a run that failed, or was cancelled, stops the publish')
   is(verdict([run(T, 'completed', 'success'), run(T, 'completed', 'failure')]).is, 'passed', 'the newest run of the tests is the one read')
-  // the files a publish packs must be the commit's: one changed since sends the suites here
+  // the files a publish packs must be the commit's: one changed since stops it
   let { mkdtempSync, writeFileSync, rmSync, mkdirSync } = await import('fs'), { tmpdir } = await import('os'), { join } = await import('path'), { execFileSync } = await import('child_process')
   let dir = mkdtempSync(join(tmpdir(), 'audio-tested-')), git = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', ...a], { cwd: dir, stdio: 'pipe' })
   try {
