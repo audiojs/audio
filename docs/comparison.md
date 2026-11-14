@@ -239,7 +239,7 @@ Reading the numbers honestly:
 
 > **Why the CLI transform numbers moved 6–9×.** Until 2026-07, `save`/`encode` drove the DSP through a per-1024-sample-block async loop, which prevented V8 from tiering up the FFT-heavy ops for the whole file (baseline JIT, ~10× slower on a one-shot process). The fix renders the plan through the synchronous generator in large synchronous bursts, crossing an `await` only for I/O between bursts — bit-identical output, JIT-friendly. `read()` was always on the fast path. The remaining gap to native is a genuine constant factor, addressable via the atom contract's WASM lane (jz) for the streaming/realtime case that can't batch.
 
-> **Why they moved again, 3–5×, by 2026-11.** Part came with the releases since July. In November the inner loops went to WebAssembly SIMD kernels, each beside the JS loop it replaces and giving its bits: the vocoder's FFT pair and phase-lock step, WAV decode and encode, the index's block measure. A WAV opened by its path decodes a page at a time, an MP3 its parts on threads; the command line no longer sleeps 100 ms before a save.
+> **Why they moved again, 3–5×, by 2026-11.** Part came with the releases since July. In November the inner loops went to WebAssembly SIMD kernels, each beside the JS loop it replaces and giving its numbers bit for bit: the vocoder's FFT pair and phase-lock step, WAV decode and encode, the index's block measure. A WAV opened by its path decodes a page at a time, an MP3 its parts on threads; the command line no longer sleeps 100 ms before a save.
 
 `audio` aims to match native FFmpeg/SoX on raw throughput and is not there yet: today ergonomics + portability + non-destructive editing come at a constant-factor cost. Where it competes structurally already:
 

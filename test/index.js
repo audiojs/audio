@@ -324,13 +324,22 @@ test('stat – block stats at the edges: 16-bit full scale and beyond clip, NaN 
 // The index's block pass runs in WebAssembly SIMD (fn/block.wat) where it runs, else in the JS loops (levels,
 // kweighted): the same float ops in the same order, so the same bits in every field, one channel to five (an odd one
 // paired with itself), at rates whose 100 ms grid cuts a block nowhere, once or twice, on a short last block, on NaN,
-// infinities, zeros of both signs and denormals; and a session the two take turns in (the filter's state handed over)
-test('stat – the block kernel and the JS loops give the same bits', async t => {
+// infinities, zeros of both signs and denormals; and a session the two take turns in (the filter's state handed over).
+// A NaN is held to be a NaN, not to its bits: WebAssembly leaves a NaN result's sign and payload open (Core Spec 4.3.3,
+// NaN propagation) and ECMA-262 its encoding in a typed array (NumericToRawBytes); x64 gives the NaN it makes the sign
+// bit, arm64 does not, and which of two NaNs an operation keeps goes by the order its operands were compiled in
+test('stat – the block kernel and the JS loops give the same bits', { skip: !isNode }, async t => {
   let { block } = await import('../fn/block.js'), BS = BLOCK_SIZE, seed = 7, rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647
   let ODD = [NaN, Infinity, -Infinity, 0, -0, 1, -1, 32767 / 32768, -32767 / 32768, 1.5, -2, 1e-40, -1e-45, 3.4e38]
   let gen = (n, mode) => Float32Array.from({ length: n }, () => mode === 0 ? rnd() * 2 - 1 : mode === 1 ? rnd() * 2.4 - 1.2 : rnd() < .1 ? ODD[rnd() * ODD.length | 0] : rnd() * 2 - 1)
   let FIELDS = ['min', 'max', 'dc', 'clipping', 'ms', 'correlation', 'energy', 'kcut1', 'kcut2']
-  let bits = v => [...new Uint32Array(Float64Array.of(v).buffer)]
+  let bits = v => v !== v ? [NaN, NaN] : [...new Uint32Array(Float64Array.of(v).buffer)]
+  // where two sessions first part: the block, the field, the channel, a half of each value's bits
+  let parts = (a, b, nch) => {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) for (let p = 0; p < FIELDS.length * nch * 2; p++)
+      if (!Object.is(a[i]?.[p], b[i]?.[p])) return `block ${i}, ${FIELDS[p / (2 * nch) | 0]}[${(p >> 1) % nch}]: ${a[i]?.[p]} against ${b[i]?.[p]}`
+    return null
+  }
   // a session over chs: runs of whole blocks by `many` (one to five at a call), the rest block by block; `pick` says
   // which path takes each call
   let session = (chs, sr, pick) => {
@@ -346,13 +355,14 @@ test('stat – the block kernel and the JS loops give the same bits', async t =>
     return out
   }
   try {
-    let cases = 0, differ = 0
+    let cases = 0, differ = []
     for (let nch of [1, 2, 3, 5]) for (let sr of [8000, 44100, 48000, 96000]) for (let mode = 0; mode < 3; mode++) for (let n of [1, 7, BS, 4 * BS + 300, 20 * BS + 511]) {
-      let chs = Array.from({ length: nch }, () => gen(n, mode)), js = JSON.stringify(session(chs, sr, () => false))
+      let chs = Array.from({ length: nch }, () => gen(n, mode)), js = session(chs, sr, () => false)
       cases++
-      if (JSON.stringify(session(chs, sr, () => true)) !== js || JSON.stringify(session(chs, sr, k => k % 2 === 0)) !== js) differ++
+      let d = parts(session(chs, sr, () => true), js, nch) ?? parts(session(chs, sr, k => k % 2 === 0), js, nch)
+      if (d) differ.push(`${nch} ch at ${sr} Hz, mode ${mode}, ${n} samples: ${d}`)
     }
-    t.is(differ, 0, `${cases} sessions: the kernel's, the loops' and the two by turns, every field the same bits`)
+    t.is(differ.slice(0, 5), [], `${cases} sessions: the kernel's, the loops' and the two by turns, every field the same bits (${differ.length} differ)`)
   } finally { block.simd = true }
 })
 
@@ -5978,7 +5988,7 @@ test('stretch – a channel comes out the same bits alone, in a pair and among f
   let sr = 44100, seed = 5, rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647
   let x = Float32Array.from({ length: 1.5 * sr }, (_, i) => .4 * Math.sin(i * i * 2e-6) + .2 * (rnd() - .5))
   let y = Float32Array.from({ length: 1.5 * sr }, (_, i) => .4 * Math.sin(i * .05) + .2 * (rnd() - .5))
-  let same = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.byteLength), Buffer.from(b.buffer, b.byteOffset, b.byteLength)) === 0
+  let same = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
   let ops = [['0.8×', a => a.stretch(.8)], ['0.8× after a gain', a => a.gain(-3).stretch(.8)],
     ['1.5× over a range, after a highpass', a => a.highpass(40).stretch(1.5, { at: .25, duration: .75 })], ['sliding, after a gain', a => a.gain(-3).stretch(t => .7 + .4 * t)]]
   for (let [name, op] of ops) {
@@ -7182,7 +7192,7 @@ test('resample — sinc anti-aliasing survives structural composition', async t 
 
 // The linear read's loop has its end test and its reverse case outside it (plan.js resample): the samples of the
 // plain loop, one test a sample, bit for bit, at any rate, phase and length, past the source's end too
-test('resample – linear: the samples of the plain loop, bit for bit', async t => {
+test('resample – linear: the samples of the plain loop, bit for bit', { skip: !isNode }, async t => {
   let { resample } = await import('../plan.js')
   let plain = (src, target, tOff, n, rate, phase = 0) => {
     let absR = Math.abs(rate), rev = rate < 0
@@ -7204,7 +7214,7 @@ test('resample – linear: the samples of the plain loop, bit for bit', async t 
 // The dot products run in WebAssembly SIMD (fn/resample.wat) where it runs, else in the JS loop: the same sums in the
 // same order, so the same bits, up and down (32, 64 and 128 taps), reversed, chained (a narrowed band), and past
 // the ends of a buffer with no margin
-test('resample – sinc: the wasm kernel and the JS loop give the same bits', async t => {
+test('resample – sinc: the wasm kernel and the JS loop give the same bits', { skip: !isNode }, async t => {
   let { sincInterp } = await import('../fn/resample.js')
   let seed = 3, x = Float32Array.from({ length: 3 * 44100 }, (_, i) => 0.4 * Math.sin(i * i * 1e-6) + 0.3 * ((seed = seed * 16807 % 2147483647) / 2147483647 - 0.5))
   let runs = () => [
