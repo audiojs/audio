@@ -72,9 +72,11 @@ export const phaseLockLatency = (rmin, sampleRate) => {
 // frame's distance from the one before, as far as the frame actually moved (fourier-transform reads it at a whole
 // sample), not the next one's hop: a hop rounded at every frame put sidebands at the frame rate 13 dB higher.
 // A stretch's plan has already time-scaled the audio, which put it at another pitch: its frames would straddle that
-// step at the range's edges, and every one of them mix the two pitches. So a stretch reads the source back through
-// the plan's own map (the content at t sits on the timeline at T(t)) and feeds the vocoder audio at the source's
-// pitch; the vocoder stretches it by T′, and its output is the timeline itself, read at rate 1. Its crossfades join
+// step at the range's edges, and every one of them mix the two pitches. So a stretch feeds the vocoder the source at
+// its own pitch, the content at t that sits on the timeline at T(t): read from the timeline the plan rewrote, its own
+// samples, where that timeline is sources (plan.js `input`); else read back from the plan's timeline through its map,
+// its linear interpolation band-limited again (which aliases what a range sped up puts past Nyquist, and dulls the top
+// octave). The vocoder stretches it by T′, and its output is the timeline itself, read at rate 1. Its crossfades join
 // the source continued in its own time: into the range at its start, and aligned with what follows at its end.
 
 /** Where shifted audio meets the input, a crossfade this long: 10 ms */
@@ -191,6 +193,36 @@ function dryBand(h, c, x, cut = 1) {
   }
   return acc / sum
 }
+// dryBand at place x into out[c][i], one or two channels in one pass over the taps (their sums run side by side, not
+// one after another), read straight from the history where the window lies in it; else, and for more channels,
+// dryBand itself. The same float ops in the same order as dryBand, so the same samples.
+function dryBands(h, out, i, x, cut) {
+  let fl = Math.floor(x), nch = out.length
+  if (x === fl) { for (let c = 0; c < nch; c++) out[c][i] = dryAt(h, c, fl); return }
+  let w = Math.ceil(ZC / cut), o = fl - w + 1 - h.start
+  if (nch > 2 || o < 0 || o + 2 * w > h.len) { for (let c = 0; c < nch; c++) out[c][i] = dryBand(h, c, x, cut); return }
+  let b0 = h.buf[0], b1 = h.buf[nch - 1], sum = 0, a0 = 0, a1 = 0
+  if (cut === 1) {
+    // all 2·ZC taps within the kernel; |x − n| is x − n up to fl, n − x after
+    for (let n = fl - ZC + 1; n <= fl; n++, o++) {
+      let d = (x - n) * RES, j = d | 0
+      let k = KERNEL[j] + (KERNEL[j + 1] - KERNEL[j]) * (d - j)
+      sum += k; a0 += k * b0[o]; a1 += k * b1[o]
+    }
+    for (let n = fl + 1; n <= fl + ZC; n++, o++) {
+      let d = (n - x) * RES, j = d | 0
+      let k = KERNEL[j] + (KERNEL[j + 1] - KERNEL[j]) * (d - j)
+      sum += k; a0 += k * b0[o]; a1 += k * b1[o]
+    }
+  } else for (let n = fl - w + 1; n <= fl + w; n++, o++) {
+    let d = Math.abs(x - n) * cut * RES, j = d | 0
+    if (j >= ZC * RES) continue
+    let k = KERNEL[j] + (KERNEL[j + 1] - KERNEL[j]) * (d - j)
+    sum += k; a0 += k * b0[o]; a1 += k * b1[o]
+  }
+  out[0][i] = a0 / sum
+  if (nch === 2) out[1][i] = a1 / sum
+}
 function dryOut(h, output, q0, len) {
   for (let c = 0; c < output.length; c++) {
     let out = output[c], a = Math.max(0, h.start - q0), b = Math.min(len, h.start + h.len - q0)
@@ -202,7 +234,11 @@ function dryOut(h, output, q0, len) {
 
 /** A run of the vocoder over the span [e0, e1) of the timeline, fed from timeline sample S (content U(S)). */
 function session(st, S, [e0, e1]) {
+  // a stretch read from its sources takes them from a whole sample, at timeline S or just before it (a session a reader
+  // opens inside the range, where U(S) falls between them)
   let { nch, sr, ratio, rmin, N, map, voice } = st, half = N >> 1, synHop = synHopOf(rmin, N), u0 = map ? map.U(S) : S
+  let whole = !!(map && st.read)
+  if (whole) u0 = Math.floor(u0)
   // a voice: one engine for all channels, its output laid on the timeline (read at rate 1): a retuner's cycles as they
   // were found, or a stretch's segments where the map puts them
   if (voice) {
@@ -230,20 +266,21 @@ function session(st, S, [e0, e1]) {
     while (fr.base + fr.hop.length <= k) { let h = fr.base + fr.hop.length ? span(fr.next) : init; fr.hop.push(h); fr.next += h }
     return fr.hop[k - fr.base]
   }
-  // each channel's vocoder asks for hops: with its context once per frame (the distance from the frame before), then
-  // without, to place the next (fourier-transform/stft); asks before the first frame are its construction
-  let vocoder = () => {
-    let kf = 0, ka = 0, on = false, last = 0
-    let anaHop = (fs, ctx) => {
-      if (ctx === null || (!ctx && !on)) return init
-      if (ctx) { on = true; let d = kf++ ? fs - last : init; last = fs; return d }
-      return hop(ka++)
-    }
-    return { ...ring(), write: pvocLock({ frameSize: N, hopSize: N >> 2, synHop, anaHop, sampleRate: sr, fs: sr }), frames: () => kf }
+  // one vocoder for all channels, their frames at the same places (fourier-transform/stft runs two channels' transforms
+  // at once); it asks for hops with its context once per frame (the distance from the frame before), then without, to
+  // place the next; asks before the first frame are its construction
+  let kf = 0, ka = 0, on = false, last = 0
+  let anaHop = (fs, ctx) => {
+    if (ctx === null || (!ctx && !on)) return init
+    if (ctx) { on = true; let d = kf++ ? fs - last : init; last = fs; return d }
+    return hop(ka++)
   }
+  let write = pvocLock({ frameSize: N, hopSize: N >> 2, synHop, anaHop, sampleRate: sr, fs: sr, channels: nch })
   // Fed from inside the span (the timeline's start, or a reader seeking into it), the vocoder starts cold and its first
   // frames smear what follows back over the start: it fades in from the input there.
-  return { S, u0, e0: Math.max(e0, S), e1, fed: 0, voc: Array.from({ length: nch }, vocoder), fr, rate, t: 0, p, buf: null }
+  // the cursor reads the stretched stream at rate 1 from where the content's first sample lies, T(u0)
+  if (whole) p += S - map.T(u0)
+  return { S, u0, e0: Math.max(e0, S), e1, fed: 0, voc: Array.from({ length: nch }, ring), write, frames: () => kf, fr, rate, t: 0, p, buf: null }
 }
 
 /** Feed the session the content its input has reached by timeline sample n1 (a stretch: what the map puts there). */
@@ -257,21 +294,29 @@ function feed(st, cur, h, n1) {
     while (to > from && map.T(cur.u0 + to) > edge) to--
   }
   if (to <= from) return
-  let nch = cur.voc.length, xs = h.buf.map((b, c) => {
-    if (!map) return b.subarray(cur.S + from - h.start, cur.S + to - h.start)
-    let x = (cur.buf ??= [])[c] = cur.buf[c]?.length >= to - from ? cur.buf[c].subarray(0, to - from) : new Float32Array(to - from)
-    for (let i = 0; i < to - from; i++) { let u = cur.u0 + from + i; x[i] = dryBand(h, c, map.T(u), Math.min(1, 1 / map.rate(u))) }
-    return x
-  })
+  let nch = cur.voc.length, n = to - from, xs
+  if (!map) xs = h.buf.map(b => b.subarray(cur.S + from - h.start, cur.S + to - h.start))
+  else if (st.read) xs = st.read(cur.u0 + from, n)
+  else {
+    let buf = cur.buf ??= []
+    xs = h.buf.map((_, c) => (buf[c]?.length >= n ? buf[c] : buf[c] = new Float32Array(Math.max(n, 2 * (buf[c]?.length || 0)))).subarray(0, n))
+    // a piece of the map at a time: its place T(u) and its band, as map.T and map.rate give them, inline
+    for (let i = 0, end = -Infinity, a, b, c, cut; i < n; i++) {
+      let u = cur.u0 + from + i
+      if (u >= end) { [end, a, b, c] = map.piece(u); cut = Math.min(1, 1 / c) }
+      dryBands(h, xs, i, a + (u - b) * c, cut)
+    }
+  }
   cur.fed = to
   if (cur.tc) {
     let res = cur.tc.write(xs)
     for (let c = 0; c < nch; c++) append(cur.voc[c], res[c])
     return
   }
-  for (let c = 0; c < nch; c++) append(cur.voc[c], cur.voc[c].write(xs[c]))
-  // hops the vocoders have used go
-  let k = Math.min(...cur.voc.map(v => v.frames())) - 2 - cur.fr.base
+  let ys = cur.write(xs)
+  for (let c = 0; c < nch; c++) append(cur.voc[c], ys[c])
+  // hops the vocoder has used go
+  let k = cur.frames() - 2 - cur.fr.base
   if (k > 256) { cur.fr.hop.splice(0, k); cur.fr.base += k }
 }
 
@@ -322,11 +367,15 @@ function cursorAt(st, cur, q) {
   return p
 }
 // The audio the shifted audio crosses with at timeline sample q: the input, or for a stretch the source continued in
-// its own time, from the range's start (into it) or aligned with what follows it (out of it)
+// its own time, from the range's start (into it) or aligned with what follows it (out of it): its own sample, read from
+// its sources a few thousand at a time, else read back from the plan's timeline
+const REF = 4096
 const refAt = (st, h, c, q, back) => {
   if (!st.map) return dryAt(h, c, q)
-  let u = back ? q - st.map.D : q
-  return dryBand(h, c, st.map.T(u), Math.min(1, 1 / st.map.rate(u)))
+  let u = back ? q - st.map.D : q, r = st.ref
+  if (!st.read) return dryBand(h, c, st.map.T(u), Math.min(1, 1 / st.map.rate(u)))
+  if (!r || r.read !== st.read || u < r.from || u >= r.from + REF) r = st.ref = { read: st.read, from: u, chs: st.read(u, REF) }
+  return r.chs[c][u - r.from]
 }
 
 /** Where the shifted audio, read up to W samples either side of its cursor, best meets what it crosses over timeline
@@ -420,6 +469,8 @@ function slidingSegs(segs, fv, q) {
 
 const stretchPlan = (segs, ctx) => {
   let { offset, length, total } = ctx
+  // the timeline as it was, its sources, for the vocoder to read at their own rate (the box both halves share)
+  if (ctx.box) ctx.box.read = ctx.input
   if (ctx.fv) {
     let at = planOffset(offset, total)
     return spliceSegs(segs, at, length ?? total - at, sub => slidingSegs(sub, ctx.fv, ctx.q || 2048))
@@ -456,17 +507,26 @@ const stretchLatency = (o, sr) => { let sh = stretchShape(o); return sh ? shiftL
 /** The plan's map of a stretch, content sample u → timeline T(u), and back: piecewise linear, the identity before the
  *  range and shifted by D after it. `knots`: [content, timeline, factor] at each piece's start, in order. */
 function planMap(knots, u1, D) {
-  // the last knot at or before x on key i (binary search: a sliding stretch has a knot per 2048 samples)
-  let find = (x, i) => {
+  // the last knot at or before x on key i, its index (binary search: a sliding stretch has a knot per 2048 samples)
+  let at = (x, i) => {
     let lo = 0, hi = knots.length - 1
     while (lo < hi) { let m = (lo + hi + 1) >> 1; if (knots[m][i] <= x) lo = m; else hi = m - 1 }
-    return knots[lo]
+    return lo
   }
+  let find = (x, i) => knots[at(x, i)]
   let t1 = u1 + D
   let T = u => { if (u >= u1) return u + D; if (u < knots[0][0]) return u; let k = find(u, 0); return k[1] + (u - k[0]) * k[2] }
   let U = t => { if (t >= t1) return t - D; if (t < knots[0][1]) return t; let k = find(t, 1); return k[0] + (t - k[1]) / k[2] }
   let rate = u => u < knots[0][0] || u >= u1 ? 1 : find(u, 0)[2]
-  return { T, U, D, rate }
+  // the piece u lies in, as [end, a, b, c]: T(u) = a + (u − b)·c up to content sample end, the same float ops as T's
+  // (an identity piece's a, b and c add and scale by nothing)
+  let piece = u => {
+    if (u >= u1) return [Infinity, D, 0, 1]
+    if (u < knots[0][0]) return [Math.min(knots[0][0], u1), 0, 0, 1]
+    let i = at(u, 0), k = knots[i]
+    return [Math.min(u1, knots[i + 1]?.[0] ?? Infinity), k[1], k[0], k[2]]
+  }
+  return { T, U, D, rate, piece }
 }
 
 const stretchDsp = (input, output, ctx) => {
@@ -492,6 +552,7 @@ const stretchDsp = (input, output, ctx) => {
     st = ctx._state = sh && shifter(input.length, { sampleRate: sr, rmin: sh.rmin, ratio: map.rate, spans: [[a0, a1]], ends: ctx.duration != null, map, voice })
   }
   if (!st) { for (let c = 0; c < input.length; c++) output[c].set(input[c]); return }
+  st.read = ctx.box?.read ?? null
   shiftBlock(st, input, output, Math.round(ctx.blockOffset * ctx.sampleRate))
 }
 
@@ -549,9 +610,9 @@ audio.op('stretch', {
       // _stretch_seg splices in pre-stretch (source) coords; _stretch_dsp works on
       // the stretched timeline — same at, span = Σ quanta output
       let ranged = ctx.at != null || ctx.duration != null
-      let dsp = { fv, ot, q, at: ctx.at != null ? from : undefined, duration: ranged ? tOut - from : undefined, n: ranged ? spanN : undefined, voice: ctx.voice }
+      let box = {}, dsp = { fv, ot, q, at: ctx.at != null ? from : undefined, duration: ranged ? tOut - from : undefined, n: ranged ? spanN : undefined, voice: ctx.voice, box }
       return [
-        ['_stretch_seg', { fv, q, at: ctx.at, duration: ctx.duration }],
+        ['_stretch_seg', { fv, q, at: ctx.at, duration: ctx.duration, box }],
         ['_stretch_dsp', dsp]
       ]
     }
@@ -560,10 +621,10 @@ audio.op('stretch', {
     // _stretch_seg inherits {at, duration} in pre-stretch coords (segment splice);
     // _stretch_dsp works post-stretch: same at, duration scaled by the factor
     // the stretched range, as long as the plan makes it: round(round(duration · sr) · factor) samples
-    let dsp = { factor: f, voice: ctx.voice }
+    let box = {}, dsp = { factor: f, voice: ctx.voice, box }
     if (ctx.duration != null) { dsp.n = Math.round(ctx.duration * ctx.sampleRate); dsp.duration = Math.round(dsp.n * f) / ctx.sampleRate }
     return [
-      ['_stretch_seg', { factor: f }],
+      ['_stretch_seg', { factor: f, box }],
       ['_stretch_dsp', dsp]
     ]
   }

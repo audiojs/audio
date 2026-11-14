@@ -1,8 +1,10 @@
 /**
  * audio/parallel — jobs made at once, each on a thread of its own, one file, two faces.
  *
- * On the calling side, parallel(mod, shared, jobs, solve): each job made by `solve(shared, job)`, module `mod`'s export
- * of that name, the results in the jobs' order. In Node on worker threads (this file again, as their entry), one fewer than the cores, eight at
+ * On the calling side, parallel(mod, shared, jobs, solve, each): each job made by `solve(shared, job)`, module `mod`'s
+ * export of that name (a promise of it as well), the results in the jobs' order, and each as it comes, to `each(result,
+ * index)` where given, which returning false gives out no more of them (those out come back, the rest stay undone).
+ * In Node on worker threads (this file again, as their entry), one fewer than the cores, eight at
  * most; in a page or a worker, on the workers the host makes (audio.worker, a () → Worker whose entry calls serve());
  * with neither, here in turn, by the `solve` given. The jobs go out a few at a time as threads come free, `shared` once to each thread a
  * call; a view of part of a buffer goes as a copy of its part. A kernel whose jobs depend on `shared` alone comes out
@@ -28,25 +30,30 @@ function on(port, type, fn) {
   return () => port.removeEventListener(type, f)
 }
 
-// the threads, one fewer than the cores, eight at most, made on first use and kept; none where there is no way to make one.
-// The host's maker is core's, read only here: a thread serving jobs loads no core
-let pool = null
-async function threads() {
-  if (pool) return pool
-  let make
-  if (nodeWT?.isMainThread) {
+// the threads, one fewer than the cores, eight at most, made as calls need them (as many as a call has jobs) and kept;
+// none where there is no way to make one. The host's maker is core's, read only here: a thread serving jobs loads no core
+const pool = []
+let make = null
+async function threads(n) {
+  if (!make && nodeWT?.isMainThread) {
     // the process's flags but those that make it a script of its own (node --input-type=module -e …), a thread's entry
-    // being this file
-    const execArgv = process.execArgv.filter((a, i, all) => !/^--(input-type|eval|print)\b|^-[ep]$/.test(a) && !/^-[ep]$|^--(eval|print)$/.test(all[i - 1] ?? ''))
+    // being this file, and a profiler's: a thread profiling as it is let go of holds the process at its exit (Node 25)
+    const execArgv = process.execArgv.filter((a, i, all) => !/^--(input-type|eval|print|cpu-prof|heap-prof)\b|^-[ep]$/.test(a) && !/^-[ep]$|^--(eval|print|cpu-prof-dir|cpu-prof-name|cpu-prof-interval|heap-prof-dir|heap-prof-name|heap-prof-interval)$/.test(all[i - 1] ?? ''))
     make = () => { const w = new nodeWT.Worker(new URL(import.meta.url), { workerData: { parallel: true }, execArgv }); w.unref(); return w }
-  } else make = (await import('./core.js')).default.worker
-  return make ? pool ??= Array.from({ length: Math.max(1, Math.min(8, cores - 1)) }, make) : null
+  } else if (!make) make = (await import('./core.js')).default.worker
+  if (!make) return null
+  while (pool.length < Math.min(n, Math.max(1, Math.min(8, cores - 1)))) pool.push(make())
+  return pool
 }
 
 let ids = 0
-export default async function parallel(mod, shared, jobs, solve) {
-  const all = jobs.length > 1 && await threads()
-  if (!all) return jobs.map(j => solve(shared, j))
+export default async function parallel(mod, shared, jobs, solve, each) {
+  const all = jobs.length > 1 && await threads(jobs.length)
+  if (!all) {
+    const out = []
+    for (const [i, j] of jobs.entries()) { out.push(await solve(shared, j)); if (each?.(out[i], i) === false) break }
+    return out
+  }
   shared = Object.fromEntries(Object.entries(shared).map(([k, v]) => [k, ArrayBuffer.isView(v) && v.byteLength !== v.buffer.byteLength ? v.slice() : v]))
   const id = ++ids, out = new Array(jobs.length), size = Math.max(1, Math.floor(jobs.length / (all.length * 8)))
   let next = 0
@@ -61,7 +68,7 @@ export default async function parallel(mod, shared, jobs, solve) {
       if (m?.id !== id) return
       // a job that throws: the call rejects, every thread let go of it as its batch comes back
       if (m.error) { stop(); w.postMessage({ id, done: true }); next = jobs.length; return reject(new Error(m.error)) }
-      m.out.forEach((v, i) => { out[m.at + i] = v })
+      m.out.forEach((v, i) => { out[m.at + i] = v; if (each?.(v, m.at + i) === false) next = jobs.length })
       feed()
     }
     const offs = [on(w, 'message', got), on(w, 'error', e => { stop(); reject(e) })], stop = () => offs.forEach(off => off())
@@ -72,15 +79,15 @@ export default async function parallel(mod, shared, jobs, solve) {
 }
 
 // Inside a thread: each call's `shared` kept till it is done, each batch of its jobs made and sent back, their buffers
-// moved, not copied
+// (and those of the arrays of them a job makes) moved, not copied
 export function serve(load, port = nodeWT?.parentPort ?? globalThis) {
   const held = new Map()
   on(port, 'message', async m => {
     if (m.done) return held.delete(m.id)
     if (m.shared) return held.set(m.id, Promise.resolve(load(m.mod)).then(k => ({ solve: k.solve, shared: m.shared })))
     try {
-      const { solve, shared } = await held.get(m.id), out = m.jobs.map(j => solve(shared, j))
-      port.postMessage({ id: m.id, at: m.at, out }, out.map(v => v?.buffer).filter(b => b instanceof ArrayBuffer))
+      const { solve, shared } = await held.get(m.id), out = await Promise.all(m.jobs.map(j => solve(shared, j)))
+      port.postMessage({ id: m.id, at: m.at, out }, [...new Set(out.flatMap(v => Array.isArray(v) ? v : [v]).map(v => v?.buffer).filter(b => b instanceof ArrayBuffer))])
     } catch (e) { port.postMessage({ id: m.id, error: e?.message ?? String(e) }) }
   })
 }

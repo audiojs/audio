@@ -1760,10 +1760,11 @@ test('CLI — batch with a literal pattern is fine for a single matched file', a
 
 // ── Helper Functions ─────────────────────────────────────────────────────
 
+// stdin is never the runner's: from a terminal the CLI would see a TTY there and ask (Overwrite? [Y/n]), and wait
 function runCli(args) {
   return new Promise((resolve, reject) => {
     let proc = spawn('node', [binPath, ...args], {
-      stdio: ['inherit', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       cwd: projectRoot
     })
     let stdout = '', stderr = ''
@@ -1793,7 +1794,7 @@ function runPiped(args, input) {
 function runCliCapture(args) {
   return new Promise((resolve, reject) => {
     let proc = spawn('node', [binPath, ...args], {
-      stdio: ['inherit', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       cwd: projectRoot
     })
     let output = ''

@@ -19,7 +19,7 @@
 // at it (e.g. a venv's bin/python); otherwise those columns are skipped.
 
 import { execFileSync } from 'node:child_process'
-import { writeFileSync, existsSync, rmSync } from 'node:fs'
+import { writeFileSync, existsSync, rmSync, readdirSync, openSync, readSync, closeSync, fstatSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ensureFixtures } from './fixtures.js'
@@ -54,6 +54,20 @@ function cliBest(bin, args) {
   return t.length ? Math.min(...t) : warm
 }
 
+/** A WAV's rate and length, from its header: the fmt chunk's rates, the data chunk's size (the file's, where it
+ *  says none or more than there is) */
+function wavInfo(path) {
+  let fd = openSync(path, 'r'), h = Buffer.alloc(1 << 16), n = readSync(fd, h, 0, h.length, 0), size = fstatSync(fd).size, rate = 0, bps = 0
+  closeSync(fd)
+  for (let o = 12; o + 8 <= n;) {
+    let id = h.toString('latin1', o, o + 4), len = h.readUInt32LE(o + 4)
+    if (id === 'fmt ') { rate = h.readUInt32LE(o + 12); bps = h.readUInt32LE(o + 16) }
+    if (id === 'data') return { rate, seconds: Math.min(len || Infinity, size - o - 8) / bps }
+    o += 8 + len + (len & 1)
+  }
+  return { rate, seconds: NaN }
+}
+
 const has = cmd => { try { execFileSync('which', [cmd], { stdio: 'ignore' }); return true } catch { return false } }
 const HAS_SOX = has('sox'), HAS_FF = has('ffmpeg'), HAS_PY = existsSync(PY) || has(PY)
 
@@ -78,7 +92,9 @@ async function main() {
   rec('normalize', 'audio', acli(wav, 'normalize', '0', '-f', '-o', out('a_norm.wav')))
   rec('lufs', 'audio', acli(wav, 'stat', 'loudness'))
   rec('resample', 'audio', acli(wav, 'resample', '48000', '-f', '-o', out('a_rs.wav')))
-  rec('stretch', 'audio', acli(wav, 'stretch', '0.8', '-f', '-o', out('a_st.wav')))
+  // tempo 0.8×: 750 s out, as SoX's `tempo 0.8`, FFmpeg's `atempo=0.8` and librosa's `rate=0.8` make (audio's factor
+  // is the length's: `stretch 0.8` would make 480 s, less work than theirs)
+  rec('stretch', 'audio', acli(wav, 'stretch', '1.25', '-f', '-o', out('a_st.wav')))
   rec('pitch', 'audio', acli(wav, 'pitch', '2', '-f', '-o', out('a_pi.wav')))
   rec('fft', 'audio', acli(wav, 'stat', 'spectrum'))
   rec('mfcc', 'audio', acli(wav, 'stat', 'cepstrum'))
@@ -123,6 +139,17 @@ async function main() {
     } catch {
       console.error('librosa/pedalboard skipped — $BENCH_PY python lacks librosa/pedalboard/soundfile')
     }
+  }
+
+  // ── Like for like ─────────────────────────────────────────────────────────
+  // A transform row is one piece of work: so long a sound out, at such a rate. A file that is another is said here,
+  // and its cell is not that row's (FFmpeg's pitch is, by its filter: above)
+  const WORK = { norm: ['normalize', DUR, 44100], rs: ['resample', DUR, 48000], st: ['stretch', DUR / 0.8, 44100], pi: ['pitch', DUR, 44100] }
+  for (let f of readdirSync(TMP).sort()) {
+    let work = WORK[f.match(/^[a-z]+_([a-z]+)\.wav$/)?.[1]]
+    if (!work) continue
+    let { rate, seconds } = wavInfo(out(f)), [op, s, r] = work
+    if (rate !== r || !(Math.abs(seconds / s - 1) < .01)) console.error(`! ${op}: ${f} is ${seconds.toFixed(1)} s at ${rate} Hz, not the row's ${s.toFixed(1)} s at ${r} Hz`)
   }
 
   // ── Emit ────────────────────────────────────────────────────────────────

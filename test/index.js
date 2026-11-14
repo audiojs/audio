@@ -321,6 +321,41 @@ test('stat – block stats at the edges: 16-bit full scale and beyond clip, NaN 
   t.is([a.stats.min[0][0], a.stats.max[0][0]], [-1.5, Infinity], 'extremes skip NaN')
 })
 
+// The index's block pass runs in WebAssembly SIMD (fn/block.wat) where it runs, else in the JS loops (levels,
+// kweighted): the same float ops in the same order, so the same bits in every field, one channel to five (an odd one
+// paired with itself), at rates whose 100 ms grid cuts a block nowhere, once or twice, on a short last block, on NaN,
+// infinities, zeros of both signs and denormals; and a session the two take turns in (the filter's state handed over)
+test('stat – the block kernel and the JS loops give the same bits', async t => {
+  let { block } = await import('../fn/block.js'), BS = BLOCK_SIZE, seed = 7, rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647
+  let ODD = [NaN, Infinity, -Infinity, 0, -0, 1, -1, 32767 / 32768, -32767 / 32768, 1.5, -2, 1e-40, -1e-45, 3.4e38]
+  let gen = (n, mode) => Float32Array.from({ length: n }, () => mode === 0 ? rnd() * 2 - 1 : mode === 1 ? rnd() * 2.4 - 1.2 : rnd() < .1 ? ODD[rnd() * ODD.length | 0] : rnd() * 2 - 1)
+  let FIELDS = ['min', 'max', 'dc', 'clipping', 'ms', 'correlation', 'energy', 'kcut1', 'kcut2']
+  let bits = v => [...new Uint32Array(Float64Array.of(v).buffer)]
+  // a session over chs: runs of whole blocks by `many` (one to five at a call), the rest block by block; `pick` says
+  // which path takes each call
+  let session = (chs, sr, pick) => {
+    let ctx = { sampleRate: sr }, out = [], n = chs[0].length, row = (v, i) => FIELDS.flatMap(f => chs.flatMap((_, c) => bits(typeof v[f] === 'number' ? v[f] : i == null ? v[f][c] : v[f][c][i])))
+    for (let o = 0, call = 0; o < n;) {
+      block.simd = pick(call++)
+      let m = Math.min(Math.floor((n - o) / BS), 1 + call * 7 % 5), len = m > 1 ? m * BS : Math.min(BS, n - o), sub = chs.map(c => c.subarray(o, o + len))
+      let r = m > 1 && block.many(sub, ctx, BS)
+      if (r) for (let i = 0; i < m; i++) out.push(row(r, i))
+      else for (let i = 0; i < len; i += BS) out.push(row(block(sub.map(c => c.subarray(i, i + BS)), ctx)))
+      o += len
+    }
+    return out
+  }
+  try {
+    let cases = 0, differ = 0
+    for (let nch of [1, 2, 3, 5]) for (let sr of [8000, 44100, 48000, 96000]) for (let mode = 0; mode < 3; mode++) for (let n of [1, 7, BS, 4 * BS + 300, 20 * BS + 511]) {
+      let chs = Array.from({ length: nch }, () => gen(n, mode)), js = JSON.stringify(session(chs, sr, () => false))
+      cases++
+      if (JSON.stringify(session(chs, sr, () => true)) !== js || JSON.stringify(session(chs, sr, k => k % 2 === 0)) !== js) differ++
+    }
+    t.is(differ, 0, `${cases} sessions: the kernel's, the loops' and the two by turns, every field the same bits`)
+  } finally { block.simd = true }
+})
+
 test('index — block structure', async t => {
   let a = audio.from([new Float32Array(PAGE_SIZE * 2)])
   t.is(a.stats.blockSize, BLOCK_SIZE, 'blockSize = 1024')
@@ -5469,6 +5504,26 @@ test('stretch(1.5) — preserves pitch at fractional factor', async t => {
   assertPitch(t, pcm[0], 440, 'stretch(1.5)')
 })
 
+// The vocoder reads the source at its own rate, not the plan's linear interpolation of it, read back: sped up, that
+// aliased what lay above the new Nyquist under it (19 kHz at 0.8×: the tone 18 dB down, its image 10 dB over it), and
+// either way dulled the top octave and imaged it (15 kHz at 1.25×: 2.8 dB down, an image at −17 dB)
+test('stretch: a high tone keeps its level, no image of it anywhere, sped up or slowed', async t => {
+  let { fft } = await import('fourier-transform'), N = 1 << 14, sr = 44100
+  // 4-term Blackman-Harris: sidelobes at −92 dB (Harris 1978, Proc. IEEE 66(1))
+  let win = Float64Array.from({ length: N }, (_, i) => { let x = 2 * Math.PI * i / N; return .35875 - .48829 * Math.cos(x) + .14128 * Math.cos(2 * x) - .01168 * Math.cos(3 * x) })
+  let gain = win.reduce((s, w) => s + w, 0) / 2
+  for (let f of [0.8, 1.25]) for (let hz of [10000, 15000, 19000]) {
+    let s = Float32Array.from({ length: 2 * sr }, (_, i) => .5 * Math.sin(2 * Math.PI * hz * i / sr))
+    let out = (await audio.from([s], { sampleRate: sr }).stretch(f).read())[0], at = (out.length - N) >> 1
+    let [re, im] = fft(Float64Array.from({ length: N }, (_, i) => out[at + i] * win[i]))
+    let m = re.map((v, k) => Math.hypot(v, im[k]) / gain), k0 = Math.round(hz / sr * N), peak = 0, spur = 0
+    for (let k = 1; k < m.length; k++) if (Math.abs(k - k0) <= 8) peak = Math.max(peak, m[k]); else spur = Math.max(spur, m[k])
+    let level = 20 * Math.log10(peak / .5), image = 20 * Math.log10(spur / peak)
+    t.ok(Math.abs(level) < 1.5, `${hz} Hz at ${f}×: level ${level.toFixed(2)} dB`)
+    t.ok(image < -40, `${hz} Hz at ${f}×: nothing else over −40 dB (${image.toFixed(1)} dB)`)
+  }
+})
+
 // Pitch must stay stable across block boundaries for every factor, not just
 // ones where phaseLock's emission schedule happens to line up. Probes multiple
 // windows across the stretched output and asserts each one carries energy.
@@ -5914,6 +5969,25 @@ test('stretch stereo — preserves both channels with same pitch', async t => {
 })
 
 // ── stretch combinations ─────────────────────────────────────
+
+// A stretch reads its source back through the plan's map: one or two channels in one pass over the taps (fn/stretch.js
+// dryBands), more a channel at a time (dryBand), all through one vocoder. The same samples either way: a channel
+// stretched alone, or with another, comes out as it does among four; after a gain or a filter too, a timeline no
+// stretch can read but back through the map
+test('stretch – a channel comes out the same bits alone, in a pair and among four', async t => {
+  let sr = 44100, seed = 5, rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647
+  let x = Float32Array.from({ length: 1.5 * sr }, (_, i) => .4 * Math.sin(i * i * 2e-6) + .2 * (rnd() - .5))
+  let y = Float32Array.from({ length: 1.5 * sr }, (_, i) => .4 * Math.sin(i * .05) + .2 * (rnd() - .5))
+  let same = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.byteLength), Buffer.from(b.buffer, b.byteOffset, b.byteLength)) === 0
+  let ops = [['0.8×', a => a.stretch(.8)], ['0.8× after a gain', a => a.gain(-3).stretch(.8)],
+    ['1.5× over a range, after a highpass', a => a.highpass(40).stretch(1.5, { at: .25, duration: .75 })], ['sliding, after a gain', a => a.gain(-3).stretch(t => .7 + .4 * t)]]
+  for (let [name, op] of ops) {
+    let of = chs => op(audio.from(chs, { sampleRate: sr })).read()
+    let [one, two, four] = [await of([x]), await of([x, y]), await of([x, y, x, y])]
+    t.ok(same(one[0], (await of([x, x, x]))[0]), `${name}: alone, and among three`)
+    t.ok(same(two[0], four[0]) && same(two[1], four[1]) && same(four[0], four[2]) && same(four[1], four[3]), `${name}: a pair, and among four`)
+  }
+})
 
 test('stretch then crop — pitch preserved in crop window', async t => {
   let a = audio.from([tone(440, 2)], { sampleRate: 44100 })
@@ -7104,6 +7178,53 @@ test('resample — sinc anti-aliasing survives structural composition', async t 
   let rA = rms((await a.read())[0]), rB = rms((await b.read())[0])
   t.ok(rA < 0.1, `sinc survives crop: rms ${rA.toFixed(3)}`)
   t.ok(rB < 0.1, `sinc survives reverse: rms ${rB.toFixed(3)}`)
+})
+
+// The linear read's loop has its end test and its reverse case outside it (plan.js resample): the samples of the
+// plain loop, one test a sample, bit for bit, at any rate, phase and length, past the source's end too
+test('resample – linear: the samples of the plain loop, bit for bit', async t => {
+  let { resample } = await import('../plan.js')
+  let plain = (src, target, tOff, n, rate, phase = 0) => {
+    let absR = Math.abs(rate), rev = rate < 0
+    for (let i = 0; i < n; i++) {
+      let pos = (rev ? n - 1 - i : i) * absR + phase, idx = pos | 0, frac = pos - idx
+      target[tOff + i] = idx + 1 < src.length ? src[idx] + (src[idx + 1] - src[idx]) * frac : src[idx] || 0
+    }
+  }
+  let seed = 5, x = Float32Array.from({ length: 4097 }, () => (seed = seed * 16807 % 2147483647) / 2147483647 - .5), cases = 0, differ = 0
+  for (let len of [0, 1, 2, 5, 100, 4097]) for (let rate of [0, .25, .5, .91875, 1, 48000 / 44100, 2, 3.7, -.5, -1, -2.3]) for (let phase of [0, .3, .999, 2.5, 99.5]) for (let n of [0, 1, 3, 64, 5000]) {
+    let src = x.subarray(0, len), a = new Float32Array(n + 4).fill(7), b = new Float32Array(n + 4).fill(7)
+    resample(src, a, 2, n, rate, phase); plain(src, b, 2, n, rate, phase)
+    cases++
+    if (a.some((v, i) => !Object.is(v, b[i]))) differ++
+  }
+  t.is(differ, 0, `${cases} reads, none differs`)
+})
+
+// The dot products run in WebAssembly SIMD (fn/resample.wat) where it runs, else in the JS loop: the same sums in the
+// same order, so the same bits, up and down (32, 64 and 128 taps), reversed, chained (a narrowed band), and past
+// the ends of a buffer with no margin
+test('resample – sinc: the wasm kernel and the JS loop give the same bits', async t => {
+  let { sincInterp } = await import('../fn/resample.js')
+  let seed = 3, x = Float32Array.from({ length: 3 * 44100 }, (_, i) => 0.4 * Math.sin(i * i * 1e-6) + 0.3 * ((seed = seed * 16807 % 2147483647) / 2147483647 - 0.5))
+  let runs = () => [
+    ...[48000, 22050, 8000, 3000].map(to => audio.from([x], { sampleRate: 44100 }).resample(to, { type: 'sinc' })),
+    audio.from([x], { sampleRate: 44100 }).reverse().resample(16000, { type: 'sinc' }),
+    audio.from([x], { sampleRate: 44100 }).resample(8000, { type: 'sinc' }).resample(44100, { type: 'sinc' }),
+  ]
+  let bits = async simd => {
+    sincInterp.simd = simd
+    try {
+      let out = []
+      for (let a of runs()) out.push(new Uint32Array((await a.read())[0].buffer))
+      let edge = new Float32Array(5000)
+      sincInterp(x.subarray(0, 4600), edge, 0, 5000, 0.91875, 0)
+      return [...out, new Uint32Array(edge.buffer)]
+    } finally { sincInterp.simd = true }
+  }
+  let [a, b] = [await bits(true), await bits(false)]
+  t.is(a.map(u => u.length), b.map(u => u.length), 'lengths')
+  t.is(a.map((u, k) => u.reduce((d, v, i) => d + (v !== b[k][i]), 0)), a.map(() => 0), 'every sample the same bits')
 })
 
 // ── Filter frequency response (ref: SoX sinusoid-fitting, < 0.5 dB) ────

@@ -763,6 +763,8 @@ function compilePlan(a, len, final, measure = false) {
   let restructure = (op, type, at, duration, extra) => {
     bake()
     let pctx = mkPlanCtx(planLen(segs), sr, at != null ? Math.round(at * sr) : null, duration != null ? Math.round(duration * sr) : null, extra)
+    // the timeline it rewrites, for what reads it as it was (a stretch's vocoder, at its own rate), where it is sources
+    pctx.input = sourced(segs) ? timelineOf(a, segs, ch) : null
     segs = op.plan(segs, pctx)
     if (!final) limit = adjustLimit(limit, type, pctx)
   }
@@ -1057,14 +1059,22 @@ function readSource(a, c, srcOff, n, target, tOff, rate, interp) {
 
 /** Linear interpolation resample: src buffer → n output samples at given rate. */
 export function resample(src, target, tOff, n, rate, phase = 0) {
-  let absR = Math.abs(rate), rev = rate < 0
-  for (let i = 0; i < n; i++) {
-    let pos = (rev ? n - 1 - i : i) * absR + phase
-    let idx = pos | 0, frac = pos - idx
-    target[tOff + i] = idx + 1 < src.length
-      ? src[idx] + (src[idx + 1] - src[idx]) * frac
-      : src[idx] || 0
+  let absR = Math.abs(rate), len = src.length
+  if (rate < 0) {
+    for (let i = 0; i < n; i++) {
+      let pos = (n - 1 - i) * absR + phase, idx = pos | 0, frac = pos - idx
+      target[tOff + i] = idx + 1 < len ? src[idx] + (src[idx + 1] - src[idx]) * frac : src[idx] || 0
+    }
+    return
   }
+  // positions grow with i: the outputs with both their samples in src come first, i < m; after them, the last one
+  let m = n
+  while (m > 0 && ((m - 1) * absR + phase | 0) + 1 >= len) m--
+  for (let i = 0; i < m; i++) {
+    let pos = i * absR + phase, idx = pos | 0, a = src[idx]
+    target[tOff + i] = a + (src[idx + 1] - a) * (pos - idx)
+  }
+  for (let i = m; i < n; i++) target[tOff + i] = src[i * absR + phase | 0] || 0
 }
 
 // Instances currently being rendered as refs — a self/mutual ref would recurse forever
@@ -1112,6 +1122,17 @@ function eachSeg(segs, from, to, cb) {
     }
   }
   for (let i = 0; i < n; i++) cb(segs[i])
+}
+
+/** A timeline of sources alone (silence, pages, sounds without edits): read anywhere, it moves no stage's cursor that the
+ *  timeline's own reads go on from */
+const sourced = segs => segs.every(s => s[4] == null || !s[4].segs && !s[4].edits?.length)
+
+/** A reader of a timeline as its segments are now: n samples of every channel from `from`, silence where none plays */
+const timelineOf = (a, segs, ch) => (from, n) => {
+  let chunk = Array.from({ length: ch }, () => new Float32Array(n))
+  renderBlock(a, segs, from, n, chunk)
+  return chunk
 }
 
 /** Render one output block from plan segments into pre-allocated chunk.

@@ -1184,7 +1184,7 @@ async function detectSource(source, signal) {
     // Start the stream with its consumer attached, even if decoder startup was cancelled.
     // Large reads: each is a thread-pool round trip, and waiting on 64 KB ones idled a busy machine for seconds.
     const reader = (async function* () { yield* createReadStream(path, { signal, highWaterMark: 1 << 20 }) })()
-    return { format, reader, fileSize }
+    return { format, reader, fileSize, path }
   }
   // Blob/File — sniff format from a header slice, stream the body (file input path)
   if (typeof Blob !== 'undefined' && source instanceof Blob) {
@@ -1258,6 +1258,13 @@ function pageAccumulator(opts = {}) {
     totalLen += page[0].length
     notify?.()
   }
+  // the rate and channels the first samples come at, and the stats' session
+  function begin(chData, sampleRate) {
+    if (open) return
+    open = true
+    sr = sampleRate; ch = chData.length
+    session = audio.statSession?.(sr)
+  }
 
   return {
     pages,
@@ -1270,11 +1277,7 @@ function pageAccumulator(opts = {}) {
     // all of them, the last block short: worked out once for each length
     get whole() { let n = totalLen + pagePos; if (wholeAt !== n) { wholeAt = n; whole = session?.whole?.() ?? null } return whole },
     push(chData, sampleRate) {
-      if (!open) {
-        open = true
-        sr = sampleRate; ch = chData.length
-        session = audio.statSession?.(sr)
-      }
+      begin(chData, sampleRate)
       session?.page(chData)
       let srcPos = 0, chunkLen = chData[0].length
       while (srcPos < chunkLen) {
@@ -1291,6 +1294,19 @@ function pageAccumulator(opts = {}) {
       if (ondata) {
         let delta = session?.delta()
         if (delta) ondata({ delta, offset: (totalLen + pagePos) / sr, sampleRate: sr, channels: ch })
+      }
+      notify?.()
+    },
+    /** A page of fresh arrays, the page's own (PAGE_SIZE samples a channel, the last page fewer): taken as it is where
+     *  a page begins, else copied in as push() does */
+    adopt(chData, sampleRate) {
+      begin(chData, sampleRate)
+      if (pagePos > 0 || chData.length !== ch || chData[0].length > audio.PAGE_SIZE) return this.push(chData, sampleRate)
+      session?.page(chData)
+      emit(chData)
+      if (ondata) {
+        let delta = session?.delta()
+        if (delta) ondata({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch })
       }
       notify?.()
     },
@@ -1405,8 +1421,87 @@ async function waDecode(bytes) {
   } catch { return null }
 }
 
+/** A file in Node decoded in pages (fn/parts.js), the samples the stream of its bytes gives, bit for bit: a WAV of PCM,
+ *  float or G.711 a page's bytes at a time, MPEG audio of three pages or more on threads but its first page. True once
+ *  all its samples are in; false where it does not go so, nothing fed; null once disposed. Else a number: so many
+ *  samples are in, the rest to be decoded again from the start. */
+async function inPages(path, format, size, io) {
+  if (format === 'wav') return wavPages(path, size, io)
+  // three pages at least: a quarter page's bytes, so many at 32 kbps and 48 kHz, MPEG-1's least
+  if (format === 'mp3' && size >= audio.PAGE_SIZE / 4) return mpegParts(path, size, io)
+  return false
+}
+
+/** A WAV a page's bytes at a time, read ahead, each page the decoder's own arrays (acc.adopt: indexed, not copied) */
+async function wavPages(path, size, { acc, dec, addHeader, disposed }) {
+  let PS = audio.PAGE_SIZE, [{ wav }, { open }] = await Promise.all([import('./fn/parts.js'), import('fs/promises')])
+  let fh = await open(path, 'r'), yieldLoop = pacer(), next = null
+  let read = async ([from, to]) => {
+    let b = new Uint8Array(to - from)
+    for (let o = 0, r; o < b.length; o += r) if (!(r = (await fh.read(b, o, b.length - o, from + o)).bytesRead)) return b.subarray(0, o)
+    return b
+  }
+  try {
+    let head = await read([0, Math.min(size, 256 * 1024)]), plan = wav(head, size, PS)
+    if (!plan || disposed()) return disposed() ? null : false
+    addHeader(head)
+    next = read(plan.pages[0])
+    for (let i = 0; i < plan.pages.length; i++) {
+      let bytes = await next
+      if (i + 1 < plan.pages.length) next = read(plan.pages[i + 1])
+      let r = await dec(bytes)
+      if (disposed()) return null
+      if (r.channelData.length) acc.adopt(r.channelData, r.sampleRate)
+      await yieldLoop()
+    }
+    return true
+  } finally { await next?.catch(() => {}); await fh.close() }
+}
+
+/** MPEG audio of three pages or more: its first page decoded here as any file, by the decoder `feed` feeds, while
+ *  threads (parallel.js) decode the rest a page each, from the bytes for it; each page taken in its turn as a decoder's
+ *  own (acc.adopt). A part comes in only where its first samples are those already made before it: the frame decoded
+ *  here past the first page, then the one each part decodes past its own. The decoder here not where the plan has it
+ *  once it has the first page (mpg123 trims gapless edges otherwise), it decodes the rest, the parts dropped. A part
+ *  that does not come in, or that a thread could not decode, ends them: the samples taken so far are returned. */
+async function mpegParts(path, size, { acc, feed, dec, addHeader, disposed }) {
+  let PS = audio.PAGE_SIZE, [parts, { readFile }] = await Promise.all([import('./fn/parts.js'), import('fs/promises')])
+  let bytes = new Uint8Array(await readFile(path)), plan = parts.mpeg(bytes, PS)
+  if (disposed()) return null
+  if (!(plan?.parts.length >= 2)) return false
+  let { default: parallel } = await import('./parallel.js'), off = false
+  let got = plan.parts.map(() => { let resolve, promise = new Promise(r => { resolve = r }); return { promise, resolve } })
+  parallel(new URL('./fn/parts.js', import.meta.url).href, { path, format: 'mp3' }, plan.parts, parts.solve, (r, i) => { got[i].resolve(r); return !off })
+    .catch(() => got.forEach(g => g.resolve(null)))
+  try {
+    addHeader(bytes)
+    let { end, count } = plan.first
+    if (!await feed(bytes.subarray(0, end))) return null
+    let x = acc.length - PS, seam = x > 0 && acc.partialLen === x && acc.partial.map(c => c.slice())
+    if (acc.length !== count || !seam) {
+      if (!await feed(bytes.subarray(end))) return null
+      let flushed = await dec()
+      if (flushed.channelData.length) acc.push(flushed.channelData, flushed.sampleRate)
+      return true
+    }
+    for (let [i, part] of plan.parts.entries()) {
+      let r = await got[i].promise, ch = acc.channels
+      if (disposed()) return null
+      let k = r && r.length / (part.tail ? 2 : 1), page = r?.slice(0, ch), skip = acc.length - (i + 1) * PS
+      if (!r || ch > k || !seam.every((c, j) => same(c, page[j].subarray(0, c.length)))) return acc.length
+      seam = r.slice(k, k + ch)
+      if (skip > 0) acc.push(page.map(c => c.subarray(skip)), acc.sampleRate)
+      else acc.adopt(page, acc.sampleRate)
+    }
+    return true
+  } finally { off = true }
+}
+
+/** Two arrays of the same bits */
+const same = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
+
 async function decodeSource(source, opts = {}) {
-  let { format, bytes, reader, fileSize } = await detectSource(source, opts.signal)
+  let { format, bytes, reader, fileSize, path } = await detectSource(source, opts.signal)
 
   // Non-streaming fallback — registered codec atoms decode whole-buffer here too
   if (!format || !decode[format]) {
@@ -1465,15 +1560,26 @@ async function decodeSource(source, opts = {}) {
       if (disposed()) return false
       let r = await dec(buf.subarray(off, Math.min(off + FEED, buf.length)))
       if (disposed()) return false
-      if (r.channelData.length) acc.push(r.channelData, r.sampleRate)
+      if (r.channelData.length) take(r)
       await yieldLoop()
     }
     return true
   }
+  // what the decoder makes, to the pages; when decoding again from the start (inPages), past the `skip` samples taken
+  let skip = 0
+  let take = ({ channelData: c, sampleRate }) => {
+    if (skip >= c[0].length) { skip -= c[0].length; return }
+    acc.push(skip ? c.map(x => x.subarray(skip)) : c, sampleRate)
+    skip = 0
+  }
 
   let decoding = (async () => {
     try {
-      if (reader) {
+      let parted = path ? await inPages(path, format, fileSize, { acc, feed, dec, addHeader, disposed }) : false
+      if (parted === null) return { stats: null, length: acc.length }
+      if (typeof parted === 'number') { dec.free(); dec = await decode[format](); skip = parted }
+      if (parted === true) await reader.return()
+      else if (reader) {
         for await (let chunk of reader) {
           let buf = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
           addHeader(buf)
@@ -1484,9 +1590,9 @@ async function decodeSource(source, opts = {}) {
         if (!await feed(bytes)) return { stats: null, length: acc.length }
       }
       if (disposed()) return { stats: null, length: acc.length }
-      let flushed = await dec()
+      let flushed = parted === true ? null : await dec()
       if (disposed()) return { stats: null, length: acc.length }
-      if (flushed.channelData.length) acc.push(flushed.channelData, flushed.sampleRate)
+      if (flushed?.channelData.length) take(flushed)
       let final = acc.done()
       final.header = flushHeader()
       return final

@@ -39,6 +39,9 @@ export function blockGroups(sr, names) {
   return [...groups.values()]
 }
 
+/** Whole blocks a block function's `many` measures at a call, at most: what it hands back stays small */
+const RUN = 64
+
 /** Create a stat computation session. ch inferred from first .page() call. `names`: those stats alone (with what their
  *  block functions carry), not every one registered. */
 function statSession(sr, names) {
@@ -51,14 +54,31 @@ function statSession(sr, names) {
     for (let g of fns) for (let f of g.names) acc[f] = Array.from({ length: ch }, () => [])
   }
 
+  function record({ fn, ctx, names }, block) {
+    let r = fn(block, ctx)
+    for (let name of names) {
+      let v = blockValue(r, name), a = acc[name]
+      if (typeof v === 'number') for (let c = 0; c < ch; c++) a[c].push(v)
+      else for (let c = 0; c < ch; c++) a[c].push(v[c])
+    }
+  }
+
   function processBlock(block) {
     total += block[0].length
-    for (let { fn, ctx, names } of fns) {
-      let r = fn(block, ctx)
-      for (let name of names) {
-        let v = blockValue(r, name), a = acc[name]
-        if (typeof v === 'number') for (let c = 0; c < ch; c++) a[c].push(v)
-        else for (let c = 0; c < ch; c++) a[c].push(v[c])
+    for (let g of fns) record(g, block)
+  }
+
+  /** m whole blocks of `page` from `off`, up to RUN at a time: a group whose block function measures a run at once (its
+   *  `many`: each field a channel's values, a block each; null where it can't) in one call, the rest a block at a time */
+  function processRun(page, off, m) {
+    let BS = audio.BLOCK_SIZE
+    total += m * BS
+    for (let i0 = 0; i0 < m; i0 += RUN) {
+      let n = Math.min(RUN, m - i0), o0 = off + i0 * BS, run = null
+      for (let g of fns) {
+        let r = g.fn.many?.(run ??= Array.from({ length: ch }, (_, c) => page[c].subarray(o0, o0 + n * BS)), g.ctx, BS)
+        if (r) for (let name of g.names) for (let c = 0, v = r[name]; c < ch; c++) for (let i = 0, x = v[c], a = acc[name][c]; i < n; i++) a.push(x[i])
+        else for (let i = 0, o = o0; i < n; i++, o += BS) record(g, Array.from({ length: ch }, (_, c) => page[c].subarray(o, o + BS)))
       }
     }
   }
@@ -84,10 +104,8 @@ function statSession(sr, names) {
       }
 
       // Process full blocks
-      while (off + BS <= len) {
-        processBlock(Array.from({ length: ch }, (_, c) => page[c].subarray(off, off + BS)))
-        off += BS
-      }
+      let m = Math.floor((len - off) / BS)
+      if (m) { processRun(page, off, m); off += m * BS }
 
       // Buffer remainder
       if (off < len) {

@@ -215,31 +215,33 @@ Compact one-liners for tools not in the matrix.
 
 ## Performance
 
-Measured 2026-07: 10-minute 44.1 kHz stereo fixture (105 MB WAV / 192 kbps MP3, mixed tones + shaped noise + 120 BPM pulse), one op per cell, **end-to-end from the input file** — decode for decode rows, decode + analyze for analysis rows, decode + op + encode-to-file for transform rows. Best of 3 warm runs. CLI tools (`audio`, SoX, FFmpeg) run as a fresh subprocess per rep, so their cells include process startup and full decode (~100 ms of every `audio` cell is Node boot + import). librosa/Pedalboard are libraries and run in-process — their cells *exclude* interpreter startup, which flatters them slightly. Apple M4 Max, macOS 26.5, Node 25.9, FFmpeg 8.0.1, SoX 14.4.2, librosa 0.11, Pedalboard 0.9.24. Reproduce: `npm run bench` ([bench/bench.js](../bench/bench.js)).
+Measured 2026-11: 10-minute 44.1 kHz stereo fixture (105 MB WAV / 192 kbps MP3, mixed tones + shaped noise + 120 BPM pulse), one op per cell, **end-to-end from the input file** — decode for decode rows, decode + analyze for analysis rows, decode + op + encode-to-file for transform rows. Best of 3 warm runs. CLI tools (`audio`, SoX, FFmpeg) run as a fresh subprocess per rep, so their cells include process startup and full decode (~100 ms of every `audio` cell is Node boot + import). librosa/Pedalboard are libraries and run in-process — their cells *exclude* interpreter startup, which flatters them slightly. Apple M4 Max, macOS 26.5, Node 25.9, FFmpeg 8.0.1, SoX 14.4.2, librosa 1.0, Pedalboard 0.9.25. Reproduce: `npm run bench` ([bench/bench.js](../bench/bench.js)).
 
 | Operation | `audio` (Node) | librosa | Pedalboard | SoX | FFmpeg |
 |---|---|---|---|---|---|
-| WAV decode | 967 ms | 84 ms | 35 ms | 51 ms | 73 ms |
-| MP3 decode | 1.57 s | 274 ms | 432 ms | — | 487 ms |
-| Peak normalize | 1.89 s | — | — | 462 ms | — |
-| LUFS measurement | 973 ms | — | — | — | 337 ms |
-| Resample 44.1k→48k | 2.00 s | 581 ms | 6.24 s | 1.02 s | 270 ms |
-| Time stretch 0.8× | 8.74 s | 6.98 s | — | 5.54 s | 640 ms |
-| Pitch shift +2 st | 15.2 s | 6.62 s | 9.29 s | 5.74 s | 794 ms |
-| FFT spectrum (1024-pt) | 1.22 s | 452 ms | — | — | — |
-| MFCC (13 coeff) | 1.29 s | 610 ms | — | — | — |
-| Beat tracking | 1.11 s | 1.16 s | — | — | — |
+| WAV decode | 246 ms | 86 ms | 34 ms | 50 ms | 73 ms |
+| MP3 decode | 306 ms | 278 ms | 447 ms | — | 484 ms |
+| Peak normalize | 405 ms | — | — | 555 ms | — |
+| LUFS measurement | 229 ms | — | — | — | 336 ms |
+| Resample 44.1k→48k | 450 ms | 605 ms | 3.51 s | 1.04 s | 292 ms |
+| Time stretch 0.8× | 3.09 s | 5.46 s | — | 5.82 s | 665 ms |
+| Pitch shift +2 st | 2.83 s | 5.20 s | 9.12 s | 6.02 s | 821 ms |
+| FFT spectrum (1024-pt) | 664 ms | 444 ms | — | — | — |
+| MFCC (13 coeff) | 707 ms | 604 ms | — | — | — |
+| Beat tracking | 255 ms | 1.11 s | — | — | — |
 
 Reading the numbers honestly:
 
-- **Analysis is `audio`'s strong lane.** Stats ride the decode pass (the always-resident index), so LUFS/FFT/MFCC/beat cells are ≈ decode cost + 0–0.3 s. Beat tracking matches librosa wall-to-wall — *including* Node startup that librosa's cell doesn't pay. Ten stats on one file cost one decode, not ten passes.
-- **Decode is ~10–15× native.** Pure-JS codecs. The gap is real; it buys zero native dependencies on every platform.
-- **Stretch/pitch is ~1.5–2.6× SoX/librosa** — a pure-JS phase vocoder at ~40–70× realtime. Within reach of the native tools, an order of magnitude behind FFmpeg's `asetrate`+`aresample` (which is the cheap resample trick, not a duration-preserving vocoder like the others — not like-for-like). Earlier drafts of this table read ~15× slower here; that was a streaming-encode defect (per-block `await` kept V8 from tiering up the FFT), fixed 2026-07 — see the note below.
-- **Resample beats Pedalboard, trails the rest.** `normalize` includes writing 105 MB of output; the LUFS row shows the measure-only cost.
+- **Analysis is `audio`'s strong lane.** Stats ride the decode pass (the always-resident index), so LUFS/FFT/MFCC/beat cells are ≈ decode cost + 0–0.5 s. Beat tracking takes a quarter of librosa's wall time — *including* Node startup that librosa's cell doesn't pay. LUFS takes two-thirds of FFmpeg's; FFT and MFCC run 1.2–1.5× librosa's. Ten stats on one file cost one decode, not ten passes.
+- **WAV decode is ~3–7× native, MP3 decode level with it.** JS and WebAssembly codecs; an MP3 file's parts decode on threads, 1.1× librosa's time and ahead of Pedalboard and FFmpeg. The WAV gap is real; it buys zero native dependencies on every platform.
+- **Stretch/pitch is ~1.8–2.1× faster than SoX/librosa** — a phase vocoder at ~190–210× realtime, its FFT and phase-lock step in WebAssembly SIMD. Ahead of those native tools, 4.6× behind FFmpeg's `atempo` and 3.4× behind its `asetrate`+`aresample` (which is the cheap resample trick, not a duration-preserving vocoder like the others — not like-for-like). Earlier drafts of this table read ~15× slower here; that was a streaming-encode defect (per-block `await` kept V8 from tiering up the FFT), fixed 2026-07 — see the note below.
+- **Resample beats librosa, SoX and Pedalboard, trails FFmpeg, on a lighter filter.** Going up, `audio` interpolates linearly by default where SoX, FFmpeg and librosa run band-limited sincs: not like-for-like. Its `type: 'sinc'` takes about 1 s here, level with SoX. `normalize` includes writing 105 MB of output, and comes in under SoX's; the LUFS row shows the measure-only cost.
 
 > **Why the CLI transform numbers moved 6–9×.** Until 2026-07, `save`/`encode` drove the DSP through a per-1024-sample-block async loop, which prevented V8 from tiering up the FFT-heavy ops for the whole file (baseline JIT, ~10× slower on a one-shot process). The fix renders the plan through the synchronous generator in large synchronous bursts, crossing an `await` only for I/O between bursts — bit-identical output, JIT-friendly. `read()` was always on the fast path. The remaining gap to native is a genuine constant factor, addressable via the atom contract's WASM lane (jz) for the streaming/realtime case that can't batch.
 
-`audio` does not aim to beat native FFmpeg/SoX on raw throughput. It trades ergonomics + portability + non-destructive editing for a constant-factor cost. Where it competes structurally:
+> **Why they moved again, 3–5×, by 2026-11.** Part came with the releases since July. In November the inner loops went to WebAssembly SIMD kernels, each beside the JS loop it replaces and giving its bits: the vocoder's FFT pair and phase-lock step, WAV decode and encode, the index's block measure. A WAV opened by its path decodes a page at a time, an MP3 its parts on threads; the command line no longer sleeps 100 ms before a save.
+
+`audio` aims to match native FFmpeg/SoX on raw throughput and is not there yet: today ergonomics + portability + non-destructive editing come at a constant-factor cost. Where it competes structurally already:
 
 - **Time-to-first-sample** — `audio` plays during decode; native CLIs render then play
 - **Amortized analysis** — the index makes the 2nd..Nth stat/waveform query ~free; CLI tools re-decode per query

@@ -359,3 +359,51 @@ test('stream: how long a stream lasts is known from its header before it arrives
   let [e, d] = await estimate(await audio.from([Float32Array.of(.5)], { sampleRate: 8000 }).encode('wav'))
   t.is([e, d], [1 / 8000, 1 / 8000], 'one sample')
 })
+
+// A long file opened by its path decodes in pages (core.js inPages): a WAV a page's bytes at a time, MPEG audio on threads
+// past its first page. The pages and the stats are those its bytes give as a stream, bit for bit; the 'data' deltas, a
+// page each now, still make the stats in order. Small pages here, so that a few seconds run to many of them.
+async function inPages(t, files, paged = () => true) {
+  let { mkdtempSync, writeFileSync, rmSync } = await import('node:fs'), { tmpdir } = await import('node:os'), { join } = await import('node:path')
+  let dir = mkdtempSync(join(tmpdir(), 'audio-pages-')), PS = audio.PAGE_SIZE
+  let bits = x => Buffer.from(x.buffer, x.byteOffset, x.byteLength), same = (a, b) => a.length === b.length && a.every((c, i) => Buffer.compare(bits(c), bits(b[i])) === 0)
+  audio.PAGE_SIZE = 1 << 14
+  try {
+    for (let [name, bytes] of files) {
+      let path = join(dir, name), deltas = []
+      writeFileSync(path, bytes)
+      let a = audio(path), b = audio(bytes.slice())
+      a.on('data', ({ delta }) => deltas.push(delta))
+      await a; await b
+      let [pa, pb] = [await a.read(), await b.read()], fields = Object.keys(b.stats).filter(k => Array.isArray(b.stats[k]))
+      t.ok(same(pa, pb), `${name}: ${pa.length} × ${pa[0].length} samples, the stream's`)
+      t.ok(fields.length && fields.every(k => same(a.stats[k], b.stats[k])) && a.stats.length === b.stats.length, `${name}: its stats, the stream's`)
+      t.ok(a.pages.length > 4 && a.pages.every((p, i) => p[0].length === (i < a.pages.length - 1 ? audio.PAGE_SIZE : pa[0].length - i * audio.PAGE_SIZE)), `${name}: ${a.pages.length} pages, each whole but the last`)
+      t.ok(fields.every(k => a.stats[k].every((c, ch) => { let o = 0; for (let d of deltas) { if (d.fromBlock !== o || !same([d[k][ch]], [c.subarray(o, o + d[k][ch].length)])) return false; o += d[k][ch].length } return o === c.length })), `${name}: its deltas, in order, its stats`)
+      // in pages, a delta a page; as a stream, one each 64 KB of bytes
+      t.is(deltas.length >= a.pages.length, paged(name), `${name}: ${deltas.length} deltas, ${paged(name) ? 'a page each' : 'as a stream'}`)
+      a.dispose(); b.dispose()
+    }
+  } finally { audio.PAGE_SIZE = PS; rmSync(dir, { recursive: true, force: true }) }
+}
+
+test('stream: a WAV by its path decodes a page at a time, as its bytes do as a stream', async t => {
+  let tone = (n, ch, sr = 44100) => Array.from({ length: ch }, (_, c) => Float32Array.from({ length: n }, (_, i) => 0.4 * Math.sin(i * (0.013 + c * 0.007)) + 0.05 * Math.sin(i * 1.7)))
+  let files = []
+  for (let [bitDepth, ch, n] of [[16, 2, 200003], [24, 1, 100000], [32, 6, 70001], [16, 1, 65536 * 2]])
+    files.push([`${bitDepth}-${ch}ch.wav`, new Uint8Array(await audio.from(tone(n, ch), { sampleRate: 44100 }).encode('wav', { bitDepth }))])
+  files.push(['float.wav', new Uint8Array(await audio.from(tone(90001, 2), { sampleRate: 48000 }).encode('wav', { bitDepth: 32, float: true }))])
+  await inPages(t, files)
+})
+
+test('stream: an MP3 by its path decodes on threads past its first page, as its bytes do as a stream', async t => {
+  let tone = (n, sr) => [0, 1].map(c => Float32Array.from({ length: n }, (_, i) => 0.3 * Math.sin(2 * Math.PI * (220 + 110 * c) * i / sr) + 0.1 * Math.sin(2 * Math.PI * 3000 * i / sr)))
+  let mono = tone(44100 * 6, 44100)[0]
+  await inPages(t, [
+    ['stereo.mp3', new Uint8Array(await audio.from(tone(44100 * 6, 44100), { sampleRate: 44100 }).encode('mp3'))],
+    ['mono.mp3', new Uint8Array(await audio.from([mono, mono.slice()], { sampleRate: 44100 }).encode('mp3'))],
+    ['48k.mp3', new Uint8Array(await audio.from(tone(48000 * 5, 48000), { sampleRate: 48000 }).encode('mp3'))],
+    // MPEG-2 Layer III does not part: decoded as a stream, a page at a time all the same
+    ['22k.mp3', new Uint8Array(await audio.from(tone(22050 * 12, 22050), { sampleRate: 22050 }).encode('mp3'))],
+  ], name => name !== '22k.mp3')
+})

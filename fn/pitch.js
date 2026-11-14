@@ -83,7 +83,8 @@ const pitchProc = (input, output, ctx) => {
       let gi = glide(v, v > 0), go = glide(v, v < 0), k = Math.min(1, (a1 - a0 - 2 * X) / (gi + go))
       return Math.max(0, Math.min(1, (n - a0 - X + .5) / (k * gi), (a1 - X - n - .5) / (k * go)))
     }
-    let ratio = n => {
+    // the cursor asks every sample: with no range, no edge to glide at (edge is 1 throughout)
+    let ratio = a0 === -Infinity && a1 === Infinity ? n => ratioOf(semi(n)) : n => {
       if (n < a0 || n >= a1) return 1
       let v = semi(n), w = edge(n, v)
       return w >= 1 ? ratioOf(v) : w <= 0 ? 1 : 2 ** (v * (.5 - .5 * Math.cos(Math.PI * w)) / 12)

@@ -69,7 +69,7 @@ emit("librosa", "mfcc", lr_mfcc)
 emit("librosa", "beat", lr_beat)
 
 # ── Pedalboard (load inside every timed task) ────────────────────────────────
-from pedalboard import Pedalboard, Resample, PitchShift
+from pedalboard import Pedalboard, PitchShift
 from pedalboard.io import AudioFile
 
 def pb_decode(path):
@@ -85,8 +85,10 @@ def pb_write(path, data, sr):
         f.write(data)
 
 def pb_resample():
-    a, sr = pb_load(wav)
-    o = Pedalboard([Resample(target_sample_rate=48000)])(a, sr)
+    # the file read at the new rate: 48 kHz out, as the others write. (The Resample plugin converts and converts back,
+    # 44.1 kHz out: twice the work for another result)
+    with AudioFile(wav).resampled_to(48000) as f:
+        o, sr = f.read(int(f.frames)), f.samplerate
     pb_write(os.path.join(out_dir, "pb_rs.wav"), o, sr)
 
 def pb_pitch():

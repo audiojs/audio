@@ -601,13 +601,16 @@ const paint = s => process.stderr.isTTY && process.stderr.write(s)
 function spinnerBar(lbl) {
   let i = 0, pct = 0, speed = 0, info = '', t0 = Date.now(), spin = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   let cols = () => process.stderr.columns || 80
-  let id = setInterval(() => {
+  let draw = () => {
     let spd = speed > 0 ? `  · ${speed.toFixed(1)}×` : ''
     let w = Math.max(8, Math.min(16, cols() - lbl.length - info.length - spd.length - 15))
     let fill = Math.round(pct / 100 * w)
     let bar = '━'.repeat(fill) + DIM + '─'.repeat(w - fill) + RST
     paint(`\r\x1b[K${spin[i++ % 10]} ${lbl} ${bar} ${pct}%${spd}${info}`)
-  }, 80)
+  }
+  // the first frame at once: the work after it may hold the thread past the first tick
+  let id = setInterval(draw, 80)
+  draw()
   return {
     label(l) { lbl = l },
     set(s) { info = s },
@@ -1504,7 +1507,6 @@ async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
         ? (() => { let n = opsLabel(transforms); return n.length === 1 ? `${n[0]} + saving` : 'Applying edits + saving' })()
         : 'Saving'
       let sp = !opts.verbose ? spinnerBar(lbl) : null
-      await new Promise(r => setTimeout(r, 100))
       if (sp) a.on('progress', ({ offset, total }) => sp.progress(offset / total, offset))
       await a.save(output, saveOpts)
       let elapsed = sp?.stop()

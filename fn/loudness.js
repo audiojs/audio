@@ -2,16 +2,16 @@ import audio, { resolveChannels, LOAD } from '../core.js'
 import kWeighting from '@audio/weighting/k'
 import { state, step } from '@audio/biquad'
 import { peakOf } from '../stats.js'
+import { block, stepOf } from './block.js'
 
 // ── LUFS measurement ─────────────────────────────────────────
 
 // ITU-R BS.1770-5 Annex 1: gating blocks of 400 ms "to the nearest sample" overlapping by 75%, so one starts every
 // 100 ms (eq. 3); absolute gate -70 LKFS (eq. 6), relative gate 10 LU under the absolute-gated loudness (eq. 7);
 // -0.691 cancels the K-weighting gain at 997 Hz (eq. 2, Note 1). EBU Tech 3341 §2.2: momentary 0.4 s, short-term 3 s.
-const GATE_HOP = 0.1, ABS_GATE = -70, REL_GATE = -10, LUFS_OFFSET = -0.691, MOMENTARY = 4, SHORTTERM = 30
+const ABS_GATE = -70, REL_GATE = -10, LUFS_OFFSET = -0.691, MOMENTARY = 4, SHORTTERM = 30
 
-/** Samples in a 100 ms step: libebur128 rounds the same way, so windows are 4 (400 ms) and 30 (3 s) steps. */
-export const stepOf = sr => Math.round(sr * GATE_HOP)
+export { stepOf }
 
 /** A level as reports print it and delivery checks judge it: to 0.01 (dB, LUFS, LU). `normalize` lands when its
  *  measured loudness prints as the target, so a check's rule that switches at the target sees the target. */
@@ -121,34 +121,7 @@ export function lufsDb(stats, chs, sampleRate, from, to) {
 
 export let rMean = (values, from, to, stats) => blockMean(values, stats, from, to)
 
-/** K-weighted mean square of each channel's block (BS.1770-5 eq. 1), and where the 100 ms grid of the gating blocks
- *  cuts it, the grid counted from the start of the stats: `kcut1`, `kcut2`, the block's energy before its first and
- *  before its last cut, over its mean square times the block size (for a whole block, its share). With them the
- *  gating blocks sum exactly from block stats at 5120 Hz and up (two cuts a block at most); a gain scales the mean
- *  square and leaves them. They hold only where blocks move by whole steps (`period`). */
-function kblock(chs, ctx) {
-  let k = ctx.k ??= { fs: ctx.sampleRate }, H = stepOf(ctx.sampleRate), n = chs[0].length, nch = chs.length
-  let p = ctx.pos ?? 0, first = (H - p % H) % H || H, last = first + Math.floor((n - 1 - first) / H) * H
-  ctx.pos = p + n
-  let energy = new Float64Array(nch), kcut1 = new Float64Array(nch), kcut2 = new Float64Array(nch)
-  if (first >= n) return { energy: kWeighting.ms(chs, k, energy), kcut1, kcut2 }
-  let at = 0, part = new Float64Array(nch)
-  const run = to => {
-    if (to > at) { kWeighting.ms(chs.map(x => x.subarray(at, to)), k, part); for (let c = 0; c < nch; c++) energy[c] += part[c] * (to - at) }
-    at = to
-  }
-  run(first); kcut1.set(energy)
-  run(last); kcut2.set(energy)
-  run(n)
-  for (let c = 0; c < nch; c++) {
-    let u = energy[c] * audio.BLOCK_SIZE / n
-    kcut1[c] = u > 0 ? kcut1[c] / u : 0; kcut2[c] = u > 0 ? kcut2[c] / u : 0
-    energy[c] /= n
-  }
-  return { energy, kcut1, kcut2 }
-}
-
-audio.stat('energy', { block: kblock, reduce: rMean, extra: ['kcut1', 'kcut2'], period: stepOf })
+audio.stat('energy', { block, reduce: rMean, extra: ['kcut1', 'kcut2'], period: stepOf })
 
 audio.stat('db', {
   fields: ['min', 'max'],

@@ -366,12 +366,13 @@ test('editor: weighted, an edit\'s output comes in one step, never a frame of th
 })
 
 // Stopped while an edit renders, the worker keeps what it made: the edit undone, the picture and the script agree, and
-// the caret steps by the cues as before
+// the caret steps by the cues as before. The edit long enough to be caught rendering: 17 minutes stretched (the 100 s
+// it was came out before its progress was said, once the vocoder ran in WebAssembly)
 test('editor: Stop while an edit renders undoes it, the caret still stepping by the cues', async () => {
   await open()
   await write(bursts)
   await lengthIs('0:02.500')
-  await write(`${bursts}.repeat(40).stretch(0.5)`)
+  await write(`${bursts}.repeat(400).stretch(0.5)`)
   await page.locator('.message', { hasText: /^Applying .*stretch \d+%$/ }).waitFor()
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await page.locator('.message', { hasText: /^Stopped: .+ undone/ }).waitFor()
