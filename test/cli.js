@@ -1289,6 +1289,17 @@ test('CLI — insert/mix/crossfade/resample execute end-to-end', { timeout: 6000
     let rs = await audio(rsOut)
     t.is(rs.sampleRate, 22050, 'resampled rate')
     t.ok(Math.abs(rs.duration - 1) < 0.01, `duration preserved (${rs.duration.toFixed(3)}s)`)
+
+    // resample up: linear unless asked for the sinc by name (type:sinc), which is another file; a type it does not know fails
+    let up = join(dir, 'up.wav'), upSinc = join(dir, 'up-sinc.wav')
+    await runCli([aPath, 'resample', '96000', '--force', 'save', up])
+    await runCli([aPath, 'resample', '96000', 'type:sinc', '--force', 'save', upSinc])
+    let [lin] = await (await audio(up)).read(), sn = await audio(upSinc), [sinc] = await sn.read()
+    t.is(sn.sampleRate, 96000, 'type:sinc: the rate asked')
+    t.is(sinc.length, lin.length, 'type:sinc: as long as the linear one')
+    t.ok(sinc.some((v, i) => Math.abs(v - lin[i]) > 1e-4), 'type:sinc: other samples than the linear read gives')
+    let bad = await runCli([aPath, 'resample', '96000', 'type:nope', '--force', 'save', join(dir, 'no.wav')]).then(() => null, e => e)
+    t.ok(/unknown type/.test(String(bad?.message ?? bad)), 'an unknown type is refused')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

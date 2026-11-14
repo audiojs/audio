@@ -247,6 +247,8 @@ audio.op = function(name, arg1, arg2, arg3) {
  *  error, not a silent drop: an op without params takes options only. */
 export function opMethod(name) {
   return function(...a) {
+    // an argument passed as undefined is one not passed (options handed on by a caller that has none)
+    while (a.length && a.at(-1) === undefined) a.pop()
     let hasOpts = a.length && isOpts(a.at(-1))
     let o = hasOpts ? { ...named(a.pop()) } : {}
     let d = ops[name]
@@ -763,8 +765,8 @@ function compilePlan(a, len, final, measure = false) {
   let restructure = (op, type, at, duration, extra) => {
     bake()
     let pctx = mkPlanCtx(planLen(segs), sr, at != null ? Math.round(at * sr) : null, duration != null ? Math.round(duration * sr) : null, extra)
-    // the timeline it rewrites, for what reads it as it was (a stretch's vocoder, at its own rate), where it is sources
-    pctx.input = sourced(segs) ? timelineOf(a, segs, ch) : null
+    // the timeline it rewrites, for what reads it as it was (a stretch's vocoder, at its own rate)
+    pctx.input = timelineOf(a, segs, ch)
     segs = op.plan(segs, pctx)
     if (!final) limit = adjustLimit(limit, type, pctx)
   }
@@ -1124,14 +1126,14 @@ function eachSeg(segs, from, to, cb) {
   for (let i = 0; i < n; i++) cb(segs[i])
 }
 
-/** A timeline of sources alone (silence, pages, sounds without edits): read anywhere, it moves no stage's cursor that the
- *  timeline's own reads go on from */
-const sourced = segs => segs.every(s => s[4] == null || !s[4].segs && !s[4].edits?.length)
-
-/** A reader of a timeline as its segments are now: n samples of every channel from `from`, silence where none plays */
-const timelineOf = (a, segs, ch) => (from, n) => {
-  let chunk = Array.from({ length: ch }, () => new Float32Array(n))
-  renderBlock(a, segs, from, n, chunk)
+/** A reader of a timeline as its segments are now, beside the timeline's own reads: n samples of every channel from
+ *  `from`, silence where none plays. `by`: whose reads these are (a stretch's vocoder): a stage it reads keeps a cursor
+ *  for them apart from the timeline's (reader), so neither moves the other's, at the cost of the stage rendered for
+ *  each. */
+const timelineOf = (a, segs, ch) => (from, n, by) => {
+  let chunk = Array.from({ length: ch }, () => new Float32Array(n)), was = apart
+  apart = by ?? null
+  try { renderBlock(a, segs, from, n, chunk) } finally { apart = was }
   return chunk
 }
 
@@ -1264,13 +1266,14 @@ function carryStage(c, st) {
  *  a click there after a stretch or a pitch. A cursor is its reader's while that reads on: its segment's (known by where
  *  it reads from and where it goes, which a recompile keeps), through the cursor of the stage it renders for (`reading`:
  *  two cursors of an outer stage read an inner one at two places too). Another skips ahead on it only once that segment
- *  is done. The stage's own cursor (st.cur) holds the others; none reading on from s, an unused one seeks there, else
- *  the one read longest ago. */
+ *  is done. A reader apart from the timeline (timelineOf's `by`, `apart` while it reads) never takes the timeline's
+ *  cursor, nor the timeline its: they read the same stage in other coordinates. The stage's own cursor (st.cur) holds
+ *  the others; none reading on from s, an unused one seeks there, else the one read longest ago. */
 const READERS = 4
-let readTick = 0, reading = null
+let readTick = 0, reading = null, apart = null
 function reader(st, s, sg, at) {
   let main = st.cur, all = [main, ...(main.more ??= [])], BS = audio.BLOCK_SIZE, best = null, gap = Infinity
-  let mine = r => !sg || r.till == null || at >= r.till || r.from === sg[0] && r.to === sg[2] && r.by === reading
+  let mine = r => (r.apart ?? null) === apart && (!sg || r.till == null || at >= r.till || r.from === sg[0] && r.to === sg[2] && r.by === reading)
   // the nearest that reads on from s, the one read last among as near: a cursor left further on by an earlier read
   // (another seek's history) never stands in for the one just reading
   for (let r of all) {
@@ -1283,7 +1286,7 @@ function reader(st, s, sg, at) {
     best = all.find(r => !r.procs) ?? (all.length < READERS ? main.more[main.more.push({ pos: 0, hl: 0, st }) - 1] : all.reduce((p, q) => p.used <= q.used ? p : q))
     seekStage(st, best, s)
   }
-  Object.assign(best, { used: ++readTick, from: sg?.[0], to: sg?.[2], till: sg ? sg[2] + sg[1] : null, by: reading })
+  Object.assign(best, { used: ++readTick, from: sg?.[0], to: sg?.[2], till: sg ? sg[2] + sg[1] : null, by: reading, apart })
   return best
 }
 

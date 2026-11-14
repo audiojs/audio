@@ -5980,10 +5980,8 @@ test('stretch stereo — preserves both channels with same pitch', async t => {
 
 // ── stretch combinations ─────────────────────────────────────
 
-// A stretch reads its source back through the plan's map: one or two channels in one pass over the taps (fn/stretch.js
-// dryBands), more a channel at a time (dryBand), all through one vocoder. The same samples either way: a channel
-// stretched alone, or with another, comes out as it does among four; after a gain or a filter too, a timeline no
-// stretch can read but back through the map
+// One vocoder for all channels, each channel's samples its own stream's: a channel stretched alone, or with another,
+// comes out as it does among four; after a gain or a filter too
 test('stretch – a channel comes out the same bits alone, in a pair and among four', async t => {
   let sr = 44100, seed = 5, rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647
   let x = Float32Array.from({ length: 1.5 * sr }, (_, i) => .4 * Math.sin(i * i * 2e-6) + .2 * (rnd() - .5))
@@ -5996,6 +5994,51 @@ test('stretch – a channel comes out the same bits alone, in a pair and among f
     let [one, two, four] = [await of([x]), await of([x, y]), await of([x, y, x, y])]
     t.ok(same(one[0], (await of([x, x, x]))[0]), `${name}: alone, and among three`)
     t.ok(same(two[0], four[0]) && same(two[1], four[1]) && same(four[0], four[2]) && same(four[1], four[3]), `${name}: a pair, and among four`)
+  }
+})
+
+// One stretch whatever stands before it: the vocoder reads the timeline as it was before the plan rewrote it, a
+// processed stage through a cursor of its own (plan.js timelineOf, reader), so after a gain or a filter it is the
+// stretch of the processed sound. Read back from the plan's linear interpolation of that stage, it was another: the
+// top octave dulled, what a range sped up put past Nyquist aliased under it.
+test('stretch – after a gain or a filter, the stretch of the processed sound, bit for bit', async t => {
+  let sr = 44100, seed = 5, rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647
+  let x = Float32Array.from({ length: 1.5 * sr }, (_, i) => .4 * Math.sin(i * i * 2e-6) + .2 * (rnd() - .5))
+  let y = Float32Array.from({ length: 1.5 * sr }, (_, i) => .4 * Math.sin(i * .05) + .2 * (rnd() - .5))
+  let same = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
+  let before = [['a gain', a => a.gain(-3)], ['a highpass', a => a.highpass(40)], ['a gain and a crop', a => a.gain(-3).crop({ at: .1, duration: 1.2 })]]
+  let stretches = [['0.8×', a => a.stretch(.8)], ['1.5× over a range', a => a.stretch(1.5, { at: .25, duration: .75 })], ['sliding', a => a.stretch(t => .7 + .4 * t)]]
+  // a range after a filter: the vocoder's cursor seeks into the filter there, the seek's warm-up in place of its whole
+  // past (plan.js seekStage), within a float32 step or two of it
+  let far = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), a.length === b.length ? 0 : Infinity)
+  for (let [was, pre] of before) for (let [name, op] of stretches) for (let chs of [[x], [x, y]]) {
+    let made = await pre(audio.from(chs, { sampleRate: sr })).read(), seeks = was === 'a highpass' && name === '1.5× over a range'
+    let got = await op(pre(audio.from(chs, { sampleRate: sr }))).read(), want = await op(audio.from(made, { sampleRate: sr })).read()
+    let d = Math.max(...got.map((c, i) => far(c, want[i])))
+    t.ok(seeks ? d < 1e-6 : got.every((c, i) => same(c, want[i])), `${name} after ${was}, ${chs.length} channel${chs.length > 1 ? 's' : ''}${seeks ? `: within ${d.toExponential(1)}` : ''}`)
+  }
+  // a high tone after a gain keeps its level, as it does alone
+  let hi = Float32Array.from({ length: 2 * sr }, (_, i) => .5 * Math.sin(2 * Math.PI * 15000 * i / sr)), rms = v => Math.sqrt(v.reduce((e, s) => e + s * s, 0) / v.length)
+  let out = (await audio.from([hi], { sampleRate: sr }).gain(-6).stretch(.8).read())[0], level = 20 * Math.log10(rms(out.subarray(sr / 4, sr)) / (rms(hi) * 10 ** (-6 / 20)))
+  t.ok(Math.abs(level) < 1.5, `15 kHz at 0.8× after a gain: ${level.toFixed(2)} dB of its level`)
+})
+
+// A reader that opens a stretch inside its range (a ranged read, a seek) lands between two samples of the content:
+// the vocoder is fed from the whole sample before, each feed from where the last ended. On a fractional grid the
+// first feed came one sample short and the rest a fraction off it.
+test('stretch – opened inside its range, the vocoder is fed whole samples, each feed from where the last ended', { skip: !isNode }, async t => {
+  let { shifter, shiftBlock } = await import('../fn/stretch.js')
+  for (let f of [1.25, .8, 1.37]) {
+    let asked = [], map = { T: u => u * f, U: x => x / f, D: 0, rate: () => f, rmax: Math.max(1, f) }
+    let st = shifter(1, { sampleRate: 44100, rmin: f, ratio: map.rate, spans: [[0, Infinity]], map })
+    st.read = (from, n) => { asked.push([from, n]); return [new Float32Array(n)] }
+    for (let n0 = 1001; n0 < 1001 + 40 * 1024; n0 += 1024) shiftBlock(st, [new Float32Array(1024)], [new Float32Array(1024)], n0)
+    t.ok(asked.every(([from, n]) => Number.isInteger(from) && Number.isInteger(n) && n > 0), `${f}×: ${asked.length} reads, whole samples`)
+    t.is(asked[0][0], Math.floor(1001 / f), `${f}×: from the sample at or before content ${(1001 / f).toFixed(2)}`)
+    // a feed goes on from the last one's end; any other read is the crossfade's (the content the session fades in from)
+    let end = asked[0][0], feeds = 0, others = 0
+    for (let [from, n] of asked) if (from === end) { feeds++; end += n } else others++
+    t.ok(feeds > 10 && others <= 1 && end - asked[0][0] > 30 * 1024 / f, `${f}×: ${feeds} feeds end to end over ${end - asked[0][0]} samples, ${others} read beside them`)
   }
 })
 
@@ -6586,6 +6629,15 @@ test('resample — returns this (chainable)', async t => {
   let b = a.resample(22050)
   t.ok(a === b, 'same instance (chainable)')
   t.is(a.sampleRate, 22050, 'rate updated')
+})
+
+test('resample – an argument passed as undefined is one not passed', async t => {
+  // options handed on by a caller that has none: a.resample(rate, opts) with opts undefined threw "expected at most 1 argument"
+  let a = audio.from([tone(440, 0.5)], { sampleRate: 44100 }), opts
+  a.resample(22050, opts)
+  t.is(a.sampleRate, 22050, 'resample(rate, undefined)')
+  t.is((await audio.from([tone(440, 0.5)], { sampleRate: 44100 }).gain(-6, undefined, undefined).read())[0].length, 22050, 'gain(db, undefined, undefined)')
+  t.throws(() => audio.from([tone(440, 0.5)], { sampleRate: 44100 }).resample(22050, 3), /at most 1 argument/, 'a second argument that is something is still refused')
 })
 
 test('resample — same rate is no-op', async t => {

@@ -149,12 +149,15 @@ test('voice: an edit re-renders from just ahead of the head and splices in there
   await r.play(sr)
   v.stop(); r.close()
   let [neu] = await a.read(), out = r.out[0], F = Math.round(0.02 * sr)
-  // the crossfade's first frame is still all old: the first that differs is the one after it
+  // the crossfade's first frame is still all old: the first that differs is the one after it, or the one after that
+  // where the second frame falls on the sine's zero (every 50th sample), old and new the same there: the start that
+  // fits is the one
+  let fitAt = k => { let m = 0; for (let i = 0; i < F; i++) m = Math.max(m, Math.abs(out[k + i] - (old[k + i] * (1 - i / F) + neu[k + i] * i / F))); return m }
   let k = out.findIndex((v, i) => i > 0.5 * sr && Math.abs(v - old[i]) > 1e-6) - 1
+  if (fitAt(k - 1) < fitAt(k)) k--
   t.ok(k > 0, 'the edit is heard')
   t.ok((k - 0.5 * sr) / sr < 0.1, `${((k - 0.5 * sr) / sr * 1000).toFixed(0)} ms past the head at the edit (the restart's own latency)`)
-  let fit = 0
-  for (let i = 0; i < F; i++) fit = Math.max(fit, Math.abs(out[k + i] - (old[k + i] * (1 - i / F) + neu[k + i] * i / F)))
+  let fit = fitAt(k)
   t.ok(fit < 1e-6, `a linear crossfade from the old render to the new, sample for sample (${fit.toExponential(1)})`)
   t.ok(out.slice(k + F, k + F + sr / 4).every((v, i) => v === neu[k + F + i]), 'then the edited render itself')
   let bound = 2 * Math.PI * 441 * 0.5 / sr + 0.25 / F, most = steps(out, 300, 2 * sr - 300)
