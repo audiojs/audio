@@ -1,0 +1,24 @@
+diff --git a/fn/parts.js b/fn/parts.js
+index 81bc524..0ec3dc6 100644
+--- a/fn/parts.js
++++ b/fn/parts.js
+@@ -142,7 +142,7 @@ export function mpeg(b, PS) {
+     return { from: at[a], to: at[z], drop: s - (a * spf - d), keep: e - s, tail, count: (z - a) * spf }
+   })
+   let k = frame(PS - 1) + 2
+-  return { first: { end: at[k], count: k * spf - d }, parts, total }
++  return { first: { end: at[k], count: k * spf - d + (process.env.FAIL === 'count' ? 1 : 0) }, parts, total }
+ }
+ 
+ const gcd = (a, b) => b ? gcd(b, a % b) : a
+@@ -166,6 +166,10 @@ export async function solve({ path, format }, { from, to, drop, keep, tail, coun
+   let dec = await decoder()
+   try {
+     let r = dec.decode(bytesOf(path, from, to)), n = r.samplesDecoded ?? r.channelData[0]?.length ?? 0
++    // FAIL at the part whose bytes start at AT: none come back, a seam off by a sample, a throw
++    if (process.env.FAIL === 'part' && from === +process.env.AT) return null
++    if (process.env.FAIL === 'seam' && from === +process.env.AT) r.channelData[0][drop] += 1e-3
++    if (process.env.FAIL === 'throw' && from === +process.env.AT) throw new Error('injected')
+     if (n !== count) return null
+     let cut = (a, b) => r.channelData.map(c => c.slice(a, b))
+     return [...cut(drop, drop + keep), ...tail ? cut(drop + keep, drop + keep + tail) : []]
