@@ -23,15 +23,16 @@ export function verdict(runs) {
 /** The files a publish packs, or is built from, that differ from HEAD (git's short status lines) */
 export function changed(pkg, cwd) {
   const paths = [...pkg.files.filter(f => f !== 'dist/'), 'package.json', 'package-lock.json', '.esbuild.js']
-  return execFileSync('git', ['status', '--porcelain', '--', ...paths], { cwd, encoding: 'utf8' }).split('\n').filter(Boolean)
+  return execFileSync('git', ['status', '--porcelain', '--', ...paths], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').filter(Boolean)
 }
 
 async function main() {
   const root = fileURLToPath(new URL('.', import.meta.url)), pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
   const here = why => { console.log(`${why}: the suites run here`); process.exit(spawnSync('npm', ['run', 'test:node'], { cwd: root, stdio: 'inherit' }).status ?? 1) }
-  const off = changed(pkg, root)
+  let off, sha
+  try { off = changed(pkg, root); sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() }
+  catch { here('no commit to ask about (not a git checkout)') }
   if (off.length) here(`not the commit's files (${off.map(l => l.slice(3)).join(', ')})`)
-  const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
   const repo = String(pkg.repository?.url ?? pkg.repository).replace(/^.*github\.com[/:]|^github:|\.git$/g, '')
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
   const ask = async () => {
