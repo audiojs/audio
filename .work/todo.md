@@ -179,6 +179,20 @@ Missing: true harmonic resynthesis (`sbr` is a waveshaper exciter, not the voice
 - Everything else closed 2026-07-10 (see Unreleased): aderivative/aintegral, contrast, label-sounds, zcr shipped as atoms; channelsplit (`split()`/remix) + channel-strip (gain+pan+automation) are recipes, not ops
 
 
+### Speed (the work of 2026-11-12 to 14; its record and the MP3 harness: `.work/speed/` at 4f37743)
+- [ ] The channels of a sound stretched together: in the libraries, committed, not published; audio's side is `.work/channels-together.patch`, its head says how
+- [ ] A piano's attacks through the vocoder: softened about 4 dB at 0.8× (the level rises 10.3 dB in 8 ms for the recording's 14.6; heard as robotic). `method: 'wsola'` keeps 12.3 and the stereo; a reset of the phases at an attack is not built
+- [ ] `restore()` names `@audio/neural-restore`, not on npm: prepared (`~/.cache/audiojs/neural/hosting/READY-restore.md`), the weights' licence to decide; then `fn/restore.js`'s `LOCAL` and four "not hosted yet" go
+- [ ] The MP3 parts' fallbacks (the first page's count off, a part not back, a seam off, a thread's throw) have no test in the suite: the join out of `core.js` `mpegParts` into `fn/parts.js`, tested with made-up parts. Damaged files do not reach them: zeros in a frame, noise over two, junk inserted, a cut mid-frame all decode by path as by bytes, bit for bit, in parts or with no plan
+- [ ] The locked drag (`repl/view/pointer.js`, `movementY`) has no test: the repl's suites run without a pointer to lock
+- [ ] A processed stage before a stretch is rendered twice: the timeline's read of it, unused inside the range, and the vocoder's
+- [ ] Sinc as the default for upsampling: linear at 44.1 → 48k loses 1.5 dB at 10 kHz, its image at −22.8 dB; the sinc is flat, images −69 to −78 dB, at twice the time; an exact-rational phase table would make it 1.6 times faster (prototype)
+- [ ] The index lazy, or after load: what WAV decode needs to pass FFmpeg (the index takes 88 ms, as long as FFmpeg's whole run)
+- [ ] A fast WSOLA, its search by FFT cross-correlation: of `method: wsola`'s 10.7 s, 9.5 is the time-domain search
+- [ ] A normalize's dc shift and gain in one pass; the vocoder's frame loop as a pipeline over threads (about 1.2 s of a stretch, estimated)
+- [ ] `docs/comparison.md`'s stretch and pitch figures are 2.15.0's, not measured with the channels together; the bench's analysis rows (LUFS, FFT, MFCC, beat) were never checked to be the same work as the other tools'
+- Did not pay, not to try again without a new idea: start-up (15 ms of 44 at most, by dropping methods); the index on a thread (K-weighting runs in order); WAV pages on threads (260 ms at twice the CPU against 280); a scalar WebAssembly lock step (9.4 µs against JS's 11.8: the gain was two bins to a float64x2); FFmpeg's MP3 lead is not threads
+
 ### Ideas / someday
 - [ ] Sound level meter app (calibrated)
 - [ ] Collection of sound-producing recipes (whispering-voice-in-bg class hacks)
