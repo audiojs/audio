@@ -100,7 +100,7 @@ test('engine: a run cut short goes on from where it was, its samples as rendered
     const ticks = async e => +(await e.run(prepare('globalThis.ticks ?? 0'))).value
     // rendered whole from the same samples under another name: the renders the browser keeps (worker.js renders) go by
     // the script and its files' names, so the same script would be found there, not made
-    const fresh = await open('whole.wav'), whole = await timed(fresh, A('whole.wav')), wholeC = await timed(fresh, C('whole.wav'))
+    const fresh = await open('whole.wav'), whole = await timed(fresh, A('whole.wav')), wholeC = await timed(fresh, C('whole.wav')), wholeTicks = await ticks(fresh)
     const e = await open('n.wav')
     await e.render(B)
     // cut short a quarter of the way in, the source shown in its place; asked for again at once
@@ -114,15 +114,18 @@ test('engine: a run cut short goes on from where it was, its samples as rendered
     await e.render(B)
     const paused = await ticks(e)
     await sleep(wholeC.ms)
-    const still = await ticks(e), later = await timed(e, C())
+    const still = await ticks(e), later = await timed(e, C()), done = await ticks(e)
     const diff = (p, q) => p.channels[0].length === q.channels[0].length ? p.channels[0].reduce((m, v, i) => Math.max(m, Math.abs(v - q.channels[0][i])), 0) : Infinity
-    return { whole: whole.ms, back: back.ms, backDiff: diff(whole.o, back.o), laterDiff: diff(wholeC.o, later.o), paused, still }
+    return { whole: whole.ms, back: back.ms, backDiff: diff(whole.o, back.o), laterDiff: diff(wholeC.o, later.o), paused, still, done, wholeTicks }
   }, [...x])
   assert.equal(r.backDiff, 0, 'gone on from where it was: the same samples as rendered whole')
-  assert.ok(r.back < r.whole * .9, `the rest of it alone: ${r.back.toFixed(0)} ms, whole ${r.whole.toFixed(0)} ms`)
+  // the rest of it alone, by the clock where the clock is the machine's own: a shared runner's is not (CI: 2921 ms
+  // for the rest against 2098 whole), and there the blocks say it (below: as many in all as rendered whole)
+  if (!process.env.CI) assert.ok(r.back < r.whole * .9, `the rest of it alone: ${r.back.toFixed(0)} ms, whole ${r.whole.toFixed(0)} ms`)
   assert.ok(r.paused > 0, `it had begun: ${r.paused} blocks`)
   assert.equal(r.still, r.paused, 'left alone, not a block more')
   assert.equal(r.laterDiff, 0, 'asked for later, it goes on: the same samples')
+  assert.equal(r.done, r.wholeTicks, `and makes the rest alone: ${r.done} blocks in all, ${r.wholeTicks} rendered whole`)
 })
 
 // A step reading its input whole (any op's or plugin's prepare: rebalance's separation, declip's) can't be stopped but by

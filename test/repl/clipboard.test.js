@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import audio from '../../audio.js'
 import clock from '../../repl/time.js'
 import { samples, RATE as SAMPLES } from '../../repl/samples.js'
-import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, open, settled, selected, palette, noCues, write, tall, axis, drag, lengthIs } from './page.js'
+import { TOP, TRACK, browser, page, origin, errors, chimeLeft, code, open, settled, selected, palette, noCues, write, tall, axis, drag, lengthIs, poll } from './page.js'
 
 // The clipboard's keys: ⌘C copies the selection, ⌘X cuts it, ⌘V pastes at the caret, each a call on the chain. ⌘C once
 // wrote the copy an Alt-drag makes, from a selection that has no destination: `copy: at is NaN`.
@@ -112,13 +112,14 @@ test('editor: a copy puts the range on the system clipboard, as code and as a WA
   const [, at, d] = (await code()).match(/\.copy\(\{ at: ([\d.]+), d: ([\d.]+) \}\)/).map(Number)
   // the WAV encoded in the worker, the clipboard written once it comes
   await page.waitForFunction(async () => { try { const t = (await navigator.clipboard.read())[0]?.types ?? []; return t.includes('web audio/wav') && t.includes('text/plain') } catch { return false } })
-  const got = await page.evaluate(async () => {
-    const [item] = await navigator.clipboard.read()
-    // headless Chromium on Linux names the web format among the item's types and holds no data for it (getType: "The
-    // type was not found"): the WAV is read where the clipboard keeps it
-    const wav = await item.getType('web audio/wav').then(b => b.arrayBuffer(), e => e.name === 'NotFoundError' ? null : Promise.reject(e))
-    return { types: item.types, text: await (await item.getType('text/plain')).text(), wav: wav && [...new Uint8Array(wav)] }
-  })
+  // headless Chromium on Linux names a type among the item's and may hold no data for it (getType: "The type was not
+  // found"): the web WAV never; the text for a moment, while the page writes it again alone, the write with the WAV
+  // refused. The text is read until it is there, the WAV where the clipboard keeps it
+  const got = await poll(() => page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read(), of = type => item.getType(type).catch(e => e.name === 'NotFoundError' ? null : Promise.reject(e))
+    const text = await of('text/plain'), wav = await of('web audio/wav')
+    return { text: text && await text.text(), wav: wav && [...new Uint8Array(await wav.arrayBuffer())] }
+  }), g => assert.ok(g.text != null, 'the code on the clipboard'))
   assert.equal(got.text, `audio('chime.wav').gain(-3).crop({ at: ${at}, d: ${d} })`)
   if (!got.wav) return assert.equal(process.platform, 'linux', 'the web format without its data: headless Linux alone')
   const a = await audio(new Uint8Array(got.wav)), [y0] = await a.read()
