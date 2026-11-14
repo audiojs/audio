@@ -180,8 +180,8 @@ Missing: true harmonic resynthesis (`sbr` is a waveshaper exciter, not the voice
 
 
 ### Speed (the work of 2026-11-12 to 14; its record and the MP3 harness: `.work/speed/` at 4f37743)
-- [ ] The channels of a sound stretched together: in the libraries, committed, not published; audio's side is `.work/channels-together.patch`, its head says how
-- [ ] A piano's attacks through the vocoder: softened about 4 dB at 0.8× (the level rises 10.3 dB in 8 ms for the recording's 14.6; heard as robotic). `method: 'wsola'` keeps 12.3 and the stereo; a reset of the phases at an attack is not built
+- [ ] Channels stretched together (`{ together: true }`: the lag and the level between the channels of a sound kept, the mono sum whole) is an option in the libraries, committed, not published (fourier-transform 2.7.0, @audio/spectral-pvoc 1.3.0, @audio/stretch-pvoc-lock 1.5.0, @audio/stretch 2.5.0). Apart stays the default: wider, the one preferred by ear on a stereo piano, Rubber Band's default too (OptionChannelsApart). audio does not offer it: `stretch` and `pitch` would hand `together` to the shifter
+- [ ] A piano's attacks through the vocoder: softened about 4 dB at 0.8× (the level rises 10.3 dB in 8 ms for the recording's 14.6; heard as robotic). `method: 'wsola'` keeps 12.3 and the stereo (by ear: better on long tones, worse where high notes change); a reset of the phases at an attack is not built
 - [ ] `restore()` names `@audio/neural-restore`, not on npm: prepared (`~/.cache/audiojs/neural/hosting/READY-restore.md`), the weights' licence to decide; then `fn/restore.js`'s `LOCAL` and four "not hosted yet" go
 - [ ] The MP3 parts' fallbacks (the first page's count off, a part not back, a seam off, a thread's throw) have no test in the suite: the join out of `core.js` `mpegParts` into `fn/parts.js`, tested with made-up parts. Damaged files do not reach them: zeros in a frame, noise over two, junk inserted, a cut mid-frame all decode by path as by bytes, bit for bit, in parts or with no plan
 - [ ] The locked drag (`repl/view/pointer.js`, `movementY`) has no test: the repl's suites run without a pointer to lock
