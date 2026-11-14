@@ -93,3 +93,15 @@ test('fix package.json — the site\'s build clears no folder that holds the rep
   is(['/a/repo', '/a/repo/', '/a', '/'].filter(d => !holds(d, root)), [], 'the repository and the folders above it refused')
   is(['/a/repo/_site', '/tmp/audio-site-x', '/a/other'].filter(d => holds(d, root)), [], 'a folder of its own allowed')
 })
+
+// ... and copied there: CI's folder is inside the repository, which Node's cp refuses of a folder whole (2026-11-10: no deploy)
+test('fix package.json — the site\'s build copies the repository into a folder inside it', async () => {
+  let { mirror } = await import('../.site-build.js')
+  let { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('fs'), { tmpdir } = await import('os'), { join, dirname } = await import('path')
+  let root = mkdtempSync(join(tmpdir(), 'audio-site-'))
+  try {
+    for (let f of ['a.js', 'sub/b.js', '.git/c', 'node_modules/d/e.js', 'sub/node_modules/f.js', 'sub/.hid']) { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), f) }
+    await mirror(join(root, '_site'), root)
+    is(readdirSync(join(root, '_site'), { recursive: true }).sort(), ['a.js', 'sub', 'sub/b.js'], 'what is served: nothing hidden, no node_modules, not the folder itself')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
