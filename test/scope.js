@@ -53,7 +53,7 @@ const SUITES = [
   // what a visitor sees first, as test/live.js checks the deployed site after each deploy: here, before one, on the site
   // as Pages gets it (the repl's page minified), the home's hero held to its first-load budget
   { name: 'live', run: 'node test/live.js --local', on: [...SITE, 'repl/', '.site-serve.js', 'test/live.js'] },
-  { name: 'recording', run: 'CI= node --test --test-name-pattern="recording with the spectrogram shown" test/repl/recording.test.js', advice: true, on: ['repl/', 'test/repl/page.js', 'test/repl/recording.test.js'] },
+  { name: 'recording', run: 'CI= node --test --test-name-pattern="recording with the spectrogram shown|a take recorded as the others play" test/repl/recording.test.js', advice: true, on: ['repl/', 'test/repl/page.js', 'test/repl/recording.test.js'] },
   // real-time playback, clicks and gaps measured as heard
   { name: 'playback', run: 'TEST_PAGES=playback node test/browser.js', advice: true, on: [...LIB, 'test/play.html', 'test/play.js', 'test/browser.js'] },
 ]

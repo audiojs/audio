@@ -140,13 +140,15 @@ test('editor: on a phone the code opens under the picture, its button by the tab
 
 // The status bar holds still: the transport, the clock, the levels and the rate stay where they are as a selection is made,
 // held at its start and dragged, played, and the levels are never cut short, in a wide window and a narrow one (the
-// message between them is the one that gives way)
+// message between them is the one that gives way: it starts right after the levels, or after the note heard as the
+// sound plays, there only then)
 for (const width of [1280, 880]) test(`repl: the status bar holds still as a selection is made, scrubbed and played, a ${width}px window`, async () => {
   await page.setViewportSize({ width, height: 720 })
   await open({ edits: true })
   const still = () => page.evaluate(() => {
     const rect = s => { const r = document.querySelector(`#status ${s}`).getBoundingClientRect(); return [Math.round(r.left), Math.round(r.width)] }
-    return { ...Object.fromEntries(['.play', '.record', '.loop', '.clock', '.readout', '.facts'].map(s => [s, rect(s)])), message: rect('.message')[0] }
+    const before = [...document.querySelectorAll('#status :is(.readout, .heard)')].filter(e => e.getClientRects().length).at(-1)?.getBoundingClientRect().right ?? 0
+    return { ...Object.fromEntries(['.play', '.record', '.loop', '.clock', '.readout', '.facts'].map(s => [s, rect(s)])), message: rect('.message')[0] - Math.round(before) }
   })
   const idle = await still(), { box, x } = await axis(6.525), y = box.y + TOP + TRACK / 2
   await page.mouse.move(x(1), y)

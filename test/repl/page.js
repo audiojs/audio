@@ -56,6 +56,11 @@ beforeEach(async () => {
   // the page opens with its panel closed, the picture whole: the code is written through its panel (write), and a test of
   // a panel opens it
   await page.addInitScript(() => {
+    // no pointer to lock: a level or a tool dragged locks the pointer and reads its moves apart (movementY,
+    // view/pointer.js), which a driven mouse does not give alike everywhere: headless Chromium on Linux grants the lock
+    // and reports moves of its own (a pill dragged up was not heard, an intonation dragged down read ×3.00 or ×1.00).
+    // Without the lock the page goes by where the pointer is, as in a browser that has none
+    delete Element.prototype.requestPointerLock
     // the script, its lines as the editor has them, the code panel open or not
     // the tab shown, as it says itself: its name, then its length (its overview has the rest)
     globalThis.tabTip = () => { const e = document.querySelector('.source'); return e ? `${e.textContent} · ${e.dataset.length ?? ''}` : '' }
