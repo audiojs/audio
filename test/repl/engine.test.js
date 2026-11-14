@@ -999,7 +999,10 @@ test('sources: a microphone handle let go stops only its own take', async () => 
     let n = 0
     b.take(() => n++)
     a.cancel()
-    await new Promise(r => setTimeout(r, 300))
+    // the take's first block, however late a runner's microphone starts (CI: none in 300 ms now and then), and a
+    // moment more of it
+    for (const end = Date.now() + 5000; !n && Date.now() < end;) await new Promise(r => setTimeout(r, 20))
+    await new Promise(r => setTimeout(r, 100))
     const during = n
     b.stop()
     await new Promise(r => setTimeout(r, 200))
