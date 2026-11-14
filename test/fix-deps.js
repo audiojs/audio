@@ -105,3 +105,31 @@ test('fix package.json — the site\'s build copies the repository into a folder
     is(readdirSync(join(root, '_site'), { recursive: true }).sort(), ['a.js', 'sub', 'sub/b.js'], 'what is served: nothing hidden, no node_modules, not the folder itself')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+// A publish runs no suite the commit already passed: .tested.js asks GitHub for the commit's `test` workflow (the
+// suites of npm run test:node on three Nodes) and runs them here only where that cannot be told
+test('fix package.json — a publish is tested by CI where its tests passed for the commit, here otherwise', async () => {
+  let { verdict, changed } = await import('../.tested.js'), T = '.github/workflows/test.yml', B = '.github/workflows/browser.yml'
+  let run = (path, status, conclusion) => ({ path, status, conclusion })
+  ok(/&& node \.tested\.js$/.test(pkg.scripts.prepublishOnly), 'prepublishOnly ends on it')
+  is(verdict([]).is, 'none', 'no run for the commit (not pushed): the suites run here')
+  is(verdict([run(B, 'completed', 'success')]).is, 'none', 'another workflow\'s pass is not the tests\'')
+  is(verdict([run(B, 'completed', 'failure'), run(T, 'completed', 'success')]).is, 'passed', 'the tests passed, whatever the pages\' suites did')
+  is(verdict([run(T, 'in_progress', null)]).is, 'running', 'a run still going is waited for')
+  is([verdict([run(T, 'completed', 'failure')]).is, verdict([run(T, 'completed', 'cancelled')]).is], ['failed', 'failed'], 'a run that failed, or was cancelled, stops the publish')
+  is(verdict([run(T, 'completed', 'success'), run(T, 'completed', 'failure')]).is, 'passed', 'the newest run of the tests is the one read')
+  // the files a publish packs must be the commit's: one changed since sends the suites here
+  let { mkdtempSync, writeFileSync, rmSync, mkdirSync } = await import('fs'), { tmpdir } = await import('os'), { join } = await import('path'), { execFileSync } = await import('child_process')
+  let dir = mkdtempSync(join(tmpdir(), 'audio-tested-')), git = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', ...a], { cwd: dir, stdio: 'pipe' })
+  try {
+    mkdirSync(join(dir, 'fn')); for (let f of ['core.js', 'fn/a.js', 'package.json', 'notes.md']) writeFileSync(join(dir, f), 'x')
+    git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'x')
+    let files = { files: ['core.js', 'fn/', 'dist/'] }
+    is(changed(files, dir), [], 'as committed: none')
+    writeFileSync(join(dir, 'notes.md'), 'y')
+    is(changed(files, dir), [], 'a file the package does not hold changed: none')
+    writeFileSync(join(dir, 'fn/a.js'), 'y'); writeFileSync(join(dir, 'fn/new.js'), 'z')
+    is(changed(files, dir).map(l => l.slice(3)).sort(), ['fn/a.js', 'fn/new.js'], 'a file of the package changed, another added')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+

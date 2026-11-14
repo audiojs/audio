@@ -80,7 +80,7 @@
     "test:polyfill": "node test/polyfill.js",
     "test:all": "npm run test:node && npm run test:pages",
     "version": "node -p \"var s=require('fs'),v=require('./package.json').version;s.writeFileSync('core.js',s.readFileSync('core.js','utf8').replace(/audio\\.version = '[^']+'/,'audio.version = \\''+v+'\\''));''\" && git add core.js",
-    "prepublishOnly": "npm run version && npm run build && npm run test:node",
+    "prepublishOnly": "npm run version && npm run build && node .tested.js",
     "demo": "vhs docs/player.tape",
     "bench": "node bench/bench.js",
     "test:stream": "node test/stream.js",
