@@ -1455,7 +1455,11 @@ async function wavPages(path, size, { acc, dec, addHeader, disposed }) {
       await yieldLoop()
     }
     return true
-  } finally { await next?.catch(() => {}); await fh.close() }
+  } finally {
+    // the page read ahead settles before the file closes: its failure was the loop's to throw, if it got to it
+    await next?.catch(() => {})
+    await fh.close()
+  }
 }
 
 /** MPEG audio of three pages or more: its first page decoded here as any file, by the decoder `feed` feeds, while

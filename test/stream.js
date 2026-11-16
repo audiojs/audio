@@ -362,7 +362,7 @@ test('stream: how long a stream lasts is known from its header before it arrives
 
 // A long file opened by its path decodes in pages (core.js inPages): a WAV a page's bytes at a time, MPEG audio on threads
 // past its first page. The pages and the stats are those its bytes give as a stream, bit for bit; the 'data' deltas, a
-// page each now, still make the stats in order. Small pages here, so that a few seconds run to many of them.
+// page each, make the stats in order. Small pages here, so that a few seconds run to many of them.
 async function inPages(t, files, paged = () => true) {
   let { mkdtempSync, writeFileSync, rmSync } = await import('node:fs'), { tmpdir } = await import('node:os'), { join } = await import('node:path')
   let dir = mkdtempSync(join(tmpdir(), 'audio-pages-')), PS = audio.PAGE_SIZE

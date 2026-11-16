@@ -29,26 +29,25 @@ export function changed(pkg, cwd) {
 async function main() {
   const root = fileURLToPath(new URL('.', import.meta.url)), pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
   const stop = why => { console.error(`not published: ${why}`); process.exit(1) }
-  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
-  let off, sha, branch
-  try { off = changed(pkg, root); sha = git('rev-parse', 'HEAD'); branch = git('rev-parse', '--abbrev-ref', 'HEAD') }
-  catch { stop('no commit to ask CI about (not a git checkout)') }
+  // git's answer, null where it fails: for some of these its exit is the answer
+  const git = (...a) => { try { return execFileSync('git', a, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() } catch { return null } }
+  const sha = git('rev-parse', 'HEAD'), at = sha?.slice(0, 7)
+  if (!sha) stop('no commit to ask CI about (not a git checkout)')
+  const off = changed(pkg, root)
   if (off.length) stop(`${off.map(l => l.slice(3)).join(', ')} differ${off.length > 1 ? '' : 's'} from the commit: commit and push first`)
+  let branch = git('rev-parse', '--abbrev-ref', 'HEAD')
   if (branch === 'HEAD') stop('not on a branch: the latest commit is a branch\'s')
   // the branch as the remote names it, where it follows one
-  try { branch = git('rev-parse', '--abbrev-ref', '@{upstream}').replace(/^[^/]+\//, '') } catch {}
-  const at = sha.slice(0, 7), repo = String(pkg.repository?.url ?? pkg.repository).replace(/^.*github\.com[/:]|^github:|\.git$/g, '')
+  branch = git('rev-parse', '--abbrev-ref', '@{upstream}')?.replace(/^[^/]+\//, '') ?? branch
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-  const ask = path => fetch(`https://api.github.com/repos/${repo}/${path}`, { headers: { accept: 'application/vnd.github+json', ...token && { authorization: `Bearer ${token}` } } })
+  const ask = path => fetch(`https://api.github.com/repos/${pkg.repository}/${path}`, { headers: { accept: 'application/vnd.github+json', ...token && { authorization: `Bearer ${token}` } } })
     .then(res => res.ok ? res.json() : Promise.reject(new Error(`GitHub answers ${res.status}`))).catch(e => stop(`CI not asked (${e.message})`))
   // the latest commit: the tip of the branch as GitHub has it now
   const tip = (await ask(`branches/${encodeURIComponent(branch)}`)).commit.sha
-  if (tip !== sha) {
-    let ahead = false
-    try { git('merge-base', '--is-ancestor', tip, sha); ahead = true } catch {}
-    stop(ahead ? `${at} is not on GitHub (its ${branch} is at ${tip.slice(0, 7)}): push it, and publish once its tests pass`
-      : `${at} is not the latest commit of ${branch} on GitHub (${tip.slice(0, 7)} is): pull, and publish from that one`)
-  }
+  // HEAD ahead of that tip (the tip its ancestor) is a commit not pushed; else GitHub has a later one
+  if (tip !== sha) stop(git('merge-base', '--is-ancestor', tip, sha) != null
+    ? `${at} is not on GitHub (its ${branch} is at ${tip.slice(0, 7)}): push it, and publish once its tests pass`
+    : `${at} is not the latest commit of ${branch} on GitHub (${tip.slice(0, 7)} is): pull, and publish from that one`)
   for (let since = Date.now(), said = false; ;) {
     const v = verdict((await ask(`actions/runs?head_sha=${sha}&per_page=30`)).workflow_runs)
     if (v.is === 'passed') return console.log(`tested by CI at ${at}, the latest commit of ${branch}: ${v.run.html_url}`)

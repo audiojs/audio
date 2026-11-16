@@ -9,7 +9,7 @@
  *      length, the range linearly resampled into it. Sliding factors emit one segment
  *      per quantum (a piecewise-constant rate, set at plan time, so ranged reads,
  *      seek, duration, serialization all follow the segment algebra).
- *   2. Process: the shifter below reads the source back through the plan's map and
+ *   2. Process: the shifter below reads the timeline as it was before the plan (plan.js `input`) and
  *      time-stretches it with a phase-locked vocoder, its output the timeline itself; with
  *      { voice: true }, by waveform-similarity overlap-add (@audio/stretch-wsola) shortening, and the
  *      vocoder reset to the input's waveform where it fits (@audio/stretch-pvsola) slowing.
@@ -242,7 +242,7 @@ function feed(st, cur, h, n1) {
   let { map } = st, from = cur.fed, to
   if (!map) to = n1 - cur.S
   else {
-    // the content whose place, with the reader's taps, the input has reached
+    // the content whose place the input has reached, short of it by the margin its latency allows (shiftLatency)
     let edge = n1 - 1 - Math.ceil(ZC * map.rmax)
     to = Math.floor(map.U(edge)) - cur.u0
     while (to > from && map.T(cur.u0 + to) > edge) to--
@@ -435,9 +435,9 @@ function lookupAt(ot, fv, t) {
 const minOf = a => a.reduce((m, v) => v < m ? v : m, Infinity)
 const maxOf = a => a.reduce((m, v) => v > m ? v : m, -Infinity)
 
-// The source back through the plan's map, stretched by the vocoder: the factor over the range (a sliding one per
-// quantum), 1 outside it, where the vocoder runs only for its context and the crossfades. Ranged, the stretch also
-// knows how long its range was: `n` samples of content.
+// What the vocoder stretches the content by: the factor over the range (a sliding one per quantum), 1 outside it,
+// where the vocoder runs only for its context and the crossfades. Ranged, the stretch also knows how long its range
+// was: `n` samples of content.
 const stretchShape = o => {
   let ranged = o.at != null || o.duration != null
   if (o.fv) return { rmin: Math.min(minOf(o.fv), ranged ? 1 : Infinity), rmax: Math.max(1, maxOf(o.fv)) }

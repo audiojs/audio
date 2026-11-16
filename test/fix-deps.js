@@ -95,7 +95,7 @@ test('fix package.json — the site\'s build clears no folder that holds the rep
 })
 
 // ... and copied there: CI's folder is inside the repository, which Node's cp refuses of a folder whole (2026-11-10: no deploy)
-test('fix package.json — the site\'s build copies the repository into a folder inside it', async () => {
+test('fix package.json – the site\'s build copies the repository into a folder inside it', async () => {
   let { mirror } = await import('../.site-build.js')
   let { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('fs'), { tmpdir } = await import('os'), { join, dirname } = await import('path')
   let root = mkdtempSync(join(tmpdir(), 'audio-site-'))
@@ -108,7 +108,7 @@ test('fix package.json — the site\'s build copies the repository into a folder
 
 // A publish goes out only tested by CI at the latest commit: .tested.js asks GitHub for the branch's tip and the
 // commit's `test` workflow (the suites of npm run test:node on three Nodes), and stops the publish on anything else
-test('fix package.json — a publish needs CI\'s tests passed for the commit, and the package\'s files the commit\'s', async () => {
+test('fix package.json – a publish needs CI\'s tests passed for the commit, and the package\'s files the commit\'s', async () => {
   let { verdict, changed } = await import('../.tested.js'), T = '.github/workflows/test.yml', B = '.github/workflows/browser.yml'
   let run = (path, status, conclusion) => ({ path, status, conclusion })
   ok(/&& node \.tested\.js$/.test(pkg.scripts.prepublishOnly), 'prepublishOnly ends on it')
