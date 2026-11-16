@@ -2,11 +2,11 @@ import { HOLD, SLOP } from '../view.js'
 import player from '../player.js'
 import { mark as drawMark, sways, PACE } from '../../logo/mark.js'
 import { levels, cycle, trace } from '../meters.js'
-import { root, EMBED, SPEEDS, SHUTTLE } from './config.js'
+import { root, EMBED, PLAY_STOPS, SPEEDS, SHUTTLE } from './config.js'
 import { state, eng, v, pl, output } from './context.js'
 import { stamp, note } from './format.js'
 import { meter, live, chordAt } from './readouts.js'
-import { recorder } from './recording.js'
+import { recorder, stopRecording } from './recording.js'
 import { working, lend, sourceName } from './run.js'
 import { docs, docOf, badges } from './tabs.js'
 import { laneIndex } from './tracks.js'
@@ -119,7 +119,9 @@ export function follower() {
 // picture's caret is, the line shows, to be seen or dragged. So a press while it plays pauses at its release, unless it
 // was dragged or held, the caret where the playhead got to, as a key's pause leaves it.
 export function playPress(event) {
-  if (event.button !== 0 || state.recording) return
+  if (event.button !== 0) return
+  // (a take recording, where the bar names no Record, Play its stop: config.js PLAY_STOPS)
+  if (state.recording) return PLAY_STOPS && stopRecording()
   const button = event.currentTarget, x0 = event.clientX, was = pl.playing, step = SHUTTLE.px / 10
   let moved = false, shown = false, at = state.speed * 10, back = null
   if (!was) togglePlay()
@@ -184,9 +186,57 @@ export function playPress(event) {
   const on = [['pointermove', move], ['pointerup', up], ['pointercancel', up]]
   for (const [type, f] of on) button.addEventListener(type, f)
 }
+// The clock's time held and dragged across moves the caret from where it stands (the playhead, playing), as Play held
+// and dragged moves the speed (playPress): past SCRUB px (the scrub's arrows under the pointer till then: editor.css; a
+// press let go short of it scrubs nothing), a quarter of the picture's own pace (what a pixel of it spans,
+// over four), so finer than a drag on the picture, the pointer locked meanwhile as a level dragged on the picture locks
+// it (view/pointer.js), its moves added up, so the drag goes on past the window's edge as far as the sound does, the
+// pointer back where it was pressed once let go; the moment under the caret sounds as a scrub does (onscrub), playback
+// paused for it and on again from the caret once let go, the caret brought into sight. The caret stays the one the keys
+// act on, active: the press takes no keys from the picture (its mousedown's own), and the drag gives them to it. A press
+// that does not move is a click (the caret brought into sight, bringTime)
+const SCRUB = 10
+export function timePress(event) {
+  if (event.button !== 0 || !event.isPrimary || !v?.duration || state.recording) return
+  const el = event.currentTarget, x0 = event.clientX, id = event.pointerId, t0 = pl.playing ? v.playhead ?? pl.time : v.cursor
+  const [a, b] = v.frame?.range ?? [0, v.duration], k = (b - a) / (root.querySelector('.plot')?.clientWidth || 1) / 4
+  let moved = false, locked = false, dx = 0
+  el.addEventListener('mousedown', e => e.preventDefault(), { once: true })
+  el.setPointerCapture?.(id)
+  const move = e => {
+    if (e.pointerId !== id) return
+    dx = locked && document.pointerLockElement === el ? dx + e.movementX : e.clientX - x0
+    if (!moved && Math.abs(dx) < SCRUB) return
+    if (!moved) {
+      moved = true
+      root.classList.add('timing')
+      root.querySelector('.plot')?.focus({ preventScroll: true })
+      locked = !!el.requestPointerLock
+      if (locked) Promise.resolve(el.requestPointerLock()).catch(() => { locked = false })
+    }
+    const t = Math.max(0, Math.min(v.duration, t0 + dx * k))
+    onscrub(t)
+    v.setCursor(t)
+  }
+  const up = e => {
+    if (e.pointerId !== id) return
+    for (const [type, f] of on) el.removeEventListener(type, f)
+    if (locked && document.pointerLockElement === el) document.exitPointerLock()
+    if (!moved) return
+    root.classList.remove('timing')
+    // (the click the drag ends with is the drag's)
+    const stop = c => { c.preventDefault(); c.stopImmediatePropagation() }
+    addEventListener('click', stop, { capture: true, once: true })
+    setTimeout(() => removeEventListener('click', stop, true))
+    onscrub(null)
+    v.bring()
+  }
+  const on = [['pointermove', move], ['pointerup', up], ['pointercancel', up]]
+  for (const [type, f] of on) el.addEventListener(type, f)
+}
 // The speed of this playback, 0.5× to 3×, the pitch kept
 export function setSpeed(r) { state.speed = pl.rate = SPEEDS.range(r) }
-export function playClick(event) { if (!event.detail) togglePlay() }
+export function playClick(event) { if (!event.detail) state.recording ? PLAY_STOPS && stopRecording() : togglePlay() }
 // Playing and recording are one or the other: while it records, Play is off (Space stops the recording)
 export async function togglePlay() {
   if (!(state.whole || state.arriving) || state.recording) return

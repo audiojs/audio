@@ -265,6 +265,11 @@ export default function engine(url = WORKER) {
     listen: (output, note, span, track) => call({ type: 'listen', output, note, span, track }),
     // what the rate and the channels come to (worker.js facts): { top, correlation, balance, summed, levels }
     facts: (output, track) => call({ type: 'facts', output, track }),
+    // the threshold trim and shrink find for themselves, dB (worker.js threshold), or null
+    threshold: (output, track) => call({ type: 'threshold', output, track }).then(r => r?.db ?? null),
+    // what it is, in a word (worker.js kind): { kind, shares, tags }; no kind once a newer output replaced it. `weights`:
+    // the tagger's model from there (a URL), while it is not hosted
+    kind: (output, track, { weights } = {}) => call({ type: 'kind', output, track, weights }),
     chords: (output, at, track) => call({ type: 'chords', output, at, track }),
     // [at, at + duration] s of an output as WAV bytes, at `bitDepth`; null once a newer output replaced it
     wav: (output, at, duration, bitDepth) => call({ type: 'wav', output, at, duration, bitDepth }).then(r => r.bytes ?? null),

@@ -64,7 +64,7 @@ svg { flex: none; }
 .menu.menubar-list { position: fixed; inset: auto; width: max-content; min-width: 220px; max-width: min(440px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); margin: 0; position-area: none; position-try-fallbacks: none; }
 .menubar-list:focus { outline: none; }
 .menubar-list hr { margin: 5px 8px; border: 0; border-top: 1px solid var(--color-screen-rule); }
-.menubar-list .menu-group:first-child { margin-top: 4px; }
+.menubar-list > :is(.menu-group:first-child, .menu-more.up:first-child + .menu-group) { margin-top: 4px; }
 /* lit as the menu takes the pointer to be on it (menu.js aims), its focus, not under the pointer as such: a row crossed on
    the way to a submenu stays dark */
 .menu-row { display: grid; grid-template-columns: 16px max-content minmax(0, 1fr); align-items: center; gap: 6px; width: 100%; min-height: 28px; padding: 0 10px 0 6px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-ink); text-align: left; font-size: 12.5px; }
@@ -72,12 +72,15 @@ svg { flex: none; }
 .menu-row[aria-disabled="true"] { color: var(--color-screen-muted); }
 .menu-row[aria-disabled="true"]:focus { background: var(--color-screen-hover); color: var(--color-screen-muted); }
 .menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.menu-keys { overflow: hidden; margin-left: 12px; color: var(--color-screen-muted); font: 11px var(--font-mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.menu-keys { justify-self: end; max-width: min(12em, 100%); overflow: hidden; margin-left: 12px; color: var(--color-screen-muted); font: 11px var(--font-mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .menu-keys.menu-hint { font: 11.5px var(--font-body); }
 .menu-about { grid-column: 2 / -1; margin: -5px 0 0; padding-bottom: 6px; color: var(--color-screen-muted); font-size: 11.5px; line-height: 1.35; }
 .menu-row:focus .menu-about { color: inherit; opacity: .75; }
 .menu-row:is([aria-checked="true"], [aria-pressed="true"]) .menu-check::before { content: '✓'; display: block; text-align: center; font-size: 12px; color: var(--color-screen-bright); }
 .menu-check svg { display: block; width: 15px; height: 15px; color: var(--color-screen-muted); }
+/* (a row checked that has an icon: the check in the icon's place, one mark in the column, as the sound's menu has the
+   sound shown) */
+.menu-row:is([aria-checked="true"], [aria-pressed="true"]) .menu-check:has(svg) svg { display: none; }
 /* lit, all of it in its selection's words, as VS Code's menus are */
 .menu-row:focus :is(.menu-keys, .menu-check svg), .menu-row:focus .menu-check::before { color: inherit; }
 .menu-row.has-sub .menu-keys::after { content: '›'; font: 14px var(--font-body); }
@@ -132,11 +135,18 @@ svg { flex: none; }
 /* the picture's side of it: with the panel open, the facts under the panel, a container of its own, so the queries below
    that hide what it shows measure the room beside the panel; closed, the bar's, the facts in it */
 .status-main { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 0; }
-/* what is said and what the sound is, small, on the length's baseline, under the middle the transport keeps: the time's
-   baseline is .3 of it under its middle (its line as tall as its digits), as far as the small line goes (--line, the
-   time at its full size). The time made smaller on a narrow bar keeps that baseline, going down as it shrinks, play and
-   record down with its digits' middle (.3 of its size over the baseline), the bar's left padding less */
-.status :is(.message, .heard, .readout, .checked, .facts, .before) { position: relative; top: calc(var(--line) - var(--time-size) * .125); }
+/* the time, what is said and what the sound is, on one baseline, under the middle the transport keeps: at the head of
+   each side of the bar stands a line of the time at its full size, as tall as the bar, with nothing in it (so its
+   middle is the bar's, and its baseline the full-size time's: --line or so under the middle), and each of them stands
+   on that line's baseline, whatever its face or its size: the time made smaller on a narrow bar, play and record going
+   down with its digits' middle (.3 of its size over the baseline); the small words, the length's baseline theirs, not
+   its middle. (The line takes no room: no width, and the gap after it taken back) */
+.status-main::before, .status-end::before { content: '\200b'; align-self: baseline; width: 0; font: 300 var(--time-size)/60px var(--font-display); }
+.status-main::before { margin-right: -6px; }
+.status :is(.clock, .message, .heard, .readout, .checked, .facts, .before) { position: relative; align-self: baseline; }
+/* (a row of them stands on its words' baseline: what is drawn in it, a mark or a switch, at their middle) */
+.status :is(.message, .checked, .facts) { align-items: baseline; }
+.status :is(.checked .mark, .facts .embed-view) { align-self: center; }
 .panes[data-side="open"] .status-main { container: picture / inline-size; }
 :is(.slab, .status) .icon-button { color: var(--color-screen-muted); }
 :is(.slab, .status) .icon-button:hover:not(:disabled), :is(.slab, .status) .icon-button[aria-pressed="true"] { color: var(--color-screen-bright); background: var(--color-screen-hover); }
@@ -263,6 +273,8 @@ svg { flex: none; }
 .param output.unset { color: var(--color-screen-muted); }
 .param input, .param .choices { grid-column: 1 / -1; }
 .param.choice .choices { padding-block: 2px; }
+/* a setting's line, what it is in a few words, under its control in the soft ink */
+.param-line { grid-column: 1 / -1; margin: 0; color: var(--color-screen-muted); font-size: 11px; line-height: 1.35; }
 .param input[type="range"] { width: 100%; height: 18px; margin: 0; background: none; -webkit-appearance: none; appearance: none; }
 .param input[type="range"]::-webkit-slider-runnable-track { height: 2px; border-radius: 1px; background: var(--color-scroll); }
 .param input[type="range"]::-moz-range-track { height: 2px; border-radius: 1px; background: var(--color-scroll); }
@@ -297,6 +309,12 @@ svg { flex: none; }
 .file.dragging { z-index: 1; transition: none; background: var(--color-tab); box-shadow: var(--shadow-lifted); }
 .file.current { background: var(--color-tab); color: var(--color-tab-ink); }
 .file [role="tab"] { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: 12px var(--font-mono); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The name, and after it, past a thin rule, what its sound is, in the quiet ink (.head-kind): the word whole where it
+   fits after the name, else on a line of its own under it, out of sight, so the name keeps all the room it had and the
+   tab its height */
+.file-name { display: flex; flex: 1; flex-wrap: wrap; align-items: center; min-width: 0; height: 100%; overflow: hidden; }
+.file-name > [role="tab"] { flex: 0 1 auto; }
+.file .head-kind { margin-left: 8px; color: var(--color-screen-muted); font-size: 12px; }
 /* A name written anew in place (a tab's, a track's): its text where the name's was, in its font and colour, no box
    round it, as wide as what is written (fitField); the caret and the selection say it is being written */
 .file-field { flex: none; min-width: 2ch; max-width: 100%; padding: 0; border: 0; border-radius: 0; outline: none; background: none; color: inherit; caret-color: var(--color-screen-bright); font: inherit; }
@@ -330,6 +348,9 @@ svg { flex: none; }
 .viewing button:hover { background: color-mix(in oklch, var(--color-screen-accent) 30%, transparent); }
 .view { position: relative; flex: 1; min-height: 0; margin: 0 0 0 8px; }
 .plot { position: absolute; inset: 0; touch-action: none; cursor: text; }
+/* embedded, the wheel up and down the page's (?ui= wheel across, as it comes): a finger moved up or down scrolls the
+   page too, one moved across is the picture's */
+html.embed[data-wheel="across"] .plot { touch-action: pan-y; }
 .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 /* The playhead as it moves (view.js glide): its line down the lanes, its tick and time on the time row, a layer the
    compositor moves, within the lanes' width */
@@ -452,21 +473,28 @@ svg { flex: none; }
 .speed-tick::before { content: ''; position: absolute; top: -8px; left: 50%; width: 1px; height: 5px; background: var(--color-screen-rule); }
 .speed-mark { position: absolute; top: 4px; left: calc(14px + var(--at) * var(--span)); translate: -50% 0; min-width: 5ch; padding: 0 4px; text-align: center; border-radius: 4px; background: var(--color-screen-accent); color: var(--color-screen); font: 10px var(--font-mono); }
 .shuttling, .shuttling * { cursor: none !important; }
+/* the clock's time: dragged across, the caret moves from where it stands (play.js timePress): under the pointer and
+   pressed, the scrub's arrows, what a drag across it does; gone, the pointer locked, once the drag has gone SCRUB px */
+.clock .time { cursor: ew-resize; touch-action: pan-y; }
+.timing, .timing * { cursor: ew-resize !important; }
 .play-icon { display: block; width: 0; height: 0; margin-left: 2px; border-top: 7px solid transparent; border-bottom: 7px solid transparent; border-left: 11px solid currentColor; }
 .play-icon.paused { width: 11px; height: 14px; margin-left: 0; border: 0; border-inline: 3px solid currentColor; }
+/* a take's stop, where Play is it (config.js PLAY_STOPS): a square, a stop sign */
+.play-icon.stop { width: 12px; height: 12px; margin-left: 0; border: 0; border-radius: 2px; background: currentColor; }
 /* The time as on the home page, large light digits, one time always, the caret's or the playhead's; after it, how long
    all that is selected is, white between dim bars, as a length is marked, on its baseline. It keeps its width, the
    length's room kept while there is none, as the levels' at the right: nothing moves as a selection is made, dragged,
    played or heard, the message between them the one that gives way */
 .status-main > *, .facts { flex: none; }
-.clock { position: relative; top: calc(var(--line) - var(--time-size) * .3); display: flex; align-items: baseline; gap: 10px; margin: 0; padding: 0 6px; }
+.clock { display: flex; align-items: baseline; gap: 10px; margin: 0; padding: 0 6px; }
 .time { color: var(--color-screen-ink); font: 300 var(--time-size)/1 var(--font-display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .length { min-width: 4.6em; color: var(--color-screen-bright); font: 300 calc(var(--time-size) * .5)/1 var(--font-display); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* none (a take's first moment): its room kept, what is said never in its place */
 .length:empty { visibility: hidden; }
 .time, .length { cursor: pointer; }
 .length.whole { color: var(--color-screen-soft); }
-.length::before, .length::after { content: '|'; color: var(--color-screen-muted); }
+/* its bars at half strength, the length's own ink, as the chain's thin bars are */
+.length::before, .length::after { content: '|'; opacity: .55; }
 .message, .facts, .readout, .heard { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0; white-space: nowrap; font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; }
 .message, .heard { overflow: hidden; text-overflow: ellipsis; }
 /* what is happening, one line after the time: a note, a problem in red, the engine's work; the room that is left, whole
@@ -511,7 +539,10 @@ svg { flex: none; }
 .status .history .icon-button { width: 28px; height: 28px; min-height: 28px; border-radius: 6px; color: var(--color-screen-soft); }
 .status .history .icon-button svg { width: 17px; height: 17px; }
 .status .history .icon-button:hover:not([aria-disabled="true"]):not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
-.status .history .icon-button:is([aria-disabled="true"], :disabled) { opacity: .35; }
+/* (none of it while there is no history at all; once there is, both in their places, the one that cannot act dimmed, so
+   neither moves under the pointer and a press repeated on one never lands on the other: index.html) */
+.history[hidden] { display: none; }
+.history > .icon-button[aria-disabled="true"] { opacity: .35; cursor: default; }
 /* how the picture shows, a pair of keys after the levels, the one shown a press from its dropdown; with no sound,
    dimmed as undo is, in sight where it will be */
 .heard { display: flex; gap: 10px; flex: 0 1 auto; margin-left: 6px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); cursor: pointer; }
@@ -668,12 +699,12 @@ svg { flex: none; }
 .plot .takes button:is([aria-pressed="true"], [aria-expanded="true"]) { color: var(--color-screen-bright); }
 .plot .takes button:focus-visible { outline: 1px solid var(--color-screen-accent); outline-offset: -1px; }
 .plot .takes .takes-add { color: var(--color-screen-soft); }
-.plot .takes button svg { display: block; width: 12px; height: 12px; }
+.plot .takes button svg, .plot .fork svg { display: block; width: 14px; height: 14px; stroke-width: 2.6; }
 .plot .takes .takes-add[aria-disabled="true"] { color: var(--color-screen-muted); cursor: default; }
-/* a range's fork (view.js placeFork), where takes' numbers stand: takes started there */
-.plot .fork { position: absolute; z-index: 1; display: grid; place-items: center; width: 14px; height: 14px; padding: 0; border: 0; background: var(--color-screen); color: var(--color-screen-muted); cursor: pointer; }
+/* a range's fork (view.js placeFork), where takes' numbers stand: takes started there. Its mark drawn as a fade's is
+   in its square under it (overlay.js paintGrips): a line 1.5 px thick, some 10 px across, the softer ink */
+.plot .fork { position: absolute; z-index: 1; display: grid; place-items: center; width: 14px; height: 14px; padding: 0; border: 0; background: var(--color-screen); color: var(--color-screen-soft); cursor: pointer; }
 .plot .fork[hidden] { display: none; }
-.plot .fork svg { width: 12px; height: 12px; }
 .plot .fork:hover { color: var(--color-screen-bright); }
 
 /* a name written on where it is drawn (view.js named): its text in place, as wide as it, no box round it */
@@ -682,13 +713,23 @@ svg { flex: none; }
 /* The page's hints (hint.js): a few words by what they are about, over everything; a theme's to restyle */
 .hint { position: fixed; z-index: 20; top: 0; left: 0; max-width: min(380px, calc(100vw - 8px)); padding: 1px 6px; overflow: hidden; border-radius: 4px; background: var(--color-tip); color: var(--color-screen-bright); box-shadow: 0 0 0 1px var(--color-screen-rule); font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
 .hint svg { width: 12px; height: 12px; margin: 0 4px -2px -1px; }
-/* The controls' tooltips (popoff): raised, as the menus are, the name bright, the keys in the mono, softer, after it */
+/* The controls' tooltips (popoff): raised, as the menus are, the name bright, the keys in the mono, softer, after it:
+   the design system's (assets/tokens.css --popoff-*), on the skin's inks and its theme's --color-tip */
 :root { --color-quiet-hover: color-mix(in oklab, var(--color-quiet), var(--color-screen-ink) 5%); }
-:root { --popoff-bg: var(--color-tip); --popoff-ink: var(--color-screen-bright); --popoff-soft: var(--color-screen-soft); --popoff-muted: var(--color-screen-muted); --popoff-font: 11.5px/16px var(--font-body); --popoff-keys-font: 11px var(--font-mono); --popoff-shadow: drop-shadow(0 0 .5px var(--color-bezel)) drop-shadow(0 3px 8px oklch(0% 0 0 / .28)); --popoff-fade: var(--dur-micro); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* Menus and the search */
-.menu { width: 300px; max-height: min(560px, calc(100dvh - var(--bar) - 24px)); margin: 0; padding: 6px; overflow: auto; border: 0; border-radius: 10px; background: var(--color-menu); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline; margin-block: 6px; }
+.menu { width: 300px; max-height: calc(100dvh - var(--bar) - 24px); margin: 0; padding: 6px; overflow: auto; border: 0; border-radius: 10px; background: var(--color-menu); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline; margin-block: 6px; }
+/* a list as tall as its room, scrolled only where still cut short: no bare scrollbar; at each edge more lies past, the
+   rows fading out under a chevron pointing there, laid over them, taking no room; pointed at, it scrolls the list that
+   way (menu.js cue: the first child and the last, shown by data-up, data-down) */
+:is(.menu, .found-list, .found-group[data-sub]) { scrollbar-width: none; }
+:is(.menu, .found-list, .found-group[data-sub])::-webkit-scrollbar { display: none; }
+.menu-more { position: sticky; z-index: 1; display: flex; box-sizing: border-box; justify-content: center; height: 30px; margin: 0 -6px; color: var(--color-screen-muted); pointer-events: none; visibility: hidden; }
+.menu-more.up { top: -6px; align-items: flex-start; margin-top: -6px; margin-bottom: -24px; padding-top: 3px; background: linear-gradient(var(--color-menu) 35%, transparent); }
+.menu-more.down { bottom: -6px; align-items: flex-end; margin-top: -24px; margin-bottom: -6px; padding-bottom: 3px; background: linear-gradient(transparent, var(--color-menu) 65%); }
+[data-up] > .menu-more.up, [data-down] > .menu-more.down { visibility: visible; pointer-events: auto; }
+.menu-more svg { width: 14px; height: 14px; }
 .menu.wide { width: 380px; }
 .menu.narrow { width: 230px; }
 #rate-menu, #channels-menu, #depth-menu { position-area: top span-right; }
@@ -917,45 +958,289 @@ html.embed .app .panes { --panel: clamp(320px, 46vw, 560px); margin: 0; border-r
 .embed-open:hover { color: var(--color-screen-bright); }
 .embed-open:focus-visible { outline: 2px solid var(--color-screen-accent); outline-offset: -2px; }
 .embed-open .embed-name { margin-right: 4px; color: var(--color-screen-soft); font: 600 13px var(--font-display); letter-spacing: -.03em; }
-.embed-open svg { width: 13px; height: 13px; }
+.embed-open svg { width: 15px; height: 15px; }
 .embed-open .embed-label { overflow: hidden; text-overflow: ellipsis; }
-@media (max-width: 420px) { .embed-open .embed-label { display: none; } }
+/* (the long words, Open in editor, gone on a phone; the chain has its mark alone) */
+@media (max-width: 420px) { html:not([data-edits="chain"]) .embed-open .embed-label { display: none; } }
 /* over the picture at the left, the sound's name, a menu of its ways in, as a tab's */
-.embed-sound { display: inline-flex; align-items: center; gap: 7px; min-width: 0; height: 28px; padding: 0 6px 0 8px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-soft); font: 13px var(--font-mono); cursor: pointer; }
+.embed-sound { display: inline-flex; align-items: center; gap: 7px; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-soft); font: var(--text-sm) var(--font-mono); cursor: pointer; }
 .embed-sound:hover, .embed-sound[aria-expanded="true"] { color: var(--color-screen-bright); background: var(--color-screen-hover); }
 .embed-sound svg { flex: none; width: 15px; height: 15px; }
-.embed-sound .embed-chevron { width: 13px; height: 13px; color: var(--color-screen-muted); }
+/* (no chevron: a button's, its ground lit under the hand and while its menu is open, the accent's ring focused) */
+.embed-sound:focus-visible { outline: 2px solid var(--color-screen-accent); outline-offset: -2px; }
 .embed-sound-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* after the history, the page's quick edits (ops: one button, a menu of them) and its files (open, save): the history's
-   own buttons, at its height and its size, on the length's line */
-.status :is(.embed-ops, .embed-files) { position: relative; top: calc(var(--line) - 4.5px); }
-.embed-files { display: flex; gap: 1px; }
+/* after the loop, the page's quick edits (ops: one button, a menu of them) and a file of the reader's opened (open); at
+   the bar's right end, last, as the export is, the result saved (save): the history's own buttons, at its height and
+   its size, on the length's line */
+.status :is(.embed-ops, .embed-open-file, .embed-save) { position: relative; top: calc(var(--line) - 4.5px); }
 .status .embed-ops { margin-left: 6px; }
+.status .embed-save { margin-left: 1px; }
 /* with edits made, how many by its plus */
 .status .embed-ops.made { display: inline-flex; gap: 1px; width: auto; padding: 0 7px 0 4px; font: 11px var(--font-mono); }
 /* the view's switch among the facts: the look's icon, the picture shown */
 .embed-view { display: inline-grid; place-items: center; }
 .embed-view svg { display: block; width: 14px; height: 14px; }
-.status :is(.embed-ops, .embed-files .icon-button) { width: 28px; height: 28px; min-height: 28px; border-radius: 6px; color: var(--color-screen-soft); }
-.status :is(.embed-ops, .embed-files .icon-button):hover:not(:disabled) { color: var(--color-screen-bright); background: var(--color-screen-hover); }
-.status :is(.embed-ops, .embed-files .icon-button):disabled { opacity: .4; }
+.status :is(.embed-ops:not(.made), .embed-open-file, .embed-save) { width: 28px; }
+.status :is(.embed-ops, .embed-open-file, .embed-save) { height: 28px; min-height: 28px; border-radius: 6px; color: var(--color-screen-soft); }
+.status :is(.embed-ops, .embed-open-file, .embed-save):hover:not(:disabled) { color: var(--color-screen-bright); background: var(--color-screen-hover); }
+.status :is(.embed-ops, .embed-open-file, .embed-save):disabled { opacity: .4; }
+/* after a tab's name, past a thin rule, what its sound is, in a word (tabs.js, readouts.js kindOf) */
+.head-kind { min-width: 0; padding-left: 10px; overflow: hidden; border-left: 1px solid color-mix(in oklab, currentColor 45%, transparent); color: var(--color-screen-soft); font: 13px/14px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+/* The edits the chain itself (?ui= edits chain), in the row over the picture after the sound's name, at its size: past
+   a thin bar, the edits made, each its name and its values, a thin bar between one and the next, as a flyer parts its
+   genres; each one a handle, dragged along the chain or onto the field (chain.js), pressed, its settings dropping from
+   it. Past another bar, where the next edit will stand, the field, Edit…, in the name's plain words, quieter than an
+   edit made, as wide as what it says (the history at the row's end: .head-end). Made ones running past the row's end run
+   on under it, the field with them, no line starting with a bar (menus.js fitChain) */
+/* (a chain run on under its row: the name and the save on its first line) */
+.view-head:has(> .embed-chain) { align-items: flex-start; }
+.view-head > .embed-sound:has(~ .embed-chain) { flex: none; }
+.embed-chain { --cell: 28px; display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: center; min-width: 0; color: var(--color-screen-soft); font: var(--text-sm)/var(--cell) var(--font-mono); }
+.embed-chain::before, .chain-step + :is(.chain-step, .chain-find)::before, .embed-chain[data-carry] .chain-step::before { content: ''; flex: none; align-self: center; width: 1px; height: 1.15em; background: currentColor; opacity: .55; }
+.embed-chain::before { margin: 0 2px 0 0; }
+.chain-step { display: inline-flex; align-items: center; min-width: 0; }
+.chain-step + :is(.chain-step, .chain-find)::before, .embed-chain[data-carry] .chain-step::before { margin: 0 2px; }
+/* (one a long chain runs on to a line of its own: no bar before it, its room kept: menus.js fitChain) */
+:is(.chain-step, .chain-find)[data-wrap]::before { visibility: hidden; }
+/* (while an edit is carried, the edits laid by their `order` as they would stand were it let go, a bar before each but
+   the first; its own place kept, empty: chain.js) */
+.embed-chain[data-carry] .chain-step[data-lead]::before { display: none; }
+.chain-step.carried > .chain-edit { visibility: hidden; }
+.chain-edit { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; min-width: 0; height: var(--cell); padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-screen-ink); font: inherit; white-space: nowrap; cursor: grab; touch-action: pan-y; }
+:is(.embed-chain, .step-tab) .edit-name { font-weight: 500; }
+:is(.embed-chain, .step-tab) .edit-values { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--color-screen-soft); font-variant-numeric: tabular-nums; }
+/* (bypassed: where it stands, in the quiet ink, its name struck through, as a card's switched off is dimmed: chain.js
+   bypassEdit) */
+:is(.chain-edit, .step-tab)[data-off] :is(.edit-name, .edit-values) { color: var(--color-screen-muted); }
+:is(.chain-edit, .step-tab)[data-off] .edit-name { text-decoration: line-through; text-decoration-thickness: 1px; }
+/* (carried: a copy of it under the pointer, lifted off the row onto the settings' ground: chain.js) */
+.chain-carried { position: fixed; top: 0; left: 0; z-index: var(--z-drag); margin: 0; background: var(--color-menu); color: var(--color-screen-bright); box-shadow: var(--shadow-lifted); pointer-events: none; }
+.embed-chain[data-carry], .embed-chain[data-carry] .chain-edit { cursor: grabbing; }
+/* (a button, as a select's: what it says, in the soft ink, as wide as its words, no chevron; its bar in a column of
+   its own before it. Pointed at or its list open, the ground under it lit, as an edit's under the hand; focused, the
+   accent's ring) */
+.chain-find { display: inline-grid; grid-template-columns: max-content auto; flex: none; margin: 0 4px 0 0; }
+.chain-find > * { grid-area: 1 / 2; }
+.chain-find::before { grid-area: 1 / 1; }
+.chain-add { display: inline-flex; align-items: center; box-sizing: border-box; height: var(--cell); padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-screen-soft); font: inherit; white-space: nowrap; cursor: pointer; }
+.chain-add:is(:hover, [aria-expanded="true"]):not([aria-disabled="true"]) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.chain-add:focus-visible { outline: 2px solid var(--color-screen-accent); outline-offset: -2px; }
+/* (while an edit is carried, a trash can, Remove, over the field and the bar before it, as wide as the field at least
+   and running on to the right where its words are wider, into the chain's room after the field (the history stands
+   at the row's end): laid over the row, so nothing on it moves as it comes. Lit while the edit would land on it:
+   chain.js) */
+.chain-find { position: relative; }
+.chain-find > .chain-trash { position: absolute; inset: 0 auto 0 0; z-index: 1; display: none; align-items: center; justify-content: center; gap: 4px; box-sizing: border-box; min-width: 100%; padding: 0 8px; border-radius: var(--radius-sm); color: var(--color-screen-soft); white-space: nowrap; pointer-events: none; }
+.chain-trash svg { flex: none; width: 15px; height: 15px; }
+.embed-chain[data-carry] .chain-find > .chain-trash { display: flex; }
+.embed-chain[data-carry] .chain-find::before { visibility: hidden; }
+.embed-chain[data-carry] .chain-add { color: transparent; }
+.chain-find[data-lit] > .chain-trash { background: var(--color-screen-hover); color: var(--color-screen-error); }
+:is(.chain-edit, .head-end .history .icon-button):hover:not([aria-disabled="true"], :disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.chain-edit[aria-expanded="true"] { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+:is(.chain-edit, .head-end .history .icon-button):focus-visible { outline: 2px solid var(--color-screen-accent); outline-offset: -2px; }
+/* with no sound to edit, dimmed, the keys still theirs */
+.embed-chain :is(.chain-edit, .chain-add)[aria-disabled="true"] { opacity: .35; cursor: default; }
+/* at the row's right end, aligned there: the history (none with no history; then both, in their places, the one that
+   cannot act dimmed); the save, its icon and its word; then the way to the repl, its mark alone, the last thing on the
+   row */
+.head-end { display: flex; flex: none; align-items: center; gap: 1px; margin-left: auto; }
+.view-head > .head-end ~ .embed-open { margin-left: 0; }
+.head-end .history { display: flex; gap: 1px; margin-right: 2px; }
+.head-end .icon-button { width: 28px; height: 28px; min-height: 28px; border-radius: var(--radius-sm); color: var(--color-screen-soft); }
+.head-end .icon-button svg { width: 16px; height: 16px; }
+.head-end .embed-save { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 6px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-screen-soft); font: inherit; font-size: 12px; white-space: nowrap; }
+.head-end .embed-save svg { flex: none; width: 16px; height: 16px; }
+.head-end :is(.icon-button, .embed-save):hover:not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.head-end :is(.icon-button, .embed-save):disabled { opacity: .35; }
+.head-end :is(.icon-button, .embed-save):focus-visible { outline: 2px solid var(--color-screen-accent); outline-offset: -2px; }
+/* what the field finds, under it (menus.js findOpen), laid as the page's menus are (menu.js: .menu, .menu-row), one
+   family: their ground, corners, shadow and inset, a row as tall, its icon in their column, its words where theirs
+   are; a row an edit, its name and its values, what it does its title; its groups unnamed, a hairline between them, as
+   a menu's sections; the lit one in the menus' choice */
+.edits-found { position: fixed; inset: auto; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 10px; background: var(--color-menu); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); font-size: 12.5px; }
+/* (at its top a search, the keys in it as the list opens, typed in to narrow the rows: a field one tells from a row at
+   a glance, as a design app's search is, a well a shade under the list's ground (a row lit is a shade over it), a
+   magnifier before the words, a clear button once something is typed, a ring in the accent while the keys are in it,
+   a hairline under its area. Under it the rows, scrolled within where the frame cuts them short, its edges cued:
+   menu.js cue) */
+.edits-found:popover-open { display: flex; flex-direction: column; }
+.found-field { position: relative; flex: none; padding: 6px; border-bottom: 1px solid var(--color-screen-rule); }
+.found-field > svg { position: absolute; top: 50%; left: 15px; width: 14px; height: 14px; translate: 0 -50%; color: var(--color-screen-muted); pointer-events: none; }
+.found-search { display: block; box-sizing: border-box; width: 100%; height: 30px; margin: 0; padding: 0 32px 0 30px; border: 0; border-radius: 6px; background: var(--color-screen-well); color: var(--color-screen-ink); font: inherit; outline: none; }
+.found-search::placeholder { color: var(--color-screen-muted); }
+.found-search::-webkit-search-cancel-button { display: none; }
+.found-search:focus { box-shadow: inset 0 0 0 1px var(--color-screen-accent); }
+.found-clear { position: absolute; top: 50%; right: 10px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); translate: 0 -50%; }
+.found-clear:hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.found-clear[hidden] { display: none; }
+.found-clear svg { width: 14px; height: 14px; }
+.found-list { min-height: 0; padding: 6px; overflow: hidden auto; }
+.found-group:not([data-sub]) + .found-group:not([data-sub]) { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--color-screen-rule); }
+/* (a section's small head, the menus' own (menu-group): Suggested, Recipes; the first one's nearer the search) */
+.found-head.menu-group { margin: 6px 10px 4px; }
+.found-group:first-of-type > .found-head.menu-group { margin-top: 2px; }
+.found-row { display: grid; grid-template-columns: 16px minmax(0, max-content) minmax(0, 1fr); align-items: center; gap: 6px; min-height: 28px; padding: 0 10px 0 6px; border-radius: 6px; color: var(--color-screen-ink); cursor: pointer; }
+.found-row > svg:first-child { width: 15px; height: 15px; color: var(--color-screen-muted); }
+.found-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.found-name strong { font-weight: 400; }
+/* (its hint, as a menu row's keys are: at its right end in the quiet ink, the value it is made with, a recipe's count
+   of edits (none on a row that opens a submenu: its chevron alone); 12em at most, about half the list's width, cut there with an ellipsis, the whole of it then in the
+   row's tooltip: menu.js hinted. The name is never cut while it shows: the name's column is as wide as the name, the
+   hint taking what is left; left less than 2em, as a narrow column leaves it, the hint not shown (data-tight), the
+   tooltip holding it; and a name wider than its row alone cut with an ellipsis, whole in the tooltip too) */
+.found-hint { display: flex; align-items: center; justify-self: end; gap: 4px; min-width: 0; max-width: min(12em, 100%); margin-left: 12px; color: var(--color-screen-muted); font-variant-numeric: tabular-nums; }
+.found-hint > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-tight] :is(.menu-keys, .found-hint > span) { visibility: hidden; }
+.found-row[aria-selected="true"] { background: var(--color-menu-select); color: var(--color-menu-select-ink); }
+.found-row[aria-selected="true"] :is(.found-hint, svg) { color: inherit; }
+/* (its value dragged across: the pointer across, a line in the accent at its foot as far along as the value is in its
+   setting's range, as Play's line shows the speed: menus.js findHold; a finger's drag across is the row's) */
+.found-row { touch-action: pan-y; }
+/* (each value a drag sets says so under the pointer, as a slider's thumb does) */
+.found-value[data-drags] { cursor: ew-resize; }
+.found-row[data-held] { background: linear-gradient(var(--color-screen-accent) 0 0) 0 100% / calc(var(--along) * 100%) 2px no-repeat, var(--color-menu-select); cursor: ew-resize; }
+.found-row[aria-disabled="true"] { opacity: .4; cursor: default; }
+.found-none { margin: 8px 10px; }
+/* a kind's row (and Recipes') a chevron at its right end, as a menu's row with a submenu; its edits beside the
+   list, a submenu of their own (placed by menus.js placeSub); in a phone's frame in the list's place, the first level
+   gone, a way back over them, the kind's name */
+.found-more { width: 14px; height: 14px; color: var(--color-screen-muted); }
+.found-back { display: none; }
+.found-group[data-sub] { position: fixed; left: var(--sub-x); top: var(--sub-y); width: var(--sub-w); max-height: var(--sub-h); margin: 0; padding: 6px; overflow: hidden auto; border: 0; border-radius: 10px; background: var(--color-menu); box-shadow: var(--shadow-menu); }
+@media (max-width: 640px) {
+  .found-group[data-sub] { position: static; width: auto; max-height: none; padding: 0; border-radius: 0; background: none; box-shadow: none; }
+  .edits-found[data-kind] .found-group:not([data-sub]) { display: none; }
+  .found-group[data-sub] > .found-back { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 28px; margin-bottom: 2px; padding: 0 8px 0 4px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-muted); font: inherit; text-align: left; }
+  .found-back svg { width: 15px; height: 15px; }
+}
+/* an edit's settings, dropping from it, one shape with it, as the old widget's pill and its menu were (menus.js
+   openStep): over the edit its tab, as wide and as tall (placed: --tab-x, --tab-w, --tab-h), an edit's top corners,
+   on the settings' ground, the edit pressed; joined under it the body: what it does in the quiet ink, the settings as an
+   edit's card has them (settings.js), Remove at their foot past a hairline. One shadow round the two, the menus' own as
+   a filter (a box's own would rule a line where they meet); the tab seen only, a press on it the edit's under it. The
+   body's corner the tab stands on squared (`join`); as tall as the frame leaves (--room), scrolled within */
+.step-settings { position: fixed; inset: auto; display: none; flex-direction: column; align-items: flex-start; margin: 0; padding: 0; overflow: visible; border: 0; background: none; color: var(--color-screen-soft); filter: var(--filter-menu); pointer-events: none; }
+.step-settings:popover-open { display: flex; }
+.step-tab { display: flex; flex: none; align-items: center; gap: 6px; box-sizing: border-box; width: var(--tab-w); height: var(--tab-h); margin: 0 0 0 var(--tab-x, 0px); padding: 0 10px; overflow: hidden; border-radius: var(--radius-sm) var(--radius-sm) 0 0; background: var(--color-menu); color: var(--color-screen-bright); font: var(--text-sm) var(--font-mono); white-space: nowrap; }
+.step-body { display: grid; gap: 8px; align-self: stretch; max-height: var(--room); padding: 10px 12px 4px; overflow: auto; border-radius: 10px; background: var(--color-menu); pointer-events: auto; }
+.step-settings[data-join="left"] .step-body { border-top-left-radius: 0; }
+.step-settings[data-join="right"] .step-body { border-top-right-radius: 0; }
+.step-about { margin: 0; color: var(--color-screen-muted); font-size: 11.5px; line-height: 1.35; }
+.step-settings .params { padding: 0; }
+/* (one with no settings: what it does, then Bypass and Remove, side by side, each half the foot; Bypass pressed while the
+   edit is off, lit as a pressed key is) */
+.step-settings-body:has(> .params.none) { display: none; }
+.step-foot { display: flex; gap: 2px; margin: 0 -12px; padding: 4px 6px 0; border-top: 1px solid var(--color-screen-rule); }
+:is(.step-bypass, .step-remove) { display: flex; flex: 1 1 0; align-items: center; gap: 8px; min-width: 0; min-height: 28px; padding: 0 6px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-soft); font: 11.5px var(--font-body); text-align: left; white-space: nowrap; }
+:is(.step-bypass, .step-remove) svg { flex: none; width: 15px; height: 15px; }
+:is(.step-bypass, .step-remove):hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.step-bypass[aria-pressed="true"] { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+/* (Remove takes the edit away: in red, the one colour for an act that takes something away; hints are the accent's) */
+.step-remove, .step-remove:hover { color: var(--color-screen-error); }
+:is(.step-bypass, .step-remove):focus-visible { outline: 2px solid var(--color-screen-accent); outline-offset: -2px; }
+/* before the level, what kind of sound it is, where the chain has the row over the picture (?ui= edits chain): as the
+   level's words are, pressed as it is (a menu of what it shows), and gone where it goes */
+.status .bar-kind { position: relative; flex: 0 1 auto; align-self: baseline; min-width: 0; margin-left: 4px; padding: 0 3px; overflow: hidden; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.status .bar-kind:hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.status .bar-kind:focus-visible { outline: 2px solid var(--color-screen-accent); outline-offset: -2px; }
+.status-main:has(.message-words:not(:empty)) .bar-kind { display: none; }
+@container bar (max-width: 479px) { .status .bar-kind { display: none; } }
+/* embedded, what the sound is and its level at the bar's right, by the rate and the channels, one row of figures as
+   far apart as those are (kind, level, rate, channels); the left the transport, the time, its length, the loop, and the
+   message where it was. The level's words at its right end, so what it reads, changing, moves nothing after it */
+html.embed .status-main::after { content: ''; order: 1; margin-left: auto; }
+html.embed .status-main > :is(.bar-kind, .readout, .heard) { order: 2; }
+/* in groups, a thin bar between each and the next, as the chain's (kind | level | rate channels | view's switch), as
+   much room each side of each bar (--sep, from the words' edges and the switch's icon, 3 px inside its button),
+   laid in the room between, so no button's ground
+   under the hand takes it. The level as wide as what it reads, so its room is even too: a selection's reading, wider
+   or narrower, moves the kind */
+html.embed .status { --sep: 10px; }
+html.embed .status .readout { min-width: 0; margin-left: calc(2 * var(--sep) + 1px - 12px); }
+html.embed .status .facts { padding-left: calc(2 * var(--sep) + 1px - 3px); }
+html.embed .status .facts .embed-view { position: relative; margin-left: calc(var(--sep) + 1px - 3px); }
+html.embed .status :is(.bar-kind + .readout, .facts, .facts .embed-view)::before { content: ''; position: absolute; top: 50%; width: 1px; height: 1.15em; translate: 0 -50%; background: currentColor; opacity: .4; pointer-events: none; }
+html.embed .status .bar-kind + .readout::before { left: calc(3px - var(--sep) - 1px); }
+html.embed .status .facts::before { left: calc(var(--sep) - 3px); }
+html.embed .status .facts .embed-view::before { left: calc(3px - var(--sep) - 1px); }
+/* a row too narrow for the name and the chain (a tablet's upright, a phone's): the chain on a row of its own under the
+   name, no bar before it, its first word on the name's line. The name and the row's right end stay on one line, the
+   name giving way to an ellipsis where they do not fit (as wide as its words where there is room, else what is left,
+   as the field is sized), so the right end never parts */
+@container bar (max-width: 760px) {
+  .view-head:has(> .embed-chain) { flex-wrap: wrap; row-gap: 0; }
+  .view-head > .embed-chain { order: 1; flex-basis: 100%; margin-left: -10px; }
+  .embed-chain::before { display: none; }
+  .view-head > .embed-sound:has(~ .embed-chain) { flex: 1 1 0; max-width: max-content; }
+}
 /* the page's own ground (background, its colour read off the page by embed.js): the slab in it, no corners, the
    picture's edges fading into it */
 html.embed[data-ground] .app .panes { background: var(--ground); border-radius: 0; }
 /* and with no slab's edge to keep off, the bar starts at the frame's: the play button under the sound's name */
 html.embed[data-ground] .app .panes > .status { padding-left: 0; }
 html.embed[data-ground] .plot .fade { background: var(--ground); }
-/* the parts the page shows (?controls=, index.html), each by its name; without the list, all but the files' buttons and
-   the view's switch. A level word (level, peak, rms, loudness) shows the readout, reading that. Record left out, its slot
+/* there its words are the page's, one ink: the slab's greys, made to step back on the slab, read on a page's ground as
+   words half gone, so each (a name, a figure, a label of the picture's, an icon) is the ink the time is; what is off
+   stays dimmed. The way to the repl, with no brighter ink to take, takes a ground under the hand as the others do */
+html.embed[data-ground] :is(.view-head, .view-slab, .status) { --color-screen-soft: var(--color-screen-ink); --color-screen-muted: var(--color-screen-ink); --color-screen-line-number: var(--color-screen-ink); }
+/* but an edit's values in the chain: the soft ink still, as its tab has them while its settings are open, so what a
+   press sets reads apart from the name, at rest, under the hand and focused */
+html.embed[data-ground] { --values-ink: var(--color-screen-soft); }
+html.embed[data-ground] .embed-chain .chain-edit:not([data-off]) .edit-values { color: var(--values-ink); }
+html.embed[data-ground] .embed-open:hover { background: var(--color-screen-hover); }
+/* and in one face at two sizes, where the page asks (?ui= font sans): the display's, the time's own. Its words (the
+   sound's name, the edits, the bar's small words and figures, each digit as wide as another still) at the tokens' text
+   size, as a page sets what is read; the picture's labels, its times and its values, small, as a figure's axis is set
+   under a page's text; the large time stays large, the script keeps the mono. (The labels' size registered as a
+   length, so the picture, which reads it, reads it in px) */
+@property --font-size-label { syntax: '<length>'; inherits: true; initial-value: 10px; }
+html[data-font="sans"] { --font-size-label: 11px; }
+html[data-font="sans"] :is(.view-head, .view-slab, .status, .step-settings, .edits-found) { --font-mono: var(--font-display); }
+html[data-font="sans"] :is(.embed-sound, .embed-chain, .step-tab, .head-end .embed-save, .embed-open, .status :is(.message, .facts, .readout, .heard, .bar-kind)) { font-size: var(--text-md); }
+/* (what the field finds, as the field is set: an edit's name at the words' size, what it does and its group's name at
+   the tokens' small text's; an edit's settings so too: its tab, the edit, at the words' size, all under it, what it
+   does, its settings' names, values and choices, and Remove, at the small text's) */
+html[data-font="sans"] .edits-found { font-size: var(--text-md); }
+html[data-font="sans"] .edits-found :is(.found-hint, .found-back) { font-size: var(--text-sm); }
+/* (and the page's menus, the sound's name's among them, as the field's list is: one family, a row's words at the text
+   size, its hints at the small text's, a row as tall for both, the face the same) */
+html[data-font="sans"] .menubar-list { --font-mono: var(--font-display); }
+html[data-font="sans"] .menubar-list .menu-row { font-size: var(--text-md); }
+html[data-font="sans"] .menubar-list :is(.menu-keys, .menu-keys.menu-hint, .menu-about) { font-size: var(--text-sm); }
+html[data-font="sans"] :is(.menubar-list .menu-row, .found-row) { min-height: 32px; }
+/* (the palette's rows as tall as a menu's are in the mono face, 28 px: a palette is denser than a menu, and so a frame
+   as low as the home's at 1024 by 768 leaves room for half the longest section, 27 edits, in a column) */
+html[data-font="sans"] .step-body :is(.step-about, .param label, .param output, .choices button, .step-more, .step-more span, .step-bypass, .step-remove) { font-size: var(--text-sm); }
+/* the frame as wide as the page (?ui= inset, a length, or two: --inset its left side's, --inset-end its right's,
+   the same where one is given): the picture from side to side of it; over and under it the sound's name, the way
+   to the repl and the bar, standing in from its sides as far as the page's text does, the first mark of each on
+   that line and the last on the other (a button's own room about its mark taken back, never past the frame's edge) */
+html.embed[data-inset] .app .panes > :is(.view-head, .status) { padding-inline: var(--inset) var(--inset-end); }
+html.embed[data-inset] .app .status-end { padding-right: 0; }
+html.embed[data-inset] .view { margin-left: 0; }
+html.embed[data-inset] .embed-sound { margin-left: calc(-1 * min(8px, var(--inset))); }
+html.embed[data-inset] .embed-open { margin-right: calc(-1 * min(6px, var(--inset-end))); }
+html.embed[data-inset]:is(:not([data-controls]), [data-controls~="play"]) .status-main > .deck-slot:first-of-type { margin-left: calc(-1 * min(17px, var(--inset))); }
+html.embed[data-inset]:is(:not([data-controls]), [data-controls~="history"]):not([data-controls~="save"]) .status .history { margin-right: calc(-1 * min(5px, var(--inset-end))); }
+html.embed[data-inset][data-controls~="save"] .status .embed-save { margin-right: calc(-1 * min(5px, var(--inset-end))); }
+/* (the row over the picture's right end, with the edits the chain and no way to the repl after it: the save's word on the line) */
+html.embed[data-inset][data-controls~="save"]:not([data-controls~="link"]) .head-end .embed-save { margin-right: calc(-1 * min(8px, var(--inset-end))); }
+/* the parts the page shows (?controls=, index.html), each by its name; without the list, all but the files' buttons,
+   the view's switch and a selection's fork (takes started there: an editor's, not a figure's). A level word (level, peak, rms, loudness) shows the readout, reading that. Record left out, its slot
    goes with it, back while a render runs for its Stop. A band's look, the dropdown of how it draws, only where named
-   (look): view is a switch between the waveform and the spectrogram, among the facts */
+   (look): view is a switch between the waveform and the spectrogram, among the facts. A take recording, Record is its
+   Stop where Record is named; where not, Play is (a stop sign: config.js PLAY_STOPS), Record's slot staying out (started
+   from the sound's menu, there is a way to stop it, and one only). What the engine is doing (an edit
+   applied, a sound decoding: the message's `working`) is said in the readouts' place, the message named or not: what
+   was done and what went wrong only where `message` is */
 html.embed[data-controls]:not([data-controls~="play"]) .panes .play,
 html.embed[data-controls]:not([data-controls~="record"]) .panes .record,
 html.embed[data-controls]:not([data-controls~="record"]) .panes .deck-slot:has(> .busy[inert]),
 html.embed[data-controls]:not([data-controls~="loop"]) .panes .loop,
 html.embed[data-controls]:not([data-controls~="clock"]) .panes .clock,
 html.embed[data-controls]:not([data-controls~="history"]) .panes .history,
-html.embed[data-controls]:not([data-controls~="message"]) .panes .message,
+html.embed[data-controls]:not([data-controls~="message"]) .panes .message:not(.working),
 html.embed[data-controls]:not([data-controls~="heard"]) .panes .heard,
 html.embed[data-controls]:not([data-controls~="level"]):not([data-controls~="peak"]):not([data-controls~="rms"]):not([data-controls~="loudness"]) .panes .readout,
 html.embed[data-controls]:not([data-controls~="rate"]) .panes .fact[popovertarget="rate-menu"],
@@ -968,6 +1253,7 @@ html.embed:not([data-controls~="sound"]) .embed-sound,
 html.embed:not([data-controls~="open"]) .embed-open-file,
 html.embed:not([data-controls~="save"]) .embed-save,
 html.embed:not([data-controls~="view"]) .embed-view,
+html.embed:not([data-controls~="fork"]) .plot .fork,
 html.embed[data-controls]:not([data-controls~="look"]) .panes :is(.lane-look, .layer-look) { display: none; }
 /* a readout or a fact the page names stays where the whole editor's bar, its clock in it, would make room: from 480px
    wide, as long as no message is in its place */

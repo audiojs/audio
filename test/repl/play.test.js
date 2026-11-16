@@ -155,7 +155,7 @@ test('editor: the caret goes where the pointer presses; Play starts on its press
   assert.match(await readout(), /^−/)
   // pointed at, in samples
   assert.match(await page.locator('.length').evaluate(tipOf), /^Selected length\n44,100 samples$/)
-  assert.match(await page.locator('.time').evaluate(tipOf), /^Caret\nSample 88,200$/)
+  assert.match(await page.locator('.time').evaluate(tipOf), /^Caret\nSample 88,200; drag across to move it$/)
   // the press alone plays; the release changes nothing
   const play = await page.locator('button.play').boundingBox()
   await page.mouse.move(play.x + play.width / 2, play.y + play.height / 2)
@@ -292,8 +292,8 @@ test('editor: scrolled while it plays, the view stays where it was put till the 
   assert.deepEqual(await range(), put, 'in sight, left where it was put')
   // the clock and the view read in one go: a frame apart, the view's span is a few frames' play
   await poll(() => page.evaluate(() => { const [m, s] = document.querySelector('.time').textContent.split(':'), [p, q] = __view.range; return [p, (+m * 60 + +s - p) / (q - p)] }), ([c, at]) => assert.ok(c > put[0] && Math.abs(at - .5) < .15, `past the edge, followed: ${at.toFixed(2)} across`))
-  // over the scrollbar, at the time row's top, the arrow, as over any scrollbar
-  await page.mouse.move(box.x + w / 2, box.y + box.height - 18)
+  // over the scrollbar, in its strip at the picture's foot, the arrow, as over any scrollbar
+  await page.mouse.move(box.x + w / 2, box.y + box.height - 4)
   assert.equal(await page.locator('.plot').evaluate(e => e.style.cursor), 'default')
   await page.keyboard.press('Space')
 })
@@ -596,6 +596,42 @@ test('editor: Play held at 0, let go, stops there, the caret drawn where the pla
   await poll(() => page.locator('.plot .playhead').evaluate(e => e.hidden), hidden => assert.equal(hidden, true, 'no playhead left'))
   const t = await page.locator('.time').innerText().then(s => { const [m, x] = s.split(':'); return +m * 60 + +x })
   assert.ok(t > .05, `the caret where it stood, past the start: ${t}`)
+})
+
+// The clock's time held and dragged across moves the caret from where it stands, as Play held and dragged moves the
+// speed: a quarter of the picture's own pace, so finer than a drag on the picture (the moment under it heard as a scrub
+// is), the pointer locked meanwhile, as a level dragged on the picture locks it, so it goes on past the window's edge;
+// let go, the caret stays there, the active one, the keys with the picture. A press that does not move is a click, the
+// caret where it was
+test('editor: the clock\'s time dragged across moves the caret from where it stands, finer than the picture', async () => {
+  await open()
+  const seconds = () => page.locator('.time').innerText().then(s => { const [m, x] = s.split(':'); return +m * 60 + +x })
+  const caret = () => page.evaluate(async () => (await import('/repl/editor/context.js')).v.cursor)
+  // (the pointer lock asked for, as the page's tests take it away: page.js; granted, it adds the moves up the same way)
+  await page.evaluate(() => { window.__locks = []; Element.prototype.requestPointerLock = function () { __locks.push(this.className); return Promise.resolve() } })
+  const keys = () => page.evaluate(() => document.activeElement?.classList.contains('plot'))
+  await page.evaluate(async () => (await import('/repl/editor/context.js')).v.setCursor(1))
+  await poll(seconds, t => assert.equal(t, 1))
+  const pace = await page.evaluate(async () => { const { v } = await import('/repl/editor/context.js'), [a, b] = v.frame.range; return (b - a) / document.querySelector('.plot').clientWidth })
+  const time = await page.locator('.clock .time').boundingBox(), y = time.y + time.height / 2
+  // a press that does not move: the caret where it was
+  await page.mouse.click(time.x + time.width / 2, y)
+  assert.equal(await caret(), 1, 'a click moves nothing')
+  // dragged 80 px right: the caret 80 px of the picture's pace, over four, on
+  await page.mouse.move(time.x + time.width / 2, y)
+  await page.mouse.down()
+  await page.mouse.move(time.x + time.width / 2 + 40, y, { steps: 4 })
+  await poll(() => page.evaluate(() => document.querySelector('#app').classList.contains('timing')), on => assert.ok(on, 'dragged, the pointer across'))
+  await page.mouse.move(time.x + time.width / 2 + 80, y, { steps: 4 })
+  assert.deepEqual(await page.evaluate(() => __locks), ['time'], 'the pointer locked to the time')
+  assert.equal(await keys(), true, 'the keys with the picture, the caret active, as it goes')
+  await page.mouse.up()
+  const t = await caret()
+  assert.ok(Math.abs(t - (1 + 80 * pace / 4)) < pace, `on by a quarter of the picture's pace: ${t} (the picture's ${pace} s a pixel)`)
+  assert.ok(t - 1 < 80 * pace / 2, 'finer than a drag on the picture')
+  await poll(seconds, s => assert.ok(Math.abs(s - t) < .002, `the clock says it: ${s}`))
+  assert.equal(await page.evaluate(() => document.querySelector('#app').classList.contains('timing')), false, 'let go: done')
+  assert.equal(await keys(), true, 'let go, the caret still the active one')
 })
 
 // Play held and dragged across searches, as a shuttle ring: from the speed it plays at, a tenth of 1× each 4 px, −2× to

@@ -121,14 +121,14 @@ test('editor: a step chosen among the edits shows the output up to it and opens 
   assert.equal(await rolled(), '')
   // what a step sets shows on the picture only while its card is under the pointer: normalize's level, a dashed line
   // across each lane, twice
-  const orange = () => pixels(`let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] - d[i + 2] > 60) n++; return n`)
+  const accented = () => pixels(`let n = 0; for (let i = 0; i < d.length; i += 4) if (accent(i) > 1 / 3) n++; return n`)
   await page.mouse.move(0, 0)
   await settled()
-  const away = await orange(), width = (await page.locator('.plot').boundingBox()).width
+  const away = await accented(), width = (await page.locator('.plot').boundingBox()).width
   await card('Normalize').hover()
-  await poll(orange, over => assert.ok(over - away > width, `the level lines: ${away} orange pixels, ${over} over its card`))
+  await poll(accented, over => assert.ok(over - away > width, `the level lines: ${away} pixels in the accent, ${over} over its card`))
   await page.mouse.move(0, 0)
-  await poll(orange, n => assert.ok(Math.abs(n - away) < width / 4, 'gone with the pointer'))
+  await poll(accented, n => assert.ok(Math.abs(n - away) < width / 4, 'gone with the pointer'))
   // keys on the picture, or Tab to the next control, draw no focus ring
   await page.locator('.plot').focus()
   await page.keyboard.press('ArrowRight')
@@ -498,8 +498,8 @@ test('editor: the recipes, where the link asks for them, in Process; none otherw
   assert.ok(!(await rows()).includes('Recipes'), 'none by default')
   await open({ recipes: true })
   assert.equal((await rows())[0], 'Recipes')
-  await menu('Process', 'Recipes', 'Restore vinyl')
-  await page.waitForFunction(() => /^audio\('chime\.wav'\)\.trim\(\)\.normalize\(-1\)\.fade\(0\.02,0\.1\)\/\/Restorevinyl\.declick\(\)\.decrackle\(\)\.midside/.test(scriptText().replace(/\s+/g, '')))
+  await menu('Process', 'Recipes', 'Restore a vinyl record')
+  await page.waitForFunction(() => /^audio\('chime\.wav'\)\.trim\(\)\.normalize\(-1\)\.fade\(0\.02,0\.1\)\/\/Restoreavinylrecord\.declip\(\)\.declick\(\)\.decrackle\(\)\.midside/.test(scriptText().replace(/\s+/g, '')))
 })
 
 // History as Photoshop's: a card chosen rolls the output back to it; an edit made then goes in right after it, its card

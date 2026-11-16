@@ -36,6 +36,8 @@
   --color-screen-soft: oklch(80% 0 0);
   --color-screen-muted: oklch(68% 0 0);
   --color-screen-dim: oklch(62% 0 0);
+  /* The accent guides: a hint, a mark, the focus, a line or a fill. Red is what changes, records or fails. */
+  --color-screen-accent: #5cbacc;
   --color-screen-error: oklch(74% 0.14 28);
   --color-screen-record: oklch(68% .2 28);
   /* A cast shadow: a soft band just below the slab, then layers doubling offset and blur into a long, faint tail. */
@@ -52,6 +54,19 @@
   --shadow-menu: inset 0 1px 0 var(--color-screen-rule), 0 0 0 1px var(--color-bezel), 0 2px 6px oklch(0% 0 0 / .2), 0 16px 36px oklch(0% 0 0 / .24);
   --filter-menu: drop-shadow(0 0 1px var(--color-bezel)) drop-shadow(0 2px 6px oklch(0% 0 0 / .2)) drop-shadow(0 16px 36px oklch(0% 0 0 / .24));
   --shadow-pill: inset 0 0 0 1px var(--color-screen-edge), 0 3px 4px oklch(0% 0 0 / .3), 0 8px 16px oklch(0% 0 0 / .25);
+  /* A tooltip (popoff: assets/popoff.js), raised as a menu is: its ground, its name bright, what it does softer, its
+     keys in the mono and quieter, its corners, its shadow, its fade in. The editor's, so a page that loads these and
+     popoff has the editor's tooltips; the editor's skin sets --color-tip as its theme does (repl/skin.css, theme.js) */
+  --color-tip: rgb(36 36 36);
+  --popoff-bg: var(--color-tip);
+  --popoff-ink: var(--color-screen-bright);
+  --popoff-soft: var(--color-screen-soft);
+  --popoff-muted: var(--color-screen-muted);
+  --popoff-font: 11.5px/16px var(--font-body);
+  --popoff-keys-font: 11px var(--font-mono);
+  --popoff-radius: 6px;
+  --popoff-shadow: drop-shadow(0 0 .5px var(--color-bezel)) drop-shadow(0 3px 8px oklch(0% 0 0 / .28));
+  --popoff-fade: var(--dur-micro);
   --font-display: 'Geist', ui-sans-serif, system-ui, sans-serif;
   --font-body: var(--font-display);
   --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace;

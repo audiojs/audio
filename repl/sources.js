@@ -11,8 +11,9 @@ export function unique(name, taken) {
   return `${base}-${i}${ext}`
 }
 
-// The built-in samples, made on first use: chime.wav, handpan.wav, …
+// The built-in samples, made on first use: chime.wav, handpan.wav, …; and what each is, in a word
 export const builtins = Object.fromEntries(Object.entries(samples).map(([name, s]) => [`${name}.wav`, s.description]))
+export const kinds = Object.fromEntries(Object.entries(samples).map(([name, s]) => [`${name}.wav`, s.kind]))
 export function sample(name) {
   const make = samples[name.replace(/\.wav$/, '')]?.make
   return make && { channels: make(), sampleRate: RATE }
@@ -74,7 +75,7 @@ export async function microphone({ channels = 1 } = {}) {
   clearTimeout(held.timer)
   let i
   try { i = await held.ready } catch (error) { if (input === held) input = null; throw error }
-  const mic = { sampleRate: i.sampleRate, latency: i.latency, get recent() { return i.recent }, get time() { return i.context.currentTime } }
+  const mic = { sampleRate: i.sampleRate, latency: i.latency, channels: i.channels, get recent() { return i.recent }, get time() { return i.context.currentTime } }
   // the take this handle took, and only that one, let go by it: another's handle (an arming let go late) stops nothing
   let mine = false
   mic.take = f => { held.taken = mine = true; i.onblock = f }
@@ -101,7 +102,8 @@ function open(channels) {
       const [stream] = await Promise.all([asked, context.audioWorklet.addModule(url)])
       const source = context.createMediaStreamSource(stream), node = new AudioWorkletNode(context, 'take', { numberOfOutputs: 0, processorOptions: { channels } })
       const rate = context.sampleRate, latency = (stream.getAudioTracks()[0]?.getSettings().latency ?? 0) + 128 / rate
-      const i = { context, stream, source, node, sampleRate: rate, latency, recent: [], onblock: null }
+      // the channels its blocks will carry: those asked, as many as the device gives (where it says)
+      const i = { context, stream, source, node, sampleRate: rate, latency, channels: Math.min(channels, stream.getAudioTracks()[0]?.getSettings().channelCount ?? channels), recent: [], onblock: null }
       node.port.onmessage = ({ data: { x: data, t } }) => {
         i.settle?.(data[0])
         i.onblock?.(data, t)

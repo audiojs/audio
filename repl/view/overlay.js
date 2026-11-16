@@ -1,13 +1,13 @@
 import { CURVES } from '../ops.js'
 import { lightness } from '../tint.js'
 import { ownMarks, snappedTo, SIDES, unwritten } from './data.js'
-import { frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, hotBand, pointedBand, plot, merged, spare, lanes, extent, own, through, banded, MAP, veils, placeFrozen, roomLane } from './geometry.js'
-import { ONTO, INSET, midiOf, noteOf, STRETCH, TICK, root, hint, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, LEVEL_STEP, picked, tracks, focus, across, scroll, noted, held, assign } from './model.js'
-import { pitchRange, semis, pitchSays, intonationSays, median, pitched, clampY, paintGuide, BLACK, paintRoll, paintLine, bent, toneAt, paintContour } from './notes.js'
+import { frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, hotBand, pointedBand, plot, merged, spare, lanes, extent, own, through, banded, footH, veils, placeFrozen, roomLane, rowTop } from './geometry.js'
+import { ONTO, INSET, midiOf, noteOf, STRETCH, root, scaled, within, ruler, hint, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, LEVEL_STEP, picked, tracks, focus, across, scroll, noted, held, assign } from './model.js'
+import { pitchRange, semis, pitchSays, intonationSays, median, pitched, clampY, paintGuide, BLACK, paintRoll, paintLine, bent, toneAt, paintContour, labelled } from './notes.js'
 import { drag, touch, hot, opening } from './pointer.js'
 import { decibels, drawn, W, H, dpr, half, invalidate, tape, rolled, onTape, running, wash, caretColour, rgba, shades } from './render.js'
-import { paintRuler, layHead, awayOf, onAway, paintAway, THICK, paintBar, barLight } from './ruler.js'
-import { gutter, onBar, X, time, free, snapF, seen, stick, stuck, pitchLine, inside, fy, yf, rowOf, keyY, keyRows, ay, ampLanes, pitchLanes, ticks, beside, hzMarks, noteMarks, levelMarks, levelTicks, reads, decibel, level, measured, probe, setRange } from './scales.js'
+import { paintRuler, layHead, awayOf, onAway, paintAway, paintBar, barLight } from './ruler.js'
+import { gutter, onBar, X, time, free, snapF, seen, stick, stuck, pitchLine, inside, fy, yf, rowOf, keyY, keyRows, ay, ampLanes, pitchLanes, ticks, paintFoot, INTO, room, beside, axisMarks, hzMarks, noteMarks, levelMarks, levelTicks, reads, decibel, level, measured, probe, setRange } from './scales.js'
 import { paintMeasure, waveAt, ghostOf, placeFades, placeLook, paintRoom, paintLift, tag, accent, gauge, size, label, paintSelection, highlight, paintEdge, stamp, dragged, editing, paintCues, paintMarkers, heads, stripped, stripAt, kin, paintStrips, naming, paintOvers, paintClipped } from './strips.js'
 
 // The overlay, over the reel: the axes, the pointer's readouts, what is measured; on the reel, the marks drawn in time
@@ -37,7 +37,7 @@ export function paint(L) {
   overlayKept.draw(() => overlayOf(L, s))
   const { w } = plot()
   onStrip(meterStrip, meterAt(METER) - 2, 0, w, H, () => duration && metered(L) && (meters || show.keys && L.notes.length) && paintMeters(L))
-  onStrip(barStrip, 0, scroll === 'overview' ? H - MAP : plot().h, W, scroll === 'overview' ? H : plot().h + THICK + 2, () => duration && paintBar())
+  onStrip(barStrip, 0, H - footH(), W, H, () => duration && paintBar())
   barLight()
   if (!said) hint?.hide(self)
 }
@@ -53,7 +53,7 @@ function onStrip(strip, x0, y0, x1, y1, fn) {
 // The time row on the reel, from the lanes' foot down, the tape's width (laid as the marks are, paint): drawn on in the
 // tape's geometry, as the marks are
 function onRow(fn) {
-  const top = plot().h, bottom = H
+  const top = rowTop(), bottom = H
   const canvas = rowStrip.g.canvas, py = Math.floor(top * dpr), cw = marksCanvas.width, ch = Math.max(0, Math.round(bottom * dpr) - py)
   if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
   if (rowStrip.at !== py) { rowStrip.at = py; Object.assign(canvas.style, { top: `${py / dpr}px`, height: `${ch / dpr}px` }) }
@@ -136,7 +136,7 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
   // the times on the row, each tick the colour of the line it runs on from: the pointer's, where a press would put
   // the caret (what a drag moves, as it goes: the caret, an edge, a marker), the selection's start and end (an edge lit,
   // `hot` or dragged, bright); no caret's time of its own, the pointer's being the one asked about (the playhead's its
-  // own layer's); a file held over the picture, where it goes in; an end measured from in the measuring red
+  // own layer's); a file held over the picture, where it goes in; an end measured from in the accent (gauge)
   const caret = color('--color-screen-caret'), bright = color('--color-screen-bright'), here = caretColour()
   const litEdge = drag?.resizing && sel ? sel[sel[0] === drag.anchor ? 1 : 0] : !drag && hot ? hot.t : null
   const edges = sel && !drag?.span ? sel.map((t, edge) => ({ t, fill: t === litEdge ? bright : caret, edge, of: sel })) : []
@@ -159,10 +159,13 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
   else if (show.gain && (envelope || drag?.points)) paintLine(ampLanes(T))
   // a line in each lane: the caret (and the others beside it); while an output arrives, where it has come to. With a
   // band selected on the spectrogram, the caret runs through the band alone, which is what plays. The caret in the
-  // edited track's lane; the playhead, the caret moving, is its own layer's (slide)
+  // edited track's lane; the playhead, the caret moving, is its own layer's (slide). On the sheet (?ui= axis inside),
+  // which runs to the frame's edges, one at an edge (the caret at 0:00, or at the sound's end with no room after it)
+  // is held a pixel in: never on the frame's own last column nor past it, where it is not seen; the grid and the times
+  // stay where they are
   const line = (t, fill, only = null, lanes = T) => {
-    const px = X(t)
-    if (px < 0 || px > w) return
+    const at = X(t), px = within ? Math.max(1, Math.min(lanesEnd(L) - 2, at)) : at
+    if (at < 0 || at > w) return
     c.fillStyle = fill
     if (!only) return across(px, 1, lanes.all)
     for (const rect of lanes.spec) { const y0 = Math.max(rect[1], fy(rect, only[1])), y1 = Math.min(rect[1] + rect[3], fy(rect, only[0])); c.fillRect(px, y0, 1, y1 - y0) }
@@ -248,12 +251,15 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
   // a file held over the picture: where it goes in, a caret of its own, as a text editor shows where a drop lands
   if (dropped != null) { c.fillStyle = accent(); for (const [, y, , lh] of mine) c.fillRect(X(dropped), y, 2, lh); c.font = label(); tag('Insert here', X(dropped) + 6, extent(mine)[0] + 8, 'left', accent()) }
   if (away) paintAway(!drag && !!hovered && onAway(...hovered))
-  // what is drawn of the lanes ends at the time row: a band scrolled past it, cut there
+  // what is drawn of the lanes ends at the time row: a band scrolled past it, cut there; within the sheet, where the
+  // row starts at the lanes' foot, there (a value, a tag, nothing of theirs over a time)
   c.save()
   c.beginPath()
-  c.rect(0, 0, W, plot().h)
+  c.rect(0, 0, W, rowTop())
   c.clip()
   try { lanesOver() } finally { c.restore() }
+  // (but the last lane's foot value, written under its line, in the time row's right end: scales.js footRoom)
+  paintFoot()
   function lanesOver() {
     placeLook(L)
     placeFades(L)
@@ -294,15 +300,18 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
     // what a drag does, by the pointer wherever it is: past the picture's edge too, where silence is pulled out to
     const doing = drag && hovered && acting()
     if (doing) say(doing, hovered[0] + 12, hovered[1] - 16)
-    // the pointer's frequency or level under its tick, as the axis has them, its tick the caret's; on the axis alone, a
-    // longer one going on to the right, never back over the meters by the lanes' edge
+    // the pointer's frequency or level by its mark, as the axis has them: a small rhombus at the value, in the caret's
+    // ink, at the scale (within the sheet, at its right edge over the lanes, where the values are written: scales.js
+    // ticks); on a waveform showing both halves zoomed out, two, at the level and its mirror (waveAt), as its columns
+    // stand on both sides of the centre
     if (at && lane) {
       const ly = Math.round(read?.y ?? at[1]), text = read?.text ?? (lane.keys ? noteOf(yf(lane, at[1]), 5) : pitched(lane, L) ? reads(snapF(lane, at[1])) : level(lane, at[1]))
-      c.fillStyle = caret
-      c.fillRect(w + 1, ly, TICK, 1)
-      const axis = (text, ty) => { c.save(); c.beginPath(); c.rect(w + 1, 0, W, H); c.clip(); tag(text, w + 1, ty, 'right-of'); c.restore() }
+      // (the marks over the tags, whole)
+      const marks = () => { c.fillStyle = caret; for (const y of [ly, ...read?.mirror != null ? [Math.round(read.mirror)] : []]) rhombus(within ? W - INTO - RHOMB : w + 1 + RHOMB, y + .5) }
+      const axis = (text, ty) => { if (within) return tag(text, W - INTO - c.measureText(text).width, ty, 'right-of'); c.save(); c.beginPath(); c.rect(w + 1, 0, W, H); c.clip(); tag(text, w + 1, ty, 'right-of'); c.restore() }
       const ty = beside(lane, ly), down = ty > ly
       axis(text, ty)
+      marks()
       // on the spectrogram, the level its colour stands for under it, and where that falls on the spectrum meter's scale
       const db = pitched(lane, L) ? loudness(lane.i, lane, at) : null
       if (db == null) return
@@ -314,6 +323,11 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
     }
   
   }
+}
+// a value's mark on a scale: a rhombus RHOMB px from its middle to each point
+const RHOMB = 3.5
+function rhombus(px, py) {
+  c.beginPath(); c.moveTo(px, py - RHOMB); c.lineTo(px + RHOMB, py); c.lineTo(px, py + RHOMB); c.lineTo(px - RHOMB, py); c.closePath(); c.fill()
 }
 // The level the spectrogram shows under the pointer, dB: the loudest cell of its column within 2 px of it, so a line a
 // pixel thin reads as it is drawn (gl-spectrogram pick); none while an edit's pieces or a take stand for the output.
@@ -346,7 +360,7 @@ export const lanesEnd = L => metered(L) ? meterAt(metered(L)) - SPACE : plot().w
 // The share of the view's span the lanes show: the sound's end, the view at it, sits TAIL px short of where they end,
 // its last moment, and a caret or cue there, clear of the meters and the labels; the time there (seenTo); [a, b] shown
 // across them (fitTo)
-const TAIL = 4
+export const TAIL = 4
 export const reach = () => W > gutter + 1 ? Math.max(.5, (lanesEnd(lanes()) - TAIL) / plot().w) : 1
 export const seenTo = () => start + (end - start) * reach()
 export const fitTo = (a, b) => setRange(a, a + (b - a) / reach())
@@ -453,8 +467,10 @@ const METER = 40, KEYS = 16
 // pixel past the lanes' width), as far as the pictures, the meter and the axis are apart alike
 export const SPACE = 6, meterAt = w => plot().w + 1 - SPACE - w
 // the meters' column, each look's own as its options have it (`show`), as wide as the widest a lane shows: a
-// spectrum's (METER), a piano's keys (KEYS), a waveform's bar (3); 0 for none. Each meter at its start
-export const metered = L => Math.max(L.spectral && show.spectrum ? METER : 0, L.notes.length && show.keys ? KEYS : 0, L.wave.length && show.meters ? 3 : 0)
+// spectrum's (METER), a piano's keys (KEYS), a waveform's bar (3); 0 for none, where the lanes have no scale to
+// read them by (?ui= axis false), and where the values are written in the sheet's own squares (axis inside: nothing
+// between the lanes and them). Each meter at its start
+export const metered = L => !scaled || within ? 0 : Math.max(L.spectral && show.spectrum ? METER : 0, L.notes.length && show.keys ? KEYS : 0, L.wave.length && show.meters ? 3 : 0)
 const meterX = (left, v, [lo, hi] = decibels ?? [-90, 0]) => left + Math.max(0, Math.min(1, (v - lo) / (hi - lo))) * METER
 function paintMeters(L) {
   // with tracks, the band pointed at (its foot too, as the axis has it), else the edited one's

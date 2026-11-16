@@ -4,7 +4,7 @@ import { CURVES, CROSSFADES } from '../ops.js'
 import measure, { coloured, hue, temperature, colormap, inked, lightness, MAPS } from '../tint.js'
 import { unwritten, takes } from './data.js'
 import { CHUNK, WAVE, SPAN, HELD, plot, merged, kindOf, lanes, laneOf, carried, roomLane, spans } from './geometry.js'
-import { root, onsamples, onheard, color, reel, selectCanvas, specCanvas, waveCanvas, rowStrip, marksCanvas, meterStrip, barStrip, overlay, gl, sgl, waves, specs, rate, duration, display, units, hovered, arriving, more, recording, pieces, guest, start, end, fview, band, fadeCurve, aview, levelUnits, grid, look, waveLook, data, tracks, focus, windows, windowsOf, leveled, scroll, kinds, pictures, cruise, cruised, palette, moving, ruled, under, shaded, assign } from './model.js'
+import { root, onsamples, onheard, color, reel, selectCanvas, specCanvas, waveCanvas, rowStrip, marksCanvas, meterStrip, barStrip, overlay, gl, sgl, waves, specs, rate, duration, display, units, hovered, arriving, more, recording, pieces, guest, start, end, fview, band, fadeCurve, aview, levelUnits, grid, look, waveLook, data, tracks, focus, windows, windowsOf, leveled, scroll, kinds, pictures, cruise, cruised, palette, moving, ruled, under, shaded, assign, within } from './model.js'
 import { labelled } from './notes.js'
 import { paint, lanesEnd, fitTo } from './overlay.js'
 import { barOn, moveOn } from './ruler.js'
@@ -122,11 +122,15 @@ const AHEAD = .6
 export let tape = null, rolled = null
 // the geometry the pictures are drawn in: the view's, AHEAD further (or the tape's as drawn, `t`), for `fn`
 export function onTape(fn, t = null) {
-  const was = [start, end, W, hovered], w = plot().w, extra = Math.round(w * AHEAD)
-  if (t) { assign({ start: t.start, end: t.end }); W = t.W; if (hovered) assign({ hovered: [hovered[0] + rolled / dpr, hovered[1]] }) }
-  else { assign({ end: start + (end - start) * (w + extra) / w }); W += extra }
-  try { return fn() } finally { assign({ start: was[0], end: was[1] }); W = was[2]; assign({ hovered: was[3] }) }
+  const was = [start, end, W, hovered, along], w = plot().w, extra = Math.round(w * AHEAD)
+  if (t) { assign({ start: t.start, end: t.end }); W = t.W; along = [rolled / dpr, t.W - t.view]; if (hovered) assign({ hovered: [hovered[0] + rolled / dpr, hovered[1]] }) }
+  else { assign({ end: start + (end - start) * (w + extra) / w }); W += extra; along = [0, extra] }
+  try { return fn() } finally { assign({ start: was[0], end: was[1] }); W = was[2]; assign({ hovered: was[3] }); along = was[4] }
 }
+// where the view stands on what is drawn now, [from, to] CSS px: on the tape, its part the view shows as the reel is;
+// else the view itself
+let along = [0, 0]
+export const seen = () => [along[0], along[0] + plot().w - along[1]]
 // where the view is on the tape, device px from its start; null where it is not on it whole
 function onReel() {
   const t = tape
@@ -204,17 +208,27 @@ function draw() {
     const room = guest?.lane === 'room' && roomLane(L)
     if (room) for (const p of carried('room')) drawWave(waves[p.k], p.k, room, p.from, p.to, p.x0, p.x1, aview, ratio)
     // a take being recorded, where it goes: its own waveform over what it replaces, drawn as the output's is (over a
-    // notes lane too, whose notes are found once it is done)
+    // notes lane too, whose notes are found once it is done), standing still as it grows (taken)
     if (recording?.length) waves.forEach((_, i) => {
       if (tracks && i !== focus) return
       const c = Math.min(i, recording.waves.length - 1), rect = laneOf(L.wave, merged() ? 0 : i) ?? laneOf(L.notes, merged() ? 0 : i), [x0, x1] = takes()
-      if (rect && x1 > x0) drawWave(recording.waves[c], i, rect, recording.lead, recording.length, x0, x1, aview, ratio, { x: recording.data?.[c].subarray(0, recording.length), rate: recording.rate, id: `take ${c}` })
+      if (rect && x1 > x0) drawWave(recording.waves[c], i, rect, recording.lead, taken(rect, x0, ratio), x0, rect[2], aview, ratio, { x: recording.data?.[c].subarray(0, recording.length), rate: recording.rate, id: `take ${c}` })
     })
   }
   if (sgl) spectrograms(L, from, to)
   want(L, from, to)
   if (L.wave.length) weigh()
   paintGrid(L)
+}
+// Where a take being recorded is drawn to, its sample (its waveform's, its spectrogram's): at the view's own samples a
+// pixel, from where it begins out to the lane's end, as many as those device pixels hold (a picture is laid on whole
+// device pixels: gl-waveform rect). Its columns stand where they are frame after frame, the take growing nothing but
+// its last; past what has come, nothing drawn. Drawn to where it had come, spread over that, the columns were laid anew
+// each frame, its width rounding to a device pixel as its length grew smoothly, and a sound's peaks moved between
+// them as it came: the take wobbled
+function taken(rect, x0, pr) {
+  const w = Math.round((rect[0] + rect[2]) * pr) - Math.round((rect[0] + x0) * pr)
+  return recording.lead + w * (end - start) * recording.rate / (plot().w * pr)
 }
 // A long sound's samples where the view needs them (windows): the chunks missing, fetched a run at a time, drawn as they
 // come; then, past HELD, those farthest from the view let go
@@ -356,7 +370,7 @@ function spectrograms(L, from, to) {
   if (recording?.length) L.spec.forEach(rect => {
     if (tracks && rect.i !== focus) return
     const sg = recording.specs[Math.min(rect.i, recording.specs.length - 1)], [x0, x1] = takes()
-    if (sg && x1 > x0) sg.update({ range: [recording.lead, recording.length], viewport: [rect[0] + x0, rect[1], x1 - x0, rect[3]] }).render()
+    if (sg && x1 > x0) sg.update({ range: [recording.lead, taken(rect, x0, ratio)], viewport: [rect[0] + x0, rect[1], rect[2] - x0, rect[3]] }).render()
   })
   if (all.some(sg => sg.pending)) invalidate()
 }
@@ -401,9 +415,9 @@ export function snapshot(range, width = 1200) {
   return shot.toDataURL('image/png')
 }
 // The lanes ruled (`grid`), between the pictures: over the spectrogram, as the screen shows it; behind the waveform,
-// wholly hidden where it is, however faint its fill there. Where the time row's ticks meet the axis' on the right, a
-// cross, and a dot where their finer steps meet ('marks'); the crosses alone ('crosses'); a dot at each, the ticks'
-// larger ('dots'); or a faint line from each tick across the lanes ('lines'). None on a lane's edge, nor past where its
+// wholly hidden where it is, however faint its fill there: a faint line from each of the time row's steps down the
+// lanes and from each of the axis' marks across them ('lines'), or the same lines stronger, as squared paper
+// ('paper'): rule, below. None on a lane's edge (but the paper's), nor past where its
 // sound ends: the grid stops there, as the waveform's centre line does (silence drawn as the level it is, nothing past
 // the end), which says where the sound ends, no rule over it. A track ending sooner the same, the time past it still
 // its lane's, to select and edit as the mix runs on.
@@ -487,28 +501,65 @@ function underlay() {
   const at = name => gl.getUniformLocation(program, name)
   return assign({ under: { program, vao, rects, wave: null, size: '', laid: null, bands: [], at: { wave: at('wave'), size: at('size'), fill: at('fill') } } })
 }
-// The grid ruled, made again only when what places it changes: [colour, rects, alpha], the rects [x, y, w, h, …] in
-// device px, each within its lane and before where its sound ends: a line down from each of the time row's ticks, one
-// across from each of the axis'; drawn over the same pixel twice, a rect lays it the same (paintGrid), so where two
-// lines cross is no brighter
-function rule(L) {
-  const all = L.all, stop = lanesEnd(L), lines = []
-  if (grid === 'none' || !duration) return []
-  // the time row's ticks' times, the finer step between its labels where there is one
-  const { step, minor } = labelled(), by = minor ?? step, cols = []
-  for (let i = Math.ceil(start / by - 1e-9); i * by <= end + 1e-9; i++) { const px = X(i * by); if (px >= 1 && px < stop) cols.push(px) }
-  all.forEach((rect, i) => {
-    const [, y, , lh] = rect, right = Math.min(stop, X(tracks?.[i]?.end ?? duration))
-    const put = (px, py, w, h) => {
-      const x0 = Math.max(0, px), x1 = Math.min(right, px + w), y0 = Math.max(y, py), y1 = Math.min(y + lh, py + h)
-      if (x1 > x0 && y1 > y0) lines.push(x0 * dpr, y0 * dpr, (x1 - x0) * dpr, (y1 - y0) * dpr)
-    }
-    for (const px of cols) put(px, y, 1, lh)
-    for (const ty of [...room(rect, axisMarks(rect)), ...rect.kind === 'wave' ? levelTicks(rect) : []].map(([ly]) => Math.round(ly))) if (ty > y && ty < y + lh - 1) put(0, ty, stop, 1)
-  })
-  // the theme's whitespace marks, at half their strength as they run the lanes' length
-  return [[color('--color-screen-grid'), lines, .5]]
+// The grid ruled, made again only when what places it changes: [colour, rects, alpha] for the ticks' lines, then for
+// the labelled ones, twice as strong, the rects [x, y, w, h, …] in device px, each within its lane and before where its
+// sound ends: down the lanes, a line from each of the time row's labelled steps and from each of its ticks between;
+// across them, one from each of the axis' labelled marks and from each of its ticks between. Drawn over the same pixel
+// twice, a rect lays it the same (paintGrid), the later one's: where two lines cross is no brighter, and a labelled
+// line through a finer one stays whole.
+// 'paper': squared paper under a figure, the lane's ground. The same lines twice as strong; between the time
+// row's ticks, lines from the finest of their tenths, fifths, quarters or halves that stand SQUARE px apart or more
+// (never finer than a sample), so it is squared about as finely down as the axis' own ticks part it across
+// (scales.js TICKED); ruled to the lane's end, past the sound's, and at its top and foot, as a sheet's edges are.
+// With the scales within the sheet (?ui= axis inside) the lanes run the frame's width, the values written over them
+// (scales.js ticks), the grid ruling the lanes' values alone and ending on the last lane's foot, a labelled line as
+// strong as the others (its value, the waveform's −1, written under it with the times, plain: ruler.js paintRuler)
+const SQUARE = 12
+// the lines down the lanes: one each `by` s, every `each`th a labelled time's (the time row's steps, read here or given)
+export function columns({ step, minor } = labelled()) {
+  const tick = minor ?? step, pps = plot().w / (end - start || 1)
+  const by = tick / (grid === 'paper' && [10, 5, 4, 2].find(n => tick / n * pps >= SQUARE && tick / n >= 1 / rate - 1e-12) || 1)
+  return { by, each: Math.round(step / by) }
 }
+function rule(L) {
+  const all = L.all, stop = lanesEnd(L), fine = [], main = [], paper = grid === 'paper'
+  if (grid === 'none' || !duration) return []
+  const { by, each } = columns(), cols = []
+  // (to the lanes' end: within the sheet the same lines go on from there to its right edge, scales.js columnsOn)
+  for (let i = Math.ceil(start / by - 1e-9); i * by <= end + 1e-9; i++) { const px = X(i * by); if (px >= 1 && px < stop) cols.push([px, i % each ? fine : main]) }
+  all.forEach((rect, i) => {
+    const [, y, , lh] = rect, right = paper ? stop : Math.min(stop, X(tracks?.[i]?.end ?? duration))
+    const put = (lines, px, py, w, h) => {
+      const x0 = Math.max(0, px), x1 = Math.min(right, px + w), y0 = Math.max(y, py), y1 = Math.min(y + lh, py + h)
+      // (on whole device pixels: a lane laid at half a pixel has its lines where a 2D canvas, rounding too, draws them
+      // on through the scales)
+      const [l, t, r, b] = [x0, y0, x1, y1].map(v => Math.round(v * dpr))
+      if (r > l && b > t) lines.push(l, t, r - l, b - t)
+    }
+    const across = (lines, list) => { for (const ty of list.map(([ly]) => Math.min(Math.round(ly), y + lh - 1))) if (paper ? ty >= y : ty > y && ty < y + lh - 1) put(lines, 0, ty, stop, 1) }
+    for (const [px, lines] of cols) put(lines, px, y, 1, lh)
+    if (rect.kind === 'wave') across(fine, levelTicks(rect))
+    across(main, room(rect, axisMarks(rect)))
+    // (a sheet's edges, at a lane's top and foot whatever it shows: a spectrogram's marks stand at neither)
+    if (paper) for (const edge of [y, y + lh - 1]) put(main, 0, edge, stop, 1)
+  })
+  // the theme's whitespace marks: the labelled lines at their strength, the finer at half of it, as they run the lanes'
+  // length
+  return [[color('--color-screen-grid'), fine, FINE * STRONG()], [color('--color-screen-grid'), main, STRONG()]]
+}
+// how strong the labelled lines are, of the theme's own: the paper's twice it, a sheet's squares in sight on a page's
+// ground and still under the caret at rest (caretColour); the finer ones, half as strong
+const STRONG = () => grid === 'paper' ? 2 : 1, FINE = .5
+// The lines' ink for a 2D canvas, as the GPU lays them (paintGrid: the theme's, its alpha times their strength), and
+// that alpha: the labelled lines', or the finer ones' (`fine`). Read off the theme once per colour
+const inks = new Map()
+function inkOf(fine) {
+  const css = color('--color-screen-grid'), key = `${css} ${grid} ${fine}`
+  if (!inks.has(key)) { const [r, g, b, a] = rgba(css), k = Math.min(1, a * STRONG() * (fine ? FINE : 1)); inks.set(key, [`rgb(${Math.round(r * 255)} ${Math.round(g * 255)} ${Math.round(b * 255)} / ${k})`, k]) }
+  return inks.get(key)
+}
+// (none with no grid)
+export const ruling = (fine = false) => grid === 'none' ? null : inkOf(fine)[0]
 // The selection, in each lane (a box on the spectrogram), and the other ranges: a wash over each, the one highlight in
 // both pictures, the edge under the pointer (`hot`) or dragged lit, as it would move. The selection's colour, the
 // inactive one while the picture is not focused, as an editor's selection goes when its focus is elsewhere; on a
@@ -516,9 +567,16 @@ function rule(L) {
 const focused = () => document.hasFocus() && root.contains(document.activeElement)
 export const wash = (spec = false) => color(focused() ? spec ? '--color-screen-select-spectrum' : '--color-screen-select' : spec ? '--color-screen-select-spectrum-inactive' : '--color-screen-select-inactive')
 // The caret the same way: the skin's while the picture has focus; else faint, IDLE of its alpha, as an editor's caret
-// goes out with its focus, kept in sight here as where play starts. An embed shows it faint till it is pressed
+// goes out with its focus, kept in sight here as where play starts: never fainter than twice the grid's labelled lines
+// (inkOf), so it reads at once among them, a line of the paper's never taken for it. An embed shows it faint till it
+// is pressed
 const IDLE = .35
-export const caretColour = () => { const css = color('--color-screen-caret'); if (focused()) return css; const [r, g, b, a] = rgba(css); return `rgb(${r * 255} ${g * 255} ${b * 255} / ${a * IDLE})` }
+export const caretColour = () => {
+  const css = color('--color-screen-caret')
+  if (focused()) return css
+  const [r, g, b, a] = rgba(css), lines = grid === 'none' ? 0 : inkOf(false)[1]
+  return `rgb(${r * 255} ${g * 255} ${b * 255} / ${Math.max(a * IDLE, Math.min(a, 2 * lines))})`
+}
 // A waveform and a spectrogram per channel; the spectrogram's silence is the page, seen through, its loudest its ink
 // (the skin's spectrum: white, or a theme's). How bright the pair is drawn is the layers' own (light): dim while it is
 // the file arriving, full once the output is there

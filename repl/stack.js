@@ -1,12 +1,8 @@
 import { ops, methods, format, fromManifest, reshapes, labelOf, icons } from './ops.js'
 import opIcons from './icons.js'
-import { chain, valuesOf, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing, unsplit, useTake, takes } from './code.js'
-import { SLOP } from './view.js'
-
-// What each setting does and which come first (help.js), the largest text the page has: loaded with the first card's
-// settings, not with the page
-let help, layout
-const words = () => import('./help.js').then(m => ({ help, layout } = m))
+import { chain, valuesOf, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing, unsplit, useTake, takes } from './code.js'
+import settings from './settings.js'
+import { SLOP, KINDS } from './view.js'
 
 // The edits: the chain's steps as cards, in order, as Luminar's edits or a history panel; the same chain as the code,
 // as controls, a rack of cards as mel's modules. The sound it starts from is the first card (the file opened, or
@@ -72,7 +68,7 @@ export default function stack(root, { ed, ontake = change => ed.change(change), 
   // the menu's: moved up or down, made one sound, taken away
   const UP = 'M12 19V5m-6 6 6-6 6 6', DOWN = 'M12 5v14m-6-6 6 6 6-6', FLAT = 'M4 7h16M4 12h16M4 17h16', AWAY = 'm7 7 10 10M17 7 7 17'
   // a card's icon: the sound's, a file's bars or a generator's wave; a step's own (icons.js), else its kind's
-  const iconOf = call => call.sound ? 'M4 10v4m4-8v12m4-15v18m4-14v10m4-6v2' : call.origin ? icons.Generate : opIcons[call.name] ?? icons[ops[call.name]?.group] ?? icons.Effect
+  const iconOf = call => call.sound ? KINDS.wave[1] : call.origin ? icons.Generate : opIcons[call.name] ?? icons[ops[call.name]?.group] ?? icons.Effect
   const SHUT = 'M12 3.5v7.5M6.6 6.9a7.5 7.5 0 1 0 10.8 0M4 4l16 16'
   function build(rows, gs = [], groupOf = () => -1) {
     hovered = null
@@ -327,7 +323,7 @@ export default function stack(root, { ed, ontake = change => ed.change(change), 
         c.on.title = call.off ? 'Turn on' : 'Bypass'
         c.on.setAttribute('aria-label', call.off ? `Turn ${call.name} on` : `Turn ${call.name} off`)
       }
-      if (open && !c.params) { c.params = params(c); c.li.append(c.params.dom); c.params.load() }
+      if (open && !c.params) { c.params = settings(c, { ed, describe, duration, onpreview, hear }); c.li.append(c.params.dom); c.params.load() }
       if (!open && c.params) { c.params.dom.remove(); c.params = null }
       c.params?.refresh(i >= 0 && i === delta)
     }
@@ -433,126 +429,6 @@ export default function stack(root, { ed, ontake = change => ed.change(change), 
     if (event.key === 'Escape' && (chosen != null || delta != null)) { event.preventDefault(); chosen = null; view(null, null) }
     else if (i >= 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); shown[Math.max(0, Math.min(shown.length - 1, i + (event.key === 'ArrowDown' ? 1 : -1)))].focus() }
   })
-
-  // A card's sliders, one per parameter; a plugin's come from its manifest, read by the engine. The ones that matter come
-  // first and the engine's own are folded under Advanced (help.js layouts), open where the code sets one of them.
-  function params(card) {
-    const dom = document.createElement('div')
-    dom.className = 'params'
-    // what the step takes out, heard and drawn; a step that moves time, rate or channels has nothing that lines up to
-    // take away
-    const takes = reshapes(card.call.name) ? null : dom.appendChild(Object.assign(document.createElement('button'), { type: 'button', className: 'step-delta', textContent: 'Δ What it takes out', title: 'Before minus after' }))
-    takes?.addEventListener('mousedown', event => event.preventDefault())
-    takes?.addEventListener('click', () => hear(card))
-    let rows = [], dragging = null
-    const self = {
-      dom, ready: false, spec: null,
-      async load() {
-        const name = card.call.name, [spec] = await Promise.all([ops[name]?.params || describe(name).then(fromManifest), help || words()])
-        if (card.params !== self) return
-        self.spec = spec
-        // a source, a band or what is learned from a selection is set in the code or on the picture, not by a slider
-        rows = spec.map((s, i) => s.name === 'source' || s.name === 'band' || s.selection ? null : build(s, i)).filter(Boolean)
-        if (!rows.length) { dom.append('No settings'); dom.classList.add('none'); return }
-        arrange(name)
-        self.ready = true
-        values()
-      },
-      refresh(heard) {
-        takes?.setAttribute('aria-pressed', String(heard))
-        if (takes) takes.disabled = !!card.call.off
-        if (self.ready) values()
-      }
-    }
-    // A number's position on its slider, 0..1000: linear, or logarithmic for frequencies and ratios.
-    const toSlider = (s, v) => s.log && s.min > 0 ? Math.log(v / s.min) / Math.log(s.max / s.min) * 1000 : (v - s.min) / (s.max - s.min) * 1000
-    const fromSlider = (s, x) => s.log && s.min > 0 ? s.min * (s.max / s.min) ** (x / 1000) : s.min + x / 1000 * (s.max - s.min)
-    // Times in the audio reach its end.
-    const limits = s => ['at', 'duration', 'to'].includes(s.name) && s.unit === 's' ? { ...s, max: Math.max(duration(), .01) } : s
-    // What pointing at a setting says: what it does and which way to move it (help.js), and for a number its range and
-    // where it starts; the choices are on show.
-    function tip(s, text) {
-      const lim = limits(s), facts = s.values ? s.values.join(', ') : `${format(lim.min, s)} to ${format(lim.max, s)}${s.default == null ? '' : `, default ${format(s.default, s)}`}`
-      return !text ? `${s.name}: ${facts}` : s.values ? text : `${text}\n${facts}`
-    }
-    // a row: its name and value above, its slider (or choices) across below
-    function build(s, index) {
-      const row = dom.appendChild(document.createElement('div')), text = help(card.call.name, s.name)
-      row.className = 'param'
-      const label = row.appendChild(document.createElement('label')), out = row.appendChild(document.createElement('output'))
-      label.textContent = s.name
-      row.title = tip(s, text)
-      if (s.values) {
-        const group = row.appendChild(document.createElement('div'))
-        group.className = 'choices'
-        group.role = 'group'
-        group.setAttribute('aria-label', s.name)
-        if (text) group.setAttribute('aria-description', text)
-        for (const value of s.values) {
-          const button = group.appendChild(document.createElement('button'))
-          button.type = 'button'
-          button.textContent = String(value)
-          button.onmousedown = event => event.preventDefault()
-          button.onclick = () => write(s, index, value)
-        }
-        row.classList.add('choice')
-        return { s, index, row, out, group }
-      }
-      const input = row.appendChild(document.createElement('input'))
-      Object.assign(input, { type: 'range', min: 0, max: 1000, step: 'any' })
-      input.setAttribute('aria-label', s.unit ? `${s.name} (${s.unit})` : s.name)
-      if (text) input.setAttribute('aria-description', text)
-      input.addEventListener('pointerdown', () => { dragging = input })
-      input.addEventListener('pointerup', () => { dragging = null })
-      input.addEventListener('input', () => {
-        const lim = limits(s), raw = fromSlider(lim, +input.value), step = s.step ?? (lim.log ? Math.max(.01, 10 ** Math.floor(Math.log10(Math.max(raw, 1e-9)) - 2)) : (lim.max - lim.min) / 1000)
-        write(s, index, +number(Math.round(raw / step) * step, step), true)
-      })
-      input.addEventListener('change', () => ed.settle())
-      return { s, index, row, out, input }
-    }
-    // The rows in the order the layout gives them, those few touch after a button that folds them away
-    function arrange(name) {
-      const [front, folded] = layout(name, rows.map(r => r.s.name)), by = n => rows.find(r => r.s.name === n)
-      dom.append(...front.map(by).map(r => r.row))
-      if (!folded.length) return
-      const back = folded.map(by), set = valuesOf(self.spec, card.call), more = dom.appendChild(document.createElement('button'))
-      more.type = 'button'
-      more.className = 'step-more'
-      more.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>Advanced <span></span>'
-      more.lastChild.textContent = back.length
-      const fold = open => { more.setAttribute('aria-expanded', String(open)); for (const r of back) r.row.hidden = !open }
-      more.addEventListener('mousedown', event => event.preventDefault())
-      more.addEventListener('click', () => fold(more.getAttribute('aria-expanded') !== 'true'))
-      dom.append(...back.map(r => r.row))
-      fold(back.some(r => set[r.index] !== undefined))
-    }
-    function values() {
-      const now = valuesOf(self.spec, card.call)
-      for (const row of rows) {
-        const v = now[row.index], shown = v ?? row.s.default
-        row.out.textContent = v === undefined ? (row.s.default === undefined ? 'auto' : format(row.s.default, row.s)) : format(v, row.s)
-        row.out.classList.toggle('unset', v === undefined)
-        if (row.input && dragging !== row.input && typeof shown === 'number') row.input.value = toSlider(limits(row.s), shown)
-        if (row.group) for (const b of row.group.children) b.setAttribute('aria-pressed', String(b.textContent === String(shown)))
-        row.out.hidden = !!row.group
-      }
-    }
-    // Built-in methods take their parameters in order; ranges and plugins also take an options object, used when the
-    // call already has one or has no arguments yet, and always for a setting the library reads by its name alone
-    // (`option`). A slider's moves are live and out of the history until it comes to rest; a choice is one step.
-    function write(s, index, value, live = false) {
-      const call = card.call, op = ops[call.name], spec = self.spec, positional = call.args.filter(a => a.kind !== 'object'), options = call.args.find(a => a.kind === 'object')
-      const named = s.option || (!op.params || op.range) && (options || !positional.length)
-      const change = named ? setArg(call, s.name, value) : setArg(call, index, value, spec.map(p => p.default))
-      // what the picture shows at once: the settings it had and the ones it gets, by name, its range with them
-      const was = { ...Object.fromEntries(options?.props.map(p => [p.name, p.value]) || []), ...Object.fromEntries(spec.map((p, i) => [p.name, valuesOf(spec, call)[i]])) }
-      // bypassed, the output stays as it is
-      if (!call.off) onpreview(call.name, was, { ...was, [s.name]: value })
-      live ? ed.slide(change) : ed.change(change, 'input.slider')
-    }
-    return self
-  }
 
   // what the output shows: the card chosen (its id, as choose() takes it) and whether its Δ
   const shown = () => ({ id: chosen, takes: delta != null })

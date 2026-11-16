@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="Edit audio with a script, in the browser: open, record or find a sound, change it in JavaScript, hear and see the result, export the file.">
   <meta name="theme-color" content="#ebebeb">
-  <title>audio repl</title>
+  <title>audio editor</title>
   <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
   <link rel="preload" href="../assets/geist.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="editor.css">
@@ -38,6 +38,7 @@
   <link rel="modulepreload" href="editor/chat.js" fetchpriority="low">
   <link rel="modulepreload" href="editor/tabs.js" fetchpriority="low">
   <link rel="modulepreload" href="editor/menus.js" fetchpriority="low">
+  <link rel="modulepreload" href="editor/chain.js" fetchpriority="low">
   <link rel="modulepreload" href="editor/commands.js" fetchpriority="low">
   <link rel="modulepreload" href="editor/keys.js" fetchpriority="low">
   <link rel="modulepreload" href="../assets/sprae.js" fetchpriority="low">
@@ -77,6 +78,7 @@
   <link rel="modulepreload" href="../assets/gl-waveform.js" fetchpriority="low">
   <link rel="modulepreload" href="../assets/gl-spectrogram.js" fetchpriority="low">
   <link rel="modulepreload" href="tint.js" fetchpriority="low">
+  <link rel="modulepreload" href="kind.js" fetchpriority="low">
   <link rel="modulepreload" href="kept.js" fetchpriority="low">
   <link rel="modulepreload" href="../assets/lezer.js" fetchpriority="low">
   <link rel="modulepreload" href="samples.js" fetchpriority="low">
@@ -112,6 +114,15 @@
       try { ui = JSON.parse(asked.get('ui') || '{}') } catch {}
       if (Array.isArray(ui.controls)) html.dataset.controls = ui.controls.join(' ')
       if (typeof ui.background === 'string') html.dataset.ground = '', html.style.setProperty('--ground', ui.background)
+      // (which way the wheel is the picture's, and a finger: editor.css)
+      html.dataset.wheel = ui.wheel === 'both' ? 'both' : 'across'
+      // how far the sound's name and the bar stand in from the frame's sides, the picture its whole width (a CSS length;
+      // a number, px; or two, the left side's and the right's), and the words' one face (sans): editor.css
+      const insets = [].concat(ui.inset ?? []).map(length => typeof length === 'number' ? `${length}px` : length)
+      if (insets.length && insets.every(length => typeof length === 'string' && CSS.supports('padding-left', length))) html.dataset.inset = '', html.style.setProperty('--inset', insets[0]), html.style.setProperty('--inset-end', insets[1] ?? insets[0])
+      if (ui.font === 'sans') html.dataset.font = 'sans'
+      // the page's quick edits in sight, not behind a plus: the row over the picture the chain itself (chain): editor.css
+      if (ui.edits === 'chain') html.dataset.edits = ui.edits
     }
     else if (!crossOriginIsolated && isSecureContext && navigator.serviceWorker && !navigator.serviceWorker.controller) {
       navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true })
@@ -137,8 +148,35 @@
       <header class="view-head">
         <!-- embedded: where the tabs are, the way to the whole editor with this script, as it reads now -->
         <!-- embedded: the sound's name; pressed, its ways in, each in its place: a file, a take, a sample (?controls= sound) -->
-        <button class="embed-sound" type="button" :if="embed" aria-haspopup="menu" :title="'Change the sound: ' + name" :onclick="soundMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4m4-8v12m4-15v18m4-14v10m4-6v2"/></svg><span class="embed-sound-name" :text="name"></span><svg class="embed-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
-        <a class="embed-open" :if="embed" :href="full || './'" target="_blank" rel="noopener" title="Open in the repl"><span class="embed-name">audio</span><span class="embed-label">Open in repl</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6m0-6-9 9M18 14v5H5V6h5"/></svg></a>
+        <button class="embed-sound" type="button" :if="embed" aria-haspopup="menu" :title="'Change the sound: ' + name" :onclick="soundMenu"><span class="embed-sound-name" :text="name"></span></button>
+        <!-- embedded, the edits laid as the chain itself (?ui= edits chain), nothing under the bar: after the sound's name,
+             past a thin bar, the edits made, in their order, each its name and its values, a thin bar between one and the
+             next, as a flyer parts its genres (one made by other means, a crop on the picture, among them): pressed, its
+             settings drop from it, a slider or a choice each, as an edit's card has them (settings.js), and at their foot
+             Remove; dragged along the chain, it moves there, onto the field, it is taken away; Alt and an arrow move it,
+             Delete takes it away (chain.js). Then, past another bar where the next edit will stand, a field in the name's
+             plain words, Edit…, a button as a select's: pressed, a list under it of the edits a press makes
+             and the recipes, a search at its top that the keys are in (menus.js findKey); while an edit is carried, a
+             trash can, Remove. With no sound to edit, dimmed and saying so, never disabled -->
+        <div class="embed-chain" role="group" aria-label="Edits" :if="embed && laid === 'chain'">
+          <span class="chain-step" :each="e in madeList"><button class="chain-edit" type="button" aria-haspopup="dialog" aria-description="Drag along the chain to move it, onto the field, Edit…, to remove it. Alt and an arrow move it; Delete removes it." :aria-expanded="stepOpen === e.n - 1 ? 'true' : 'false'" :aria-disabled="hasOutput ? null : 'true'" :data-off="e.off ? '' : null" :aria-label="e.off ? (e.values ? e.label + ' ' + e.values : e.label) + ', bypassed' : null" :title="e.off ? 'Bypassed: ' + e.about : e.about" :onclick="event => openStep(e.n - 1, event)" :onpointerdown="event => carryEdit(e.n - 1, event)" :onkeydown="event => editKey(e.n - 1, event)"><span class="edit-name" :text="e.label"></span><span class="edit-values" :text="e.values"></span></button></span>
+          <!-- a button that opens the list, as a select's does (menus.js findToggle): the list's search the field typed in
+               (its first row), a key typed on the button going there -->
+          <span class="chain-find"><button class="chain-add" type="button" aria-label="Add an edit" aria-controls="edits-found" :aria-haspopup="findTree ? 'tree' : 'listbox'" :aria-expanded="finding ? 'true' : 'false'" :aria-disabled="hasOutput ? null : 'true'" :onclick="findToggle" :onkeydown="findButtonKey"><span>Edit…</span></button><span class="chain-trash" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13M10 10v7m4-7v7"/></svg>Remove</span></span>
+        </div>
+        <!-- at this row's right end, opposite the sound's name, with the edits the chain, aligned there: the history, undo
+             and redo, none of it while there is no history at all; once there is, both in their places, the one that
+             cannot act dimmed (aria-disabled), so neither moves under the pointer between presses;
+             the save, its icon and its word (where the page shows it, ?controls= save); then the way to the repl, its mark
+             alone, that it leaves the page, named Open in the editor (?controls= link) -->
+        <div class="head-end" :if="embed && laid === 'chain'">
+          <div class="history" role="group" aria-label="History" :hidden="!canUndo && !canRedo">
+            <button class="icon-button undo" :aria-disabled="canUndo ? null : 'true'" :onclick="undo" aria-label="Undo" :title="tip('undo')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+            <button class="icon-button redo" :aria-disabled="canRedo ? null : 'true'" :onclick="redo" aria-label="Redo" :title="tip('redo')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5m5 5H10a6 6 0 0 0 0 12h3"/></svg></button>
+          </div>
+          <button class="embed-save" type="button" aria-label="Save as" title="Save as…" aria-haspopup="menu" :disabled="!hasOutput || exporting" :onclick="saveMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M4 19h16"/></svg><span>Save</span></button>
+        </div>
+        <a class="embed-open" :if="embed" :href="full || './'" target="_blank" rel="noopener" title="Open in the editor" :aria-label="laid === 'chain' ? 'Open in the editor' : null"><span class="embed-name">audio</span><span class="embed-label" :if="laid !== 'chain'">Open in editor</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6m0-6-9 9M18 14v5H5V6h5"/></svg></a>
         <!-- the open sounds, a tab each, as an audio editor's files, dragged along to reorder; a selection's audio dragged
              up onto them goes to a tab of its own. Each as wide as its name, never squeezed: more than fit scroll, as a
              code editor's tabs do, the wheel moving them along, the one shown brought into sight -->
@@ -147,9 +185,17 @@
           <div class="file" :each="t in tabs" :class="{ current: t.id === tab }" :data-id="t.id" :data-mark="marks[t.id] ?? null">
             <!-- its speaker while it plays, as a browser's tab's: tabs play at once, each heard or muted by a press here -->
             <button class="file-sound" :if="sounding[t.id]" :aria-pressed="sounding[t.id] === 'muted' ? 'true' : 'false'" :aria-label="(sounding[t.id] === 'muted' ? 'Unmute ' : 'Mute ') + t.name" :title="sounding[t.id] === 'muted' ? 'Unmute tab' : 'Mute tab'" :onclick="toggleTabMute(t.id)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path :d="sounding[t.id] === 'muted' ? 'm16 9 6 6m0-6-6 6' : 'M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13'"/></svg></button>
-            <button role="tab" :if="renamingTab !== t.id" :class="{ source: t.id === tab }" :aria-selected="t.id === tab ? 'true' : 'false'" :aria-busy="marks[t.id] === 'working' ? 'true' : null" :data-length="t.id === tab ? length : null" :interestfor="'tab-facts-' + t.id" :onpointerenter="() => tabOver(t.id)" :onfocus="() => tabOver(t.id)" :onclick="tabPress(t.id)" :onpointerdown="e => dragTab(e, t.id)" :text="t.name"></button>
+            <!-- its name; after it, past a thin rule, what its sound is, in a word, where that is known (as an embed says it
+                 by the sound's name, the same word and tooltip: readouts.js kindOf, kindTip), whole where the tab has room for it after the
+                 name, else out of sight under it: the name keeps all the room it had. All of it the tab's to press
+                 and to drag, its name, the word and the room between and after them, but the name's field being
+                 written (tabPress, dragTab) -->
+            <span class="file-name" :onclick="e => e.target.closest('.file-field') || tabPress(t.id)" :onpointerdown="e => e.target.closest('.file-field') || dragTab(e, t.id)">
+            <button role="tab" :if="renamingTab !== t.id" :class="{ source: t.id === tab }" :aria-selected="t.id === tab ? 'true' : 'false'" :aria-busy="marks[t.id] === 'working' ? 'true' : null" :data-length="t.id === tab ? length : null" :interestfor="'tab-facts-' + t.id" :onpointerenter="() => tabOver(t.id)" :onfocus="() => tabOver(t.id)" :text="t.name"></button>
             <!-- the one shown clicked, its name written anew in place (tabPress) -->
             <input class="file-field" :if="renamingTab === t.id" spellcheck="false" aria-label="Tab name" :value="t.name" :style="'width: ' + (Math.max(2, t.name.length) + 1) + 'ch'" :oninput="e => fitField(e.target)" :onkeydown="e => tabRenamed(e, t)" :onblur="e => tabRenamed(e, t)">
+            <span class="head-kind" :if="!embed && (t.id === tab ? kind : kindOf(t.sound, heardKinds))" :text="t.id === tab ? kind : kindOf(t.sound, heardKinds)" :title="kindTip(t.id === tab ? name : t.sound, t.id === tab ? kind : kindOf(t.sound, heardKinds), heardFacts) || null"></span>
+            </span>
             <!-- what its sound is doing, in the close button's place till that is pointed at: on its way, or made while the
                  tab was not shown -->
             <button class="file-close" :aria-label="'Close ' + t.name" title="Close tab" :onclick="closeTab(t.id)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg><span class="file-mark" aria-hidden="true"></span></button>
@@ -262,11 +308,12 @@
         <!-- the picture's side: play and the time, what is happening, what the output holds -->
         <div class="status-main">
           <!-- the transport, as a deck's: play, a ring round it how far through the sound it plays; record, off while it
-               plays, as Play is while it records. Play held and dragged searches, back and forth, its line over it.
+               plays, as Play is while it records (embedded with no Record named, a take's stop is Play's, a stop sign
+               while it records: config.js PLAY_STOPS). Play held and dragged searches, back and forth, its line over it.
                While the engine works (status), Record gives way to a ring of how far it has come, turning where nothing
                says, its square stopping it; Play plays what there is -->
           <span class="deck-slot">
-            <button class="play" :class="{ rolling: playing || shuttle != null }" :style="'--played: ' + played" :onpointerdown="playPress" :onclick="playClick" :disabled="!(whole || arriving) || recording" :aria-label="playing || shuttle != null ? 'Pause' : 'Play'" :title="(playing || shuttle != null ? 'Pause' : boxes > 1 ? 'Play the bands' : band ? 'Play the band' : selection ? 'Play the selection' : 'Play') + ' (' + shortcut('play') + ')\nHold and drag to rewind or skip'" aria-keyshortcuts="Space"><span class="play-icon" :class="{ paused: playing || shuttle != null }" aria-hidden="true"></span></button>
+            <button class="play" :class="{ rolling: playing || shuttle != null }" :style="'--played: ' + played" :onpointerdown="playPress" :onclick="playClick" :disabled="recording ? !playStops : !(whole || arriving)" :aria-label="recording && playStops ? 'Stop recording' : playing || shuttle != null ? 'Pause' : 'Play'" :title="recording && playStops ? 'Stop recording (' + shortcut('play') + ')' : (playing || shuttle != null ? 'Pause' : boxes > 1 ? 'Play the bands' : band ? 'Play the band' : selection ? 'Play the selection' : 'Play') + ' (' + shortcut('play') + ')\nHold and drag to rewind or skip'" aria-keyshortcuts="Space"><span class="play-icon" :class="{ paused: !recording && (playing || shuttle != null), stop: recording && playStops }" aria-hidden="true"></span></button>
           </span>
           <span class="deck-slot">
             <button class="busy" :inert="!halting" :class="{ turning: arrived == null }" :style="'--arrived: ' + (arrived ?? 0)" :onclick="stop" aria-label="Stop" :title="'Stop: ' + progress"><span class="stop-icon" aria-hidden="true"></span></button>
@@ -275,21 +322,26 @@
           <!-- the time, and after it how long all that is selected is, or with nothing selected all of the sound, softer;
                a sound on its way, dashes till its length is known; with no sound, nothing, what the engine says coming
                right after the time -->
-          <p class="clock" :title="timeTitle" aria-live="off"><span class="time" :text="timeText" :onclick="bringTime" :title="timeTip">0:00.000</span><span class="length" :class="{ whole: lengthWhole }" :text="lengthText" :onclick="frameLength" :title="lengthTitle"></span></p>
+          <p class="clock" :title="timeTitle" aria-live="off"><span class="time" :text="timeText" :onpointerdown="timePress" :onclick="bringTime" :title="timeTip">0:00.000</span><span class="length" :class="{ whole: lengthWhole }" :text="lengthText" :onclick="frameLength" :title="lengthTitle"></span></p>
           <!-- by the length, loop: a mode of what plays (the selection or all of it), not an act as Play and Record are; its
                icon Iconoir's repeat (iconoir.com, MIT), its stroke as drawn there -->
           <button class="icon-button loop" :aria-pressed="loop ? 'true' : 'false'" aria-label="Loop" :title="tip('loop')" :onclick="toggleLoop" :disabled="!whole"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 17H8C6.33 17 3 16 3 12s3.33-5 5-5h8c1.67 0 5 1 5 5 0 1.49-.47 2.57-1.14 3.33M14.5 14.5 17 17l-2.5 2.5"/></svg></button>
           <!-- embedded: after the loop, the edits the page puts a press away (?ops=), one button, a menu of them, each
-               made as the menus make it, those made first and counted by the plus; then, where the page shows them
-               (?controls= open, save), a sound of the reader's opened in place of this one, and the result saved as the
-               export saves it -->
-          <button class="icon-button embed-ops" type="button" :if="embed && quick.length" :class="{ made }" aria-haspopup="menu" :aria-label="made ? 'Edits, ' + made + ' made' : 'Add an edit'" :title="made ? 'Edits: ' + made + ' made' : 'Add an edit'" :disabled="!hasOutput" :onclick="opsMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span :if="made" :text="made" aria-hidden="true"></span></button>
-          <div class="embed-files" role="group" aria-label="Files" :if="embed"><button class="icon-button embed-open-file" type="button" aria-label="Open a file" title="Open a file" :onclick="() => pickFiles()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20V9m-5 5 5-5 5 5M4 5h16"/></svg></button><button class="icon-button embed-save" type="button" aria-label="Save as" title="Save as…" aria-haspopup="menu" :disabled="!hasOutput || exporting" :onclick="saveMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M4 19h16"/></svg></button></div>
+               made as the menus make it, those made first and counted by the plus (laid in sight instead as the row over
+               the picture, ?ui= edits chain, above); then, where the page shows it (?controls= open), a sound of the
+               reader's opened in place of this one -->
+          <button class="icon-button embed-ops" type="button" :if="embed && quick.length && laid === 'menu'" :class="{ made }" aria-haspopup="menu" :aria-label="made ? 'Edits, ' + made + ' made' : 'Add an edit'" :title="made ? 'Edits: ' + made + ' made' : 'Add an edit'" :disabled="!hasOutput" :onclick="opsMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span :if="made" :text="made" aria-hidden="true"></span></button>
+          <button class="icon-button embed-open-file" type="button" :if="embed" aria-label="Open a file" title="Open a file" :onclick="() => pickFiles()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20V9m-5 5 5-5 5 5M4 5h16"/></svg></button>
           <!-- a status bar's two sides: at the left, after the time and its length, what they come to (the level, the note
                or chords, the tempo of all of it or of the selection), or in their place, what was done, what the engine
                does now (how far a sound on its way has come, a mark turning while it works) or what went wrong; at the
                right, what the sound is: its rate and channels, each a click from changing it; the check; Before: the file
                as it opened, level-matched, from the same place; again, after (B); the export -->
+          <!-- embedded, the edits the chain over the picture (?ui= edits chain), its row the sound's name and its edits:
+               before the level, what kind of sound it is, in a word, where it is known, what more is known of the sound
+               in its tooltip (readouts.js kindTip); pressed, a menu of what it shows instead, each with its value: the kind, the note or chords
+               at the caret, the key, the tempo (readouts.js pickKind) -->
+          <button class="bar-kind" type="button" aria-haspopup="menu" :if="embed && laid === 'chain' && (kind || kindReads !== 'kind')" :text="kindText" :title="kindTitle || null" :onclick="pickKind"></button>
           <!-- the level, one measure (chosen from its menu, pressed), its value alone; pointed at, every level in a table,
                what they are of over it where that is not the sound shown, what it reads marked on the sound, and a row
                pointed at, that row's alone -->
@@ -300,12 +352,12 @@
           </div>
           <!-- what the sound holds, where it applies: the note or chords there, the tempo; pointed at, all of it in a table,
                what is not said with why -->
-          <button class="heard" type="button" :if="heard" interestfor="hearing"><span class="heard-note" :hidden="!heard?.note" :text="heard?.note ?? ''"></span><span class="heard-tempo" :hidden="!heard?.tempo" :text="heard?.tempo ?? ''"></span></button>
+          <button class="heard" type="button" :if="heard?.note || heard?.tempo" interestfor="hearing"><span class="heard-note" :hidden="!heard?.note" :text="heard?.note ?? ''"></span><span class="heard-tempo" :hidden="!heard?.tempo" :text="heard?.tempo ?? ''"></span></button>
           <div id="hearing" class="levels" popover="hint" data-place="top start" role="tooltip">
             <p class="levels-head" :text="heard?.head"></p>
             <table class="levels-table facts-table"><tbody><tr :each="r in heard?.rows ?? []"><th scope="row" :text="r[0]"></th><td :text="r[1]"></td><td :text="r[2]"></td></tr></tbody></table>
           </div>
-          <p class="message" :class="{ problem: notice ? noticeKind === 'error' : !progress && !!problem }" :title="notice || (progress + ' ' + figure).trim() || problem"><span class="message-words" :text="notice || progress || problem"></span><span class="message-figure" :text="!notice && progress && figure ? ' ' + figure : ''"></span></p>
+          <p class="message" :class="{ problem: notice ? noticeKind === 'error' : !progress && !!problem, working: !notice && !!progress }" :title="notice || (progress + ' ' + figure).trim() || problem"><span class="message-words" :text="notice || progress || problem"></span><span class="message-figure" :text="!notice && progress && figure ? ' ' + figure : ''"></span></p>
           <span class="visually-hidden" role="status" :text="notice || progress || problem"></span>
           <button class="text-button" :if="missing" :onclick="() => pickFiles(missing)" :title="'Open ' + missing">Open it…</button>
         </div>
@@ -338,11 +390,16 @@
           </div>
           <button class="before" :aria-pressed="ab ? 'true' : 'false'" :onclick="toggleAB" :disabled="!canCompare" :title="canCompare ? (ab ? 'Back to the edit (' + shortcut('compare') + ')' : 'Hear the original (' + shortcut('compare') + ')\nLevel-matched') : 'No original to compare'">Before</button>
           <!-- embedded, with no menu bar to hold them: the history, at the bar's right end, after the level and the facts,
-               where nothing coming moves it: undo, redo -->
-          <div class="history" role="group" aria-label="History" :if="embed">
+               where nothing coming moves it: undo, redo (with the edits the chain, after the edits made, above), none
+               of it while there is no history at all; once there is, both in their places, the one that cannot act
+               dimmed, so neither moves under the pointer between presses -->
+          <div class="history" role="group" aria-label="History" :if="embed && laid === 'menu'" :hidden="!canUndo && !canRedo">
             <button class="icon-button undo" :aria-disabled="canUndo ? null : 'true'" :onclick="undo" aria-label="Undo" :title="tip('undo')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
-            <button class="icon-button" :onclick="redo" :disabled="!canRedo" aria-label="Redo" :title="tip('redo')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5m5 5H10a6 6 0 0 0 0 12h3"/></svg></button>
+            <button class="icon-button redo" :aria-disabled="canRedo ? null : 'true'" :onclick="redo" aria-label="Redo" :title="tip('redo')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5m5 5H10a6 6 0 0 0 0 12h3"/></svg></button>
           </div>
+          <!-- embedded, where the page shows it (?controls= save): last, as the export is, the result saved in the format
+               picked from its menu (with the edits the chain, at the right end of the row over the picture, above) -->
+          <button class="icon-button embed-save" type="button" :if="embed && laid !== 'chain'" aria-label="Save as" title="Save as…" aria-haspopup="menu" :disabled="!hasOutput || exporting" :onclick="saveMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M4 19h16"/></svg></button>
           <!-- a bar too narrow for all of it (a tablet's, a phone's): what it has no room for folded under an i, pressed.
                Its icons, the export's and the loop's are Iconoir's (iconoir.com, MIT), their stroke as drawn there -->
           <button class="icon-button status-more" type="button" :if="!embed" popovertarget="status-more" aria-label="More about the sound" title="More about the sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 11.5v5M12 7.51l.01-.011M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z"/></svg></button>
@@ -351,6 +408,43 @@
         </div>
       </footer>
     </main>
+    <!-- embedded, what the chain's field finds (?ui= edits chain): under it, over the picture as a menu is; at its top
+         a search, the keys in it as the list opens, typed in to narrow it; a line an edit, its icon, its name, at its
+         right end the value it is made with (a recipe's count of edits), cut short past its room, what it does its title
+         (menu.js hinted); one lit. A press on a row takes no keys from the search, and one made by a press gives them
+         back to the page (menus.js findable): with nothing typed, the recipes, those for the sound's kind first, under
+         a small head (menu-group, as the menus' sections), then a row a kind, the edits of a kind beside it, a tree to
+         the keys, a hairline between the groups (in a phone's frame in the list's place, a way back over them); typed
+         in, one flat list -->
+    <div id="edits-found" class="edits-found" popover="manual" :data-kind="findKind || null" :if="embed && laid === 'chain'" :ontoggle="e => finding = e.newState === 'open'" :onmousedown="e => e.target.closest('.found-search') || e.preventDefault()">
+      <!-- (a field one tells from a row at a glance, as a design app's search: a well a shade under the list's ground, a
+           magnifier before the words, a clear button once something is typed, a ring in the accent while the keys are
+           in it, a hairline under its area) -->
+      <div class="found-field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m20 20-4.2-4.2M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0"/></svg><input class="found-search" type="search" role="combobox" aria-label="Find an edit" placeholder="Find an edit" aria-autocomplete="list" aria-controls="edits-list" autocomplete="off" spellcheck="false" :aria-expanded="finding ? 'true' : 'false'" :aria-activedescendant="finding && found.length ? 'edits-found-' + litAt : null" :value="findQuery" :oninput="findInput" :onkeydown="findKey" :onblur="findBlur"><button class="found-clear" type="button" aria-label="Clear the search" title="Clear" :hidden="!findQuery" :onclick="findClear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m8 8 8 8M16 8l-8 8"/></svg></button></div>
+      <div class="found-list" id="edits-list" :role="findTree ? 'tree' : 'listbox'" aria-label="Edits">
+        <div class="found-group" :each="g in foundGroups" :role="findTree && !g.sub ? 'none' : 'group'" :id="g.sub ? 'edits-sub' : null" :data-sub="g.sub ? 'true' : null" :aria-label="g.group">
+          <button class="found-back" type="button" :if="g.sub" :onclick="findBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14.5 7-5 5 5 5"/></svg><span :text="g.group"></span></button>
+          <p class="found-head menu-group" :if="g.head" :text="g.head" aria-hidden="true"></p>
+          <div class="found-row" :each="e in g.items" :role="findTree ? 'treeitem' : 'option'" :id="'edits-found-' + e.at" :aria-selected="e.at === litAt ? 'true' : 'false'" :aria-expanded="e.kind ? (e.kind === findKind ? 'true' : 'false') : null" :aria-owns="e.kind && e.kind === findKind ? 'edits-sub' : null" :aria-disabled="hasOutput ? null : 'true'" :data-tip="e.about" :data-held="findHeld?.at === e.at ? '' : null" :style="findHeld?.at === e.at ? '--along: ' + findHeld.along : null" :onpointermove="event => findPoint(e, event)" :onclick="event => findPress(e, event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="e.icon"/></svg><span class="found-name"><strong :text="e.label"></strong></span><span class="found-hint"><span><span class="found-value" :each="p in e.parts" :data-drags="p.drags ? '' : null" :onpointerdown="event => findHold(e, p.i, event)" :text="findHeld?.at === e.at ? findHeld.parts[p.i] : p.text"></span></span><svg class="found-more" :if="e.kind" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 7 5 5-5 5"/></svg></span></div>
+        </div>
+        <p class="found-none" :if="!found.length">No edit by that name</p>
+      </div>
+    </div>
+    <!-- embedded, an edit of the chain's (?ui= edits chain) pressed: its settings dropping from it, one shape with it, as
+         the old widget's pill and its menu were: over the edit, its tab, the edit again on the settings' ground (seen
+         only: a press on it reaches the edit under it, which closes them); joined under it, what it does in a quiet line,
+         its settings (menus.js openStep, settings.js), and at their foot Bypass, pressed while the edit is off, beside
+         Remove (chain.js bypassEdit, dropEdit). A press outside it or Escape closes it, the keys back on the edit -->
+    <div id="step-settings" class="step-settings" popover="manual" role="dialog" :aria-label="stepTitle" :ontoggle="stepToggle">
+      <p class="step-tab" aria-hidden="true" :data-off="madeList[stepOpen]?.off ? '' : null"><span class="edit-name" :text="madeList[stepOpen]?.label"></span><span class="edit-values" :text="madeList[stepOpen]?.values"></span></p>
+      <div class="step-body">
+        <p class="step-about" :text="stepAbout"></p>
+        <div class="step-settings-body"></div>
+        <p class="step-foot"><button class="step-bypass" type="button" :aria-pressed="madeList[stepOpen]?.off ? 'true' : 'false'" :onmousedown="e => e.preventDefault()" :onclick="() => bypassEdit(stepOpen)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v7.5M6.6 6.9a7.5 7.5 0 1 0 10.8 0"/></svg>Bypass</button><button class="step-remove" type="button" :onmousedown="e => e.preventDefault()" :onclick="event => dropEdit(stepOpen, !event.detail)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13M10 10v7m4-7v7"/></svg>Remove</button></p>
+      </div>
+    </div>
+    <!-- (what the chain's keys and drags did, said: chain.js) -->
+    <p class="visually-hidden" role="status" :if="embed && laid === 'chain'" :text="chainSaid"></p>
     <!-- how a band shows, the dropdown by its look in its layer: what it shows, then how that draws, every group
          in sight, its choices as keys, what the chosen one does under them -->
     <div class="dropdown" popover="manual" role="dialog" :aria-label="dropTitle" :ontoggle="dropToggle">
@@ -448,7 +542,7 @@
     <!-- the bar folded where it is narrow: what it has no room for, each still a press from what it does -->
     <div id="status-more" class="menu status-fold" popover>
       <table class="levels-table facts-table"><tbody>
-        <tr :if="heard"><th scope="row">Heard</th><td colspan="2" :text="[heard?.note, heard?.tempo].filter(Boolean).join('  ')"></td></tr>
+        <tr :if="heard?.note || heard?.tempo"><th scope="row">Heard</th><td colspan="2" :text="[heard?.note, heard?.tempo].filter(Boolean).join('  ')"></td></tr>
         <tr :if="whole"><th scope="row">Level</th><td colspan="2"><button class="at" type="button" :onclick="pickReading" :text="readout"></button></td></tr>
         <tr :if="whole"><th scope="row">Check</th><td colspan="2"><button class="at" type="button" :onclick="pickSpec" :text="spec ? specs.find(s => s.key === spec)?.label + (report ? (report.pass ? ', passes' : ', fails') : '') : 'Off'"></button></td></tr>
         <tr :if="sound"><th scope="row">Sound</th><td colspan="2"><button class="at" type="button" popovertarget="rate-menu" :text="sound?.rate"></button> <button class="at" type="button" popovertarget="channels-menu" :text="sound?.channels"></button></td></tr>

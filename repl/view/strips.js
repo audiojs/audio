@@ -2,7 +2,7 @@ import clock from '../time.js'
 import { markLane, marksOf, ownMarks, snappedTo, placed } from './data.js'
 import { ghost, CHUNK, pointedBand, plot, spare, lanes, floor, inRoom, inLanes, roomLane, banded, rowEdge } from './geometry.js'
 import { fine, nearCue } from './gestures.js'
-import { EDGE, ONTO, HEAD, KINDS, mac, root, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, selection, band, cursor, playhead, cues, cueKinds, bounds, snapping, clips, aview, levelUnits, data, tracks, focus, across, sections, windows, lift, chosen, held, assign } from './model.js'
+import { EDGE, ONTO, HEAD, KINDS, mac, root, within as inSheet, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, selection, band, cursor, playhead, cues, cueKinds, bounds, snapping, clips, aview, levelUnits, data, tracks, focus, across, sections, windows, lift, chosen, held, assign, ruler } from './model.js'
 import { clipMarks } from './notes.js'
 import { say, crossAt, washFrom, WASHED, lanesEnd, seenTo } from './overlay.js'
 import { drag, hot, caretGhost, lined } from './pointer.js'
@@ -14,11 +14,12 @@ import { x, X, time, snap, digits, seen, inside, fy, ay, sampled, decibel } from
 // The strips under the lanes and across them: the measure, the fades at the view's edges, each band's look, the room
 // under the tracks, the selection behind the sound, the cues, the markers and the names
 
-// in the measuring red, where the pointer is, dashed out to the axes as Figma's guides: down to the time row at the
+// in the accent (gauge), where the pointer is, dashed out to the axes as Figma's guides: down to the time row at the
 // picture's foot, where its length is (paintRuler), and across to the level or frequency axis, where its value is
 const DASHED = [4, 3]
 export function paintMeasure({ t }, py, rects) {
-  const px = X(t), { w } = plot(), y = Math.round(py), [y0, y1] = [y, plot().h]
+  // (down to the time row; with none, ?controls= without ruler, to the lanes' foot: the picture ends there)
+  const px = X(t), { w } = plot(), y = Math.round(py), [y0, y1] = [y, ruler === 'off' && rects.length ? Math.max(...rects.map(r => r[1] + r[3])) : plot().h]
   if (px < 0 || px > w) return
   c.fillStyle = gauge()
   for (let k = y0; k < y1; k += DASHED[0] + DASHED[1]) c.fillRect(px, k, 1, Math.min(DASHED[0], y1 - k))
@@ -36,8 +37,10 @@ export function waveAt(rect, t, py) {
   const [, top, , lh] = rect, up = py < top + lh / 2
   let v = 0
   for (let i = i0; i < i1; i++) if (up ? x[i] > v : x[i] < v) v = x[i]
-  const y = top + (aview[1] - v) / (aview[1] - aview[0]) * lh
-  return { y: Math.max(top, Math.min(top + lh - 1, y)), text: levelUnits === 'linear' ? sampled(v) : decibel(20 * Math.log10(Math.abs(v)), 1, -99) }
+  const at = u => Math.max(top, Math.min(top + lh - 1, top + (aview[1] - u) / (aview[1] - aview[0]) * lh))
+  // (`mirror`, the same level on the other side of the centre, where the lane shows both halves zoomed out, a column
+  // standing on both sides of it)
+  return { y: at(v), mirror: k > 1 && v && aview[0] < 0 && aview[1] > 0 ? at(-v) : null, text: levelUnits === 'linear' ? sampled(v) : decibel(20 * Math.log10(Math.abs(v)), 1, -99) }
 }
 // The lanes faded at an edge the sound runs on past, out of the view (fades): from their start, scrolled on from its
 // start; before their end, short of its end; each FADE px wide, as tall as the caret, over the pictures, under what is
@@ -46,7 +49,8 @@ export function waveAt(rect, t, py) {
 // would apply each frame they roll
 const FADE = 24
 export function placeFades(L) {
-  const end = lanesEnd(L), h = `${Math.round(floor(L))}px`, on = [start > 1e-9, duration && seenTo() < duration - 1e-9]
+  // (none within the sheet, ?ui= axis inside: its grid runs whole to its edges, and on past the lanes' end)
+  const end = lanesEnd(L), h = `${Math.round(floor(L))}px`, on = inSheet ? [false, false] : [start > 1e-9, duration && seenTo() < duration - 1e-9]
   fades.forEach((el, k) => {
     if (el.hidden !== !on[k]) el.hidden = !on[k]
     const left = `${Math.round(k ? end - FADE : 0)}px`
@@ -112,15 +116,18 @@ export function tag(text, px, py, align, fill = color('--color-screen-bright'), 
   if (align === 'right-of') align = 'left'
   const left = align === 'center' ? px - tw / 2 : px
   const lh = size() + 4
-  // on a patch of the screen; or a pill of its own colour, a little wider
-  c.fillStyle = pill ?? color('--color-screen')
+  // on a patch of the screen (of the page's ground, where the picture lies on it: ?ui= background; none on a clear
+  // one); or a pill of its own colour, a little wider
+  c.fillStyle = pill ?? (color('--ground') || color('--color-screen'))
   if (pill) { c.beginPath(); c.roundRect(left - 4, py - lh / 2, tw + 8, lh, 3); c.fill() }
   else c.fillRect(left - 3, py - lh / 2, tw + 6, lh)
   c.fillStyle = fill
   c.textAlign = align
   c.fillText(text, px, py)
 }
-export const accent = () => color('--color-screen-accent'), gauge = () => color('--color-screen-error')
+// (what ⌘ held measures, its guides, lengths and pills, `gauge`: in the accent, a guide's colour; red is for what records,
+// fails or takes something away, as clipping: paintClipped)
+export const accent = () => color('--color-screen-accent'), gauge = accent
 // the picture's words, its numbers and tags: the skin's label size, in its mono font
 export const size = () => parseFloat(color('--font-size-label')) || 10, label = () => `${size()}px ${color('--font-mono')}`
 export function paintSelection(L, sel) {
@@ -483,7 +490,7 @@ export function paintOvers(L) {
 }
 export function paintClipped() {
   const { w } = plot(), at = rowEdge()
-  c.fillStyle = gauge()
+  c.fillStyle = color('--color-screen-error')
   for (const [a, b] of clips) {
     const [p, q] = [moved(a), moved(b)].map(t => t == null ? null : Math.max(0, Math.min(w, x(t))))
     if (p != null && q != null && q >= 0 && p <= w) c.fillRect(Math.round(p), at, Math.max(1, Math.round(q - p)), 2)

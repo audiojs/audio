@@ -2,7 +2,7 @@ import { prepare, source, chain, number, setArg, declared, rename, tracks as tra
 import { builtins, sample, search, credit, unique } from '../sources.js'
 import { unkeep, kept, tapes } from '../keep.js'
 import { intoNew } from './clipboard.js'
-import { root, APART, keep, ENCODING, mime } from './config.js'
+import { root, APART, keep, ENCODING, mime, EMBED } from './config.js'
 import { state, eng, v, ed } from './context.js'
 import { write, applied } from './edits.js'
 import { bytes, ago, label, quote, note } from './format.js'
@@ -12,6 +12,8 @@ import { schedule } from './run.js'
 import { docs, closed, newTab, reopenTab } from './tabs.js'
 import { retrack } from './tracks.js'
 import { splice } from './writers.js'
+import { KINDS } from '../view.js'
+import { codeFor } from '../recipes.js'
 
 // Sounds in and out: files opened, dropped and kept, samples and generators, recipes, the sound search, export, a
 // link to the script
@@ -28,7 +30,15 @@ export let restoring
 // `track`: those picked open as tracks of their own, under the one edited
 let relink = '', asTrack = false
 export const audible = f => /^(audio|video)\//.test(f.type) || /\.(wav|mp3|flac|ogg|oga|opus|m4a|aac|aiff?|caf|webm|mp4|mov|wma|amr|mka)$/i.test(f.name)
-export function pickFiles(missing = '', track = false) { closeMenus(); relink = typeof missing === 'string' ? missing : ''; asTrack = track === true; root.querySelector('.file-input').click() }
+export function pickFiles(missing = '', track = false) {
+  closeMenus()
+  relink = typeof missing === 'string' ? missing : ''
+  asTrack = track === true
+  const input = root.querySelector('.file-input')
+  // the chooser shut with nothing chosen asks for nothing more: a file dropped after it opens as any does
+  input.addEventListener('cancel', () => { relink = ''; asTrack = false }, { once: true })
+  input.click()
+}
 export async function openFiles(list, how = 'new', at = null) {
   root.querySelector('.file-input').value = ''
   if (asTrack) { asTrack = false; how = 'track' }
@@ -132,9 +142,10 @@ function tracked(code, names) {
   }
   return made
 }
-// A new sound, in a tab of its own unless the one shown is empty; `before` on a line above the statement that opens it
+// A new sound, in a tab of its own unless the one shown is empty; `before` on a line above the statement that opens it.
+// Embedded, the page's one sound: in its place, a step of its history, so undo brings the sound before back
 function opening(insert, before = '') {
-  if (ed.code.trim()) newTab()
+  if (ed.code.trim() && !EMBED) newTab()
   ed.change({ from: 0, to: ed.code.length, insert: (before ? before + '\n' : '') + insert })
 }
 export async function useSample(name, how = 'new') {
@@ -144,7 +155,7 @@ export async function useSample(name, how = 'new') {
 }
 // Embedded (?controls= sound), the sound's ways in from its name over the picture, each in its place: a file, a take
 // (as Record makes one), a sample
-export const NOTE = 'M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0m12-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0', SOUND = 'M4 10v4m4-8v12m4-15v18m4-14v10m4-6v2'
+export const NOTE = 'M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0m12-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0', SOUND = KINDS.wave[1]
 export function useCode(code) {
   closeMenus()
   state.problem = ''
@@ -157,27 +168,32 @@ export function useCode(code) {
 // of it; one that makes a sound opens a tab of its own. With nothing open, the chime.
 export function useRecipe(recipe) {
   closeMenus()
-  if (!recipe.code.includes('$src')) return opening(recipe.code)
+  // its code for the sound as it is (a record's for one channel: recipes.js codeFor)
+  const code = codeFor(recipe, state.sound?.count)
+  if (!code.includes('$src')) return opening(code)
   // a recipe made for a spec checks against it
   if (recipe.spec && recipe.spec !== state.spec) { state.spec = recipe.spec; store() }
   const now = chain(ed.code)
-  if (!now) return ed.change({ from: 0, to: ed.code.length, insert: recipe.code.replaceAll('$src', `audio('chime.wav')`) })
-  const calls = callsOf(recipe.code)
+  if (!now) return ed.change({ from: 0, to: ed.code.length, insert: code.replaceAll('$src', `audio('chime.wav')`) })
+  const calls = callsOf(code)
   if (calls) {
     const sel = v.selection && (v.selection[0] > v.unit / 2 || v.selection[1] < v.duration - v.unit / 2) ? v.selection : null
     const spans = v.ranges.length > 1 ? [...v.ranges].sort((p, q) => q[0] - p[0]) : sel ? [sel] : [null]
-    // several calls are one step of the edits, under the recipe's name (code.js groups)
-    return write(...spans.flatMap(span => { const list = calls.map(k => span ? over(k, span) : k); return list.length > 1 ? [{ name: recipe.name, calls: list }] : list }))
+    // several calls are one step of the edits, under the recipe's name (code.js groups); a file it asks for (a master's
+    // reference) asked then, as a missing one is, and kept under the name the recipe gives it (openFiles relink)
+    const done = write(...spans.flatMap(span => { const list = calls.map(k => span ? over(k, span) : k); return list.length > 1 ? [{ name: recipe.name, calls: list }] : list }))
+    if (done && recipe.asks) pickFiles(recipe.asks)
+    return done
   }
   // the script's statements before its last stay; its last's sound is the recipe's source, the recipe's names that are
   // taken there given a number (a2, lufs2)
   if (state.track) return note('This recipe takes the sound whole: use it on a track in a tab of its own.')
   const before = ed.code.slice(0, now.statement.from), sound = ed.code.slice(now.expr.from, now.expr.to), taken = declared(before), names = {}
-  for (const name of declared(recipe.code)) if (taken.has(name)) { let n = 2; while (taken.has(name + n)) n++; names[name] = name + n }
-  ed.change({ from: now.statement.from, to: ed.code.length, insert: rename(recipe.code, names).replaceAll('$src', sound) })
+  for (const name of declared(code)) if (taken.has(name)) { let n = 2; while (taken.has(name + n)) n++; names[name] = name + n }
+  ed.change({ from: now.statement.from, to: ed.code.length, insert: rename(code, names).replaceAll('$src', sound) })
 }
 // A recipe's calls, each as it is written, when it is one chain on its source; else null
-function callsOf(code) {
+export function callsOf(code) {
   const text = code.replace('$src', 'x'), c = chain(text)
   if (!c || c.statement.from !== 0 || text.slice(c.root.from, c.root.to) !== 'x') return null
   return c.calls.map(k => text.slice(k.dot + 1, k.to))
@@ -291,7 +307,9 @@ export async function share() {
 // Files dropped anywhere. Capturing, so the editor never reads audio as text.
 // Held over the picture with a sound in it, a file goes in where the caret it shows is; over the tabs, into a tab of its
 // own, each; over the script, where the text caret is; elsewhere, it opens, several a track each. What it would do shows as it is held (`dropping`).
-const dropping = event => event.target.closest?.('.files') ? 'tab' : event.target.closest?.('.plot') && state.hasOutput ? 'insert' : 'open'
+// Embedded, a page's one sound: a file dropped on its picture opens in its place, as Open a file does: a reader's own
+// sound to try the page's edits on
+const dropping = event => event.target.closest?.('.files') ? 'tab' : !EMBED && event.target.closest?.('.plot') && state.hasOutput ? 'insert' : 'open'
 
 export function wire() {
   // the kept files are listed as the page comes up, not before it: the first run waits for them (evaluate)

@@ -28,20 +28,27 @@ export default function editor(parent, options) {
     oncaret?.(update)
   }
   // A slider's moves rewrite the text live and out of the history; where it comes to rest, the whole move is recorded
-  // as one change: back to the text before it, out of the history too, then on to the last.
-  let before = null
+  // as one change. The history never takes the moves in: it maps each step it holds through every change made out of
+  // it, and a move rewrites what a step wrote (a value set, then dragged), which leaves that step's inverse with its
+  // deletion gone and its insertion kept (a dither set to 11, dragged to 14, undone twice: 116). So at rest the
+  // document goes back, unheard, to what it was before the move, its history as it was (`held`), and the move is made
+  // once, from the text before it to the last. Where anything else changed the text meanwhile, so that going back
+  // would lose it: back to the text before the move out of the history, then on to the last
+  let before = null, held = null
   function slide(change) {
-    before ??= self.code
+    if (before == null) { before = self.code; held = cm ? { state: cm.hold() } : { d: shown(), n: shown().edits.length } }
     dispatch({ changes: change, userEvent: 'input.slider', history: false })
   }
   function settle() {
-    const start = before, end = self.code
-    before = null
-    if (start == null || start === end) return
+    const start = before, end = self.code, h = held
+    before = held = null
+    if (start == null) return
+    const back = h?.state && cm ? cm.restore(h.state) : h?.d && !cm && h.d === shown() && h.d.edits.slice(h.n).every(e => e.userEvent === 'input.slider' && e.history === false) && (h.d.edits.length = h.n, h.d.text = start, true)
+    if (start === end) return
     let a = 0, b = 0
     while (a < start.length && a < end.length && start[a] === end[a]) a++
     while (b < start.length - a && b < end.length - a && start[start.length - 1 - b] === end[end.length - 1 - b]) b++
-    dispatch({ changes: { from: a, to: end.length - b, insert: start.slice(a, start.length - b) }, userEvent: 'input.slider', history: false })
+    if (!back) dispatch({ changes: { from: a, to: end.length - b, insert: start.slice(a, start.length - b) }, userEvent: 'input.slider', history: false })
     dispatch({ changes: { from: a, to: start.length - b, insert: end.slice(a, end.length - b) }, userEvent: 'input.slider' })
   }
   // after the page's first frames, so the page shows first; lazy, once its pane has a size (shown) or it is asked for
@@ -347,6 +354,9 @@ function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe
     v.dom.style.setProperty('--under-layer', `${cut + g}px`)
   }
   const steps = [{ key: 'ArrowUp', run: v => nudge(v, 1), shift: v => nudge(v, 10) }, { key: 'ArrowDown', run: v => nudge(v, -1), shift: v => nudge(v, -10) }]
+  // a slider's move (slide): the state before it, its history whole, gone back to (restore) where nothing but the move
+  // changed the text since (`mixed`), unheard: no update, the move's whole change following
+  let mixed = false
 
   const extensions = [
     lineNumbers(), history(), drawSelection(), dropCursor(), indentOnInput(), bracketMatching(), closeBrackets(), highlightActiveLine(), highlightSelectionMatches(),
@@ -355,6 +365,8 @@ function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe
     tooltips({ parent: document.body }),
     keymap.of([...Object.entries(keys).map(([key, run]) => ({ key, run: () => (run(), true), preventDefault: true })), ...steps, ...closeBracketsKeymap, ...completionKeymap, ...historyKeymap, indentWithTab, ...defaultKeymap]),
     EditorView.updateListener.of(update => {
+      // (a slider's move held: anything but its own changes in the text meanwhile, and it can't go back unheard)
+      if (update.transactions.some(tr => tr.docChanged && (!tr.isUserEvent('input.slider') || tr.annotation(Transaction.addToHistory) !== false))) mixed = true
       if (update.geometryChanged) under(update.view)
       if (update.docChanged) onchange?.(update.state.doc.toString(), update)
       if (update.docChanged || update.selectionSet) oncaret?.(update)
@@ -401,6 +413,8 @@ function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe
     get range() { const { from, to } = view.state.selection.main; return [from, to] },
     select(from, to = from) { view.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true }); view.focus() },
     caret(pos) { view.dispatch({ selection: { anchor: pos }, scrollIntoView: true }) },
+    hold() { mixed = false; return view.state },
+    restore(state) { if (mixed) return false; view.setState(state); return true },
     undo: () => undo(view), redo: () => redo(view),
     get canUndo() { return undoDepth(view.state) > 0 },
     get canRedo() { return redoDepth(view.state) > 0 },

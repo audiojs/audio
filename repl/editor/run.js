@@ -56,10 +56,11 @@ export async function evaluate() {
     return show({ logs: [], error: { message: `Syntax error on line ${code.slice(0, syntax.from).split('\n').length}` } }, true)
   }
   // the whole chain, what one step of it takes out, or the chain rolled back, as the stack says
-  const calls = chain(code)?.calls || [], { delta, back } = viewing, step = calls[delta]
+  const calls = chain(code)?.calls || [], { delta, back, quiet: still } = viewing, step = calls[delta]
   const runs = step ? residual(code, delta) : back != null ? rollback(code, back) : code
   const later = back != null ? calls.length - back : 0
-  state.viewing = step ? `What ${labelOf(step.name)} takes out` : later > 0 ? `${back ? `Up to ${labelOf(calls[back - 1].name)}` : 'The source alone'}: ${later} later step${later > 1 ? 's' : ''} bypassed` : ''
+  // (an edit's hint drawn on the sound before it, said by nothing: menus.js stepHint)
+  state.viewing = still ? '' : step ? `What ${labelOf(step.name)} takes out` : later > 0 ? `${back ? `Up to ${labelOf(calls[back - 1].name)}` : 'The source alone'}: ${later} later step${later > 1 ? 's' : ''} bypassed` : ''
   // a change to its comments alone (a bypassed step set, a note) runs nothing: the run asked last, and the output it
   // made, are this script's too; the same script asked again (a file it waited for come) runs
   if (sent?.tab === eng.tab && sent.code !== runs && bare(sent.code) === bare(runs)) {
@@ -423,7 +424,7 @@ export function status() {
 // typed; so a file that failed to open is still named
 function entitle(names, has) {
   state.name = soundName(ed.code, source(ed.code)?.strings.map(s => s.name) || names, has)
-  document.title = `${state.name === 'untitled' ? '' : state.name + ' · '}audio repl`
+  document.title = `${state.name === 'untitled' ? '' : state.name + ' · '}audio editor`
 }
 // The one file the script opens, whose original the output compares with; none for generated or joined sources.
 export const sourceName = () => { const s = source(ed.code)?.strings; return s?.length === 1 ? s[0].name : null }

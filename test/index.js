@@ -4690,6 +4690,21 @@ test('shrink — after gain (stats remapped), stream ≡ read', async t => {
   t.is(streamed, pcm[0].length, 'stream length matches read')
 })
 
+// A pause that is not digital silence (a room's hum, 50 dB under the tones, under the threshold): a hard cut joins it
+// at two phases, a step; with a crossfade, no step past the hum's own slope (2πfA/sr), and the same length removed
+test('shrink — crossfade joins each cut without a step, the length the same', async t => {
+  let sr = 44100, A = 10 ** (-50 / 20), f = 997
+  let x = pausedTones(sr).map((v, i) => v + A * Math.sin(2 * Math.PI * f * i / sr))
+  let hard = (await audio.from([x.slice()], { sampleRate: sr }).shrink(0.2, -30).read())[0]
+  let soft = (await audio.from([x.slice()], { sampleRate: sr }).shrink(0.2, -30, 0.01).read())[0]
+  t.is(soft.length, hard.length, `the same length: ${soft.length}`)
+  t.ok(hard.length < x.length - sr * 0.5, `pauses cut: ${(hard.length / sr).toFixed(3)} s of ${(x.length / sr).toFixed(3)}`)
+  // the largest step inside the pauses (both sides quiet: under 1.5 A), against the hum's own
+  let slope = 2 * Math.PI * f * A / sr, step = y => { let m = 0; for (let i = 1; i < y.length; i++) if (Math.abs(y[i]) < 1.5 * A && Math.abs(y[i - 1]) < 1.5 * A) m = Math.max(m, Math.abs(y[i] - y[i - 1])); return m }
+  t.ok(step(hard) > 3 * slope, `a hard cut steps: ${(step(hard) / slope).toFixed(1)}× the hum's slope`)
+  t.ok(step(soft) <= 1.5 * slope, `crossfaded, none past its slope: ${(step(soft) / slope).toFixed(2)}×`)
+})
+
 test('shrink — negative gap clamps to 0 (never eats signal)', async t => {
   let sr = 44100
   let a = audio.from([pausedTones(sr)], { sampleRate: sr })

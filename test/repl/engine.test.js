@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import audio from '../../audio.js'
 import { voiceTrack, stemTracks } from '../../repl/code.js'
 import { boxed } from '../../repl/heard.js'
@@ -807,6 +808,49 @@ test('engine: deepfilter and rnnoise run in the page, as on Node', async t => {
     for (let i = 0; i < got.length; i++) { e += expected[i] ** 2; d += (got[i] - expected[i]) ** 2 }
     assert.ok(10 * Math.log10(e / d) > 40, `${name}: ${(10 * Math.log10(e / d)).toFixed(1)} dB from Node's`)
   }
+})
+
+// What a sound is, in a word (worker.js kind, kind.js): silence where nothing sounds, whatever is installed; of a sound,
+// what the classifier in @audio/neural-denoise hears (its segments(), from 0.7): a band is music, a film scene with a
+// musical opening (lena) speech, hiss has no word; with an older one installed, no word at all. A long sound is
+// listened to over stretches spread over it, not whole
+test('engine: what a sound is, in a word: silence, and with @audio/neural-denoise\'s segments() music, speech, or none', async t => {
+  const { segments } = await import('@audio/neural-denoise'), sr = RATE
+  const band = new Float32Array(5 * sr), chords = [[60, 64, 67], [57, 60, 64], [53, 57, 60], [55, 59, 62]], hz = m => 440 * 2 ** ((m - 69) / 12)
+  let seed = 9
+  const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296, seed / 4294967296 - .5)
+  for (let b = 0; b * .5 < 5; b++) {
+    const t0 = Math.round(b * .5 * sr), c = chords[(b >> 2) % 4]
+    for (const n of [...c, c[0] - 24]) for (let h = 1; h <= 8 && hz(n) * h < 8000; h++)
+      for (let i = 0; i < sr && t0 + i < band.length; i++) band[t0 + i] += .05 / h * Math.exp(-i / sr * (2 + h)) * Math.sin(2 * Math.PI * hz(n) * h * i / sr)
+    for (let i = 0; i < 2000 && t0 + i < band.length; i++) band[t0 + i] += .1 * rnd() * Math.exp(-i / 300)
+  }
+  const take = await audio(fileURLToPath((await import('audio-lena')).default.url('wav'))), lena = (await take.read())[0], hiss = Float32Array.from({ length: 4 * sr }, () => .2 * rnd())
+  // 100 s: the band for its first 10, silence after: listened to at six places, one of them the band
+  const long = new Float32Array(100 * sr); long.set(band); long.set(band, 5 * sr)
+  await page.goto(origin + '/blank.html')
+  const kinds = await page.evaluate(async files => {
+    const { default: engine } = await import('/repl/engine.js'), { prepare } = await import('/repl/code.js')
+    const e = engine(new URL('/repl/dist/worker.js', location.href)), out = {}
+    for (const [name, { channels, sampleRate }] of Object.entries(files)) {
+      await e.file(name, { channels: channels.map(c => Float32Array.from(c)), sampleRate })
+      const r = await e.render(prepare(`audio('${name}')`))
+      out[name] = await e.kind(r.id)
+    }
+    out.gone = await e.kind('no such output')
+    return out
+  }, Object.fromEntries(Object.entries({ silence: [new Float32Array(sr)], band: [band, band], lena: [lena], hiss: [hiss], long: [long] }).map(([k, channels]) => [k + '.wav', { channels: channels.map(c => [...c]), sampleRate: k === 'lena' ? take.sampleRate : sr }])))
+  assert.equal(kinds['silence.wav'].kind, 'silence', 'nothing sounds: silence')
+  assert.equal(kinds.gone.kind, undefined, 'an output that is not there: nothing said, not even none')
+  if (!segments) {
+    assert.deepEqual(['band', 'lena', 'hiss', 'long'].map(k => kinds[k + '.wav'].kind), ['', '', '', ''], 'no classifier installed with segments(): no word')
+    return t.diagnostic('@audio/neural-denoise installed has no segments() (0.7 has): the words not checked')
+  }
+  assert.equal(kinds['band.wav'].kind, 'music', `the band, two channels: ${JSON.stringify(kinds['band.wav'])}`)
+  assert.equal(kinds['lena.wav'].kind, 'speech', `lena: ${JSON.stringify(kinds['lena.wav'])}`)
+  assert.ok(kinds['lena.wav'].shares.music > .1 && kinds['lena.wav'].shares.music < .25, 'her musical opening under a quarter of it')
+  assert.equal(kinds['hiss.wav'].kind, '', 'hiss: no word')
+  assert.equal(kinds['long.wav'].kind, 'music', `100 s, the band in its first ten: ${JSON.stringify(kinds['long.wav'])}`)
 })
 
 // Vocos in the page (onnxruntime-web's wasm), as on Node (onnxruntime-node): the phase it predicts follows the float

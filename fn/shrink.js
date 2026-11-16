@@ -9,7 +9,11 @@ const shrink = (input, output, ctx) => {
 /** Compress silent pauses to a target gap, throughout — FFmpeg `silenceremove` /
  *  Audacity truncate-silence. A silent run longer than `gap` keeps its first `gap`
  *  seconds, the remainder is removed. Stat-conditioned like trim: emits concrete
- *  removes once block stats exist; positions are pre-shifted for prior removes. */
+ *  removes once block stats exist; positions are pre-shifted for prior removes.
+ *  Each cut a hard join by default (FFmpeg's silenceremove joins so); `crossfade` (s, or
+ *  '10ms') makes it remove()'s equal-power crossfade, centred on the cut, the length the
+ *  same, as Audacity's Truncate Silence blends 100 samples linearly over each of its cuts
+ *  (TruncSilenceBase.cpp, DEF_BlendFrameCount). */
 const shrinkResolve = (ctx) => {
   let { stats, sampleRate: sr, totalDuration, threshold, at, duration } = ctx
   if (!stats?.min || !stats?.energy) return null
@@ -28,7 +32,7 @@ const shrinkResolve = (ctx) => {
   const close = (s, endSample) => {
     let startSample = s * bs, cut = endSample - startSample - gapSamples
     if (cut < bs) return  // sub-block savings — not worth a splice
-    edits.push(['remove', { at: (startSample + gapSamples) / sr - shift, duration: cut / sr }])
+    edits.push(['remove', { at: (startSample + gapSamples) / sr - shift, duration: cut / sr, ...ctx.crossfade && { crossfade: ctx.crossfade } }])
     shift += cut / sr
   }
   for (let i = from; i < to; i++) {
@@ -44,4 +48,4 @@ const shrinkResolve = (ctx) => {
 }
 
 // Like trim: an automatic threshold waits for the whole input, a given one streams
-audio.op('shrink', { params: ['gap', 'threshold'], process: shrink, resolve: shrinkResolve, holdback: (o, sr, total) => o.threshold == null ? total : 0 })
+audio.op('shrink', { params: ['gap', 'threshold', 'crossfade'], process: shrink, resolve: shrinkResolve, holdback: (o, sr, total) => o.threshold == null ? total : 0 })

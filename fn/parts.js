@@ -34,7 +34,11 @@ const pages = (total, PS, p = 0) => Array.from({ length: Math.max(0, Math.ceil(t
 
 /** A WAV's pages, from its first bytes `h` (the header in them) and its size: { pages, total }, each page the bytes
  *  that hold it, the first from the header on; null where its frames are not their own bytes alone (ADPCM; a frame
- *  wider than its samples). The header read as @audio/decode-wav reads it (scanWavHdr), the data's end where it ends. */
+ *  wider than its samples). The header read as @audio/decode-wav reads it (scanWavHdr), the data's end where it ends.
+ *  A chunk of an odd size is followed by its pad byte, zero, which the size does not count (RIFF keeps chunks on word
+ *  boundaries: Multimedia Programming Interface and Data Specifications 1.0, IBM and Microsoft, August 1991, "Resource
+ *  Interchange File Format"; the same in EBU Tech 3285 for BWF); where a writer left it out, the next chunk's id is
+ *  there, never a zero byte, and the next chunk is read from where the size ends. */
 export function wav(h, size, PS) {
   if (h.length < 12 || id(h, 0) !== 'RIFF' || id(h, 8) !== 'WAVE') return null
   let dv = new DataView(h.buffer, h.byteOffset, h.byteLength), fmt = null
@@ -53,7 +57,7 @@ export function wav(h, size, PS) {
       let left = n > 0 && n < 0xFFFFFFFF ? n : Infinity, total = Math.floor(Math.min(left, size - start) / block)
       return total ? { pages: pages(total, PS).map(([a, b]) => [a ? start + a * block : 0, start + b * block]), total } : null
     }
-    o += 8 + n
+    o += 8 + n + (n & 1 && h[o + 8 + n] === 0 ? 1 : 0)
   }
   return null
 }

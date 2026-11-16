@@ -40,8 +40,34 @@ export function median({ at, duration }) { const list = voiced(at, at + duration
 export const pitched = (rect, L) => L.spec.includes(rect)
 export const clampY = ([, y, , lh], ly) => Math.max(y + 5, Math.min(y + lh - 5, ly))
 // What a step sets, as hints over the output, never over the sound itself (`show.guides`): its range a bar on the time
-// row, as a DAW's ruler marks a region; a level, its fades' ramps, a time, a frequency, a band, the notes it tunes to
+// row, as a DAW's ruler marks a region; a level, its fades' ramps, a time, a frequency, a band, the notes it tunes to.
+// All of it in the guides' colour, the accent's cyan, hints being guides: what it sets or keeps, a line; what it takes
+// away or changes, filled, half transparent so the sound reads through (`veil`). Red is a control's alone, for an act
+// that takes something away (Remove), never a hint's
+const VEIL = .25
+const veil = paint => { c.save(); c.globalAlpha *= VEIL; paint(); c.restore() }
+// what an edit does, said once on a tag in the accent, the picture's labels' size: at `px`, its left edge (its right
+// where `before`), centred on `py`
+function say(text, px, py, before = false) {
+  const font = c.font
+  c.font = label()
+  const tw = c.measureText(text).width
+  tag(text, Math.max(4, before ? px - tw : px), py, 'left', color('--color-screen'), accent())
+  c.font = font
+  c.fillStyle = c.strokeStyle = accent()
+}
+// a level as a tag says it: one decimal, its own minus, a plus where it is a change upward (`change`)
+const dB = (v, change = false) => `${v < 0 ? '−' : change && v > 0 ? '+' : ''}${Math.abs(v).toFixed(1)}dB`
+// A mark of a hint whose setting is not the one pointed at in an edit's settings (`quiet`: editor/menus.js stepHint)
+// stays, a third as strong, the one pointed at whole
+const QUIET = .35
 export function paintGuide(g, L) {
+  if (!g.quiet) return draw(g, L)
+  c.save()
+  c.globalAlpha = QUIET
+  try { draw(g, L) } finally { c.restore() }
+}
+function draw(g, L) {
   // its words end where the lanes' pictures do, clear of the meters
   const { h } = plot(), all = L.all, end = lanesEnd(L)
   c.strokeStyle = c.fillStyle = accent()
@@ -55,22 +81,64 @@ export function paintGuide(g, L) {
   if (g.notes) for (const rect of L.spec) paintNotes(g, rect, end)
   // a level or a time, a plain line, its ends plain (a cross is a snap's, a clip's)
   const line = (x0, y0, x1, y1) => { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke() }
-  if (g.level != null) for (const rect of L.wave) {
-    const amp = 10 ** (g.level / 20), [, y, lw] = rect
-    for (const sign of [1, -1]) { const ly = Math.round(ay(rect, amp, sign)) + .5; line(3, ly, Math.min(lw, end) - 3, ly) }
-    c.textAlign = 'right'
-    c.fillText(`${+g.level.toFixed(1)}dB`, end - 6, Math.max(y + 8, ay(rect, amp) - 7))
+  // what an edit would cut away (ops.js hints: a trim's ends, a crop's outside, each pause shrink shortens): its span
+  // veiled over every lane, a line where the sound kept would start or end
+  if (g.cut) {
+    const a = Math.max(0, x(g.cut[0])), b = Math.min(end, x(g.cut[1]))
+    if (b > a) veil(() => { for (const [, y, , lh] of all) c.fillRect(a, y, b - a, lh) })
+    for (const edge of [a, b]) if (edge > 1 && edge < end - 1) { const px = Math.round(edge) + .5; for (const [, y, , lh] of all) line(px, y, px, y + lh) }
   }
-  // a fade's ramp, [t0, t1, 'in' or 'out', curve]: its level along its curve (the library's; 'equal', a crossfade's equal
-  // power, sin and cos), from silence on the centre line to the lane's edges, mirrored as the lane is
-  if (g.ramps) for (const [, y, , lh] of ampLanes(L)) for (const [t0, t1, kind, name] of g.ramps) {
-    const curve = CROSSFADES[name] ?? CURVES.linear, mid = y + lh / 2, half = lh / 2 - 2
-    for (const sign of [1, -1]) {
-      c.beginPath()
-      for (let i = 0; i <= 32; i++) { const u = i / 32; c.lineTo(x(t0 + u * (t1 - t0)), mid - sign * half * curve(kind === 'in' ? u : 1 - u)) }
-      c.stroke()
+  // the level a peak goes to, a line each side of the centre (over its span, where it has one: a gain's range). An
+  // edit's (`from`, ops.js hints: where the peak stands now) says what it does at a glance: where the peak stands, a
+  // dashed line; where it will, a line; the levels between veiled; and once, on a tag at the line's start, from where to
+  // where and by how much (−4.0dB → −1.0dB, +3.0dB). A level alone (a ceiling, a peak read out) its value at the end
+  if (g.level != null) { let told = false; for (const rect of L.wave) {
+    const amp = 10 ** (g.level / 20), [, y, lw] = rect, [x0, x1] = g.span ? [Math.max(3, x(g.span[0])), Math.min(lw, end, x(g.span[1]))] : [3, Math.min(lw, end) - 3]
+    if (x1 <= x0) continue
+    if (!Number.isFinite(g.from)) {
+      for (const sign of [1, -1]) { const ly = Math.round(ay(rect, amp, sign)) + .5; line(x0, ly, x1, ly) }
+      c.textAlign = 'right'
+      c.fillText(`${+g.level.toFixed(1)}dB`, g.span ? x1 - 3 : end - 6, Math.max(y + 8, ay(rect, amp) - 7))
+      continue
     }
-  }
+    const now = 10 ** (g.from / 20)
+    veil(() => { for (const sign of [1, -1]) { const p = ay(rect, now, sign), q = ay(rect, amp, sign); c.fillRect(x0, Math.min(p, q), x1 - x0, Math.abs(q - p)) } })
+    c.setLineDash([4, 3])
+    for (const sign of [1, -1]) { const ly = Math.round(ay(rect, now, sign)) + .5; line(x0, ly, x1, ly) }
+    c.setLineDash([])
+    c.lineWidth = 1.5
+    for (const sign of [1, -1]) { const ly = Math.round(ay(rect, amp, sign)); line(x0, ly, x1, ly) }
+    c.lineWidth = 1
+    if (told) continue
+    told = true
+    const yt = ay(rect, amp, 1), yn = ay(rect, now, 1), ty = Math.abs(yn - yt) > 20 ? (yn + yt) / 2 : yt + (yt < y + 14 ? 11 : -11)
+    say(`${dB(g.from)} → ${dB(g.level)}, ${dB(g.level - g.from, true)}`, x0 + 6, ty)
+  } }
+  // a fade's ramp, [t0, t1, 'in' or 'out', curve]: its level along its curve (the library's; 'equal', a crossfade's equal
+  // power, sin and cos), from silence on the centre line to the lane's edges, mirrored as the lane is; what it takes off,
+  // between its curve and the lane's edges, veiled where the hint says so (`fill`: an edit's, ops.js hints)
+  // An edit's ramps (`fill`) each say once, on a tag at its full end, inside, which way and how long (in 1s, out 1s)
+  if (g.ramps) { const told = new Set(); for (const [, y, , lh] of ampLanes(L)) for (const [t0, t1, kind, name] of g.ramps) {
+    const curve = CROSSFADES[name] ?? CURVES.linear, mid = y + lh / 2, half = lh / 2 - 2
+    const along = sign => { for (let i = 0; i <= 32; i++) { const u = i / 32; c.lineTo(x(t0 + u * (t1 - t0)), mid - sign * half * curve(kind === 'in' ? u : 1 - u)) } }
+    if (g.fill) veil(() => { for (const sign of [1, -1]) { c.beginPath(); c.moveTo(x(t0), mid - sign * half); along(sign); c.lineTo(x(t1), mid - sign * half); c.closePath(); c.fill() } })
+    for (const sign of [1, -1]) { c.beginPath(); along(sign); c.stroke() }
+    if (!g.fill || told.has(kind)) continue
+    told.add(kind)
+    say(`${kind} ${+(t1 - t0).toFixed(2)}s`, kind === 'in' ? x(t1) + 6 : x(t0) - 6, y + 12, kind === 'out')
+  } }
+  // the frequencies a filter cuts (ops.js hints: under a high-pass's cutoff, over a low-pass's), veiled on each
+  // spectrogram lane, the cutoff its own line (`freq`), said once on a tag at its start (cut under 80Hz)
+  if (g.cutHz) { let told = false; for (const rect of L.spec) {
+    const [, y, lw, lh] = rect, at = f => { const p = fy(rect, f); return Number.isFinite(p) ? Math.max(y, Math.min(y + lh, p)) : null }
+    const top = at(g.cutHz[1]) ?? y, bottom = g.cutHz[0] > 0 ? at(g.cutHz[0]) ?? y + lh : y + lh
+    if (bottom <= top) continue
+    veil(() => c.fillRect(0, top, Math.min(lw, end), bottom - top))
+    if (told) continue
+    told = true
+    const under = g.cutHz[0] <= 0, f = under ? g.cutHz[1] : g.cutHz[0]
+    say(`cut ${under ? 'under' : 'over'} ${f >= 1000 ? `${+(f / 1000).toFixed(2)}kHz` : `${Math.round(f)}Hz`}`, 6, under ? top + 11 : bottom - 11)
+  } }
   if (g.at != null) {
     const px = X(g.at) + .5
     for (const [, y, , lh] of all) line(px, y + 3, px, y + lh - 3)

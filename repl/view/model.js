@@ -8,8 +8,9 @@ import kept from '../kept.js'
 // characters (a frequency marked zoomed far in, 1.005k); the axis is as wide as the labels it has (axisWidth), five at
 // full scale. STICK, how near the pointer takes a cue (held ⌘), and the levels zoomed onto full scale: either side, a
 // 10 px reach; ONTO, how near a dragged time goes onto a cue or a marker, 3 px either side, so a drag goes where it is
-// put but by what it meets
-export const GUTTER = 48, RULER = 22, GAP = 2, EDGE = 6, SNAP = 6, STICK = 5, ONTO = 3, INSET = 3, NOTCH = Math.log(1.5)
+// put but by what it meets. RULER, the time row's height: its ticks and their times, the scrollbar under it in a strip
+// of its own (geometry.js footH), the 8 px the row gave it, so the lanes keep their height
+export const GUTTER = 48, RULER = 14, GAP = 2, EDGE = 6, SNAP = 6, STICK = 5, ONTO = 3, INSET = 3, NOTCH = Math.log(1.5)
 // A band: a track's lane, or a sound's lanes all told, GAP px apart; over it its head, HEAD px, never over the sound:
 // its markers' names, as a document's headings over what they name, what forks it (its takes' numbers, the
 // selection's fork), its look at its right over the axis (editor.js layers), the one row between one band and the
@@ -25,9 +26,10 @@ export const HEAD = 18
 // caret, which a take, a paste or a file dropped there makes a track of, as a layer in Figma is made by drawing, never
 // added empty
 export const TRACK = 160, LOW = 32, ROOM = 80
-// What a band shows, its look drawn as it: a waveform's bars, a spectrogram's lines, a voice's notes rising
+// What a band shows, its look drawn as it: a waveform's bars (five, short, taller, tallest, taller, short: their ends
+// on a rhombus about the centre line, 4 to 20 across, 3 to 21 down), a spectrogram's lines, a voice's notes rising
 export const KINDS = {
-  wave: ['Waveform', 'M4 10v4m4-8v12m4-15v18m4-14v10m4-6v2'],
+  wave: ['Waveform', 'M4 10v4m4-7.5v11m4-14.5v18m4-14.5v11m4-7.5v4'],
   spec: ['Spectrogram', 'M4 5h16M4 9.5h10M4 14h13M4 18.5h6'],
   notes: ['Notes', 'M3 16h5m0-5h5m0-4h4m0 7h4']
 }
@@ -88,8 +90,11 @@ export const GAIN = [-36, 12]                        // the gain line's scale, d
 export const GLIDE = .3                               // a playhead past the view's middle is drawn to it in this time constant, s
 
 
-// What view() is given (editor.js), kept as it mounts: its element, its callbacks, its zoom's limits and overshoot
-export let root, onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, sized, closest, farthest, overshoot, cueOrder
+// What view() is given (editor.js), kept as it mounts: its element, its callbacks, its zoom's limits and overshoot,
+// whether a wheel up or down is the page's (pageWheel: ?ui= wheel across), whether the lanes have their scale at the
+// right (scaled: ?ui= axis), and whether its values and the time row lie within the sheet the grid rules, no scale
+// apart (within: ?ui= axis inside)
+export let root, onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, sized, closest, farthest, overshoot, cueOrder, pageWheel, scaled, within
 export const element = (tag, className, parent) => parent.appendChild(Object.assign(document.createElement(tag), { className }))
 // a button of the picture's own pressed: the picture keeps the keys (its own, Undo's), as a press anywhere in it gives them
 export const keep = () => root.focus({ preventScroll: true })
@@ -176,7 +181,7 @@ export let gripMode = 'stretch', pitching = false
 // how the time row marks time: 'labels' with their ticks, 'ticks' alone, or 'none'; the caret's, the pointer's and a
 // selection's times show whatever it is
 export let ruler = 'labels'
-// how the lanes are ruled (paintGrid): 'marks', 'crosses', 'dots', 'lines' or 'none'
+// how the lanes are ruled (render.js rule): 'lines', faint; 'paper', the same lines twice as strong; or 'none'
 export let grid = 'none'
 // the steps a selection's level goes up or down in, dB, as the pill is dragged
 export const LEVEL_STEP = 1
@@ -270,7 +275,7 @@ export let ahead = false
 // The view mounted on its element, once: what it is given kept, its layers made and laid in their order
 export function mount(el, given) {
   root = el
-  ;({ onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, sized, closest, farthest, overshoot, cueOrder } = given)
+  ;({ onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, sized, closest, farthest, overshoot, cueOrder, pageWheel, scaled, within } = given)
   // the selection under the pictures, as a selection is behind text: the sound drawn over it, a quiet spectrogram's
   // clear ground showing it; the grid over the spectrogram, under the waveform, in the waveform's canvas (paintGrid). The
   // pictures on a reel (roll), cut where the lanes end (editor.css --end): drawn past the view's right end, the reel

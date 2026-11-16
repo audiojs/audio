@@ -1,5 +1,8 @@
 // Built-in samples, generated here: no downloads, no recordings. Stereo at 44.1 kHz, about -16 LUFS, with quiet edges
 // so trim has something to do. Each is a few seconds of sparse, distinct strikes that read in the waveform.
+// Each says what it is in a word (`kind`), as a page says its own sound's (repl/editor/readouts.js pageKind), in the
+// listeners' words (repl/kind.js): music where the speech/music classifier would hear music, else what the tagger
+// calls it; known here, so none is listened to
 export const RATE = 44100
 const mtof = note => 440 * 2 ** ((note - 69) / 12)
 const random = seed => () => (seed = (seed * 16807) % 2147483647) / 2147483647 * 2 - 1
@@ -66,7 +69,7 @@ function finish(channels, gain, end, seconds) {
 export const samples = {
   // An airport chime pair, C4 E4 G4 C5 rising, a pause, then falling, on vibraphone bars: modes tuned to 1, 4 and 10
   // times the note and a few untuned ones above, a mallet's click, in a hall.
-  chime: { description: 'Airport chime, rising and falling', make: () => {
+  chime: { description: 'Airport chime, rising and falling', kind: 'chime', make: () => {
     const out = stereo(8), noise = random(1)
     ;[60, 64, 67, 72, 72, 67, 64, 60].forEach((note, n) => {
       const at = .5 + n * .6 + (n > 3 ? .9 : 0), f = mtof(note)
@@ -82,7 +85,7 @@ export const samples = {
   // the fifth above that, each ringing as a slightly split pair that shimmers, with the steel's untuned modes above
   // them; a finger's quick strike and its tick, the shell's low hum, and the center ding ringing along with the notes
   // that share its pitch.
-  handpan: { description: 'Handpan, a slow phrase in D minor', make: () => {
+  handpan: { description: 'Handpan, a slow phrase in D minor', kind: 'music', make: () => {
     const out = stereo(6.4), noise = random(4)
     const strike = (at, note, level, pan) => {
       const f = mtof(note)
@@ -103,7 +106,7 @@ export const samples = {
   // A songbird at dawn: two phrases of fluty whistles, gliding and warbling between 1.9 and 2.9 kHz, each ending in a
   // quick twitter of chirps falling from 7 kHz. A whistle is a sine with a little of its octave and of breath, gliding
   // from one pitch to the next; a warble trembles 30 times a second. [start, seconds, from Hz, to Hz, warble Hz, level]
-  birdsong: { description: 'Birdsong at dawn', make: () => {
+  birdsong: { description: 'Birdsong at dawn', kind: 'birdsong', make: () => {
     const out = stereo(4.5), noise = random(11)
     const whistle = (at, seconds, from, to, warble, level, pan = .2) => {
       let phase = 0, breath = 0
@@ -128,7 +131,7 @@ export const samples = {
   // together, each long chord struck, then again softly just after the second beat. FM keys (a sine modulated at its
   // own frequency, the index falling as the note sounds, and a tine's ping), the suitcase's stereo tremolo and a tape's
   // slow wobble.
-  rhodes: { description: 'Electric piano, the Just the Two of Us chords', make: () => {
+  rhodes: { description: 'Electric piano, the Just the Two of Us chords', kind: 'music', make: () => {
     const out = stereo(9), wobble = t => 1 + .0012 * sine(.45 * t), hands = random(12)
     const key = (at, seconds, note, level) => {
       const f = mtof(note), fades = [decay(.6), decay(.2), decay(.015), decay(2.4 * Math.sqrt(262 / f)), decay(.12)]
@@ -160,7 +163,7 @@ export const samples = {
 
   // A patient monitor keeping time with a heart at 72 beats a minute: each beat a short tone near 1 kHz, as the pulse
   // is heard in an operating room.
-  monitor: { description: 'Heart monitor beeping', make: () => {
+  monitor: { description: 'Heart monitor beeping', kind: 'beep', make: () => {
     const out = stereo(5)
     for (let beat = 0; beat < 6; beat++) play(out, .35 + beat * 60 / 72, .11, t => {
       const edge = Math.min(1, t / .004, (.11 - t) / .01)

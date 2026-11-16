@@ -1432,12 +1432,14 @@ async function inPages(path, format, size, io) {
   return false
 }
 
-/** A WAV a page's bytes at a time, read ahead, each page the decoder's own arrays (acc.adopt: indexed, not copied) */
+/** A WAV a page's bytes at a time, read ahead, each page the decoder's own arrays (acc.adopt: indexed, not copied).
+ *  The bytes go into two buffers in turn, the next page read into one while the decoder reads the other, which keeps
+ *  none of them: a fresh buffer a page was as much garbage as the file, and the collections that called for. */
 async function wavPages(path, size, { acc, dec, addHeader, disposed }) {
   let PS = audio.PAGE_SIZE, [{ wav }, { open }] = await Promise.all([import('./fn/parts.js'), import('fs/promises')])
   let fh = await open(path, 'r'), yieldLoop = pacer(), next = null
-  let read = async ([from, to]) => {
-    let b = new Uint8Array(to - from)
+  let read = async ([from, to], b = new Uint8Array(to - from)) => {
+    b = b.subarray(0, to - from)
     for (let o = 0, r; o < b.length; o += r) if (!(r = (await fh.read(b, o, b.length - o, from + o)).bytesRead)) return b.subarray(0, o)
     return b
   }
@@ -1445,10 +1447,12 @@ async function wavPages(path, size, { acc, dec, addHeader, disposed }) {
     let head = await read([0, Math.min(size, 256 * 1024)]), plan = wav(head, size, PS)
     if (!plan || disposed()) return disposed() ? null : false
     addHeader(head)
-    next = read(plan.pages[0])
+    // the first page the largest: the header's bytes with its samples
+    let n = plan.pages[0][1], bufs = [new Uint8Array(n), plan.pages.length > 1 ? new Uint8Array(n) : null]
+    next = read(plan.pages[0], bufs[0])
     for (let i = 0; i < plan.pages.length; i++) {
       let bytes = await next
-      if (i + 1 < plan.pages.length) next = read(plan.pages[i + 1])
+      if (i + 1 < plan.pages.length) next = read(plan.pages[i + 1], bufs[(i + 1) & 1])
       let r = await dec(bytes)
       if (disposed()) return null
       if (r.channelData.length) acc.adopt(r.channelData, r.sampleRate)

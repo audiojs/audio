@@ -41,11 +41,12 @@ test('editor: a delivery check shows each rule for the result, and follows the s
   assert.equal(await page.locator('#checks').count(), 0)
 })
 
+// (one with no model to fetch: the page here asks nothing of the world, and Podcast episode's noise is DeepFilterNet3's)
 test('editor: a recipe made for a delivery spec checks the output against it', async () => {
   await open({ recipes: true })
-  await menu('Process', 'Recipes', 'Podcast episode')
-  await page.waitForFunction(() => { const b = document.querySelector('.status .checked'); return b?.textContent === 'Apple' && b.classList.contains('pass') }, null, { timeout: 30000 })
-  assert.match(await code(), /\.normalize\('podcast'\)$/)
+  await menu('Process', 'Recipes', 'Loudness for streaming')
+  await page.waitForFunction(() => { const b = document.querySelector('.status .checked'); return b?.textContent === 'Spotify' && b.classList.contains('pass') }, null, { timeout: 30000 })
+  assert.match(await code(), /\.normalize\('spotify'\)$/)
 })
 
 // The export, a dropdown over its button at the bar's right end: its rows of choices each on one line, every label
@@ -87,7 +88,7 @@ test('editor: a file opens where nothing plays, goes in where its caret shows ov
   // held over the middle: the caret where it would go in, the accent's colour, a line down the lanes
   const { x } = await axis(.5)
   await hold('.plot', 'tone.wav', x(.25), ['dragover'])
-  const lit = await pixels(`const out = []; for (let x = 0; x < w; x++) { const i = (80 * w + x) * 4; if (d[i] - d[i + 2] > 60) out.push(x) } return out`)
+  const lit = await pixels(`const out = []; for (let x = 0; x < w; x++) { if (accent((80 * w + x) * 4) > 1 / 3) out.push(x) } return out`)
   const box = await page.locator('.plot').boundingBox()
   assert.ok(lit.length && lit.every(px => Math.abs(px - (x(.25) - box.x)) < 3), JSON.stringify(lit))
   await hold('.plot', 'tone.wav', x(.25), ['drop'])

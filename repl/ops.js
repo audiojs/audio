@@ -18,7 +18,7 @@ const need = s => ({ ...s, required: true })
 // Ops whose time range is the whole call: `.remove({ at, duration })`; with more after it: `.move({ at, duration, to })`.
 const RANGE = [p('at', 0, 1, 0, 's', { step: .01 }), p('duration', 0, 1, 1, 's', { step: .01 })]
 
-export const GROUPS = ['Edit', 'Level', 'Filter', 'Dynamics', 'Repair', 'Time & pitch', 'Effect', 'Color', 'Reverb', 'Space', 'Generate']
+export const GROUPS = ['Edit', 'Silence', 'Level', 'Filter', 'Dynamics', 'Repair', 'Time & pitch', 'Effect', 'Color', 'Reverb', 'Space', 'Generate']
 
 // The scales tune() and center() snap to, as semitones up from the root: @audio/note's SCALES, which @audio/tune-snap snaps by
 export const SCALES = {
@@ -37,9 +37,9 @@ export const SCALES = {
 
 // name: [group, description, params] – params omitted for plugins (read from their manifests), `range` for range-only calls.
 const table = {
-  // Edit
-  trim: ['Edit', 'Cut silence from both ends', [db('threshold', -80, 0, -40)]],
-  shrink: ['Edit', 'Shorten pauses', [sec('gap', 2, .3), db('threshold', -80, 0, -40)]],
+  // Edit, and Silence: what is quiet at its ends, between its sounds, before and after it
+  trim: ['Silence', 'Cut silence from both ends', [db('threshold', -80, 0, -40)]],
+  shrink: ['Silence', 'Shorten pauses', [sec('gap', 2, .3), db('threshold', -80, 0, -40), sec('crossfade', .05, 0)]],
   crop: ['Edit', 'Keep a range, drop the rest', 'range'],
   remove: ['Edit', 'Delete a range and close the gap', 'range'],
   cut: ['Edit', 'Delete a range into the clipboard', 'range'],
@@ -47,9 +47,9 @@ const table = {
   move: ['Edit', 'Slide a range to another time, over what is there', ['range', sec('to', 1, 0)]],
   paste: ['Edit', 'Insert the clipboard', [sec('at', 1, 0)]],
   insert: ['Edit', 'Insert audio or seconds of silence', [{ name: 'source' }, sec('at', 1, 0)]],
-  pad: ['Edit', 'Add silence before and after', [sec('before', 5, .5), sec('after', 5, .5)]],
-  repeat: ['Edit', 'Play it several times', [p('times', 1, 16, 2, '×', { step: 1 })]],
-  reverse: ['Edit', 'Play backwards', []],
+  pad: ['Silence', 'Add silence before and after', [sec('before', 5, .5), sec('after', 5, .5)]],
+  repeat: ['Time & pitch', 'Play it several times', [p('times', 1, 16, 2, '×', { step: 1 })]],
+  reverse: ['Time & pitch', 'Play backwards', []],
   // Level
   gain: ['Level', 'Change volume', [db('value', -36, 12, 0)]],
   normalize: ['Level', 'Set peak or loudness', [db('target', -36, 0, 0), choice('mode', ['peak', 'lufs', 'rms'])]],
@@ -84,10 +84,10 @@ const table = {
   oberheim: ['Filter', 'Oberheim SEM multimode filter'],
   variable: ['Filter', 'Smooth variable filter'],
   resonator: ['Filter', 'Ring at one frequency'],
-  comb: ['Filter', 'Comb filter'],
+  comb: ['Filter', 'Add a delayed copy: peaks and dips along the harmonics of one pitch'],
   dcblocker: ['Filter', 'Remove DC offset'],
-  emphasis: ['Filter', 'Pre-emphasis'],
-  deemphasis: ['Filter', 'De-emphasis'],
+  emphasis: ['Filter', 'Boost the highs before coding or sending, undone by de-emphasis'],
+  deemphasis: ['Filter', 'Undo pre-emphasis after decoding'],
   derivative: ['Filter', 'First difference'],
   integral: ['Filter', 'Running sum'],
   // Dynamics
@@ -188,11 +188,11 @@ const table = {
   // encoded and decoded in place, lined up with the input: what the codec takes out is its step's Δ (fn/codec.js)
   codec: ['Effect', 'Hear it through a lossy codec', [choice('format', ['mp3', 'aac', 'opus', 'vorbis']), choice('bitrate', [32, 48, 64, 96, 128, 160, 192, 256, 320], 128)]],
   // Color
-  distortion: ['Color', 'Distort'],
+  distortion: ['Color', 'Saturate by bending the wave non-linearly'],
   tube: ['Color', 'Warm tube saturation'],
   tape: ['Color', 'Tape saturation'],
   transistor: ['Color', 'Console saturation'],
-  waveshaper: ['Color', 'Waveshaping'],
+  waveshaper: ['Color', 'Bend the wave through a tanh or your own curve, oversampled'],
   multisat: ['Color', 'Saturate bands apart'],
   exciter: ['Color', 'Add presence and air'],
   subbass: ['Color', 'Add perceived bass'],
@@ -208,7 +208,7 @@ const table = {
   schroeder: ['Reverb', 'Classic Schroeder reverb'],
   // Space
   vocals: ['Space', 'Keep or remove the centre voice', [choice('mode', ['isolate', 'remove'])]],
-  isolate: ['Space', 'Centre channel isolation'],
+  isolate: ['Space', 'Keep what is panned to the centre, drop the sides'],
   widener: ['Space', 'Widen the stereo image'],
   haas: ['Space', 'Stereo from a short delay'],
   panner: ['Space', 'Constant-power panner'],
@@ -239,6 +239,10 @@ const table = {
 // A method's name as the menus and the edits write it: capitalized, its words apart, an acronym in capitals
 const LABELS = { eq: 'EQ', geq: 'GEQ', dyneq: 'DynEQ', fm: 'FM', sbr: 'SBR', omlsa: 'OMLSA', fdn: 'FDN', adsr: 'ADSR', fet: 'FET', vca: 'VCA', rnnoise: 'RNNoise', dcblocker: 'DC blocker', sfx: 'SFX', lofi: 'Lo-fi' }
 export const labelOf = name => LABELS[name] ?? name[0].toUpperCase() + name.slice(1).replaceAll('-', ' ')
+// What a row of a list of edits calls one whose name alone does not say what it acts on: its name, then that, so the
+// list reads plainly while the chain and the script show the call (editor/menus.js findable)
+const ROWS = { trim: 'Trim silence', shrink: 'Shrink pauses', pad: 'Pad with silence' }
+export const rowOf = name => ROWS[name] ?? labelOf(name)
 
 export const ops = Object.fromEntries(Object.entries(table).map(([name, [group, text, params]]) =>
   [name, { name, group, text, ...(params === 'range' || params?.[0] === 'range' ? { params: [...RANGE, ...params === 'range' ? [] : params.slice(1)], range: true } : params && { params }) }]))
@@ -264,7 +268,7 @@ export const methods = {
 
 // A step whose output doesn't line up with its input, sample for sample: a cut, a stretch, a new rate, a join, another
 // count of channels; a method that isn't a change to the sound in place. What it takes out has no meaning (the stack's Δ).
-export const reshapes = name => ['Edit', 'Time & pitch'].includes(ops[name]?.group) || ['remix', 'crossfade', 'warp'].includes(name) || !!methods[name] && !methods[name].edits
+export const reshapes = name => ['Edit', 'Silence', 'Time & pitch'].includes(ops[name]?.group) || ['remix', 'crossfade', 'warp'].includes(name) || !!methods[name] && !methods[name].edits
 
 export const stats = {
   db: 'Peak level, dBFS', rms: 'RMS level', peak: 'Peak amplitude', loudness: 'Integrated loudness, LUFS',
@@ -281,6 +285,7 @@ export const stats = {
 // Icons, 24 × 24 strokes, one for each group of methods, beside its tools
 export const icons = {
   Edit: 'M8.1 8.1 21 21M8.1 15.9 21 3M9 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0m0 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+  Silence: 'M3 12h18M5 8v8M8 10v4M16 10v4M19 8v8',
   Level: 'M3 18h18V6z',
   Filter: 'M3 8h8c4 0 5 4 6 7s2 4 4 4',
   Dynamics: 'M4 4v16h16M4 20l7-7c3-3 6-4 9-4',
@@ -323,6 +328,17 @@ export function format(value, { unit = '', step } = {}) {
   return value < 0 ? '−' + text.slice(1) : text
 }
 
+// A number's place on its slider, 0..1000: linear, or logarithmic for frequencies and ratios (`log`); and the value at
+// a place, rounded to its step (a log one's to three figures, a linear one's with none to a thousandth of its range),
+// written short: one mapping for an edit's settings (settings.js) and a value dragged on a row of the edits' list
+// (editor/menus.js findHold)
+export const toSlider = (s, v) => s.log && s.min > 0 ? Math.log(v / s.min) / Math.log(s.max / s.min) * 1000 : (v - s.min) / (s.max - s.min) * 1000
+export function fromSlider(s, x) {
+  const at = Math.max(0, Math.min(1000, x)), raw = s.log && s.min > 0 ? s.min * (s.max / s.min) ** (at / 1000) : s.min + at / 1000 * (s.max - s.min)
+  const step = s.step ?? (s.log ? Math.max(.01, 10 ** (Math.floor(Math.log10(Math.max(raw, 1e-9))) - 2)) : (s.max - s.min) / 1000)
+  return +(Math.round(raw / step) * step).toFixed(Math.max(0, Math.min(6, Math.ceil(-Math.log10(step)))))
+}
+
 // A plugin manifest's params ({ threshold: { min, max, default, unit } }) as the editor's list.
 export const fromManifest = spec => Object.entries(spec || {}).map(([name, s]) => s.type === 'enum' ? choice(name, s.values, s.default)
   : s.type === 'bool' ? choice(name, [true, false], s.default)
@@ -362,4 +378,107 @@ export function guides(name, args, duration) {
     out.push({ notes, root, a4: typeof args.a4 === 'number' ? args.a4 : 440, ...range && { span: range } })
   }
   return out
+}
+
+// What an edit would do to a sound, as marks on the picture (the view's guides: what it would cut away, the level it
+// would bring the peak to, a fade's ramps): pointed at, an edit shows what it would do; pressed, it does it. Each edit
+// answers for itself, `marks(args, sound)`: its arguments by name, as written (none given, none assumed: the library's
+// own defaults are its, said where they are), and the sound it would be given, { duration, sampleRate, channels } (its
+// samples; none where the page holds a long one as its peaks alone; `threshold`, the one trim and shrink find in it
+// where none is given, as the library finds it, once the engine has read it). `input` (or, of its arguments, whether):
+// its marks are of that sound, so an edit already made, which has changed the sound shown, is drawn over the sound
+// before it. An edit with no hint, or one that cannot be drawn truthfully from these (a loudness target), draws none:
+// never a guess. One vocabulary, as the picture's own hints have it (view/notes.js
+// paintGuide), all of it in the guides' colour (the accent's cyan): filled, half transparent, what the edit takes away
+// or changes: a span of time cut (`cut`), what a fade takes off (`ramps` with `fill`), the levels a peak moves through
+// (`level` from `from`), the frequencies a filter cuts (`cutHz`); a line for what it sets or keeps: where the sound kept
+// starts and ends, a fade's curve, the level a peak goes to, a cutoff (`freq`). None
+// where every sample changes alike and a fill would say no more than the name (reverse, a speed, a pitch), nor where
+// what it adds has no room on the picture (pad, repeat)
+export const hints = {
+  // the ends its threshold leaves, as the library's trim reads them (fn/trim.js, louds): cut, what is before the first
+  // loud block and after the last; all of it, none being loud. None given, its own, as the library finds it in that
+  // sound (the sound's `threshold`, read off its block stats by the engine: worker.js threshold)
+  trim: { input: true, of: ['threshold'], marks({ threshold: given }, { duration, sampleRate, channels, threshold: found }) {
+    const threshold = given ?? found
+    if (typeof threshold !== 'number' || !channels?.length) return null
+    const loud = louds(threshold, channels), s = loud.indexOf(true), e = loud.lastIndexOf(true)
+    if (s < 0) return [{ cut: [0, duration] }]
+    const from = s * BLOCK / sampleRate, to = Math.min((e + 1) * BLOCK, channels[0].length) / sampleRate
+    return [from > 0 && { cut: [0, from] }, to < duration && { cut: [to, duration] }].filter(Boolean)
+  } },
+  // each pause it shortens, as the library's shrink reads them (fn/shrink.js): a run of quiet blocks keeps its first
+  // `gap` s (0.3, the library's), the rest of it cut, where that is a block or more. None given, its own threshold, as
+  // trim's; a range is not read here
+  shrink: { input: true, of: ['gap', 'threshold'], marks({ gap = .3, threshold: given, at, duration: d }, { sampleRate, channels, threshold: found }) {
+    const threshold = given ?? found
+    if (typeof threshold !== 'number' || typeof gap !== 'number' || at != null || d != null || !channels?.length) return null
+    const loud = louds(threshold, channels), keep = Math.round(Math.max(0, gap) * sampleRate), out = []
+    const close = (s, end) => { const from = s * BLOCK + keep; if (end - from >= BLOCK) out.push({ cut: [from / sampleRate, end / sampleRate] }) }
+    let start = -1
+    loud.forEach((on, i) => { if (!on && start < 0) start = i; else if (on && start >= 0) { close(start, i * BLOCK); start = -1 } })
+    if (start >= 0) close(start, channels[0].length)
+    return out
+  } },
+  // what it keeps, its range (`at`, `duration`, from the end where `at` is less than 0), the rest cut
+  crop: { input: true, of: ['at', 'duration'], marks(args, { duration }) {
+    const r = span(args, duration)
+    return r && [r[0] > 0 && { cut: [0, r[0]] }, r[1] < duration && { cut: [r[1], duration] }].filter(Boolean)
+  } },
+  // what it takes out, its range
+  remove: { input: true, of: ['at', 'duration'], marks: (args, { duration }) => { const r = span(args, duration); return r && r[1] > r[0] ? [{ cut: r }] : null } },
+  // its ramps along its curve, what each takes off filled, each its own (the first its `in`'s, the second its `out`'s);
+  // none with no length given (the library's fade() fades nothing)
+  fade: { marks: (args, { duration }) => typeof args.in === 'number' ? guides('fade', args, duration).flatMap(g => g.ramps ? g.ramps.map((r, i) => ({ ramps: [r], fill: true, of: [i ? 'out' : 'in', 'curve'] })) : [g]) : null },
+  // the level it brings the peak to, a line each side of the centre (0 dBFS where none is given, the library's), from
+  // the peak the sound has, where its samples are here; a loudness target (lufs, rms, a delivery spec) is no line on a
+  // waveform, nor a range's peak
+  normalize: { input: args => peakTarget(args) != null, of: ['target', 'mode'], marks(args, sound) {
+    const level = peakTarget(args), from = sound.channels?.length ? peakOf(sound) : null
+    return level == null ? null : [{ level, ...Number.isFinite(from) && { from } }]
+  } },
+  // the peak it moves, by its value, from the peak the sound has (over its range, where it has one, there alone); none
+  // at 0 dB
+  gain: { input: true, of: ['value', 'at', 'duration'], marks(args, sound) {
+    const { value } = args, r = args.at != null || (args.duration ?? args.d) != null ? span(args, sound.duration) : [0, sound.duration]
+    if (typeof value !== 'number' || !value || !r || !sound.channels?.length) return null
+    const from = peakOf(sound, ...r)
+    return Number.isFinite(from) ? [{ level: from + value, from, span: r }] : null
+  } },
+  // the frequencies it cuts, below its cutoff or above it, on a spectrogram (a waveform has no frequencies to fill)
+  highpass: { of: ['freq'], marks: ({ freq }) => typeof freq === 'number' ? [{ cutHz: [0, freq] }, { freq }] : null },
+  lowpass: { of: ['freq'], marks: ({ freq }, { sampleRate }) => typeof freq === 'number' ? [{ cutHz: [freq, sampleRate / 2] }, { freq }] : null }
+}
+// Whether an edit's hint, given these arguments, is of the sound it is given (`input`)
+export const fromInput = (name, args = {}) => { const i = hints[name]?.input; return typeof i === 'function' ? !!i(args) : !!i }
+// each mark with the settings it follows (`of`: its edit's, `of` on the hint, where it does not say its own: a fade's two
+// ramps), so a setting pointed at in an edit's settings marks its own part (editor/menus.js stepHint)
+export const hint = (name, args, sound) => ((sound && hints[name]?.marks(args ?? {}, sound)) || []).map(m => ({ of: hints[name].of ?? null, ...m }))
+// A sound in blocks of 1024 samples (core.js BLOCK_SIZE), each loud where any channel's peak in it is over `threshold`
+// dB, as the library's trim and shrink read it (stats.js isLoud)
+const BLOCK = 1024
+function louds(threshold, channels) {
+  const over = 10 ** (threshold / 20), total = channels[0].length
+  return Array.from({ length: Math.ceil(total / BLOCK) }, (_, i) => channels.some(ch => { for (let j = i * BLOCK, end = Math.min(total, j + BLOCK); j < end; j++) if (Math.abs(ch[j]) > over) return true; return false }))
+}
+// a sound's peak over [a, b) s, dBFS (−Infinity: silent there)
+function peakOf({ sampleRate, channels }, a = 0, b = Infinity) {
+  let top = 0
+  for (const ch of channels) for (let i = Math.max(0, Math.floor(a * sampleRate)), end = Math.min(ch.length, Math.ceil(b * sampleRate)); i < end; i++) { const v = Math.abs(ch[i]); if (v > top) top = v }
+  return top ? 20 * Math.log10(top) : -Infinity
+}
+// a range's [start, end] s, written as `at` and `duration` (`d` short), `at` from the end where less than 0; null where
+// either is not a number
+function span({ at, duration, d = duration }, total) {
+  if (typeof at !== 'number' || typeof d !== 'number') return null
+  const a = at < 0 ? total + at : at
+  return [Math.max(0, a), Math.min(total, a + d)]
+}
+// normalize's peak target, dBFS: a number (0 where none is given, the library's), the mode a peak's, no range; else null
+const peakTarget = ({ target, mode, at, duration, d }) => (mode ?? 'peak') === 'peak' && at == null && (duration ?? d) == null && (target == null || typeof target === 'number') ? target ?? 0 : null
+// A call's arguments by name, from what it is written with ('-40', "'podcast', 'lufs'"): each a number or a word, by its
+// place in the edit's parameters; none where it is written with none
+export function named(name, text = '') {
+  const spec = ops[name]?.params ?? [], vals = String(text ?? '').trim() ? String(text).split(',').map(a => a.trim()) : []
+  return Object.fromEntries(vals.map((a, i) => [spec[i]?.name, Number.isNaN(+a) ? a.replace(/^['"`]|['"`]$/g, '') : +a]).filter(([k]) => k))
 }

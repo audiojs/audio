@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import audio from '../../audio.js'
-import { TOP, TRACK, browser, page, origin, errors, chimeLeft, sine, wavBytes, code, wholeLevels, open, settled, frames, menuRow, selected, tab, download, menu, noCues, write, tall, tracksAt, axis, drag, lengthIs, scriptOf, keyed, chime } from './page.js'
+import { TOP, TRACK, RATE, browser, page, origin, errors, chimeLeft, sine, wavBytes, code, wholeLevels, open, settled, frames, poll, menuRow, selected, tab, download, menu, noCues, write, tall, tracksAt, axis, drag, lengthIs, scriptOf, keyed, chime } from './page.js'
 
 // A slice dragged up over the head onto the tabs goes to a tab of its own, this one's script cropped to it: copied (Alt),
 // this one as it was; moved (⌘), it leaves this one, the rest closing up as a cut's
@@ -22,7 +22,7 @@ test('editor: a slice dragged onto the tabs goes to a tab of its own; moved, it 
   await page.waitForFunction(() => scriptText() === "audio('chime.wav')")
   await lengthIs('0:08.000')
   // the tab's selection as it was left
-  await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith('Selected 0:01.000–0:02.000:'))
+  await page.waitForFunction(() => (e => e.title || e.dataset.popoffTitle || '')(document.querySelector('.clock')).startsWith('Selected 0:01.000–0:02.000:'))
   await up(['ControlOrMeta'], false)
   await page.waitForFunction(() => document.querySelectorAll('.file').length === 3)
   await page.waitForFunction(() => scriptText() === "audio('chime.wav')\n  .crop({ at: 1, d: 1 })")
@@ -213,14 +213,14 @@ test('editor: a closed tab opens again where it was, as it was left, after a rel
   await menu('File', 'Sample or generate', 'handpan.wav')
   await page.waitForFunction(() => scriptText().trim() === "audio('handpan.wav')")
   await page.getByRole('tab', { name: 'chime.wav' }).click()
-  await page.waitForFunction(was => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
+  await page.waitForFunction(was => (e => e.title || e.dataset.popoffTitle || '')(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
   await menu('File', 'Close tab')
   assert.deepEqual(await tabs(), ['handpan.wav'])
   await page.locator('.plot').focus()
   await page.keyboard.press('ControlOrMeta+Shift+T')
   assert.deepEqual(await tabs(), ['chime.wav', 'handpan.wav'])
   assert.equal(scriptOf(await code()), `audio('chime.wav').gain(-3)`)
-  await page.waitForFunction(was => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
+  await page.waitForFunction(was => (e => e.title || e.dataset.popoffTitle || '')(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
   // in this visit, the tab itself: its history with it
   await menu('Edit', 'Undo')
   await page.waitForFunction(() => !scriptText().includes('gain(-3)'))
@@ -234,7 +234,7 @@ test('editor: a closed tab opens again where it was, as it was left, after a rel
   await menu('File', 'Reopen closed tab')
   assert.deepEqual(await tabs(), ['chime.wav', 'handpan.wav'])
   await lengthIs('0:08.000')
-  await page.waitForFunction(was => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
+  await page.waitForFunction(was => (e => e.title || e.dataset.popoffTitle || '')(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
   // none left to open
   await page.locator('.menubar-item', { hasText: /^File$/ }).click()
   assert.equal(await menuRow('Reopen closed tab').getAttribute('aria-disabled'), 'true')
@@ -333,7 +333,7 @@ test('editor: a tab dragged onto the picture is a track; a track moved to its ow
   assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet handpan = audio('handpan.wav')`)
   // named by its first track's file, nothing added for the others (its overview counts them)
   assert.deepEqual(await page.locator('.files [role="tab"]').allInnerTexts(), ['chime.wav'])
-  await page.waitForFunction(() => document.title === 'chime.wav · audio repl')
+  await page.waitForFunction(() => document.title === 'chime.wav · audio editor')
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await menu('Track', 'Move the track to its own tab')
   await page.waitForFunction(() => scriptText().trim() === "audio('handpan.wav')")
@@ -374,6 +374,75 @@ test('editor: each tab keeps where its sound was zoomed, switched away and back 
   await settled()
   assert.ok(Math.abs(await left() - before) < .01, 'and after a reload')
 })
+// What a tab's sound is, in a word, as an embed says it by the sound's name: after the name, past a thin rule, in the
+// quiet ink, on its line, where it is known; never in the status bar. A file of silence (every sample under −70 dBFS,
+// said by its level alone: repl/kind.js) says silence; the same silence made by a script (`generated`, a name no one
+// sound's) says nothing. The tab keeps its height, the name its room: named anew too long for both, the word goes out of
+// sight and the name is as wide as it is without it
+test('editor: a tab says what its sound is after its name, where it is known and the name leaves it room', async () => {
+  await open()
+  await write('audio.from(1)')
+  await lengthIs('0:01.000')
+  await settled()
+  await frames(10)
+  assert.equal(await page.locator('.file .head-kind').count(), 0, 'a generated sound: nothing said')
+  // a file of silence dropped over the tabs: a tab of its own, shown
+  const bytes = await wavBytes([new Float32Array(RATE)])
+  await page.evaluate(bytes => {
+    const target = document.querySelector('.files'), rect = target.getBoundingClientRect(), data = new DataTransfer()
+    data.items.add(new File([new Uint8Array(bytes)], 'quiet.wav', { type: 'audio/wav' }))
+    for (const kind of ['dragover', 'drop']) target.dispatchEvent(new DragEvent(kind, { bubbles: true, cancelable: true, dataTransfer: data, clientX: rect.left + 40, clientY: rect.top + 10 }))
+  }, [...bytes])
+  await page.waitForFunction(() => document.querySelector('.file.current [role="tab"]')?.textContent === 'quiet.wav')
+  await poll(() => page.locator('.file.current .head-kind').allTextContents(), words => assert.deepEqual(words, ['silence']))
+  const look = await page.evaluate(() => {
+    const r = e => e.getBoundingClientRect(), f = document.querySelector('.file.current'), name = f.querySelector('[role="tab"]'), kind = f.querySelector('.head-kind'), other = document.querySelector('.file:not(.current)')
+    return { rule: getComputedStyle(kind).borderLeftWidth, ink: getComputedStyle(kind).color === getComputedStyle(f.querySelector('.file-close')).color, after: r(kind).left >= r(name).right, line: Math.abs(r(kind).top + r(kind).height / 2 - r(name).top - r(name).height / 2) <= 1, heights: [r(f).height, r(other).height], whole: name.scrollWidth <= name.clientWidth, bar: document.querySelectorAll('.status .head-kind').length }
+  })
+  assert.deepEqual(look, { rule: '1px', ink: true, after: true, line: true, heights: [28, 28], whole: true, bar: 0 })
+  // the other tab shown: the word stays with its own
+  await page.locator('.file [role="tab"]').first().click()
+  await page.waitForFunction(() => document.querySelector('.file.current [role="tab"]')?.textContent === 'generated')
+  assert.deepEqual(await page.locator('.file .head-kind').allTextContents(), ['silence'])
+  // named anew, too long for the word after it: the word out of sight, under the name's line; the name as wide as alone
+  await page.locator('.file [role="tab"]', { hasText: 'quiet.wav' }).click()
+  await page.locator('.file.current [role="tab"]').click()
+  await page.locator('.file-field').fill('Session twelve, the long take')
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(() => document.querySelector('.file.current [role="tab"]')?.textContent === 'Session twelve, the long take')
+  const room = await page.evaluate(() => {
+    const f = document.querySelector('.file.current'), name = f.querySelector('[role="tab"]'), kind = f.querySelector('.head-kind'), width = name.getBoundingClientRect().width
+    const away = kind.getBoundingClientRect().top >= f.getBoundingClientRect().bottom
+    kind.style.display = 'none'
+    const alone = name.getBoundingClientRect().width
+    kind.style.display = ''
+    return { away, width, alone, height: f.getBoundingClientRect().height }
+  })
+  assert.ok(room.away && room.width === room.alone && room.height === 28, `the word out of sight, the name as wide as alone: ${JSON.stringify(room)}`)
+  assert.deepEqual(errors, [])
+})
+
+// The playground's own samples say what each is after its name, as a page says its own sound's: known, none listened to
+// (samples.js kind): the Rhodes music, the heart monitor a beep, each tab its own word, which is the tab's as its name
+// is: pressed, the tab shown
+test('editor: a built-in sample\'s tab says what it is, no listener asked', async () => {
+  await open()
+  await write(`audio('rhodes.wav')`)
+  await poll(() => page.locator('.file.current .head-kind').allTextContents(), words => assert.deepEqual(words, ['music']))
+  await page.locator('.file-new').click()
+  await write(`audio('monitor.wav')`)
+  await poll(() => page.locator('.file .head-kind').allTextContents(), words => assert.deepEqual(words, ['music', 'beep']))
+  assert.deepEqual(await page.locator('.file .head-kind').evaluateAll(es => es.map(e => e.title)), ['Electric piano, the Just the Two of Us chords', 'Heart monitor beeping'], 'each its tooltip, its sample\'s own line')
+  assert.deepEqual(await page.evaluate(async () => (await import('/repl/editor/context.js')).state.heardKinds), {}, 'none heard, nor being heard')
+  // the word the tab's as its name is, and the room between them: pressed, the tab pressed, shown
+  await page.locator('.file').first().locator('.head-kind').click()
+  await page.waitForFunction(() => document.querySelector('.file.current') === document.querySelector('.file'))
+  const [name, word] = await page.locator('.file').nth(1).evaluate(f => [f.querySelector('[role="tab"]'), f.querySelector('.head-kind')].map(e => e.getBoundingClientRect().toJSON()))
+  await page.mouse.click((name.right + word.left) / 2, name.top + name.height / 2)
+  await page.waitForFunction(() => document.querySelector('.file.current') === document.querySelectorAll('.file')[1])
+  assert.deepEqual(errors, [])
+})
+
 // A name is a field: the tab shown, clicked, written at once, focused, in the tab's font and weight, no box round it,
 // its name kept with the tab and over a reload
 test('editor: the shown tab\'s name, clicked, is written in place at once, as it looks', async () => {

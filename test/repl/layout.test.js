@@ -31,20 +31,20 @@ test('editor: no undo nor redo in the bar, the Edit menu\'s; a band\'s look in i
   assert.equal(await page.locator('.status .history').count(), 0, 'no undo, no redo in the bar')
   const heads = () => Promise.all([page.locator(':is(.lane-look, .layer-look):visible')].map(b => b.boundingBox()))
   const [look] = await heads()
-  // the time and the length on one baseline; the status's words, the loop and the export on the length's middle; a
+  // the time, the length and the status's words on one baseline; the loop and the export on the length's middle; a
   // narrower bar's smaller time keeps it
   const baselines = () => page.evaluate(() => {
     const base = e => { const i = document.createElement('i'); i.style.cssText = 'display: inline-block; width: 0; height: 0'; e.append(i); const y = i.getBoundingClientRect().y; i.remove(); return y }
     const mid = s => { const r = document.querySelector(s).getBoundingClientRect(); return r.y + r.height / 2 }, length = mid('.length')
-    return { time: base(document.querySelector('.time')), length: base(document.querySelector('.length')), mids: ['.facts .fact', '.readout', '.status .loop', '.status .download'].map(s => +(mid(s) - length).toFixed(1)) }
+    return { time: base(document.querySelector('.time')), length: base(document.querySelector('.length')), words: ['.facts .fact', '.readout > span'].map(s => +(base(document.querySelector(s)) - base(document.querySelector('.length'))).toFixed(1)), mids: ['.status .loop', '.status .download'].map(s => +(mid(s) - length).toFixed(1)) }
   })
   const wide = await baselines()
-  assert.ok(Math.abs(wide.time - wide.length) <= 1.5 && wide.mids.every(d => Math.abs(d) <= 1.5), `the time on the length's baseline, the rest on its middle: ${JSON.stringify(wide)}`)
+  assert.ok(Math.abs(wide.time - wide.length) <= 1.5 && wide.words.every(d => Math.abs(d) <= .5) && wide.mids.every(d => Math.abs(d) <= 1.5), `the time and the words on the length's baseline, the icons on its middle: ${JSON.stringify(wide)}`)
   const size = await page.viewportSize()
   await page.setViewportSize({ width: 860, height: size.height })
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.clock')).getPropertyValue('--time-size').trim() === '28px')
   const smaller = await baselines()
-  assert.ok(Math.abs(smaller.time - wide.time) <= 1 && Math.abs(smaller.length - wide.length) <= 1, `the smaller time on the same baseline: ${JSON.stringify(smaller)}`)
+  assert.ok(Math.abs(smaller.time - wide.time) <= 1 && Math.abs(smaller.length - wide.length) <= 1 && smaller.words.every(d => Math.abs(d) <= .5), `the smaller time on the same baseline, the words on it: ${JSON.stringify(smaller)}`)
   await page.setViewportSize(size)
   assert.ok(look.x > plot.x + plot.width - await gutter() - 2 && look.y >= plot.y && look.y + look.height <= plot.y + HEAD, `the look at the sound's head's right, over its axis: ${look.x}, ${look.y}; ${plot.x}, ${plot.y}`)
   await show('spec')

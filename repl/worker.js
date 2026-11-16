@@ -12,6 +12,8 @@ import { steadyTempo } from '../fn/beat.js'
 import { contour, harmony } from '../fn/pitch-detect.js'
 import { notes as noted } from '@audio/pitch/pyin'
 import { heard } from './heard.js'
+import { kindOf, spans } from './kind.js'
+import { resolveThreshold } from '../stats.js'
 import { fft } from 'fourier-transform'
 import aWeighting from '@audio/weighting/a'
 import kWeighting from '@audio/weighting/k'
@@ -1180,6 +1182,41 @@ async function facts({ output, track }) {
     levels: Array.from(energy, e => db(e / Math.max(1, count)))
   }
 }
+// The threshold trim and shrink find for themselves where none is given (stats.js resolveThreshold: 12 dB over the
+// quietest tenth of the blocks, 40 dB under their peak at most), dB, read off the output's own block stats as the
+// library reads the sound it is given: what the page draws their cuts by (ops.js hints). { db }, null where it has none
+async function threshold({ output, track }) {
+  const s = part(await whole(output), track)?.sound?.stats
+  return { db: s?.energy?.[0]?.length ? 20 * Math.log10(resolveThreshold(s, s.min.length, 0, s.energy[0].length)) : null }
+}
+
+// What the output is, in a word (kind.js): speech, music, both, silence, a thing by its name, or '' where nothing
+// here can say. Listened to in the stretches kind.js names (spans: whole in parts of 10 s at most, or past a minute six
+// stretches of 10 s spread over it), their channels averaged; by the classifier in @audio/neural-denoise (its
+// segments(), from 0.7: an older one, or none installed, says nothing), and, where that has no word, by
+// @audio/neural-tag where it is installed (its model fetched on first use; `weights`, a URL of it, while it is not
+// hosted). { kind, shares, tags }
+// Never in the way: each stretch read and heard as a task of its own, and only while no output renders (quiet), so a
+// run, a voice playing from here (a long sound's, the others under a take), a scrub's samples wait one stretch's
+// hearing at most
+// a task's turn once no output renders; `gone`, the one it is for no longer there to wait for
+const calm = async gone => { do await new Promise(r => setTimeout(r, quiet() ? 0 : 50)); while (!quiet() && !gone()) }
+async function kind({ output, track, weights }) {
+  const gone = () => !outputs.has(output)
+  await calm(gone)
+  const r = part(await whole(output), track)
+  if (!r || !lengthOf(r)) return {}
+  const stretches = []
+  for (const [p, q] of spans(lengthOf(r) / r.sampleRate)) {
+    await calm(gone)
+    const pcm = await r.sound.read({ at: p, duration: q - p })
+    stretches.push(pcm.length === 1 ? pcm[0] : pcm[0].map((_, i) => pcm.reduce((s, c) => s + c[i], 0) / pcm.length))
+  }
+  const [first, second] = await Promise.all(['@audio/neural-denoise', '@audio/neural-tag'].map(spec => audio.import(spec).catch(() => null)))
+  // each listener's pass its own turn
+  const turn = f => f && (async (x, rate) => { await calm(gone); return f(x, rate) })
+  return kindOf(stretches, r.sampleRate, { segments: turn(first?.segments), tag: turn(second?.tag && ((x, rate) => second.tag(x, rate, { top: Infinity, ...weights && { weights } }))) })
+}
 
 // The chords of an output over [a, b] s, in order: those of the blocks there (chordsIn), a chord only touching the range's
 // edge (a quarter second of it, or half of a shorter range) not counted
@@ -1597,7 +1634,7 @@ const handlers = {
     for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k)
     return { held: [...passes].some(p => p.tab === tab) }
   },
-  run: execute, cues, contour: curve, notes, listen, facts, chords, wav, export: exporting, describe, check: checking, original, voice, samples, heard: levelsHeard, eval: evaluate,
+  run: execute, cues, contour: curve, notes, listen, facts, threshold, kind, chords, wav, export: exporting, describe, check: checking, original, voice, samples, heard: levelsHeard, eval: evaluate,
   // a tab closed: its output goes
   close: ({ tab }) => { newest.delete(tab); stopped.delete(tab); for (const r of outputs.values()) if (r.tab === tab) drop(r); for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k); return {} },
   // a script's sound whole, as the edits make it there (the chain flattened up to a step): from the renders kept, as a

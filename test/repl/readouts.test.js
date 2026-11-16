@@ -11,7 +11,7 @@ test('editor: the readout marks the level it reads on the sound, a row of its ta
   await wholeLevels().waitFor()
   const box = await page.locator('.plot').boundingBox(), w = Math.round(await spans(box)), h = Math.round(tall(box))
   // in the cues' colour, the tallest column and the widest row of the lane, px
-  const marks = () => pixels(`const on = (x, y) => { const i = (y * w + x) * 4; return d[i] - d[i + 2] > 60 }
+  const marks = () => pixels(`const on = (x, y) => accent((y * w + x) * 4) > 1 / 3
     let col = 0, row = 0
     for (let x = 0; x < arg.w; x++) { let n = 0; for (let y = 0; y < arg.h; y++) n += on(x, y); col = Math.max(col, n) }
     for (let y = 0; y < arg.h; y++) { let n = 0; for (let x = 0; x < arg.w; x++) n += on(x, y); row = Math.max(row, n) }
@@ -35,7 +35,7 @@ test('editor: with tracks, the readout marks the mix\'s level on every track\'s 
   await wholeLevels().waitFor()
   const box = await page.locator('.plot').boundingBox(), w = Math.round(await spans(box)), lanes = await tracksAt()
   // the widest row in the cues' colour within each lane, px
-  const rows = () => pixels(`return arg.lanes.map(([y0, y1]) => { let row = 0; for (let y = y0; y < y1; y++) { let n = 0; for (let x = 0; x < arg.w; x++) { const i = (y * w + x) * 4; n += d[i] - d[i + 2] > 60 } row = Math.max(row, n) } return row })`, { w, lanes: lanes.map(r => [Math.round(r.y - box.y), Math.round(r.y - box.y + r.h)]) })
+  const rows = () => pixels(`return arg.lanes.map(([y0, y1]) => { let row = 0; for (let y = y0; y < y1; y++) { let n = 0; for (let x = 0; x < arg.w; x++) n += accent((y * w + x) * 4) > 1 / 3; row = Math.max(row, n) } return row })`, { w, lanes: lanes.map(r => [Math.round(r.y - box.y), Math.round(r.y - box.y + r.h)]) })
   await page.locator('.readout').hover()
   await page.locator('#levels').waitFor()
   await poll(rows, got => assert.ok(got.length === 2 && got.every(n => n > w * .8), `a line at its level across each lane: ${got} of ${w}`), 3000)
@@ -162,7 +162,7 @@ test('editor: with tracks, the status bar names what the edited track holds', as
 })
 
 // The pointer on the spectrogram, held ⌘ (measuring), reads the level its colour stands for (gl-spectrogram pick) and
-// marks it with a dot in the measuring red on the spectrum meter, which spans the spectrogram's own levels, its floor to
+// marks it with a dot in the accent on the spectrum meter, which spans the spectrogram's own levels, its floor to
 // its top (view.js meterX): tones of amplitude 0.5 and 0.05, 20 dB apart (20 · log10(0.5 / 0.05)), marked 20/80 of
 // the meter's 40 px apart at the default 80 dB range, the louder, the loudest there is, at the top
 test('editor: the pointer on the spectrogram, measuring, marks its level on the spectrum meter, on the spectrogram\'s scale', async () => {
@@ -174,11 +174,11 @@ audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
   await settled()
   const box = await page.locator('.plot').boundingBox(), lh = (TRACK - LANES) / 2, left = box.width - (await gutter()) - 45
   const at = f => 1 - Math.log2(f / 20) / Math.log2(24000 / 20)
-  // the meter's columns in the measuring red along a row a pixel under the pointer's (its guide runs on the pointer's)
+  // the meter's columns in the accent along a row a pixel under the pointer's (its guide runs on the pointer's)
   const red = y => page.evaluate(([y, left]) => {
     const cv = document.querySelector('canvas.overlay'), k = cv.width / cv.clientWidth, n = Math.round(40 * k)
     const d = cv.getContext('2d').getImageData(Math.round(left * k), Math.round((y + 1) * k), n, 1).data
-    return { k, lit: Array.from({ length: n }, (_, i) => i).filter(i => d[4 * i] - d[4 * i + 2] > 60 && d[4 * i + 3] > 200) }
+    return { k, lit: Array.from({ length: n }, (_, i) => i).filter(i => d[4 * i + 2] - d[4 * i] > 60 && d[4 * i + 3] > 200) }
   }, [y, left])
   // where the pointer's mark is, px into the meter
   const mark = async y => {

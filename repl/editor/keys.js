@@ -8,10 +8,10 @@ import { closeMenus } from './menus.js'
 
 export function wire() {
   // Esc closes an open menu and does nothing else: the selection under it stays. A menu that has the keys (the menubar's)
-  // closes itself
+  // closes itself, and so does a field's list, the field having them (a combobox: aria-controls, the chain's Add edit)
   document.addEventListener('keydown', event => {
     const open = event.key === 'Escape' && !event.target.closest?.('[popover], .menubar') && root.querySelector('[popover]:popover-open')
-    if (!open) return
+    if (!open || event.target.getAttribute?.('aria-controls') === open.id) return
     event.preventDefault()
     event.stopPropagation()
     open.hidePopover()

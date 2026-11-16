@@ -12,7 +12,7 @@
 		"foreground": "#bebebe",
 		"strongForeground": "#ffffff",
 		"descriptionForeground": "#8f8f8f",
-		"focusBorder": "#f79643",
+		"focusBorder": "#5cbacc",
 		"editorError.foreground": "#f87063",
 		"editorGroup.border": "#020202",
 		"panel.border": "#2e2e2e",

@@ -1,11 +1,11 @@
 import scales from '../scale.js'
 import { ownMarks, RECORD } from './data.js'
-import { plot, bandOf, lanes, BAR, THUMB, MAP } from './geometry.js'
+import { plot, bandOf, lanes, THUMB, footH, rowH, rowTop, row } from './geometry.js'
 import { fine } from './gestures.js'
-import { cueKinds, cueOrder, bounds, GUTTER, EDGE, SNAP, STICK, ONTO, FINE, NOTES, midiOf, LEVELS, TICK, GAIN, root, onaxis, onprobe, closest, farthest, overshoot, color, c, rate, duration, show, meters, recording, start, end, fview, selection, cursor, playhead, nudge, steered, cues, ranks, contour, snapping, aview, levelUnits, pitching, scroll, zoomed, framed, unframed, pull, assign } from './model.js'
+import { cueKinds, cueOrder, bounds, GUTTER, EDGE, SNAP, STICK, ONTO, FINE, NOTES, midiOf, LEVELS, TICK, GAIN, root, onaxis, onprobe, closest, farthest, overshoot, scaled, within, color, c, rate, duration, show, meters, recording, start, end, fview, selection, cursor, playhead, nudge, steered, cues, ranks, contour, snapping, aview, levelUnits, pitching, scroll, zoomed, framed, unframed, pull, assign } from './model.js'
 import { linePoints } from './notes.js'
 import { reach, seenTo, fitTo, meterAt, metered } from './overlay.js'
-import { W, H, dpr, invalidate } from './render.js'
+import { W, H, dpr, invalidate, ruling } from './render.js'
 import { barOn } from './ruler.js'
 import { size, label } from './strips.js'
 
@@ -19,7 +19,7 @@ export function bar() {
   const total = Math.max(duration, end), w = plot().w, k = w / total, x0 = Math.min(start * k, w - THUMB)
   return { x0, x1: Math.max(x0 + THUMB, end * k), total }
 }
-export const onBar = (px, py) => (scroll === 'overview' ? py >= H - MAP : py >= plot().h && py <= plot().h + BAR) && px >= 0 && px <= plot().w && !!barOn && !!bar()
+export const onBar = (px, py) => py >= H - footH() && px >= 0 && px <= plot().w && !!barOn && !!bar()
 export const x = t => (t - start) / (end - start || 1) * plot().w
 // a time's place on the device's own pixels, where the pictures put it: the marks over them move with them, a device pixel
 // at a time, as the view scrolls
@@ -130,29 +130,100 @@ export function room(rect, list, placed = [], gap = size() + 4) {
   }
   return out
 }
-// Marks [y, text] by a lane: each with room, its tick at its height, its label under it (over it only where another
-// lane lies right under it, a channel's, so no label runs into it: `open`, the lane's own, false then); those clear of
-// the pointer's value (`taken`, its y), each alone, its mirror staying
-export const beside = (rect, ty) => rect.open !== false || ty + size() - 1 + size() / 2 <= rect[1] + rect[3] ? ty + size() - 1 : ty - size() + 2
-// Marks ticked between them (`minor`, [y, …]) by a tick half as long, unlabelled, as a ruler's
+// Marks [y, text] by a lane: each with room, its tick at its height, its label under it where it fits in the lane, else
+// over it: never into the time row. Past the lane's foot only where nothing lies right under it (`open`: a track's lane,
+// a sound's last channel's; not a channel with another under it), outside the sheet (within it the lanes reach the time
+// row, and a value is written in a square of its own lane), and clear of the time row; those clear of the pointer's
+// value (`taken`, its y), each alone, its mirror staying
+export const beside = (rect, ty) => {
+  const under = ty + size() - 1, room = under + size() / 2
+  return room <= rect[1] + rect[3] || rect.open !== false && !within && room <= plot().h ? under : ty - size() + 2
+}
+// Marks ticked between them (`minor`, [y, …]) by a tick half as long, unlabelled, as a ruler's; a waveform's levels
+// written bare, no tick by them (its present level marked by a rhombus: overlay.js).
+// Within the sheet (?ui= axis inside) there is no scale apart: the lanes and the grid that rules them run the frame's
+// whole width, and a value is written over them at its right edge, INTO px in, in the square under its line (over it,
+// written over it), on a patch of the picture's ground (tag's, the page's where it lies on it) one line of it tall and
+// as wide as its words, so it reads over a loud waveform, the grid running on to the edge behind the rest. The grid ends on the last lane's foot, a labelled line, and its value (the
+// waveform's −1, the spectrogram's lowest) is written under it as every other is, plain in the times' strip under the
+// grid, at its right end, where no time is written (footRoom, ruler.js)
+export const INTO = 4
 export function ticks(rect, list, taken, minor = []) {
   const w = plot().w, clear = ([ly]) => taken == null || Math.abs(beside(rect, Math.round(ly)) - beside(rect, taken)) >= size() + 4
+  // (each on a whole pixel, as the grid's are laid: render.js rule)
+  const [, y, , lh] = rect, marked = room(rect, list), ink = within && ruling(), top = Math.round(y), foot = Math.round(y + lh)
+  // (this lane's foot the grid's: its value under it, in the times' strip)
+  const strip = ink && rowH() && Math.abs(foot - rowTop()) <= 1
+  if (ink) {
+    const edge = ty => Math.min(ty, foot - 1), main = [...new Set([top, foot - 1, ...marked.map(([ly]) => edge(Math.round(ly))).filter(ty => ty >= top)])]
+    const fine = [...new Set(minor.map(([ly]) => Math.round(ly)))].filter(ty => ty > top && ty < foot - 1 && !main.includes(ty)), lines = [...main, ...fine].sort((p, q) => p - q)
+    // a value's square: from its line to the next one down, or up
+    const square = ty => { const i = lines.indexOf(edge(ty)), next = lines[i + (beside(rect, ty) > ty ? 1 : -1)]; return i < 0 || next == null ? [ty, beside(rect, ty) > ty ? ty + size() + 4 : ty - size() - 4].sort((p, q) => p - q) : [Math.min(edge(ty), next), Math.max(edge(ty), next)] }
+    const ground = color('--ground') || color('--color-screen')
+    c.textAlign = 'right'
+    for (const [ly, text] of marked.filter(clear)) {
+      // (its square within its lane; its words in the square's middle, held in the lane where a square is shorter than
+      // they are, a levels' zoom cutting one at the lane's edge, the ground under them as tall. The last lane's foot's
+      // plain in the times' strip, in the times' middle, on the strip's own ground, which hides a time scrolled under
+      // it; laid once the lanes' drawing is done, outside the clip that keeps them off the strip. A lane with another
+      // under it writes none at its foot: the square under that line is the next lane's, its top value's)
+      if (Math.round(ly) >= foot - 1) {
+        if (strip) footing = () => { const room = footRoom() + 4, y = rowTop(); c.fillStyle = ground; c.fillRect(W - room, y, room, plot().h + rowH() - y); c.fillStyle = color('--color-screen-line-number'); c.fillText(text, W - INTO, row()) }
+        continue
+      }
+      const at = W - 2 * INTO - c.measureText(text).width, [a, b] = square(Math.round(ly)).map(y => Math.max(top, Math.min(foot - 1, y)))
+      const half = size() / 2, mid = Math.max(top + half, Math.min(foot - half, (a + b + 1) / 2 + .5))
+      c.fillStyle = ground; c.fillRect(Math.floor(at), Math.floor(mid - half) - 1, W - Math.floor(at), Math.ceil(mid + half) - Math.floor(mid - half) + 2)
+      c.fillStyle = color('--color-screen-line-number'); c.fillText(text, W - INTO, mid)
+    }
+    c.textAlign = 'left'
+    return
+  }
+  const ticked = rect.kind !== 'wave'
   c.fillStyle = color('--color-screen-rule')
-  for (const [ly] of minor) if (Math.round(ly) >= rect[1] && Math.round(ly) <= rect[1] + rect[3]) c.fillRect(w + 1, Math.round(ly), TICK / 2, 1)
-  for (const [ly, text] of room(rect, list).filter(clear)) {
+  if (ticked) for (const [ly] of minor) if (Math.round(ly) >= y && Math.round(ly) <= y + lh) c.fillRect(w + 1, Math.round(ly), TICK / 2, 1)
+  for (const [ly, text] of marked.filter(clear)) {
     const ty = Math.round(ly)
-    c.fillStyle = color('--color-screen-rule')
-    c.fillRect(w + 1, ty, TICK, 1)
+    if (ticked) { c.fillStyle = color('--color-screen-rule'); c.fillRect(w + 1, ty, TICK, 1) }
     c.fillStyle = color('--color-screen-line-number')
     c.fillText(text, w + 1, beside(rect, ty))
   }
+}
+// The last lane's foot value, laid in the times' strip (ticks), after the lanes' drawing and outside its clip
+// (overlay.js)
+let footing = null
+export function paintFoot() {
+  if (!footing) return
+  const lay = footing
+  footing = null
+  c.save()
+  c.font = label()
+  c.textAlign = 'right'
+  lay()
+  c.restore()
+}
+// Within the sheet, the room the last lane's foot value takes at the strip's right end, as ticks writes it, so no time
+// is written under it (ruler.js); 0 where no value stands at that foot, or no strip is
+export function footRoom(L = lanes()) {
+  if (!within || !ruling() || !rowH() || !L.all.length) return 0
+  const last = L.all.reduce((a, r) => r[1] + r[3] > a[1] + a[3] ? r : a), foot = Math.round(last[1] + last[3])
+  const m = Math.abs(foot - rowTop()) <= 1 && room(last, axisMarks(last)).find(([ly]) => Math.round(ly) >= foot - 1)
+  if (!m) return 0
+  const font = c.font
+  c.font = label()
+  const wide = c.measureText(m[1]).width
+  c.font = font
+  return wide + INTO
 }
 // The axis as wide as its labels, a pixel before them and 3 px after, GUTTER at most: the levels' in either unit and
 // the spectrogram's frequencies', as they are zoomed now, whatever shows, and the pointer's value read out on it as
 // precisely as they are zoomed (−0.03, −12.3, 1.23k; on the spectrogram, its level under it, −100), so nothing moves
 // where the pictures end as one picture or unit turns to the other, as the pointer reads a value, or as the frequencies
-// zoom. Five characters (−12.3dB, a level in six digits, took seven); more only for marks zoomed far in (−0.005)
+// zoom. Five characters (−12.3dB, a level in six digits, took seven); more only for marks zoomed far in (−0.005). Where
+// the page asks for no scale apart (?ui= axis false, or inside: its values written over the lanes), none: the pictures
+// run the view's whole width
 function axisWidth() {
+  if (!scaled || within) return 0
   const [lo, hi] = [scales[scale].low, rate / 2], hz = [reads(scales[scale].of(fview[0], lo, hi)), ...marks().map(hertz)], lane = [0, 0, 1, 1e4]
   const texts = [...levelMarks(lane, 'linear'), ...levelMarks(lane, 'db')].map(m => m[1]).concat(hz, aview.map(sampled), decibel(-98.9, 1), reads(1111), decibel(-100))
   c.font = label()
@@ -196,12 +267,19 @@ const linear = v => v ? `${v < 0 ? '−' : ''}${+Math.abs(v).toPrecision(3)}` : 
 // the 1-2-5 step the sample values are read to, four or so across what a lane shows. Labelled by the finest 1-2-5 step
 // whose labels stand LABELLED px apart in the lane (1 across a short one, every 0.2 across a tall one), as the time
 // row's; ticked between, unlabelled, by the finest 1-2-5 step that parts it evenly TICKED px apart (each 0.1, where
-// there is room), as a ruler's
-const LABELLED = 64, TICKED = 10, STEPS = [-4, -3, -2, -1, 0].flatMap(e => [1, 2, 5].map(m => +(m * 10 ** e).toPrecision(3)))
+// there is room), as a ruler's. Within the sheet (?ui= axis inside) squared: by the finest of the labelled step's
+// tenths, fifths, quarters or halves, as the time row's are (render.js columns), SQUARED px apart, or a label's height
+// and a pixel: a value is written in the square such a step makes, and the time row is one of them (geometry.js rowH)
+const LABELLED = 64, TICKED = 10, SQUARED = 14, STEPS = [-4, -3, -2, -1, 0].flatMap(e => [1, 2, 5].map(m => +(m * 10 ** e).toPrecision(3)))
 const valueStep = () => nice((aview[1] - aview[0]) / 4)
 const perUnit = rect => Math.abs(ay(rect, 1) - ay(rect, 0))
 const labelStep = rect => STEPS.find(s => s * perUnit(rect) >= LABELLED) ?? 1
-const tickStep = rect => { const s = labelStep(rect); return STEPS.find(t => t < s && t * perUnit(rect) >= TICKED && Math.abs(s / t - Math.round(s / t)) < 1e-6) ?? null }
+const tickStep = rect => {
+  const s = labelStep(rect)
+  // (one that parts full scale too, so the squares at a lane's edges are whole: of 2, its fifths and halves, not 0.4)
+  if (within) return [10, 5, 4, 2].map(n => s / n).find(t => t * perUnit(rect) >= Math.max(SQUARED, size() + 1) && Math.abs(1 / t - Math.round(1 / t)) < 1e-6) ?? null
+  return STEPS.find(t => t < s && t * perUnit(rect) >= TICKED && Math.abs(s / t - Math.round(s / t)) < 1e-6) ?? null
+}
 // the levels ticked between the labelled, as sample values, [y, …]; none in dB, whose marks are each labelled
 export const levelTicks = rect => { const t = levelUnits === 'linear' && tickStep(rect); return t ? multiples(...aview, t).map(v => [ay(rect, v)]) : [] }
 // the multiples of `step` in [a, b], clear of float error
@@ -262,16 +340,21 @@ export const probe = t => { if (t !== probed) onprobe(probed = t) }
 // there until it is moved back. Scrolled or zoomed by hand (`past`), the sound's end goes on as far as `overshoot` of
 // the view from its right (0.5, its middle): the tail comes out from under the meters and the labels to be edited, the
 // room past it plain, the grid and the centre line ending with it. Zoom out 1 and overshoot 0: never any room past it
-export function setRange(a, b, past = false) {
+const placed = (a, b, past) => {
   const min = Math.min(duration, closest / rate), k = reach()
-  let span = Math.max(min, Math.min(Math.max(duration * farthest / k, recording ? RECORD : 0), b - a))
+  const span = Math.max(min, Math.min(Math.max(duration * farthest / k, recording ? RECORD : 0), b - a))
   const last = duration - span * (past ? Math.min(k, 1 - overshoot) : k)
-  a = span * k <= duration || past ? Math.max(0, Math.min(Math.max(last, start), a)) : 0
-  assign({ start: a }); assign({ end: a + span })
+  return [span * k <= duration || past ? Math.max(0, Math.min(Math.max(last, start), a)) : 0, span]
+}
+export function setRange(a, b, past = false) {
+  const [at, span] = placed(a, b, past)
+  assign({ start: at }); assign({ end: at + span })
   if (past) assign({ reached: performance.now() })
   // the pictures drawn again only where the tape has not the view (render)
   invalidate(true)
 }
+// Has the view time to scroll through, `by` s on? Not with the sound whole in it, nor at the end it would go past
+export const scrolls = by => (start > 0 || start + (end - start) * reach() < duration - 1e-9) && placed(start + by, end + by, true)[0] !== start
 // The frequencies shown, [u0, u1] on the scale: at least a 64th of it, within it
 export function setFreqs(u0, u1) {
   const span = Math.min(1, Math.max(1 / 64, u1 - u0)), a = Math.max(0, Math.min(1 - span, u0))
@@ -316,9 +399,9 @@ export function setKeys(rect, e0, span = rect.keys[1] - rect.keys[0] + 1) {
 // The frequencies at the right of a spectrogram lane, and the spectrum drawn just before them: that lane, else null
 export const onFreqs = (px, py, L = lanes()) => px > (meters && show.spectrum ? meterAt(metered(L)) : plot().w) ? L.spec.find(r => py >= r[1] && py <= r[1] + r[3]) ?? null : null
 // The keys at the right of a notes lane, and the piano by them: that lane, else null
-export const onKeys = (px, py, L = lanes()) => px > (show.keys ? meterAt(metered(L)) : plot().w) ? L.notes.find(r => py >= r[1] && py <= r[1] + r[3]) ?? null : null
+export const onKeys = (px, py, L = lanes()) => px > (show.keys && scaled && !within ? meterAt(metered(L)) : plot().w) ? L.notes.find(r => py >= r[1] && py <= r[1] + r[3]) ?? null : null
 // The levels at the right of a waveform lane, and its meter: that lane, else null
-export const onLevels = (px, py, L = lanes()) => px > plot().w - (meters && show.meters ? 10 : 0) ? L.wave.find(r => py >= r[1] && py <= r[1] + r[3]) ?? null : null
+export const onLevels = (px, py, L = lanes()) => px > plot().w - (scaled && !within && meters && show.meters ? 10 : 0) ? L.wave.find(r => py >= r[1] && py <= r[1] + r[3]) ?? null : null
 export function zoomLevels(factor, u, lh) {
   const [lo, hi] = aview, was = hi - lo, to = Math.max(2e-3, Math.min(8, (was === 2 ? 2 * pull : was) * factor))
   const held = Math.abs(lh / to - lh / 2) <= STICK || was !== 2 && (was - 2) * (to - 2) < 0, span = held ? 2 : to

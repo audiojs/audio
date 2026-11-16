@@ -325,7 +325,7 @@ let f = audio.from(store, { length, channels, sampleRate }) // pages in a store 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
 | `.trim(threshold?)` | strip leading/trailing silence (dB, default auto). On a live stream a given threshold streams, holding a silent tail until sound resumes; the automatic one reads the whole input, so it waits for the end. |
-| `.shrink(gap?, threshold?)` | shorten silent pauses to `gap` seconds (default 0.3); `0` removes them. Streams with a given threshold, like `trim`.<br><sub>≡ FFmpeg `silenceremove`, Audacity truncate-silence</sub> |
+| `.shrink(gap?, threshold?, crossfade?)` | shorten silent pauses to `gap` seconds (default 0.3); `0` removes them. Each cut a hard join, or with `crossfade` (`'10ms'`) remove()'s equal-power crossfade over it, the length the same. Streams with a given threshold, like `trim`.<br><sub>≡ FFmpeg `silenceremove`, Audacity truncate-silence</sub> |
 | `.crop({at, duration})` | keep range, discard rest. |
 | `.remove(at, duration, crossfade?)` | delete range, close gap. `crossfade` (`'10ms'`) makes the splice an equal-power crossfade centered on the cut; the length stays the same. |
 | `.insert(source, at?, crossfade?)` | insert audio (default: at end), or a number of seconds of silence; `crossfade` fades both seams. |

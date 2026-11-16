@@ -51,8 +51,11 @@ export function taking() {
 }
 // where the take is drawn, px from the plot's left
 export const takes = () => [x(recording.at), x(recording.at + (recording.length - recording.lead) / recording.rate)]
-export function ended() {
-  if (!recording) return
+// The take drawn let go, as an output comes in its place. One still being recorded (open: view.js take, taken) stays,
+// drawn over whatever output comes meanwhile (a run that was on its way as the take began), let go only once it is done
+// and its own output comes, or `force`d (another take, or none)
+export function ended(force = false) {
+  if (!recording || recording.open && !force) return
   for (const picture of [...recording.waves, ...recording.specs]) picture.destroy()
   assign({ duration: recording.total })
   assign({ recording: null })
@@ -76,12 +79,15 @@ export function put(channels, sampleRate, leaves = null) {
   ended()
   assign({ count: channels.length }); assign({ rate: sampleRate || rate })
   assign({ duration: channels[0]?.length ? channels[0].length / rate : 0 })
+  // (a take still being recorded drawn over this output: its length, the take's from it)
+  if (recording) recording.total = duration
   lay(count)
   assign({ windows: null }); assign({ windowsOf: windowsOf + 1 }); assign({ leavesOf: null })
   unheard()
   fill(assign({ data: channels }))
   renew(all)
   twinsFor(leaves)
+  if (recording) taking()
 }
 // Every lane's waveform the screen's colour, a track's as a channel's, or coloured as its look has it (drawWave); a
 // sound's channels in one lane each its own hue

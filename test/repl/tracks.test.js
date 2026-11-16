@@ -174,9 +174,9 @@ test('editor: a track ends where its sound does, its lane running on past it', a
     return n`, { width: box.width, top: l.y - box.y, foot: l.y + l.h - box.y, a: x(3.2) - box.x, b: x(7.5) - box.x })
   assert.equal(lower, 0, 'past its end the lower lane is plain')
   await page.mouse.dblclick(x(2.6), await mid(1))
-  await page.waitForFunction(() => /–0:03\.000:/.test((e => e.title || e.dataset.tip || '')(document.querySelector('.clock'))))
+  await page.waitForFunction(() => /–0:03\.000:/.test((e => e.title || e.dataset.popoffTitle || '')(document.querySelector('.clock'))))
   await page.mouse.dblclick(x(5), await mid(1))
-  await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith('Selected 0:03.000–0:08.000:'))
+  await page.waitForFunction(() => (e => e.title || e.dataset.popoffTitle || '')(document.querySelector('.clock')).startsWith('Selected 0:03.000–0:08.000:'))
   await page.mouse.click(x(6), await mid(0))
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime · chime.wav')
   // the lower, a strip now, double-clicked: it is edited at the first press, tall from where it was, the second in it still

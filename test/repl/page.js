@@ -5,6 +5,7 @@ import { before, after, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
@@ -14,6 +15,12 @@ import { bundles } from '../../.site-build.js'
 // the bundles made from the source as it is (assets/ and repl/dist, which git ignores)
 await bundles()
 const root = fileURLToPath(new URL('../..', import.meta.url)).replace(/\/$/, '')
+// the tagger's hosted model (@audio/neural-tag, where it is installed), from the cache Node keeps it in: its address,
+// and its bytes where they are there
+const yamnet = await import('@audio/neural-tag').then(async ({ MODEL }) => MODEL && {
+  url: MODEL.href,
+  body: await readFile(resolve(process.env.AUDIO_NEURAL_CACHE || resolve(homedir(), '.cache/audiojs/neural'), 'yamnet', MODEL.pathname.split('/').pop())).catch(() => null)
+}, () => null)
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.wasm': 'application/wasm' }
 let server, browser, page, origin, errors
 // files a test made, served at /slow/<name> as the repository's are
@@ -78,6 +85,15 @@ beforeEach(async () => {
       Object.defineProperties(cv, { clientWidth: { value: o.clientWidth }, clientHeight: { value: o.clientHeight }, getBoundingClientRect: { value: () => o.getBoundingClientRect() } })
       return cv
     }
+    // the hints' accent as the skin has it now (--color-screen-accent): `rgb`, [r, g, b]; `share`, how much of a pixel
+    // (r, g, b) it is, laid over a grey (the screen's grounds are greys), 0 to 1: the pixel's tint (r - g, g - b, none
+    // in a grey) along the accent's own; 0 for a grey, or a tint of another hue (the red of a clip, a measure)
+    globalThis.__accent = () => {
+      const rgb = getComputedStyle(document.documentElement).getPropertyValue('--color-screen-accent').match(/[\d.]+/g).map(Number).slice(0, 3)
+      const tint = ([r, g, b]) => [r - g, g - b], [u, v] = tint(rgb), uv = u * u + v * v
+      const share = (...p) => { const [s, t] = tint(p), k = (s * u + t * v) / uv; return k > 0 && Math.hypot(s - k * u, t - k * v) < 12 ? Math.min(1, k) : 0 }
+      return { rgb, share }
+    }
   })
   errors = []
   page.on('pageerror', error => errors.push(error.message))
@@ -87,6 +103,10 @@ beforeEach(async () => {
     errors.push(`External request: ${route.request().url()}`)
     return route.abort()
   })
+  // the one file a page asks the world for: a sound opened that is neither speech nor music is asked of the tagger,
+  // which fetches its model. Served from the cache, a 404 where it is not there (the page then has no word for it)
+  const cors = { 'access-control-allow-origin': '*' }
+  if (yamnet) await page.route(yamnet.url, route => route.fulfill(yamnet.body ? { body: yamnet.body, headers: cors } : { status: 404, headers: cors }))
 })
 afterEach(async () => { await page?.close(); assert.deepEqual(errors, []) })
 
@@ -153,8 +173,8 @@ function attack(y, x, rate = 48000) {
 // the script, its lines as the editor has them, the code panel open or not
 const code = () => page.evaluate(() => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n').replace(/ /g, ' '))
 const readout = () => page.locator('.readout').textContent()
-// A title, or, pointed at, what the tooltip took of it (popoff keeps it as data-tip till the pointer leaves)
-const tipOf = el => el.title || el.dataset.tip || ''
+// A title, or, pointed at, what the tooltip took of it (popoff keeps it as data-popoff-title till the pointer leaves)
+const tipOf = el => el.title || el.dataset.popoffTitle || ''
 // The levels of all of it, nothing selected: the peak on the bar, every level in its table (#levels), pointed at
 const wholeLevels = () => page.locator('.readout[data-of="all"]')
 // that table, its head and a row a line, its cells apart: "Peak −1.0dBFS at 0:00.120"
@@ -276,7 +296,7 @@ async function drawn(of = '.plot') {
 }
 
 // The time axis spans the plot less the level axis at its right, as wide as its labels (view.js axisWidth, --axis on the
-// slab); the lanes are 2 px apart (GAP), over the time row (RULER, 22 px)
+// slab); the lanes are 2 px apart (GAP), over the time row (RULER, 14 px) and the scrollbar's strip under it (BAR, 8 px)
 const LANES = 2
 // A sound is a track as any (view.js banded): its head (HEAD px), its markers' names in it, its lanes TRACK px all
 // told, their foot's first GRIP px dragging its height, the room under it (ROOM px); the time row at the picture's foot.
@@ -285,8 +305,8 @@ const TRACK = 160, ROOM = 80, HEAD = 18, GRIP = 4
 const tall = () => HEAD + TRACK
 // where its lanes start, px from the plot's top: under its head; the middle of its names' row, in its head
 const TOP = HEAD, NAMED = HEAD - 6
-// the middle of the time row's labels, at the foot of the plot `box`, page px
-const onRow = box => box.y + box.height - 7
+// the middle of the time row's labels, over the scrollbar's strip at the foot of the plot `box`, page px
+const onRow = box => box.y + box.height - 15
 // Each track's lane, as its layer has it (data-lane: its top and height from the picture's top), CSS px in the page:
 // { y, h } in order
 const tracksAt = () => page.locator('.layer').evaluateAll(els => els.map(e => { const [y, h] = e.dataset.lane.split(' ').map(Number), p = document.querySelector('.plot').getBoundingClientRect(); return { y: p.y + y, h } }))
@@ -441,7 +461,11 @@ async function pixels(fn, arg) {
     await img.decode()
     const c = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height }), g = c.getContext('2d')
     g.drawImage(img, 0, 0)
-    return new Function('d', 'w', 'h', 'arg', src)(g.getImageData(0, 0, c.width, c.height).data, c.width, c.height, arg)
+    // `accent(i)`, how much of the pixel at `i` (d's index) is the accent (__accent), 0 to 1, the accent read once
+    const d = g.getImageData(0, 0, c.width, c.height).data
+    let share
+    const accent = i => (share ??= __accent().share)(d[i], d[i + 1], d[i + 2])
+    return new Function('d', 'w', 'h', 'arg', 'accent', src)(d, c.width, c.height, arg, accent)
   }, [png.toString('base64'), fn, arg])
 }
 
@@ -510,9 +534,9 @@ async function marked() {
 // Shift sums, as Shift and a press in a text: the selection goes out to the press at once, from where it was begun, a
 // drag going on with it, never another range; held, the pointer an I-beam with a plus on the side it goes out from
 const pointed = () => page.locator('.plot').evaluate(el => decodeURIComponent(el.style.cursor))
-// Held ⌘, what the time row (at the picture's foot) has in the measuring red between `a` and `b` (page x): on its row
+// Held ⌘, what the time row (at the picture's foot) has in the accent, what ⌘ measures in (cyan: blue well over red), between `a` and `b` (page x): on its row
 // most lit, how many pixels
-const measuredOnRow = (box, a, b) => pixels(`let best = 0; for (let y = h - 22; y < h; y++) { let n = 0; for (let x = ${Math.round(a - box.x)}; x < ${Math.round(b - box.x)}; x++) { const i = (y * w + x) * 4; if (d[i] - d[i + 2] > 60) n++ } best = Math.max(best, n) } return best`)
+const measuredOnRow = (box, a, b) => pixels(`let best = 0; for (let y = h - 22; y < h; y++) { let n = 0; for (let x = ${Math.round(a - box.x)}; x < ${Math.round(b - box.x)}; x++) { const i = (y * w + x) * 4; if (d[i + 2] - d[i] > 60) n++ } best = Math.max(best, n) } return best`)
 // Where the caret's ghost is along the row `py` px down the picture, CSS px from its left: its line in the caret's
 // colour, half see-through (strips.js paintMarkers, caretTo), or null for none
 const ghostAt = py => page.evaluate(py => {
@@ -526,7 +550,7 @@ const ghostAt = py => page.evaluate(py => {
 // [x0, x1); `strong`, those at least that opaque (0 to 1)
 const hintsAt = (py, x0 = 0, x1 = Infinity, strong = 0) => page.evaluate(([py, x0, x1, strong]) => {
   const cv = __overlay(), k = cv.width / cv.clientWidth, d = cv.getContext('2d').getImageData(0, Math.round(py * k), cv.width, 1).data, out = []
-  const [r, g, b] = getComputedStyle(document.documentElement).getPropertyValue('--color-screen-accent').match(/[\d.]+/g).map(Number)
+  const [r, g, b] = __accent().rgb
   let run = false
   for (let i = Math.round(x0 * k); i < Math.min(cv.width, x1 * k); i++) { const on = d[i * 4 + 3] > Math.max(48, strong * 255 - 8) && Math.abs(d[i * 4] - r) < 12 && Math.abs(d[i * 4 + 1] - g) < 12 && Math.abs(d[i * 4 + 2] - b) < 12; if (on && !run) out.push(i / k); run = on }
   return out
@@ -535,7 +559,7 @@ const hintsAt = (py, x0 = 0, x1 = Infinity, strong = 0) => page.evaluate(([py, x
 // 255, 0 for none
 const hinted = points => page.evaluate(points => {
   const cv = __overlay(), k = cv.width / cv.clientWidth, g = cv.getContext('2d')
-  const [r, gr, b] = getComputedStyle(document.documentElement).getPropertyValue('--color-screen-accent').match(/[\d.]+/g).map(Number)
+  const [r, gr, b] = __accent().rgb
   return points.map(([x, y]) => { const d = g.getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data; return Math.abs(d[0] - r) < 12 && Math.abs(d[1] - gr) < 12 && Math.abs(d[2] - b) < 12 ? d[3] : 0 })
 }, points)
 const crossed = () => page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'crosshair')

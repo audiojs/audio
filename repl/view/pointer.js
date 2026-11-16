@@ -1,7 +1,7 @@
 import { markLane } from './data.js'
 import { lockedAt, haunt, unghost, pointers, plot, spare, tallOf, lanes, inRoom, own, onOwn, laneAt, trackAt, footAt, bands, resized, refocus, freeze, own0, frozenAt } from './geometry.js'
 import { selectDown, origin, current, caretAt, edgeAt, gripDown, endDown, gapDown, take, lifting, lock, aimed, fine, scrub, unscrub, nearCue, cueDown, penDown, toneDown, pitchDown, noteDown, tapped, heardAround } from './gestures.js'
-import { EDGE, ONTO, FINE, HOLD, SLOP, EXTEND, ADD, OPEN, root, onedit, onmode, onscrub, onaudition, onheight, duration, show, markers, more, pieces, start, end, fview, selection, band, cursor, playhead, steered, cues, envelope, shift, contour, fadeCurve, aview, LEVEL_STEP, tracks, focus, across, sections, heights, lift, chosen, held, assign } from './model.js'
+import { EDGE, ONTO, FINE, HOLD, SLOP, EXTEND, ADD, OPEN, root, onedit, onmode, onscrub, onaudition, onheight, duration, show, markers, more, pieces, start, end, fview, selection, band, cursor, playhead, steered, cues, envelope, shift, contour, fadeCurve, aview, LEVEL_STEP, tracks, focus, across, sections, heights, lift, chosen, held, recording, assign } from './model.js'
 import { hear, pitchRange, noteAt, linePoints, curveOf, onLine, pointOn, knotOn } from './notes.js'
 import { lanesEnd, gripAt, gripPointer, glide } from './overlay.js'
 import { arrange, faded, crossed, invalidate } from './render.js'
@@ -14,9 +14,11 @@ import { thumb, liftAt, editing, caretTo, notch, stripAt, kin, same, rename, nam
 
 export let drag = null
 export let touch = matchMedia('(hover: none)').matches
+// (while a take records, the picture takes no press: no caret moved, nothing heard of what was there; the take's only
+// act is its stop)
 export function down(event) {
   touch = event.pointerType !== 'mouse'
-  if (!duration || event.button > 0) return
+  if (!duration || event.button > 0 || recording?.open) return
   assign({ moving: null })
   root.setPointerCapture(event.pointerId)
   pointers.set(event.pointerId, local(event))

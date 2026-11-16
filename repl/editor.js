@@ -3,7 +3,7 @@ import engine from './engine.js'
 import codeEditor from './script.js'
 import view, { KINDS } from './view.js'
 import { ops, previews, GROUPS, labelOf, icons as groupIcons } from './ops.js'
-import { source, steps as stepsOf, focus, addTake } from './code.js'
+import { source, focus, addTake } from './code.js'
 import scales from './scale.js'
 import time, { UNITS } from './time.js'
 import opIcons from './icons.js'
@@ -12,17 +12,18 @@ import md from './markdown.js'
 import { connectAgent, pickAgent, partsOf, showChat, newChat, openChat, dropChat, visit, elapsed, sendChat, chatKey, wire as wireChat } from './editor/chat.js'
 import { wire as wireClipboard } from './editor/clipboard.js'
 import { command, shortcut, tip, scriptKeys, pressed } from './editor/commands.js'
-import { root, params, EMBED, UI, STACKED, AGENTED, SHOWN, QUICK, GIVEN, formats, ENCODING, writtenDepth, cutFormats, frameRates, KEEPS, LOOK, looks, specMethods, WAVE, waveLooks, levelList, curves, glyphs, gripModes, displays, SHUTTLE, times, tenths, rates, layouts, specs, stored, oneOf, sideOf } from './editor/config.js'
+import { root, params, EMBED, PLAY_STOPS, UI, STACKED, AGENTED, SHOWN, QUICK, EDITS, GIVEN, formats, ENCODING, writtenDepth, cutFormats, frameRates, KEEPS, LOOK, looks, specMethods, WAVE, waveLooks, levelList, curves, glyphs, gripModes, displays, SHUTTLE, times, tenths, rates, layouts, specs, stored, oneOf, sideOf } from './editor/config.js'
 import { ed, rk, pl, output, incoming, rechoose, shown, carded, queued, turning, assign } from './editor/context.js'
 import { remember, undoList, goTo, editSelection, warp, carry, toTab, addOp, spread, flatten, switchTake } from './editor/edits.js'
 import { lengthOf, pickFiles, openFiles, taken, recover, useSample, useCode, useRecipe, openSearch, closeSearch, typeSearch, runSearch, preview, useResult, exportFiles, exportCuts, share, wire as wireFiles } from './editor/files.js'
 import { bytes, mac, keys, clock, stamp, ruled, label, note } from './editor/format.js'
 import { wire as wireKeys } from './editor/keys.js'
 import { paint, setDisplay, laneGroups, setScale, setLevels, setLook, resizePanel, flipView, wire as wireLook } from './editor/look.js'
-import { bar, openDropdown, dropToggle, placeList, contextMenu, openTools, closePalette, quick, toolKey, soundMenu, opsMenu, saveMenu, closeMenus, wire as wireMenus } from './editor/menus.js'
+import { bar, openDropdown, dropToggle, placeList, contextMenu, openTools, closePalette, quick, toolKey, soundMenu, opsMenu, quicken, saveMenu, openStep, stepToggle, findable, findOpen, findShut, findToggle, findButtonKey, findBlur, findClear, findInput, findKey, findMake, findPress, findPoint, findHold, findBack, closeMenus, wire as wireMenus } from './editor/menus.js'
+import { carryEdit, editKey, dropEdit, bypassEdit } from './editor/chain.js'
 import { writing, store, later, wire as wirePersist } from './editor/persist.js'
-import { playerOf, toggleAB, toggleLoop, plays, playPress, playClick, togglePlay, toggleTabMute, onscrub, wire as wirePlay } from './editor/play.js'
-import { meter, describe, markLevel, unmarkLevel, pickReading, pickSpec, seekTo, listen } from './editor/readouts.js'
+import { playerOf, toggleAB, toggleLoop, plays, playPress, playClick, timePress, togglePlay, toggleTabMute, onscrub, wire as wirePlay } from './editor/play.js'
+import { meter, describe, pageKind, kindOf, kindTip, kindShown, pickKind, markLevel, unmarkLevel, pickReading, pickSpec, seekTo, listen } from './editor/readouts.js'
 import { placed, toggleRecording, take, recorder, armRecording, startRecording, stopRecording, reach, span, useTakeOf, forkRange, takeList, wire as wireRecording } from './editor/recording.js'
 import { schedule, evaluate, stop, standIn, scheduleCheck, wire as wireRun } from './editor/run.js'
 import { docOf, initialDocs, retitle, tabPress, tabOver, tabRenamed, switchTab, scrollTabs, inSight, newTab, dragTab, closeTab, wire as wireTabs } from './editor/tabs.js'
@@ -59,7 +60,7 @@ const samples = t => Math.round(t * (output?.sampleRate || 44100)).toLocaleStrin
 const state = sprae(root, {
   format: oneOf(stored.format, formats.map(f => f.name), 'wav'), encoding: { markers: true, ...stored.encoding }, snapping: stored.snap ?? true, fadeCurve: oneOf(stored.curve, curves.map(c => c.name), 'linear'), gripMode: ['trim', 'speed'].includes(stored.grip) ? stored.grip : 'stretch', pitch: false,
   levelList, levels: oneOf(stored.levels, ['db'], 'linear'),
-  ruler: SHOWN.length && !SHOWN.includes('ruler') ? 'off' : 'labels', scroll: oneOf(UI.scroll ?? stored.scroll, ['bar', 'hover', 'overview'], 'hover'), grid: oneOf(stored.grid, ['none', 'lines'], 'none'), splice: Number.isFinite(UI.splice) ? UI.splice : 10, look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
+  ruler: UI.axis !== 'inside' && SHOWN.length && !SHOWN.includes('ruler') ? 'off' : 'labels', scroll: oneOf(UI.scroll ?? stored.scroll, ['bar', 'hover', 'overview'], 'hover'), grid: oneOf(UI.grid ?? stored.grid, ['none', 'lines', 'paper'], 'none'), splice: Number.isFinite(UI.splice) ? UI.splice : 10, look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
   reads: oneOf(SHOWN.find(w => ['peak', 'rms', 'loudness'].includes(w)) ?? stored.reads, ['peak', 'rms', 'loudness'], 'peak'),
   // the picture's groups
   // while its dropdown is open
@@ -73,7 +74,33 @@ const state = sprae(root, {
   get shuttleAt() { return SHUTTLE.at(this.shuttle ?? this.speed) },
   display: oneOf(stored.display, displays.map(d => d.name), 'wave'), scale: scales[stored.scale] ? stored.scale : 'log', rates, layouts, sound: null, viewing: '',
   show: { meters: true, spectrum: true, keys: true, gain: true, guides: true }, units: oneOf(UI.units, UNITS.map(u => u[0]), 'clock'),
-  embed: EMBED, stacked: STACKED, agented: AGENTED, quick: QUICK, made: 0, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
+  embed: EMBED, playStops: PLAY_STOPS, stacked: STACKED, agented: AGENTED, quick: QUICK, madeList: [], restList: [], made: 0, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
+  // the chain's edits dragged, moved and taken away, by the pointer and the keys, and what that did, said (chain.js)
+  carryEdit, editKey, dropEdit, bypassEdit, chainSaid: '',
+  // what each sound is, in a word, by its name (readouts.js): what each was heard to be; a tab's, and the one shown's
+  heardKinds: {}, kindOf, get kind() { return pageKind(this.name) || kindOf(this.name, this.heardKinds) },
+  // what the listeners heard of each sound, what more is known of a sound than its word (readouts.js kindTip: the
+  // word's tooltip, a tab's too), and what the kind's readout reads (pickKind: the kind, the note, the key, the tempo),
+  // what it says then, its tooltip ('' where nothing more is known: none)
+  heardFacts: {}, kindTip, kindReads: 'kind', pickKind,
+  get kindText() { return kindShown(this.kindReads, this.kind, this.heard) },
+  get kindTitle() { return this.kindReads === 'kind' ? kindTip(this.name, this.kind, this.heardFacts) : this.heard?.rows?.find(r => r[0].toLowerCase() === this.kindReads || this.kindReads === 'note' && r[0] === 'Chord')?.filter(Boolean).slice(0, 3).join(' ') || 'Nothing clear yet' },
+  // how the edits a press away are laid (config.js EDITS: menu, chain); the menu's plus only where the page names its
+  // own (quick), the history in the bar
+  laid: EDITS,
+  // the chain's edit whose settings are open, by its place among those made (-1, none), what it is and what it does
+  // (menus.js openStep)
+  stepOpen: -1, stepTitle: '', stepAbout: '', openStep, stepToggle,
+  // the chain's field, Add edit (menus.js findKey): what is typed in it, whether its list is open, what it finds (the
+  // suggested not made, then each kind's, those that hold what is typed), in its groups; the rows the keys go through
+  // (with nothing typed, a tree: the first level's, or the open kind's edits, `findDeep`) and the one lit, by its place
+  // among them and by its id; a row's value being dragged (`findHeld`), and those a drag set, not made yet (`findSet`)
+  findQuery: '', finding: false, findAt: 0, findKind: '', findDeep: false, findHeld: null, findSet: {}, findOpen, findShut, findToggle, findButtonKey, findBlur, findClear, findInput, findKey, findMake, findPress, findPoint, findHold, findBack,
+  get findTree() { return !this.findQuery.trim() },
+  get foundGroups() { return findable(this.findQuery, this.restList, this.findKind, this.kind, this.findSet, this.sound?.count) },
+  get found() { return this.foundGroups.flatMap(g => g.items).filter(e => !this.findTree || e.level === (this.findDeep ? 2 : 1)) },
+  get lit() { return Math.min(this.findAt, Math.max(0, this.found.length - 1)) },
+  get litAt() { return this.found[this.lit]?.at ?? -1 },
   // the commands' keys and tooltips, as the menus have them (commands.js)
   shortcut, tip,
   tabs: [], tabFacts: {}, marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, hotBand: -1, trackRows: null, ghost: false, renamingTab: null,
@@ -125,11 +152,11 @@ const state = sprae(root, {
   get lengthWhole() { return !this.recording && !this.span },
   get length() { return this.duration ? clock(this.duration) : '' },
   // a click on the time brings the view to it; on the length, the selection shown whole, then all of it
-  bringTime() { v.bring() },
+  bringTime() { v.bring() }, timePress,
   frameLength() { v.frameSelected() },
   // pointed at, in samples
   get lengthTitle() { return this.recording ? 'Take' : this.lengthPending ? `Length\n${this.arrived == null ? 'On its way' : `${Math.floor(this.arrived * 100)}% here`}` : !this.span && !this.hasOutput ? 'Length\nNo sound' : `${this.span ? 'Selected length' : 'Total length'}\n${samples(this.span || this.duration)} samples` },
-  get timeTip() { this.time; return `${this.playing ? 'Playhead' : 'Caret'}\nSample ${samples(v && this.playing ? pl.time : v?.cursor ?? 0)}` },
+  get timeTip() { this.time; return `${this.playing ? 'Playhead' : 'Caret'}\nSample ${samples(v && this.playing ? pl.time : v?.cursor ?? 0)}; drag across to move it` },
   get timeTitle() {
     const sel = this.selection
     if (this.playing || this.recording || !this.span) return ''
@@ -220,6 +247,12 @@ const hints = hint(document.body)
 // Its controls' tooltips, popoff's: every title, its name, its keys and a word more, on a tag pointing at it; loaded
 // aside, so the page is whole without it (the browser's own titles then)
 import('../assets/popoff.js').then(({ default: popoff }) => popoff()).catch(() => {})
+// What the history can do (index.html .history: none of it with no history, else both buttons, the one that cannot act
+// dimmed, the keys staying on it where they are)
+function undoable() {
+  state.canUndo = ed.canUndo
+  state.canRedo = ed.canRedo
+}
 // The script editor, on the document shown, the files its tabs open kept from before
 const first = await initialDocs()
 assign({ pl: playerOf(first) })
@@ -236,9 +269,8 @@ assign({ ed: codeEditor(root.querySelector('.script-editor'), {
     // typing waits for a pause in the keys; a change made whole (a file opened, an edit on the picture, a recipe, undo)
     // runs at once
     const typed = !!update?.transactions.some(tr => tr.isUserEvent('input.type') || tr.isUserEvent('delete'))
-    state.canUndo = ed.canUndo
-    state.canRedo = ed.canRedo
-    if (QUICK.length) state.made = stepsOf(code).filter(s => s.on).length
+    undoable()
+    quicken(code)
     focusOn(state.track)
     remember(code, slider)
     retitle()
@@ -249,7 +281,7 @@ assign({ ed: codeEditor(root.querySelector('.script-editor'), {
   },
   oncaret: update => { rk?.refresh(update); if (rechoose !== undefined) { rk.choose(rechoose); assign({ rechoose: undefined }) } },
   // CodeMirror come, after the page shows (script.js): the edits made before it are its history now
-  onready() { state.canUndo = ed.canUndo; state.canRedo = ed.canRedo; if (QUICK.length) state.made = stepsOf(ed.code).filter(s => s.on).length },
+  onready() { undoable(); quicken(ed.code) },
   files: () => [...taken()],
   describe: name => eng.describe(name),
   keys: scriptKeys()
@@ -261,6 +293,7 @@ state.muted = first.muted
 state.locked = first.locked
 focus(first.track)
 retitle()
+quicken(ed.code)
 inSight()
 store()
 
@@ -275,8 +308,14 @@ v = view(root.querySelector('.plot'), {
   track: Number.isFinite(UI.track) && UI.track > 0 ? UI.track : null,
   zoom: UI.zoom,
   overshoot: UI.overshoot,
+  // which way the wheel is the picture's: across only, up and down left to the page around it, an embed's as it comes;
+  // or both (?ui= wheel: README.md)
+  wheel: oneOf(UI.wheel, ['across', 'both'], EMBED ? 'across' : 'both'),
   // which cues come first where they crowd, zoomed out (?ui= cues: README.md)
   cues: UI.cues,
+  // no scale at the lanes' right, the pictures the view's whole width (?ui= axis false: README.md); or the scale and
+  // the time row within the sheet the grid rules, its last column and row (inside)
+  axis: UI.axis === 'inside' ? 'inside' : UI.axis !== false,
   // the axis as wide as its labels: the display switch under it (editor.css --axis)
   onaxis: px => root.querySelector('.panes').style.setProperty('--axis', `${px}px`),
   // measuring on the spectrogram, the spectrum meter reads under the pointer, then where it did again
@@ -454,6 +493,9 @@ wireChat()
 wireTabs()
 // the page's keys, and the focus and audio device a first press brings (keys.js)
 wireKeys()
+// and the keys in the row over the picture, where the page lays its edits there (?ui= edits chain): pressed, they act
+// without taking the keys, as the bar's do (keys.js), so Space stays play
+if (EMBED) root.addEventListener('mousedown', event => { if (event.target.closest('.view-head :is(.embed-chain, .head-end) button')) event.preventDefault() })
 // Leaving: the tabs stored, a take's last part written as it can be; while a take records, or a file is still being
 // written, the browser asks first. Hidden (a phone's app switched away, a laptop's lid), stored too, as it may not come back
 addEventListener('pagehide', () => { store(); take?.tape?.flush(); pl.close(); recorder?.cancel() })

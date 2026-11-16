@@ -269,17 +269,17 @@ test('editor: a drag on the time row selects, a click there moves the caret alon
   assert.match(await page.locator('.clock').evaluate(tipOf), /^Selected 2 ranges:/, 'with Alt, another')
 })
 
-// Zoomed in, the scrollbar at the time row's top, its labels under it, at the row's foot (view.js bar): its thumb
-// dragged a quarter of the row across moves the view a quarter of the sound on, a press beside it takes the view there;
-// the caret stays where it was. Showing all of it, there is none, and a press there moves the caret, as on the rest of
-// the time row
-test('editor: zoomed in, the scrollbar at the time row\'s top moves the view, the caret staying', async () => {
+// Zoomed in, the scrollbar in a strip of its own under the time row, the picture's foot (geometry.js BAR): nothing of
+// the row drawn there, no time, no tick; its thumb dragged a quarter of the row across moves the view a quarter of the
+// sound on, a press beside it takes the view there; the caret stays where it was. Showing all of it, there is none, and
+// a press there moves the caret, as on the rest of the time row
+test('editor: zoomed in, the scrollbar in a strip of its own under the time row moves the view, the caret staying', async () => {
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  // the time row's labels at the picture's foot; the scrollbar over them, a pixel under the lanes
-  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, row = onRow(box), foot = box.y + box.height - 18, w = box.width - (await gutter())
+  // the time row's labels over the picture's foot; the scrollbar under them, in the strip at its foot
+  const { box, x } = await axis(8), y = box.y + TOP + TRACK * .3, row = onRow(box), foot = box.y + box.height - 4, w = box.width - (await gutter())
   const time = async () => (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0)
   const left = async () => { await page.mouse.click(box.x + 1, y); return time() }
   await page.mouse.click(x(6), row)
@@ -292,19 +292,26 @@ test('editor: zoomed in, the scrollbar at the time row\'s top moves the view, th
   assert.ok(before > .5 && before < 2, `zoomed in: the view from ${before}`)
   // the thumb's middle, where the view shows
   const thumb = t => box.x + (t + span / 2) / 8 * w
-  // a pixel under the lanes, 4 px thick, as a native overlay scrollbar's; under the pointer brighter, never wider, as
-  // the page's scrollbars draw theirs (editor.css). The rows lit down the thumb's middle on its strip (view.js onStrip,
-  // the view's width, from the lanes' foot): [thick, off, its alpha], CSS px
+  // in the middle of its strip, 4 px thick, as a native overlay scrollbar's; under the pointer brighter, never wider,
+  // as the page's scrollbars draw theirs (editor.css). The rows lit down the thumb's middle on its strip (view.js
+  // onStrip, the view's width, the picture's last 8 px): [thick, off, its alpha], CSS px
   const drawn = () => page.evaluate(px => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {
     const cv = document.querySelector('.plot canvas.scrollbar'), k = cv.width / cv.getBoundingClientRect().width, { data } = cv.getContext('2d').getImageData(Math.round(px * k), 0, 1, cv.height), rows = []
     for (let y = 0; y < cv.height; y++) if (data[y * 4 + 3] > 0) rows.push(y)
     done([rows.length / k, rows[0] / k, Math.max(...rows.map(y => data[y * 4 + 3]))])
   }))), thumb(before) - box.x)
   const [thick, off, rest] = await drawn()
-  assert.deepEqual([thick, off], [4, 1], 'the thumb, 4 px thick, a pixel under the lanes')
+  assert.deepEqual([thick, off], [4, 2], 'the thumb, 4 px thick, in the middle of its strip')
+  // its strip the picture's last 8 px, under the time row's labels and ticks, nothing of the row's in it
+  const strip = await page.evaluate(() => { const p = document.querySelector('.plot').getBoundingClientRect(), b = document.querySelector('.plot canvas.scrollbar').getBoundingClientRect(); return [b.top - p.top, b.bottom - p.top, p.height] })
+  assert.deepEqual(strip, [strip[2] - 8, strip[2], strip[2]], `the strip at the picture's foot: ${strip}`)
+  const under = await page.evaluate(([from]) => { const cv = document.querySelector('.plot canvas.row'), k = cv.width / cv.getBoundingClientRect().width, top = cv.getBoundingClientRect().top - document.querySelector('.plot').getBoundingClientRect().top, d = cv.getContext('2d').getImageData(0, Math.round((from - top) * k), cv.width, Math.round(8 * k)).data; let lit = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) lit++; return lit }, strip)
+  assert.equal(under, 0, 'no time and no tick in the scrollbar\'s strip')
+  const words = await page.evaluate(([from]) => { const cv = document.querySelector('.plot canvas.row'), k = cv.width / cv.getBoundingClientRect().width, top = cv.getBoundingClientRect().top - document.querySelector('.plot').getBoundingClientRect().top, d = cv.getContext('2d').getImageData(0, 0, cv.width, Math.round((from - top) * k)).data; let lit = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) lit++; return lit }, strip)
+  assert.ok(words > 100, `the row's times and ticks over it: ${words} px lit`)
   await page.mouse.move(thumb(before), foot)
-  const [under, , lit] = await drawn()
-  assert.ok(under === 4 && lit > rest, `under the pointer as thick, brighter: ${under} px, ${rest} → ${lit}`)
+  const [hovered, , lit] = await drawn()
+  assert.ok(hovered === 4 && lit > rest, `under the pointer as thick, brighter: ${hovered} px, ${rest} → ${lit}`)
   // the strip laid anew as the thumb moves, cleared as its canvas is resized (kept.js), never by reset(): WebKit's
   // clears the bitmap but leaves the thumbs laid before on screen, a trail of them along the row
   await page.evaluate(() => { const reset = CanvasRenderingContext2D.prototype.reset; window.__resets = 0; CanvasRenderingContext2D.prototype.reset = function () { window.__resets++; return reset.call(this) } })
@@ -425,7 +432,8 @@ test('editor: the time row is under the tracks, whichever is pointed at', async 
   const box = await page.locator('.plot').boundingBox(), lanes = await tracksAt()
   // the time row's text in rows [y0, y1) of the plot, across the lanes (past the caret's number over it): light grey
   const text = ([y0, y1]) => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = 40; x < arg.w; x++) { const i = (y * w + x) * 4; if (d[i] > 90 && Math.abs(d[i] - d[i + 2]) < 20) n++ } return n`, { y0, y1, w: Math.round(box.width - 80) })
-  const head = i => (y => [y - HEAD + 2, y - 2])(Math.round(lanes[i].y - box.y)), foot = [Math.round(box.height) - 14, Math.round(box.height)]
+  // (the row 14 px over the scrollbar's strip, 8 px, at the picture's foot)
+  const head = i => (y => [y - HEAD + 2, y - 2])(Math.round(lanes[i].y - box.y)), foot = [Math.round(box.height) - 22, Math.round(box.height) - 8]
   // where the row is, once the pointer is at (px, py): the heads' and the foot's text
   const rowAt = async (px, py) => { await page.mouse.move(px, py); await frames(); return [await text(head(0)), await text(head(1)), await text(foot)] }
   for (const py of [lanes[0].y + lanes[0].h / 2, lanes[1].y + lanes[1].h / 2, box.y + box.height - 4]) {

@@ -1,5 +1,5 @@
 import { markLane } from './data.js'
-import { RULER, GAP, EDGE, HEAD, TRACK, LOW, ROOM, midiOf, TICK, VOICE, root, oncursor, onfocus, ontake, onghost, onlayout, onband, onbusy, keepRoom, element, keep, FORK, forkButton, count, rate, duration, display, hovered, markers, recording, empty, pieces, guest, start, end, selection, band, cursor, ruler, waveLook, tracks, focus, across, sections, scroll, heights, lift, kinds, noted, zoomed, sized, assign } from './model.js'
+import { RULER, within, GAP, EDGE, HEAD, TRACK, LOW, ROOM, midiOf, TICK, VOICE, root, oncursor, onfocus, ontake, onghost, onlayout, onband, onbusy, keepRoom, element, keep, FORK, forkButton, count, rate, duration, display, hovered, markers, recording, empty, pieces, guest, start, end, selection, band, cursor, ruler, waveLook, tracks, focus, across, sections, scroll, heights, lift, kinds, noted, zoomed, sized, assign } from './model.js'
 import { lanesEnd } from './overlay.js'
 import { drag } from './pointer.js'
 import { W, H, invalidate } from './render.js'
@@ -131,8 +131,9 @@ export const pointers = new Map()
 export const LINGER = 1000
 // what the picture keeps at its foot: the time row, one for every band, staying as they scroll over it; none where it
 // is off (`ruler` 'off': an embedding page's big time says it all)
+// Within the sheet (?ui= axis inside) as low: the grid rules the lanes' values alone, the times under it plain
 export const rowH = () => ruler === 'off' ? 0 : RULER
-export const plot = () => ({ w: Math.max(1, W - gutter), h: Math.max(1, H - rowH() - (scroll === 'overview' ? MAP : 0)) })
+export const plot = () => ({ w: Math.max(1, W - gutter), h: Math.max(1, H - rowH() - footH()) })
 // a sound's channels in one lane: as the waveform's look has them, or its notes, a voice's, found on their mix
 export const merged = () => !tracks && (display === 'notes' || display === 'wave' && waveLook.lanes === 'one')
 // Each band's height by its name, a track's or '' for a sound's, as its lanes' foot was dragged (onheight); the bands
@@ -233,18 +234,27 @@ export function refocus(L, py, px) {
   onfocus(i)
   told()
 }
-// The time row at the picture's foot, under every band, as a DAW's: level with the bar's edge, the scrollbar between
-// it and the lanes, its ticks TICK long from `tickTop` down, its labels beside them (row, their middle). `rowEdge`, the
-// row's side by the lanes, where a clip is underlined
-export const tickTop = () => plot().h + rowH() - TICK - 2
-export const row = () => tickTop() + 7
+// The time row at the picture's foot, under every band, as a DAW's: over the scrollbar's strip, its ticks TICK long
+// from `tickTop` down (2 px under its top, which a clip's underline and a guide's marks take), its labels beside them
+// in its middle (row), a tag's ground the row's height. `rowEdge`, the row's side by the lanes, where a clip is
+// underlined
+// Within the sheet (?ui= axis inside) the grid ends on the lanes' foot (rowTop), and under it the times stand plain in
+// a strip as low as their line and the lanes' grip's few px over it, no line run down through it and no tick
+// (tickLong 0), their middle the strip's (row)
+export const rowTop = () => { const L = within && lanes(); return L && L.all.length ? Math.min(plot().h, floor(L)) : plot().h }
+export const tickTop = () => within ? rowTop() : plot().h + 2
+export const tickLong = () => within ? 0 : TICK
+export const row = () => within ? Math.round((rowTop() + plot().h + rowH()) / 2) : plot().h + rowH() / 2
 export const rowEdge = () => plot().h
-// Zoomed in, the scrollbar at the time row's top, over its ticks, above its labels, as an overlay scrollbar is: the
-// whole sound across the row (or as far as the view goes past its end), the thumb what shows, at least THUMB px. A
-// press on it drags the view; beside it, the view centres there first. { x0, x1, total }, or null showing all of it
-// Chosen in the settings, the overview takes the bar's place: the whole sound in a strip MAP px tall under the time
-// row, as a minimap, the view's part of it lit, pressed and dragged as the thumb is
+// Zoomed in, the scrollbar in a strip of its own under the time row, BAR px tall, the picture's foot, as a window's
+// scrollbar is at its foot: nothing else drawn there, so it lies over no time and no tick. The whole sound across it
+// (or as far as the view goes past its end), the thumb what shows, at least THUMB px. A press on it drags the view;
+// beside it, the view centres there first. { x0, x1, total }, or null showing all of it (scales.js bar). The strip
+// is kept whether the bar shows or not, so nothing moves as it comes and goes. Chosen in the settings, the overview
+// takes its place: the whole sound in a strip MAP px tall, as a minimap, the view's part of it lit, pressed and
+// dragged as the thumb is
 export const BAR = 8, THUMB = 16, MAP = 28
+export const footH = () => scroll === 'overview' ? MAP : BAR
 // What an edit is still making: frozen, and said so (onbusy) as that starts or ends
 export function freeze(list) {
   const was = frozen.length > 0

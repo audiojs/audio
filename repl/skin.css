@@ -21,7 +21,7 @@
   --color-screen-soft: rgb(190 190 190);
   --color-screen-muted: rgb(143 143 143);
   /* focusBorder, editorError.foreground */
-  --color-screen-accent: rgb(247 150 67);
+  --color-screen-accent: rgb(92 186 204);
   --color-screen-error: rgb(248 112 99);
   /* pointed at, list.hoverBackground; a field, input.background */
   --color-screen-hover: rgb(255 255 255 / 0.11);

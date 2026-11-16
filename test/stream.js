@@ -396,6 +396,44 @@ test('stream: a WAV by its path decodes a page at a time, as its bytes do as a s
   await inPages(t, files)
 })
 
+// RIFF keeps chunks on word boundaries: a pad byte, zero, follows an odd-sized chunk's data, its size not counting it
+// (Multimedia Programming Interface and Data Specifications 1.0, IBM and Microsoft, August 1991, "Resource Interchange
+// File Format"; the same in EBU Tech 3285 for BWF). The page planner (fn/parts.js wav()) steps over it as
+// @audio/decode-wav reads it: its pages over the bytes FFmpeg and SoX decode of the same file. Written with no pad byte
+// (malformed, seen in the wild; FFmpeg and SoX refuse it), the next chunk is read from where the size ends, as it always
+// was: by its path as by its bytes.
+test('stream: a WAV with an odd-sized chunk before fmt and data: its pad byte stepped over; with none, read as before', async t => {
+  let { wav } = await import('../fn/parts.js'), { execFileSync } = await import('node:child_process'), { default: decode } = await import('@audio/decode-wav')
+  let tone = n => [0, 1].map(c => Float32Array.from({ length: n }, (_, i) => 0.4 * Math.sin(i * (0.013 + c * 0.007))))
+  let plain = new Uint8Array(await audio.from(tone(200003), { sampleRate: 44100 }).encode('wav', { bitDepth: 16 }))
+  let id = (b, o) => String.fromCharCode(...b.subarray(o, o + 4)), d = 12
+  while (id(plain, d) !== 'data') d += 8 + new DataView(plain.buffer).getUint32(d + 4, true)
+  // plain's chunks, a 13-byte bext before fmt and another before data, each followed by a zero pad byte or by nothing
+  let withOdd = pad => {
+    let bext = Uint8Array.from([98, 101, 120, 116, 13, 0, 0, 0, ...Array.from({ length: 13 }, (_, i) => 65 + i), ...pad ? [0] : []])
+    let out = new Uint8Array(plain.length + 2 * bext.length), n = bext.length
+    out.set(plain.subarray(0, 12)); out.set(bext, 12); out.set(plain.subarray(12, d), 12 + n); out.set(bext, d + n); out.set(plain.subarray(d), d + 2 * n)
+    new DataView(out.buffer).setUint32(4, out.length - 8, true)
+    return out
+  }
+  // the bytes a plan's pages hold the samples in: from the first page's end less its frames (4 bytes a frame) to the last's
+  let PS = 1 << 14, samples = (b, p) => b.subarray(p.pages[0][1] - PS * 4, p.pages.at(-1)[1]), ref = wav(plain, plain.length, PS)
+  for (let pad of [1, 0]) {
+    let b = withOdd(pad), p = wav(b, b.length, PS), name = pad ? 'padded' : 'no pad byte'
+    t.ok(p?.total === ref.total && Buffer.compare(samples(b, p), samples(plain, ref)) === 0, `${name}: ${p?.total} frames planned, over the data's own bytes`)
+  }
+  for (let [tool, args] of [['ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-f', 's16le', '-']], ['sox', ['-t', 'wav', '-', '-t', 's16', '-']]]) {
+    let b = withOdd(1), out
+    try { out = execFileSync(tool, args, { input: b, maxBuffer: 1 << 26, stdio: ['pipe', 'pipe', 'ignore'] }) }
+    catch (e) { if (e.code !== 'ENOENT') throw e; console.log(`  ${tool} not installed: not compared`); continue }
+    t.ok(Buffer.compare(samples(b, wav(b, b.length, PS)), out) === 0, `padded: the samples planned, ${tool}'s`)
+  }
+  await inPages(t, [['odd-no-pad.wav', withOdd(0)]])
+  // decoded whole, by its path as by its bytes, where the decoder installed steps over the pad byte too
+  if (decode(withOdd(1)).channelData.length) await inPages(t, [['odd-padded.wav', withOdd(1)]])
+  else console.log('  padded, decoded whole: not run, @audio/decode-wav as installed does not step over the pad byte')
+})
+
 test('stream: an MP3 by its path decodes on threads past its first page, as its bytes do as a stream', async t => {
   let tone = (n, sr) => [0, 1].map(c => Float32Array.from({ length: n }, (_, i) => 0.3 * Math.sin(2 * Math.PI * (220 + 110 * c) * i / sr) + 0.1 * Math.sin(2 * Math.PI * 3000 * i / sr)))
   let mono = tone(44100 * 6, 44100)[0]

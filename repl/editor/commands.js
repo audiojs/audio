@@ -58,9 +58,10 @@ export const commands = [
   { id: 'tab.close', label: 'Close tab', run: id => closeTab(id) },
   { id: 'tab.reopen', label: 'Reopen closed tab', keys: keys('⇧⌘T'), scope: 'any', press: e => mod(e) && e.shiftKey && is(e, 't'), when: () => !!closed.length, run: () => reopenTab() },
 
-  // Edit: what is selected, and the script's own history and groups
-  { id: 'undo', label: 'Undo', keys: keys('⌘Z'), scope: 'view', press: e => mod(e) && is(e, 'z') && !e.shiftKey, when: () => ed.canUndo, run: () => ed.undo() },
-  { id: 'redo', label: 'Redo', keys: keys('⇧⌘Z'), scope: 'view', press: e => mod(e) && (is(e, 'z') && e.shiftKey || is(e, 'y')), when: () => ed.canRedo, run: () => ed.redo() },
+  // Edit: what is selected, and the script's own history and groups (the history's keys wherever the keys are but where
+  // text is written, which undoes its own: the script, a field; a slider or a button has none of its own)
+  { id: 'undo', label: 'Undo', keys: keys('⌘Z'), scope: 'page', press: e => mod(e) && is(e, 'z') && !e.shiftKey, when: () => ed.canUndo, run: () => ed.undo() },
+  { id: 'redo', label: 'Redo', keys: keys('⇧⌘Z'), scope: 'page', press: e => mod(e) && (is(e, 'z') && e.shiftKey || is(e, 'y')), when: () => ed.canRedo, run: () => ed.redo() },
   { id: 'history', label: 'History', items: () => undoList().map(step => check(step.label, step.current, () => goTo(step.index), { hint: step.ahead ? 'undone' : '' })), when: () => steps.length >= 2 },
   { id: 'cut', label: 'Cut', keys: keys('⌘X'), edit: 'cut', scope: 'view', press: e => mod(e) && is(e, 'x') && v.selection && !v.band, when: s => s.sel && !s.band, run: () => editSelection('cut') },
   { id: 'copy', label: 'Copy', keys: keys('⌘C'), edit: 'copy', scope: 'view', press: e => mod(e) && is(e, 'c') && v.selection && !v.band, when: s => s.sel && !s.band, run: () => editSelection('copy') },
@@ -95,7 +96,7 @@ export const commands = [
   { id: 'look.wave', label: 'Waveform options', items: () => lookMenu('wave') },
   { id: 'look.spec', label: 'Spectrogram options', items: () => lookMenu('spec') },
   { id: 'minimap', label: 'Minimap', tip: 'The whole sound under the time row, to scroll by', checked: () => state.scroll === 'overview', run: () => setScroll(state.scroll === 'overview' ? 'hover' : 'overview') },
-  { id: 'grid', label: 'Grid', tip: 'A faint line from each tick across the lanes', checked: () => state.grid === 'lines', run: () => setGrid(state.grid === 'lines' ? 'none' : 'lines') },
+  { id: 'grid', label: 'Grid', tip: 'A faint line from each tick across the lanes', checked: () => state.grid !== 'none', run: () => setGrid(state.grid !== 'none' ? 'none' : 'lines') },
   { id: 'snap', label: 'Snap', tip: 'Onto onsets, markers and takes, the lines shown as a thing is dragged; Alt shows them all', checked: () => state.snapping, run: () => state.toggleSnap() },
   { id: 'pitch.curve', label: 'Pitch curve', tip: 'The voice\'s pitch on the spectrogram, dragged whole or by its bends', checked: () => state.pitch, run: () => setPitch(!state.pitch) },
   { id: 'zoom', label: 'Zoom', items: s => ['zoom.in', 'zoom.out', 'zoom.selection', 'zoom.all'].map(id => item(id, s)), when: s => !s.none },
@@ -140,8 +141,9 @@ export const commands = [
   { id: 'palette', label: s => s.sel ? 'Find an edit for the selection…' : 'Find an edit…', keys: keys('⌘P'), scope: 'any', press: e => mod(e) && !e.shiftKey && (is(e, 'k') || is(e, 'p')), when: s => !s.none, run: () => openTools() },
 
   // Transport: what plays and what records, the takes recorded
-  // Space stops a recording too; held, Play shuttles (play.js)
-  { id: 'play', label: s => state.playing ? 'Pause' : s.sel ? 'Play the selection' : 'Play from the caret', keys: 'Space', tip: 'Hold Play and drag to rewind or skip', scope: 'page', press: e => e.key === ' ' && !e.target.closest('button, a'), script: 'Mod-Enter', when: s => s.whole && !state.recording, run: e => e && state.recording ? stopRecording() : togglePlay() },
+  // Space stops a recording too, wherever the keys are but text (a button then: its own press would be a press of it,
+  // the sound's name's opening its menu again); held, Play shuttles (play.js)
+  { id: 'play', label: s => state.playing ? 'Pause' : s.sel ? 'Play the selection' : 'Play from the caret', keys: 'Space', tip: 'Hold Play and drag to rewind or skip', scope: 'page', press: e => e.key === ' ' && (!!state.recording || !e.target.closest('button, a')), script: 'Mod-Enter', when: s => s.whole && !state.recording, run: e => e && state.recording ? stopRecording() : togglePlay() },
   { id: 'loop', label: 'Loop', keys: 'L', scope: 'page', press: e => plain(e, 'l') && state.whole, checked: () => state.loop, when: s => !!s.whole, run: () => toggleLoop() },
   { id: 'compare', label: 'Hear it before the edits', keys: 'B', tip: 'The original, level-matched', scope: 'page', press: e => plain(e, 'b') && state.whole, checked: () => state.ab, when: () => state.canCompare, run: () => toggleAB() },
   { id: 'speed', label: 'Speed', hint: 'Pitch kept', items: () => SPEEDS.list.map(r => check(`${r}×`, state.speed === r, () => setSpeed(r))) },
@@ -183,7 +185,9 @@ export const keysOf = type => commands.find(c => c.edit === type)?.keys
 // the script editor's (script.js keys)
 export const scriptKeys = () => Object.fromEntries(commands.filter(c => c.script).map(c => [c.script, () => c.run()]))
 // The command a key runs where it was pressed: the page's (keys.js), or the picture's (`view`: view.js onkey)
+// (written in: the script, a field of text, a choice, a dialog; not a slider, a box, a button, which take no text)
+const TEXT = '.cm-editor, input:not([type="range"], [type="checkbox"], [type="radio"], [type="button"], [type="color"]), textarea, select, dialog'
 export function pressed(event, view = false) {
-  const typing = event.target.closest?.('.cm-editor, input, textarea, select, dialog')
+  const typing = event.target.closest?.(TEXT)
   return commands.find(c => c.press && (view ? c.scope === 'view' : c.scope === 'any' || c.scope === 'page' && !typing) && c.press(event))
 }

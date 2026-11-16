@@ -56,7 +56,8 @@ export const texts = {
   },
   shrink: {
     gap: 'Longest pause kept, in seconds. A pause longer than this is cut down to it.',
-    threshold: 'Silence level, in dB. Audio quieter than this counts as a pause. Left unset, it is found from the sound itself.'
+    threshold: 'Silence level, in dB. Audio quieter than this counts as a pause. Left unset, it is found from the sound itself.',
+    crossfade: 'How each cut is joined, in seconds: 0 a hard cut, as now; more fades the two sides of it into each other over that long, the length the same.'
   },
   move: {
     to: 'Where the range lands, in seconds. Its audio goes over what is there.'
@@ -860,6 +861,16 @@ export const texts = {
 
 // A setting's tooltip: its op's words, else its name's; undefined where there are none.
 export const help = (op, name) => texts[op]?.[name] ?? texts['*'][name]
+
+// A setting's line, in a few words under its control, where its op's docs say what it is (README, fn/): the Silence
+// kind's for now; none where nothing is written, rather than one made up
+const lines = {
+  trim: { threshold: 'quieter than this at either end is cut; unset, found from the sound' },
+  shrink: { gap: 'a pause longer than this is cut to it; 0 takes pauses out', threshold: 'quieter than this counts as a pause; unset, found from the sound', crossfade: 'each cut faded over this long; 0, a hard cut' },
+  pad: { before: 'silence added before the start', after: 'silence added after the end' },
+  insert: { at: 'where the silence goes in; what follows moves later' }
+}
+export const line = (op, name) => lines[op]?.[name]
 
 // An op's settings by name, `names` as its manifest gives them: [those the card shows, those under Advanced]. A setting
 // the layout does not name is shown.

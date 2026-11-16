@@ -707,7 +707,7 @@ test('editor: Shift and a press elsewhere extends the selection at once, a drag 
 })
 
 // ⌘ aims and measures as Figma's Alt does: held, the pointer a cross, its own height (the value under it, not the
-// waveform's there) dashed in the measuring red across to the level axis and from there up to the time row, and on
+// waveform's there) dashed in the accent across to the level axis and from there up to the time row, and on
 // the time row a line from the selection's nearer edge to it, how far it is; let go, none. It shows as the key goes
 // down, before the pointer moves. Alt measures nothing
 test('editor: held ⌘, the pointer measures how far it is from the selection, dashed out to the axes', async () => {
@@ -716,9 +716,9 @@ test('editor: held ⌘, the pointer measures how far it is from the selection, d
   // low in the first channel's lane, far from the sound there
   const py = box.y + TOP + 70
   await page.mouse.move(x(4), py)
-  const span = x(4) - x(2) - 4, red = (x0, x1, y0, y1) => pixels(`let n = 0; for (let py = ${Math.round(y0)}; py < ${Math.round(y1)}; py++) for (let px = ${Math.round(x0)}; px < ${Math.round(x1)}; px++) { const i = (py * w + px) * 4; if (d[i] - d[i + 2] > 60 && d[i] > 150) n++ } return n`)
+  const span = x(4) - x(2) - 4, red = (x0, x1, y0, y1) => pixels(`let n = 0; for (let py = ${Math.round(y0)}; py < ${Math.round(y1)}; py++) for (let px = ${Math.round(x0)}; px < ${Math.round(x1)}; px++) { const i = (py * w + px) * 4; if (d[i + 2] - d[i] > 60 && d[i + 2] > 150) n++ } return n`)
   // the row of the most red right of the pointer's column, over the lane's upper half
-  const across = () => pixels(`let best = 0, at = -1; for (let py = ${TOP}; py < arg.h; py++) { let n = 0; for (let px = arg.x0; px < arg.x1; px++) { const i = (py * w + px) * 4; if (d[i] - d[i + 2] > 60 && d[i] > 150) n++ } if (n > best) { best = n; at = py } } return { at, n: best }`, { x0: Math.round(x(4) - box.x + 4), x1: Math.round(x(5) - box.x), h: Math.round(TOP + TRACK / 2) })
+  const across = () => pixels(`let best = 0, at = -1; for (let py = ${TOP}; py < arg.h; py++) { let n = 0; for (let px = arg.x0; px < arg.x1; px++) { const i = (py * w + px) * 4; if (d[i + 2] - d[i] > 60 && d[i + 2] > 150) n++ } if (n > best) { best = n; at = py } } return { at, n: best }`, { x0: Math.round(x(4) - box.x + 4), x1: Math.round(x(5) - box.x), h: Math.round(TOP + TRACK / 2) })
   assert.equal(await measuredOnRow(box, x(2) + 2, x(4) - 2), 0)
   await page.keyboard.down('Alt')
   await frames()
@@ -937,11 +937,11 @@ test('editor: a press by the sound\'s start or end goes onto it', async () => {
   }
 })
 
-// Held ⌘ over a lane, the pointer's guides out to the axes, dashed in the measuring red, at once, on the caret too,
+// Held ⌘ over a lane, the pointer's guides out to the axes, dashed in the accent, at once, on the caret too,
 // where there is nothing to measure; and as a drag sets a time, ⌘ pressed on the way
 test('editor: held ⌘, the guides to the axes at once, on the caret and as a drag goes', async () => {
   const { x, y } = await chime()
-  const guides = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => { const o = document.querySelector('.plot canvas.overlay'), d = o.getContext('2d').getImageData(0, 0, o.width, o.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 180 && d[i + 1] < 120 && d[i + 3] > 100) n++; done(n) }))))
+  const guides = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => { const o = document.querySelector('.plot canvas.overlay'), d = o.getContext('2d').getImageData(0, 0, o.width, o.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 2] > 150 && d[i + 2] - d[i] > 60) n++; done(n) }))))
   await page.mouse.click(x(2), y)
   assert.equal(await guides(), 0, 'none without ⌘')
   await page.keyboard.down('ControlOrMeta')

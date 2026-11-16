@@ -74,8 +74,8 @@ const modifier = event => {
   invalidate(true)
 }
 
-export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onkey = () => false, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onfork = () => {}, onghost = () => {}, onlayout = () => {}, onband = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, track: sized = null, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5, cues: cueOrder = 'chunks' } = {}) {
-  mount(root, { onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, sized, closest, farthest, overshoot, cueOrder })
+export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onkey = () => false, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onfork = () => {}, onghost = () => {}, onlayout = () => {}, onband = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, track: sized = null, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5, cues: cueOrder = 'chunks', wheel: way = 'both', axis = true } = {}) {
+  mount(root, { onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onband, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, sized, closest, farthest, overshoot, cueOrder, pageWheel: way === 'across', scaled: axis !== false, within: axis === 'inside' })
   root.tabIndex = 0
   root.addEventListener('pointerdown', down)
   root.addEventListener('pointermove', move)
@@ -199,16 +199,18 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     },
 
     // A take recorded over the output from `at` s, drawn as it comes (take), grown by each block of channels (grow), and
-    // drawn until the output that holds it arrives (set, stream); take(null) drops it at once
+    // once it is done (taken) drawn until the output that holds it arrives (set, stream); one that arrives while it is
+    // still being recorded (a run on its way as it began) comes under it, the take drawn on over it. take(null) drops it
+    // at once
     take(opts) {
       assign({ asking: asking + 1 })
-      ended()
+      ended(true)
       if (!opts) { assign({ pieces: null }); return invalidate() }
       const { at, sampleRate, channels } = opts
       // into nothing: its lanes, and the scale a take is watched at, full scale (±1) as a recording app's, held still as
       // it comes. Over a sound, the sound's
       if (!duration) { untrack(); assign({ count: channels }); assign({ rate: sampleRate }); lay(count); assign({ start: at }); assign({ end: at + RECORD }); assign({ aview: [-1, 1] }) }
-      assign({ recording: { at, lead: 0, rate: sampleRate, length: 0, total: duration, data: Array.from({ length: channels }, () => new Float32Array(sampleRate)),
+      assign({ recording: { open: true, at, lead: 0, rate: sampleRate, length: 0, total: duration, data: Array.from({ length: channels }, () => new Float32Array(sampleRate)),
         waves: Array.from({ length: channels }, () => new Waveform(gl)),
         specs: sgl ? Array.from({ length: channels }, () => new Spectrogram(sgl, { background: color('--color-screen'), ...look, color: shades(), sampleRate })) : [] } })
       assign({ leveled: false })
@@ -233,6 +235,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       assign({ leveled: false })
       taking()
     },
+    // The take done, no block more to come: the next output set takes its place, that output its own
+    taken() { if (recording) recording.open = false },
     // The take lined up with what played as it was recorded (editor.js aligned): from `at` s, its first `lead` samples
     // left out, as its output will have it, so the take drawn as it comes is the take drawn once it is done
     align(at, lead) {

@@ -95,23 +95,26 @@ let anchors = 0
 /**
  * Starts popoff on `root`; returns what stops it.
  * @param {Document | Element} [root=document]
- * @param {{ delay?: number, hide?: number, gap?: number, edge?: number, tips?: boolean, style?: boolean }} [o]
+ * @param {{ delay?: number, hide?: number, gap?: number, edge?: number, side?: 'top' | 'bottom' | 'left' | 'right', tips?: boolean, style?: boolean }} [o]
  *   delay: ms a pointer rests before a tooltip or a hover card shows; hide: ms a hover card stays once left; gap: px
- *   between a thing and what it shows; edge: px kept clear of the window's edge; tips: titles as tooltips; style: the
- *   default look (false: the page styles .popoff-tip and its -head, -name, -keys, -body itself)
+ *   between a thing and what it shows; edge: px kept clear of the window's edge; side: where a tooltip sits by its
+ *   control (bottom; top for what is read down a page, a table's rows), the other side where it has no room; tips:
+ *   titles as tooltips; style: the default look (false: the page styles .popoff-tip and its -head, -name, -keys, -body
+ *   itself)
  * @returns {() => void}
  */
-export default function popoff(root = document, { delay = 500, hide = 300, gap = 8, edge = 8, tips = true, style: styling = true } = {}) {
+export default function popoff(root = document, { delay = 500, hide = 300, gap = 8, edge = 8, side = 'bottom', tips = true, style: styling = true } = {}) {
   const doc = root.ownerDocument ?? root, win = doc.defaultView, offs = []
   const listen = (target, type, fn, opts = true) => { target.addEventListener(type, fn, opts); offs.push(() => target.removeEventListener(type, fn, opts)) }
   const open = el => !!el?.matches?.(':popover-open')
   if (styling) style(doc)
 
   // ── Tooltips: a title is taken off while pointed at, so the browser's own never shows, and put back after (meanwhile
-  // data-tip, which a title set anew replaces: Play turning Pause says so at once). Each waits `delay`, the next as the
-  // first: a pointer crossing a toolbar opens none. A press hides it till the pointer leaves; a control whose menu or
-  // popover is open has none, nor does a menubar while one of its menus is. Beside a menu's rows, else under it, or over
-  // it at the window's foot. A mouse's only: a touch has no hover
+  // data-popoff-title, popoff's own: a page's own attributes, a data-tip among them, stay as it set them; a title set
+  // anew replaces it: Play turning Pause says so at once). Each waits `delay`, the next as the first: a pointer crossing
+  // a toolbar opens none. A press hides it till the pointer leaves; a control whose menu or popover is open has none,
+  // nor does a menubar while one of its menus is. Beside a menu's rows, else on the side the page asks (`side`: under
+  // it, as ever), the other where that has no room: over it at the window's foot. A mouse's only: a touch has no hover
   const tip = doc.createElement('div')
   tip.className = TIP
   tip.popover = 'manual'
@@ -120,8 +123,8 @@ export default function popoff(root = document, { delay = 500, hide = 300, gap =
   const [nameEl, keysEl] = tip.firstChild.children, bodyEl = tip.lastChild
   let target = null, timer = 0, pressed = null, tracking = 0
   const watch = new win.MutationObserver(() => { if (target && take(target) && open(tip)) show() })
-  const take = t => { const text = t.getAttribute('title'); if (text == null) return false; t.dataset.tip = text; t.removeAttribute('title'); return true }
-  const give = t => { if (t.dataset.tip == null) return; t.setAttribute('title', t.dataset.tip); delete t.dataset.tip }
+  const take = t => { const text = t.getAttribute('title'); if (text == null) return false; t.dataset.popoffTitle = text; t.removeAttribute('title'); return true }
+  const give = t => { if (t.dataset.popoffTitle == null) return; t.setAttribute('title', t.dataset.popoffTitle); delete t.dataset.popoffTitle }
   // what it opens is open: its menu (aria-expanded), its popover, or another of its menubar's; for its tooltip, its
   // hover card too
   const busy = t => t.getAttribute('aria-expanded') === 'true' || open(t.popoverTargetElement) || !!t.closest('[role=menubar]')?.querySelector('[aria-expanded=true]')
@@ -149,7 +152,7 @@ export default function popoff(root = document, { delay = 500, hide = 300, gap =
     if (open(tip)) tip.hidePopover()
   }
   function show() {
-    const t = target, text = t?.dataset.tip?.trim()
+    const t = target, text = t?.dataset.popoffTitle?.trim()
     if (!t?.isConnected || !text || muted(t)) return conceal()
     const { name, keys, body } = parse(text)
     nameEl.textContent = name
@@ -165,19 +168,19 @@ export default function popoff(root = document, { delay = 500, hide = 300, gap =
     // gone from under the pointer (a list redrawn), or moved: so is its tag
     tracking = setInterval(() => target?.isConnected ? position(target) : leave(), 250)
   }
-  // a menu's row: beside the menu (a row opening a submenu, on the side away from it, or none); else under, or over
+  // a menu's row: beside the menu (a row opening a submenu, on the side away from it, or none); else on its side
   function position(t) {
     const menu = t.closest('[role=menu], [role=listbox]')
-    if (!menu || menu === t) return place(tip, t, { gap, edge })
+    if (!menu || menu === t) return place(tip, t, { side, gap, edge })
     const box = menu.getBoundingClientRect(), r = t.getBoundingClientRect(), w = tip.offsetWidth, sub = t.hasAttribute('aria-haspopup')
-    const side = !sub && box.right + gap + w <= innerWidth - edge ? 'right' : box.left - gap - w >= edge ? 'left' : null
-    if (!side) return sub ? conceal() : place(tip, t, { gap, edge })
-    place(tip, { left: box.left, right: box.right, width: box.width, top: r.top, bottom: r.bottom, height: r.height }, { side, gap, edge })
+    const by = !sub && box.right + gap + w <= innerWidth - edge ? 'right' : box.left - gap - w >= edge ? 'left' : null
+    if (!by) return sub ? conceal() : place(tip, t, { side, gap, edge })
+    place(tip, { left: box.left, right: box.right, width: box.width, top: r.top, bottom: r.bottom, height: r.height }, { side: by, gap, edge })
   }
   if (tips) {
     listen(root, 'pointerover', e => {
       if (e.pointerType !== 'mouse') return
-      const t = e.target.closest?.('[title], [data-tip]')
+      const t = e.target.closest?.('[title], [data-popoff-title]')
       t && t !== tip && !t.hasAttribute('interestfor') ? enter(t) : leave()
     })
     listen(root, 'pointerout', e => { if (target && !target.contains(e.relatedTarget)) leave() })

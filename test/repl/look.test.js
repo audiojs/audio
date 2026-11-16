@@ -93,15 +93,19 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   await blank()
   const calls = await page.evaluate(() => window.__ticks), at = {}
   calls.forEach((c, i) => { if (c.w && calls[i + 1]?.s) at[calls[i + 1].s] ??= c.h === 1 ? c.y : c.x })
-  // 0.5 between 0 and 1, labelled by its tick alone, half as long as theirs (ticks); the times a second apart, the
-  // strike at 0.5 s ringing at 0.6
-  const [s1, c0, c1, r1, r0] = [at['0:01'], at['0:02'], at['0:03'], at['1'], at['0']], r5 = calls.find(c => c.w === 6 && c.h === 1 && c.y > r1 && c.y < r0)?.y
-  const px = t => s1 + (t - 1) * (c0 - s1), hit = px(.6)
-  assert.ok([s1, c0, c1, r5, r0].every(Number.isFinite), `ticks at 1 s, 2 s, 3 s, 0.5 and 0: ${JSON.stringify(at)}`)
+  // the times a second apart by their ticks, the strike at 0.5 s ringing at 0.6; the levels where the view lays them, 0.5
+  // between 0 and 1 unlabelled, a waveform's levels written with no tick by them (scales.js ticks)
+  const [s1, c0, c1] = [at['0:01'], at['0:02'], at['0:03']], px = t => s1 + (t - 1) * (c0 - s1), hit = px(.6)
+  const [r1, r5, r0, foot] = await page.evaluate(async () => {
+    const { lanes } = await import('/repl/view/geometry.js'), { levelMarks, levelTicks } = await import('/repl/view/scales.js'), rect = lanes().all[0], marks = levelMarks(rect), y = text => Math.round(marks.find(m => m[1] === text)[0])
+    return [y('1'), Math.round(levelTicks(rect).map(t => t[0]).find(ty => ty > y('1') && ty < y('0'))), y('0'), y('−1')]
+  })
+  assert.ok([s1, c0, c1].every(Number.isFinite), `ticks at 1 s, 2 s, 3 s: ${JSON.stringify(at)}`)
+  assert.ok(!calls.some((c, i) => c.w && c.h === 1 && ['1', '0', '−1'].includes(calls[i + 1]?.s)), 'no tick by a level')
   assert.ok(!calls.some(c => c.s === '0.5'), '0.5 unlabelled')
-  // each level's label under its tick, the lane's foot one too (one lane: nothing under it to run into)
-  const label = text => calls.find(c => c.s === text)?.y, foot = calls.find((c, i) => c.w && calls[i + 1]?.s === '−1')?.y
-  assert.ok(label('1') > r1 && label('0') > r0 && label('−1') > foot, `labels under their ticks: 1 at ${label('1')} by ${r1}, −1 at ${label('−1')} by ${foot}`)
+  // each level's label under its line, the lane's foot one too (one lane: nothing under it to run into)
+  const label = text => calls.find(c => c.s === text)?.y
+  assert.ok(label('1') > r1 && label('0') > r0 && label('−1') > foot, `labels under their lines: 1 at ${label('1')} by ${r1}, −1 at ${label('−1')} by ${foot}`)
   // the most a 3 × 3 px square round each point is lit by the grid as it shows (gridShown), CSS px
   const lit = points => page.evaluate(points => {
     const { k, w, d } = window.__shown
@@ -115,13 +119,14 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   assert.ok((await lit([[px(2.8), mid[1]]]))[0], 'a line down from 2.8 s, as its tick')
   assert.equal(between, 0, 'none between the ticks')
   assert.equal(behind, 0, 'none behind the waveform')
-  // the levels in decibels: a line across from −6 dB's tick
+  // the levels in decibels: a line across from −6 dB, written with no tick by it
   await page.evaluate(() => window.__ticks = [])
   await settings('Levels in', 'Decibels')
   await page.locator('.plot').hover({ position: { x: 10, y: NAMED } })
   await settled()
-  const db = await page.evaluate(() => window.__ticks), r6 = db.find((c, i) => c.w && c.h === 1 && db[i + 1]?.s === '−6')?.y
-  assert.ok(Number.isFinite(r6), 'a tick at −6 dB')
+  const db = await page.evaluate(() => window.__ticks)
+  const r6 = await page.evaluate(async () => { const { lanes } = await import('/repl/view/geometry.js'), { levelMarks } = await import('/repl/view/scales.js'), m = levelMarks(lanes().all[0]).find(m => m[1] === '−6'); return m && Math.round(m[0]) })
+  assert.ok(Number.isFinite(r6) && db.some(c => c.s === '−6') && !db.some((c, i) => c.w && c.h === 1 && db[i + 1]?.s === '−6'), 'the level −6 dB, written, no tick by it')
   await gridShown()
   assert.ok((await lit([[mid[0], r6]]))[0], 'a line across from −6 dB')
   assert.ok(!await blank(), 'its rects drawn')
@@ -989,10 +994,10 @@ test('editor: the level axis shows only while the band is pointed at; the time r
   await open()
   await settled()
   const box = await page.locator('.plot').boundingBox(), g = await gutter()
-  // light text in the axis' column by the lanes, or along the time row at the picture's foot, from the overlay and the
-  // row as they show
+  // light text in the axis' column by the lanes, or along the time row over the scrollbar's strip at the picture's foot
+  // (its 14 px over the strip's 8), from the overlay and the row as they show
   const ink = ([y0, y1], x0) => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = arg.x0; x < w; x++) { const i = (y * w + x) * 4; if (d[i] > 90 && Math.abs(d[i] - d[i + 2]) < 20) n++ } return n`, { y0, y1, x0 })
-  const axis = () => ink([TOP, TOP + TRACK], Math.round(box.width - g)), row = () => ink([Math.round(box.height) - 14, Math.round(box.height)], 40)
+  const axis = () => ink([TOP, TOP + TRACK], Math.round(box.width - g)), row = () => ink([Math.round(box.height) - 22, Math.round(box.height) - 8], 40)
   await page.mouse.move(box.x + 200, box.y + TOP + TRACK / 3)
   await poll(axis, n => assert.ok(n > 40, `pointed at, its axis: ${n}`), 3000)
   assert.ok(await row() > 100, 'the time row')

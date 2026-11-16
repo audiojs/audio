@@ -327,7 +327,7 @@ test('editor: Denoise learns the noise where it is selected and takes it out eve
   await page.keyboard.press('0')
   const at = await axis(2.5)
   await page.mouse.dblclick(at.x(.45), at.box.y + tall(at.box) / 3)
-  await page.waitForFunction(() => /^Selected 0:00\.4\d+–0:00\.4\d+/.test((e => e.title || e.dataset.tip || '')(document.querySelector('.clock'))))
+  await page.waitForFunction(() => /^Selected 0:00\.4\d+–0:00\.4\d+/.test((e => e.title || e.dataset.popoffTitle || '')(document.querySelector('.clock'))))
   await page.keyboard.press('ControlOrMeta+D')
   await page.keyboard.press('ControlOrMeta+D')
   await palette('The noise alone in all 3')
@@ -580,8 +580,8 @@ test('editor: a crossfade dragged out of a range\'s end draws both sides\' fades
   await page.mouse.down()
   await page.mouse.move(x(1.4) - 8, box.y + TOP + 8, { steps: 6 })
   await frames()
-  // the accent's columns, the curves
-  const [a, b] = await pixels(`let lo = w, hi = -1; for (let y = 0; y < h - 30; y++) for (let x = 0; x < w - ${await gutter()}; x++) { const i = (y * w + x) * 4; if (d[i] > 120 && d[i] - d[i + 2] > 60) { lo = Math.min(lo, x); hi = Math.max(hi, x) } } return [lo, hi]`)
+  // the accent's columns, the curves: at least half the accent, clear of a faint cue's (strips.js paintCues, .4 at most)
+  const [a, b] = await pixels(`let lo = w, hi = -1; for (let y = 0; y < h - 30; y++) for (let x = 0; x < w - ${await gutter()}; x++) if (accent((y * w + x) * 4) > .5) { lo = Math.min(lo, x); hi = Math.max(hi, x) } return [lo, hi]`)
   assert.equal(await page.locator('.hint').innerText(), 'crossfade 0:00.400')
   await page.mouse.up()
   const at = t => x(t) - box.x

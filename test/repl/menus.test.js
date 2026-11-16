@@ -101,7 +101,7 @@ test('editor: the menus, each by what it acts on, every row an action', async ()
 test('editor: every button of no words says what it is when pointed at', async () => {
   await open()
   const untitled = await page.evaluate(() => [...document.querySelectorAll('button, output')]
-    .filter(el => !el.textContent.trim() && !el.closest('[title], [data-tip], .cm-editor')).map(el => el.outerHTML.slice(0, 100)))
+    .filter(el => !el.textContent.trim() && !el.closest('[title], [data-popoff-title], .cm-editor')).map(el => el.outerHTML.slice(0, 100)))
   assert.deepEqual(untitled, [])
   assert.equal(await page.locator('.readout').getAttribute('data-of'), 'all')
 })
@@ -175,7 +175,7 @@ test('editor: a right-click gives the edits for the selection, or puts the caret
   assert.equal(await page.locator('.menubar-menu .menu-row.has-sub').count(), 0, 'no submenu')
   await page.keyboard.press('Escape')
   // a method from Process, over the selection: offered again at once under Recent, kept with the page
-  await menu('Process', 'Edit', 'Reverse')
+  await menu('Process', 'Time & pitch', 'Reverse')
   await page.waitForFunction(() => /\.reverse\(\{ at: 1, d: 2 \}\)$/.test(scriptText()))
   // an edit in place: no panel opens over the picture
   assert.equal(await page.locator('.side-slab').isVisible(), false, 'the panel stays closed')

@@ -2,6 +2,7 @@ import { ops, CURVES, labelOf, format, icons as groupIcons } from '../ops.js'
 import opIcons from '../icons.js'
 import { keep as keepFile } from '../keep.js'
 import { MAPS } from '../tint.js'
+import { NEXT } from '../kind.js'
 
 // The editor as the page is given it: its root, the link's parameters, what this browser stored, and the lists and
 // constants its menus and exports offer
@@ -14,30 +15,63 @@ export const params = new URLSearchParams(location.search), EMBED = params.has('
 export const DESKTOP = params.has('desktop')
 // The app's one config, a JSON (?ui=, embed.js builds it; README.md): what the View menu leaves out, as a page or a link
 // asks it, embedded or not. panel, display, controls (the parts shown, index.html and editor.css name them; a level among
-// them what the readout reads, and without ruler, no time row), ops (the edits a press away, as `stretch(1.25)`),
+// them what the readout reads, without ruler no time row, and a selection's fork only where named), ops (the edits a press away for the page's own sound,
+// as `stretch(1.25)`; another's follow its kind: menus.js suggested),
 // background (the page's ground, to sit on and to fade into), zoom and overshoot (how far time zooms, and scrolls past
-// the sound's end), scroll (what scrolls it: `bar`, `hover`, `overview`), cues (what shows first where they crowd),
+// the sound's end), scroll (what scrolls it: `bar`, `hover`, `overview`), wheel (which way it is the picture's: `across`,
+// up and down left to the page, or `both`), grid (how the lanes are ruled: `none`, `lines`, `paper`), axis (false: no
+// scale at the lanes' right; `inside`: the values and the time row written in the sheet the grid rules), kind (what the
+// page's own sound is, in a word, said where a kind is said; another sound's is heard: readouts.js), about (what more
+// the page says of its own sound, its word's tooltip: ABOUT, below), inset (embedded, how
+// far the sound's name and the bar stand in from the frame's sides, the picture its whole width) and font (`sans`: its
+// words in one face, its picture's labels smaller; both set before the first paint, index.html), edits (how the quick edits are laid:
+// `menu` or `chain`, EDITS, below),
+// cues (what shows first where they crowd),
 // units (how time reads: time.js UNITS), splice (the ms an edit's seams crossfade over), channels (of a take over
 // nothing). A link from before it, ?panel= and ?display=, reads the same.
 export const UI = (() => { try { return { ...EMBED && { panel: params.get('panel') ?? undefined, display: params.get('display') ?? undefined }, ...JSON.parse(params.get('ui') || '{}') } } catch { return {} } })()
 export const SHOWN = Array.isArray(UI.controls) ? UI.controls : []
 // each quick edit: its call, with its own arguments or, as the menus write it, the defaults the library can't do
 // without; its icon; its arguments as the edit's own settings read, each in its unit (none where one is not a plain
-// value: a range, a curve); null for a call not of the edits (ops.js)
+// value: a range, a curve), parted by commas, as a call parts them, and each apart (`parts`, the field's list drags each:
+// menus.js findHold); null for a call not of the edits (ops.js)
 export const quickOf = call => {
   const [, name, args] = String(call).match(/^([\w-]+)(?:\(([^)]*)\))?$/) ?? []
   if (!ops[name]) return null
-  const values = args && !/[{[]/.test(args) ? args.split(',').map((a, i) => format(Number.isNaN(+a) ? a.trim().replace(/^['"]|['"]$/g, '') : +a, ops[name].params?.[i])).join(' · ') : ''
-  return { name, args, icon: opIcons[name] ?? groupIcons[ops[name].group], label: labelOf(name), text: ops[name].text, values }
+  const parts = args && !/[{[]/.test(args) ? args.split(',').map((a, i) => format(Number.isNaN(+a) ? a.trim().replace(/^['"]|['"]$/g, '') : +a, ops[name].params?.[i])) : []
+  return { name, args, icon: opIcons[name] ?? groupIcons[ops[name].group], label: labelOf(name), text: ops[name].text, values: parts.join(', '), parts }
 }
 export const QUICK = (Array.isArray(UI.ops) ? UI.ops : []).map(quickOf).filter(Boolean)
+// the edits suggested for each kind of sound (kind.js NEXT), as the quick edits are
+export const NEXT_EDITS = Object.fromEntries(Object.entries(NEXT).map(([kind, calls]) => [kind, calls.map(quickOf).filter(Boolean)]))
+// how they are laid: under one button, a menu of them (`menu`); or the row over the picture as the chain itself
+// (`chain`): the sound's name, those made after it in their order, a field to add one (its list: Suggested, the recipe
+// for the sound's kind and these edits, then every edit by kind and the recipes), the history, the save at its end
+export const EDITS = UI.edits === 'chain' ? 'chain' : 'menu'
+// whether the page has a place for what a sound is offered: embedded, the chain (its list's recipes), or the menu
+// behind a plus where the page names its own edits; a page of its own has none (its menus and palette hold every edit)
+export const SUGGESTS = EMBED && (EDITS === 'chain' || QUICK.length > 0)
+// What the page says its own sound is, in a word (`birdsong`, `speech`): said while that sound is the one shown, where
+// there is a place for it. A sound of the reader's is listened to instead (readouts.js hearKind, worker.js kind)
+export const KIND = typeof UI.kind === 'string' ? UI.kind.trim().slice(0, 40) : ''
+// What more the page says of its own sound, who made it, where, when (`A blackbird\nDiana Tudor, xeno-canto 1059970`):
+// the first of its word's tooltip, for as long as that sound is the one shown (readouts.js kindTip)
+export const ABOUT = typeof UI.about === 'string' ? UI.about.trim() : ''
+// whether the page has a place where a sound's kind is said: as a page of its own, by each sound's name in its tab,
+// after a thin rule; embedded, with the edits the chain, by the level in the bar, not with the menu behind a plus
+export const SAYS_KIND = !EMBED || EDITS === 'chain'
+// Embedded where the bar names no Record (?ui= controls without record): a take, started from the sound's menu, is
+// stopped by Play, a stop sign while it records (play.js playPress, index.html .play); where Record is shown, its own
+export const PLAY_STOPS = EMBED && SHOWN.length > 0 && !SHOWN.includes('record')
 // A page given whole in its link, ?state=<what the page keeps, as JSON>: its tabs, what each selects, its panels, as a
 // page left them (repl/themes.html stages its specimens so); like an embedded one, nothing read from this
 // browser or kept in it, no other editor's tabs touched; dressed by the page around it (below)
 export const GIVEN = !EMBED && params.has('state') ? (() => { try { return JSON.parse(params.get('state')) ?? {} } catch { return {} } })() : null
 export const APART = EMBED || !!GIVEN
-// a sound opened or recorded, kept for the next visit; embedded, held for this one alone, as it is
-export const keep = APART ? async (name, data) => data : keepFile
+// a sound opened or recorded, kept for the next visit; embedded, held for this one alone: a file opened as it is, a
+// take's (a WAV read from its tape's parts on disk, which are let go of once it is kept: recording.js) read into memory,
+// so the sound is there to read again (an undo and a redo)
+export const keep = APART ? async (name, data) => data instanceof Blob && !(data instanceof File) ? new Blob([await data.arrayBuffer()], { type: data.type }) : data : keepFile
 export const generators = [
   ['Tone', '440 Hz, any function of time', `audio.from(t => 0.5 * Math.sin(2 * Math.PI * 440 * t), { d: 2 })`],
   ['Noise', 'White, pink or brown', `audio.from(3).noise({ color: 'pink' })`],
@@ -174,9 +208,11 @@ export const specs = [['', 'Off', ''], ['podcast', 'Apple Podcasts', 'Apple'], [
   .map(([key, label, short]) => ({ key, label, short }))
 // Stored per browser: the scripts, what each tab showed (its zoom, its selection), the tabs closed, and how the page was
 // left; under the name the editor had before, 'audio-repl', so what a browser kept is found. What does not read is set
-// aside under another name, not written over; a value the page has no longer, its default.
+// aside under another name, not written over; a value the page has no longer, its default. Embedded, nothing is kept:
+// the page's own (?ui=) stand in, as the page is first shown: its panel, its display, its scroll, the waveform's look
+// (wave) and the spectrogram's (spec), each setting one of its list (editor.js), any other its default
 export const KEY = 'audio-repl'
-export const stored = EMBED ? { side: UI.panel === 'none' ? null : UI.panel || 'code', display: UI.display, scroll: UI.scroll } : GIVEN ?? (() => {
+export const stored = EMBED ? { side: UI.panel === 'none' ? null : UI.panel || 'code', display: UI.display, scroll: UI.scroll, wave: UI.wave, look: UI.spec } : GIVEN ?? (() => {
   let raw = null
   try { raw = localStorage.getItem(KEY); const s = JSON.parse(raw); return s && typeof s === 'object' ? s : {} }
   catch { try { raw && localStorage.setItem(KEY + '-unread', raw) } catch {} return {} }

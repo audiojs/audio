@@ -813,6 +813,68 @@ test('editor: a take recorded as the others play is drawn where it will be, no s
   assert.ok(during > 0 && Math.abs(after - during) <= 1, `its first strike at ${during} px as it recorded, ${after} px done`)
 })
 
+// An output set into the picture as a take records (as the new track's own run settles after the take's first blocks,
+// a race a busy runner loses): the take drawn on over it, never blank till it is done, and its own output in its place
+// after (an output set as it recorded let go of it once: the rest of the take drawn nowhere, the test above failing)
+test('editor: a take is drawn on as it records over an output set into the picture meanwhile', async () => {
+  await page.route('**/repl/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('const state = sprae(root, {', 'const state = globalThis.__state = sprae(root, {') }) })
+  const { box, x } = await chime()
+  await page.mouse.click(x(1), box.y + TOP + 40)
+  await page.keyboard.press('Shift+R')
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  // the columns of the take's lane its waveform lights, more than 8 rows each (its centre line one row; the caret's and
+  // the playhead's lines a column each)
+  const lit = () => page.evaluate(() => __state.layout?.rows?.[1]).then(row => row ? pixels(`let n = 0; for (let x = 0; x < w - 60; x++) { let k = 0; for (let y = Math.round(arg.y); y < arg.y + arg.h; y++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 450) k++ } if (k > 8) n++ } return n`, row) : 0)
+  const drawn = await poll(lit, n => assert.ok(n > 20, `the take drawn as it records: ${n} columns`), 10000)
+  // the output shown set into the picture again, as a settle sets one that comes as the take records
+  await page.evaluate(async () => { const { v, output } = await import('/repl/editor/context.js'); v.set(output.lanes ?? output.channels, output.sampleRate) })
+  await poll(lit, n => assert.ok(n > drawn, `drawn on over it: ${drawn} columns, then ${n}`), 5000)
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
+  await page.waitForFunction(() => /\.write\(audio\('take\.wav'\)/.test(scriptText()))
+  await settled()
+  // (as it shows: the layers fade a new output in, editor.css .plot canvas, over the frames after it settles, the more
+  // of them on a busy runner)
+  await poll(lit, n => assert.ok(n > drawn, `its own output in its place: ${drawn} columns as it recorded, then ${n}`), 5000)
+})
+
+// What a sound is (readouts.js hearKind), asked of the engine once an output, and not of a sound a take is recording
+// into till the take is done: an empty answer (an output the engine no longer has, or nothing in it) is not asked again
+// of the same output each time the page looks at it (the caret put, a range selected), and nothing is asked while a
+// take records, the others playing from the engine meanwhile; the take done, its output is. The engine's answers here a
+// stub's, each empty, as for an output gone. A file of the reader's, by its address: the playground's own samples are
+// known and never asked of (samples.js kind)
+test('editor: what a sound is, asked once an output and never while a take records into it', async () => {
+  await page.route('**/repl/engine.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace("kind: (output, track, { weights } = {}) => call({ type: 'kind', output, track, weights }),", "kind: output => ((globalThis.__kinds ??= []).push({ output, recording: !!document.querySelector('.record.on') }), Promise.resolve({})),") }) })
+  await open()
+  await noCues()
+  await write(`audio('${origin}/test/fixture.wav')`)
+  await lengthIs('0:02.000')
+  const { box, x } = await axis(2), y = box.y + tall(box) * .3
+  await settled()
+  const asked = () => page.evaluate(() => globalThis.__kinds ?? null)
+  assert.ok((await asked())?.length, 'asked (the stub in place)')
+  for (const at of [.2, .4, .6]) await page.mouse.click(x(at), y)
+  await page.mouse.move(x(.3), y)
+  await page.mouse.down()
+  await page.mouse.move(x(.5), y, { steps: 4 })
+  await page.mouse.up()
+  await settled()
+  const before = await asked(), outputs = before.map(a => a.output)
+  assert.deepEqual(outputs, [...new Set(outputs)], `each output asked once, however often looked at: ${outputs}`)
+  // a new track recorded as the others play (Record with Shift), for a second and a half
+  await page.mouse.click(x(1), box.y + TOP + 40)
+  await page.getByRole('button', { name: 'Record', exact: true }).click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 2.5 }, null, { timeout: 15000 })
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
+  await page.waitForFunction(() => /\.write\(audio\('take\.wav'\)/.test(scriptText()))
+  await settled()
+  await poll(asked, all => {
+    assert.deepEqual(all.filter(a => a.recording), [], 'nothing asked while the take recorded')
+    assert.ok(all.slice(before.length).length >= 1, 'the take done, its output asked')
+  })
+})
+
 // Record pressed with Shift, as ⇧R: a new track, recorded into as the others play
 test('editor: Record with Shift records a new track', async () => {
   const { box, x } = await chime()

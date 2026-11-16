@@ -3,7 +3,7 @@ import { builtins, sample, microphone, hold as holdInput, unique } from '../sour
 import opIcons from '../icons.js'
 import { tape } from '../keep.js'
 import { item } from './commands.js'
-import { root, DESKTOP, UI, keep } from './config.js'
+import { root, DESKTOP, EMBED, UI, keep } from './config.js'
 import { state, eng, v, ed, pl, output } from './context.js'
 import { write, applied, changed, switchTake } from './edits.js'
 import { lengths, lengthOf, shelf, restoring, saving, taken, place } from './files.js'
@@ -69,11 +69,17 @@ export async function startRecording(fresh = false, run = null, place = false) {
   // the caret in the room under the lanes: a new track's, whatever starts the take (R, the button, the menu)
   if (!run && v.ghost && state.whole) fresh = true
   if (pl.playing) togglePlay()
+  // Embedded, the page's one sound (`aside`): a take is a sound of its own in its place, never written over it at the
+  // caret nor on from its end: the script let go of out of the history as it begins (the picture empty, the take drawn
+  // into nothing), the take's own put in once it stops, one step from the sound before, which undo brings back; nothing
+  // recorded, the script back as it was (putBack). Takes of a place (⌥R) and a new track (⇧R) are its own
+  const aside = EMBED && fresh !== true && !run && !place && state.whole
   // the output the others play from, as it is before a new track (which adds nothing to it) runs again; another take of
   // a place (`run`), into it, as into a selection
-  const out = output, into = state.whole, sel = into && run ? span(run) : into && !v.band ? v.selection : null
+  const out = output, into = state.whole && !aside, sel = into && run ? span(run) : into && !v.band ? v.selection : null
   if (fresh === true && into && !newTrack()) return
-  const t = take = { into, at: into ? (sel ? sel[0] : v.cursor) : 0, until: sel ? sel[1] : null, samples: 0, pass: 0, passes: [], queue: [], frame: 0, started: false, over: into && !!state.track && out, place }
+  const t = take = { into, at: into ? (sel ? sel[0] : v.cursor) : 0, until: sel ? sel[1] : null, samples: 0, pass: 0, passes: [], queue: [], frame: 0, started: false, over: into && !!state.track && out, place, aside: aside ? ed.code : null }
+  if (aside) { ed.slide({ from: 0, to: ed.code.length, insert: '' }); v.set([], out?.sampleRate ?? 44100) }
   if (place) liveTakes(t)
   const asked = arming ?? microphone({ channels: inputs(fresh) })
   clearTimeout(unarm)
@@ -102,16 +108,23 @@ export async function startRecording(fresh = false, run = null, place = false) {
       t.frame ||= requestAnimationFrame(f => flush(t, f))
     })
     state.recording.pending = false
+    // the take on the picture as the microphone answers, not at its first block, which comes 30 to 100 ms on: what is
+    // pressed meanwhile meets the take, not the sound before it
+    if (!t.started) start(t, mic.channels)
     sway()
     if (t.over) accompany(t)
   } catch (e) {
     if (take !== t) return
     state.recording = null
     recorder = take = null
+    putBack(t)
     sway()
     note(e?.name === 'NotAllowedError' ? 'Microphone access was denied. Allow it in the browser to record.' : 'The microphone is not available.')
   }
 }
+// The take on the picture from where it starts, `channels` wide; started, the playhead following it
+const begin = (t, channels) => { t.channels = channels; v.take({ at: t.at, sampleRate: t.rate, channels }) }
+function start(t, channels) { t.started = true; t.follow = follower(); begin(t, channels); state.hasOutput = true }
 // Each frame from the first block on: the blocks come since the last onto the picture, the playhead where the take has
 // got to, drawn as it runs (follow). The blocks come in bursts, and late as the page is busy: where it has got to is the
 // microphone's clock since the first (t0), held back by as far as it has run past what came (`behind`, its most, let go
@@ -120,8 +133,9 @@ function flush(t, frame = performance.now()) {
   t.frame = 0
   const blocks = t.queue.splice(0)
   if (take !== t) return
-  const begin = () => v.take({ at: t.at, sampleRate: t.rate, channels: blocks[0].length })
-  if (!t.started) { t.started = true; t.follow = follower(); begin(); state.hasOutput = true }
+  // (a device that gave fewer channels than it said: the take begun again as wide as its blocks)
+  if (!t.started) start(t, blocks[0].length)
+  else if (blocks.length && t.channels !== blocks[0].length) begin(t, blocks[0].length)
   // played over, each pass the samples the microphone heard as the others played it, `lead` on (aligned): it ends that
   // much later, so it runs to the selection's end too
   const room = t.until == null ? Infinity : Math.round((t.until - t.at) * t.rate), { lead } = t.over ? aligned(t, recorder) : { lead: 0 }
@@ -133,7 +147,7 @@ function flush(t, frame = performance.now()) {
       // each pass `room` on from the one before, as the others loop by their own clock
       t.passes.push(t.pass)
       t.pass += room
-      begin()
+      begin(t, t.channels)
       liveTakes(t)
     }
     t.samples += block[0].length
@@ -155,15 +169,23 @@ function flush(t, frame = performance.now()) {
   meter()
   t.frame = requestAnimationFrame(f => flush(t, f))
 }
+// An embedded take that came to nothing: the script it set aside back as it was, out of the history (startRecording)
+function putBack(t) {
+  if (t?.aside == null) return
+  ed.slide({ from: 0, to: ed.code.length, insert: t.aside })
+  ed.settle()
+}
 export async function stopRecording() {
   const rec = recorder, t = take
-  if (!rec) { state.recording = null; take = null; places(); return }
+  if (!rec) { state.recording = null; take = null; putBack(t); places(); return }
   recorder = take = null
   cancelAnimationFrame(t.frame)
   rec.stop()
   if (t.over) { pl.pause(); lend(output) }
   // the blocks not drawn yet are the take's too, drawn now: the take as it stops is the take its output will show
   for (const block of t.queue.splice(0)) { t.samples += block[0].length; v.grow(block) }
+  // all of it drawn: the next output set takes its place (one set as it recorded came under it)
+  v.taken()
   state.recording = null
   v.playhead = null
   sway()
@@ -172,7 +194,7 @@ export async function stopRecording() {
   const rate = rec.sampleRate, { lead, at: from } = aligned(t, rec), room = t.until == null ? Infinity : Math.round((t.until - t.at) * rate)
   const length = Math.min(t.samples - t.pass - lead, room), cut = t.passes.length > 0 && length < room
   const parts = [...t.passes.map(p => [p + lead, room]), ...cut ? [] : [[t.pass + lead, length]]]
-  if (!(parts[0][1] > 0)) { t.tape.drop(); if (t.into) v.take(null); places(); return note('Nothing was recorded.') }
+  if (!(parts[0][1] > 0)) { t.tape.drop(); if (t.into || t.started) v.take(null); putBack(t); places(); return note('Nothing was recorded.') }
   // the caret at once where the take ends: what follows waits on the tape and the engine, frames in which it would
   // show where the take began; into nothing too, the take drawn there the sound till its own comes
   v.setCursor(from + parts.at(-1)[1] / rate)
@@ -184,7 +206,7 @@ export async function stopRecording() {
   for (const [pass, n] of parts) wavs.push(await t.tape.wav(pass, n))
   const held = wavs.some(w => !w) && t.held && t.held[0].map((_, c) => { const x = new Float32Array(t.samples); let at = 0; for (const b of t.held) { x.set(b[c] ?? b[0], at); at += b[0].length } return x })
   const data = wavs.map((w, i) => w ?? (held && { channels: held.map(x => x.subarray(parts[i][0], parts[i][0] + parts[i][1])), sampleRate: rate }))
-  if (!data.every(Boolean)) { t.tape.drop(); if (t.into) v.take(null); return note(`${names[0]} could not be kept in this browser: it was longer than the page holds.`, 'error') }
+  if (!data.every(Boolean)) { t.tape.drop(); if (t.into || t.started) v.take(null); putBack(t); return note(`${names[0]} could not be kept in this browser: it was longer than the page holds.`, 'error') }
   // the tape's parts go once every take is kept
   const kept = names.map((name, i) => keep(name, data[i]))
   saving(Promise.all(kept.map((k, i) => k.then(file => {
@@ -195,7 +217,8 @@ export async function stopRecording() {
   // the engine reads the file kept, else what there is
   for (const [i, name] of names.entries()) { lengths.set(name, parts[i][1] / rate); await eng.file(name, await kept[i] ?? data[i]) }
   const end = from + parts.at(-1)[1] / rate
-  // the sound itself, the caret at its end once it shows (aim)
+  // the sound itself, the caret at its end once it shows (aim); embedded, in the page's sound's place, one step
+  if (t.aside != null) { ed.slide({ from: 0, to: ed.code.length, insert: `audio(${quote(names[0])})` }); ed.settle(); note(`Recorded ${clock(end - from)}`); return }
   if (!t.into) { note(`Recorded ${clock(end - from)}`); place(names, 'new'); docs.find(d => d.id === state.tab).view = { selection: null, band: null, more: [], cursor: end, anchor: end }; return }
   // to the microphone's sample, so a take recorded on from where this one ended meets it, no gap nor overlap between;
   // where takes went in before, one more of them (code.js retake), the newest heard

@@ -1,13 +1,15 @@
 import { NOTES, noteOf } from '../view.js'
+import { kinds as sampleKinds, builtins } from '../sources.js'
 import { levels, spectra, ballistics } from '../meters.js'
-import { root, cueTimes, layouts, specs, SHOWN } from './config.js'
+import { root, cueTimes, layouts, specs, SHOWN, SAYS_KIND, SUGGESTS, QUICK, KIND, ABOUT } from './config.js'
 import { state, eng, v, ed, pl, output, shown, carded, notesFor, assign } from './context.js'
 import { cuesOf } from './edits.js'
 import { dbfs, stamp, hertz, chordName } from './format.js'
 import { shows } from './look.js'
-import { bar } from './menus.js'
+import { bar, quicken } from './menus.js'
 import { store } from './persist.js'
 import { recorder } from './recording.js'
+import { inSight } from './tabs.js'
 import { laneIndex } from './tracks.js'
 import { shiftOf } from './writers.js'
 
@@ -90,6 +92,66 @@ let readings = {}
 // row of its table its own (the fourth of the row): the peak where it is ({ at } s) and at its `level` dB on its own
 // lane, the RMS at its level, the crest both
 let readMarks = []
+// The page's own sound, by its name: the first it shows (embedded, the one its script opens), an edit of it being the
+// same sound; one opened, dropped or recorded in its place is another
+let own = null
+export const ownSound = name => !!name && name !== 'untitled' && (own ??= name) === name
+// What a sound is, in a word, by its name. The page says it of its own sound (?ui= kind), and the playground of its own
+// samples (samples.js kind), each known, none listened to; another has none of theirs, and is listened to (worker.js
+// kind; state.heardKinds, '' while it is heard): once a sound, and only where the
+// word shows (config.js SAYS_KIND) or the edits suggested follow it (menus.js suggested). A name that is no one sound's
+// (untitled, generated) is not heard: two sounds made by scripts would share its word. Not while a take records into
+// it either: its sound is not done till the take is, and the others play from the engine meanwhile; the take's output
+// is asked of once it comes. Each output is asked of once: an answer of nothing (the output gone, a newer one in its
+// place before it was heard) lets the sound be asked of again, of a newer output only, however often it is looked at
+const sampled = name => Object.hasOwn(sampleKinds, name) ? sampleKinds[name] : ''
+export const pageKind = name => (KIND && ownSound(name) ? KIND : '') || sampled(name)
+// a tab's (state.heardKinds its `heard`): the page's word only for the sound the one shown has made its own
+export const kindOf = (name, heard) => (KIND && name === own ? KIND : '') || sampled(name) || heard[name] || ''
+const forget = name => { state.heardKinds = Object.fromEntries(Object.entries(state.heardKinds).filter(([n]) => n !== name)) }
+// the output each sound was last asked of, by its name
+const asked = new Map()
+let heardFor = null
+function hearKind() {
+  const name = state.name, wanted = SAYS_KIND || SUGGESTS && !(QUICK.length && ownSound(name))
+  // the edits suggested laid again for another sound
+  if (name !== heardFor) { heardFor = name; quicken() }
+  // (heard or being heard: a word or ''; the store's objects answer `in` for any name, as a scope does)
+  if (!wanted || state.recording || !name || name === 'untitled' || name === 'generated' || pageKind(name) || state.heardKinds[name] != null || asked.get(name) === output.id) return
+  asked.set(name, output.id)
+  state.heardKinds = { ...state.heardKinds, [name]: '' }
+  eng.kind(output.id).then(k => {
+    if (k.kind == null) return forget(name)
+    state.heardKinds = { ...state.heardKinds, [name]: k.kind }
+    state.heardFacts = { ...state.heardFacts, [name]: { shares: k.shares ?? null, like: k.like ?? null } }
+    // its tab, the word after its name, brought into sight whole again
+    if (state.name === name) { quicken(); if (k.kind) inSight() }
+  }).catch(() => forget(name))
+}
+
+// What more is known of a sound than its word, the word's tooltip (the bar's, a tab's): what the page says of its own
+// (?ui= about) or a sample's own line (samples.js description), then what the listeners heard of it (worker.js kind):
+// where the tagger named it, what it found it most like, each its score (its mean over what was heard, 0 to 1: kind.js
+// likest); else its shares of speech, music and neither. Not who said the word, nor by which rule: '' where nothing
+// more is known (the page's word alone; silence, the level beside it saying how quiet)
+const percent = x => `${Math.round(x * 100)}%`
+const split = s => [['speech', s.speech], ['music', s.music], ['neither', s.noise]].filter(([, x]) => x >= .005).map(([k, x]) => `${percent(x)} ${k}`).join(', ')
+export function kindTip(name, word, facts) {
+  if (!word) return ''
+  const { shares, like } = facts?.[name] ?? {}, given = (ABOUT && ownSound(name) ? ABOUT : '') || (Object.hasOwn(builtins, name) ? builtins[name] : '')
+  return [given, like?.length ? `Most like ${like.map(([w, s]) => `${w} ${s.toFixed(2)}`).join(', ')}` : shares && split(shares)].filter(Boolean).join('\n')
+}
+// What the word's place in the bar says, as its menu picks (the kind's readout pressed, pickKind): what the sound is
+// (the word), or what the repl hears of it as a musician says it (listen: the note or chords at the caret, the key and
+// the tempo of all of it or of the selection), each with its value, or a dash where none is clear (why, in the heard
+// table's words, in its tooltip)
+export const KIND_READS = [['kind', 'What it is'], ['note', 'Note'], ['key', 'Key'], ['tempo', 'Tempo']]
+export const kindShown = (reads, word, heard) => reads === 'kind' ? word : heard?.[reads] ?? '–'
+export function pickKind(event) {
+  const pick = name => () => { state.kindReads = name; listen() }
+  bar.at(KIND_READS.map(([name, label]) => ({ label, hint: kindShown(name, state.kind, state.heard) || '–', checked: state.kindReads === name, run: pick(name) })), 0, 0, event.currentTarget)
+}
+
 export function describe() {
   listen()
   state.sound = null
@@ -102,6 +164,7 @@ export function describe() {
   // what they come to, read once an output (worker.js facts)
   state.soundFacts = output.facts?.then ? null : output.facts ?? null
   if (!output.facts) { const out = output; out.facts = eng.facts(out.id).then(f => { out.facts = f; if (out === output) state.soundFacts = f }).catch(() => { out.facts = {} }) }
+  hearKind()
   const sel = state.selection, lufs = Number.isFinite(stats.loudness) ? `${dbfs(stats.loudness)}LUFS` : '−∞LUFS', clips = output.clips?.length
   // pointed at, every level in a table (index.html #levels), the peak's place among them, and marked on the sound (the
   // tracks mixed, having no lane of their own, on every track's: `every`)
@@ -166,14 +229,14 @@ export function pickSpec(event) {
 // from 5 on: less is about the least change of pitch heard (frequency DLs of 0.2–0.3% at mid frequencies, 3.5–5 cents:
 // Moore, An Introduction to the Psychology of Hearing, 6th ed., 2012, ch. 6), and as close as the pitch curve reads a
 // steady tone (1 cent off on 440 Hz)
-// Embedded with parts named and the heard readout not among them (config.js SHOWN): nothing listened for, nothing loaded
-// for it in the engine (its key, tempo and chord finders)
-const HEARD = !SHOWN.length || SHOWN.includes('heard')
+// Embedded with parts named and the heard readout not among them (config.js SHOWN), and the kind's readout reading the
+// kind: nothing listened for, nothing loaded for it in the engine (its key, tempo and chord finders)
+const hearing = () => !SHOWN.length || SHOWN.includes('heard') || state.kindReads !== 'kind'
 let listening = 0, tonic = true
 export function listen() {
   clearTimeout(listening)
   state.heard = null
-  if (!HEARD || !output?.duration || pl.playing || state.band || state.boxes > 1) return
+  if (!hearing() || !output?.duration || pl.playing || state.band || state.boxes > 1) return
   const out = output, sel = state.selection, at = v.cursor, track = laneIndex(out), now = () => out === output && laneIndex() === track && `${state.selection}` === `${sel}` && (sel || v.cursor === at)
   listening = setTimeout(async () => {
     const r = await eng.listen(out.id, sel ? [...sel] : [at - .06, at + .06], sel ? [...sel] : [0, out.duration], track).catch(() => null)
@@ -185,8 +248,9 @@ export function listen() {
     const note = pitch ? pitch.length > 1 ? `${noteOf(pitch[0], Infinity)}–${noteOf(pitch[1], Infinity)}` : noteOf(pitch[0], 5) : chord
     const short = (r.span?.[1] ?? 0) - (r.span?.[0] ?? 0) < 6, share = `${Math.round(tonal * 100)}% of it has a pitch`
     tonic = tonal >= .35
-    const says = { note, tempo: bpm ? `${bpm} BPM` : null }
-    state.heard = !note && !bpm ? null : {
+    const says = { note, tempo: bpm ? `${bpm} BPM` : null, key: key ? `${NOTES[key.tonic]} ${key.mode}` : null }
+    // (whole, what is not clear among it with why: the kind's readout may read what the bar's heard does not show)
+    state.heard = {
       ...says,
       head: [note && (pitch ? pitch.length > 1 ? `Notes ${where}` : `Note ${where}` : `${chords.length > 1 ? 'Chords' : 'Chord'} ${where}`), bpm && `Tempo of ${over}`].filter(Boolean).join(', '),
       rows: [
@@ -202,7 +266,7 @@ export function listen() {
 // one the playhead is in and the next a few seconds before it gets there, each asked for once; said as it changes
 export let live = { id: null, track: undefined, blocks: [], asking: false, off: false, text: null }
 export function chordAt(t) {
-  if (!HEARD || !tonic) return
+  if (!hearing() || !tonic) return
   if (live.id !== output?.id || live.track !== laneIndex()) live = { id: output?.id, track: laneIndex(), blocks: [], asking: false, off: false, text: null }
   const has = at => live.blocks.some(b => at >= b.from && at < b.to), want = [t, t + 5].find(at => at < v.duration && !has(at))
   if (want != null && live.id != null && !live.asking && !live.off) {
@@ -213,5 +277,5 @@ export function chordAt(t) {
   const c = live.blocks.flatMap(b => b.chords).find(c => t >= c.time && t < c.end), text = c ? chordName(c.label) : null
   if (text === live.text) return
   live.text = text
-  if (state.heard?.note !== text) state.heard = text ? { note: text, tempo: state.heard?.tempo ?? null, head: 'Chord playing', rows: state.heard?.rows ?? [] } : state.heard?.tempo ? { ...state.heard, note: null } : null
+  if (state.heard?.note !== text) state.heard = text ? { note: text, tempo: state.heard?.tempo ?? null, key: state.heard?.key ?? null, head: 'Chord playing', rows: state.heard?.rows ?? [] } : state.heard ? { ...state.heard, note: null } : null
 }

@@ -46,8 +46,9 @@ export async function initialDocs() {
 // Tabs over the picture, as an audio editor's open files: a script each, with its own history (the editor keeps it), its
 // own steps (remember) and its last output, shown at once when it is (settle). A sound opened goes into a tab of its own,
 // unless the tab shown is empty.
-// each tab named by the sound its script opens (nameOf), the one shown as its script now reads; the others kept
-export function retitle() { state.tabs = docs.map(d => ({ id: d.id, name: d.title ?? (d.id === state.tab ? nameOf(ed.code) : d.name ??= nameOf(d.code)) })) }
+// each tab named by the sound its script opens (nameOf), the one shown as its script now reads; the others kept; its
+// title, where it was named anew, over that name, which still says what its sound is (`sound`: readouts.js kindOf)
+export function retitle() { state.tabs = docs.map(d => { const sound = d.id === state.tab ? nameOf(ed.code) : d.name ??= nameOf(d.code); return { id: d.id, name: d.title ?? sound, sound } }) }
 // A tab pressed: another, shown; the one shown, its name in hand to write anew, as a track's (a click is enough):
 // Enter or a press elsewhere keeps it, its title over its sound's name (emptied, the sound's again), Esc leaves it
 export function tabPress(id) {
@@ -124,6 +125,8 @@ export function switchTab(id) {
   // the tab left plays on, if it plays, its player its own; the one shown plays as it was left, its playhead running
   cancelAnimationFrame(ticker)
   v.playhead = null
+  // a take being recorded is the tab left's: not drawn over this one's sound (view.js take keeps one over what else comes)
+  if (state.recording) v.take(null)
   assign({ pl: playerOf(next) })
   state.playing = pl.playing
   state.speed = pl.rate

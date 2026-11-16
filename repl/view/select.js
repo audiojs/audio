@@ -1,11 +1,11 @@
 import { ownMarks } from './data.js'
 import { ghost, unghost, rowH, plot, spare, bandOf, lanes, inRoom, refocus, rulerAt } from './geometry.js'
 import { origin, current, before } from './gestures.js'
-import { EDGE, NOTCH, mac, root, onselect, oncursor, onedit, oncontext, onkey, duration, hovered, segments, markers, more, start, end, fview, selection, band, cursor, cues, aview, tracks, focus, anchor, lift, zoomed, chosen, held, assign } from './model.js'
+import { EDGE, NOTCH, mac, root, pageWheel, onselect, oncursor, onedit, oncontext, onkey, duration, hovered, segments, markers, more, start, end, fview, selection, band, cursor, cues, aview, tracks, focus, anchor, lift, zoomed, chosen, held, recording, assign } from './model.js'
 import { drag, grabbing, hover } from './pointer.js'
 import { moved, invalidate } from './render.js'
 import { steer } from './ruler.js'
-import { x, time, clamp, unit, snap, seen, stuck, local, inside, uy, rowOf, yKey, ya, setRange, setFreqs, zoom, zoomFreqs, zoomKeys, setKeys, onFreqs, onKeys, onLevels, zoomLevels, scrollLevels, reveal } from './scales.js'
+import { x, time, clamp, unit, snap, seen, stuck, local, inside, uy, rowOf, yKey, ya, setRange, scrolls, setFreqs, zoom, zoomFreqs, zoomKeys, setKeys, onFreqs, onKeys, onLevels, zoomLevels, scrollLevels, reveal } from './scales.js'
 import { same, kin, stripAt, rename } from './strips.js'
 
 // The selection: put, extended, added to, stepped through by its cues and pauses; the wheel; the picture's keys;
@@ -52,10 +52,14 @@ export function stepTo(kind, dir, extend = false) {
 // The wheel scrolls, as everywhere: up and down over zoomed-in frequencies (on the spectrogram, its frequencies or
 // the spectrum beside them) or zoomed-in levels (on the waveform) moves through them, else through time. A pinch, or
 // Ctrl or ⌘ and the wheel (a mouse without a pinch), zooms the axis under the pointer: the frequencies or the levels
-// there, time elsewhere.
-export function wheel(event) {
-  if (!duration) return
-  event.preventDefault()
+// there, time elsewhere. Where the wheel up and down is the page's (pageWheel: ?ui= wheel across, an embed's as it
+// comes), only a wheel across is taken, and a zoom: one up or down is left alone whatever is zoomed in, and scrolls
+// the page on under the pointer. Else, framed in a page, a wheel up or down over a picture with no time to scroll
+// through (the sound whole in it, or the view at the end it turns to) is the page's, as past any scroller's end. One
+// across is taken always: left alone, a browser goes back a page by it.
+const FRAMED = parent !== window, PAGE = Symbol()
+export function wheel(event) { if (duration && turn(event) !== PAGE) event.preventDefault() }
+function turn(event) {
   // the keys as the wheel has them held, its pinch's Ctrl aside: one let go or pressed while the page heard no key (a
   // gesture under way) shows as it is
   if (['metaKey', 'altKey', 'shiftKey'].some(k => !!held[k] !== event[k])) {
@@ -76,6 +80,7 @@ export function wheel(event) {
   // the levels a quarter as keen: their span goes by a quarter of the octaves time's does
   const keys = onKeys(px, py, L), notes = keys || L.notes.find(r => inside(r, px, py))
   if (event.ctrlKey || event.metaKey) return freqs ? zoomFreqs(factor, uy(freqs, py)) : keys ? zoomKeys(keys, factor, yKey(keys, py)) : levels ? zoomLevels(factor ** .25, ya(levels, py), levels[3]) : zoom(factor, clamp(time(px)))
+  if (pageWheel && !across) return PAGE
   if (rect && fview[1] - fview[0] < 1 && !across) {
     const du = event.deltaY * lines / rect[3] * (fview[1] - fview[0])
     return setFreqs(fview[0] - du, fview[1] - du)
@@ -87,9 +92,10 @@ export function wheel(event) {
   // across), the wheel through time as with one band, so it does the same whatever the picture holds
   if (spare && event.shiftKey && py <= plot().h && !levels) { assign({ lift: Math.max(0, Math.min(spare, lift + (event.deltaY || event.deltaX) * lines)) }); return invalidate() }
   if (wave && aview[1] - aview[0] < 2 && !across) return scrollLevels(aview[0] - event.deltaY * lines / wave[3] * (aview[1] - aview[0]))
-  const delta = (across ? event.deltaX : event.deltaY) * lines
+  const by = (across ? event.deltaX : event.deltaY) * lines / plot().w * span
+  if (FRAMED && !across && !scrolls(by)) return PAGE
   steer()
-  setRange(start + delta / plot().w * span, end + delta / plot().w * span, true)
+  setRange(start + by, end + by, true)
 }
 // `head`: the end a drag, Shift or the keys moved, where the caret goes, as a text's (and a snapped end its line); else
 // its start
@@ -161,7 +167,7 @@ function unmark(m, alike = false) {
 export function context(event) {
   event.preventDefault()
   const [px, py] = local(event), t = clamp(time(px))
-  if (!duration || px > plot().w || py > plot().h + rowH()) return
+  if (!duration || recording?.open || px > plot().w || py > plot().h + rowH()) return
   // in the room under the lanes, a track to make
   if (inRoom(py)) return oncontext({ x: event.clientX, y: event.clientY, room: true })
   // on a marker's place in its strip, its own: name it, take it away
@@ -179,6 +185,8 @@ export function context(event) {
 // marker chosen; ⌘V pastes. The rest are the page's commands for the picture (onkey: zoom, Esc, ⌘A ⌘D, Delete, ⌘X ⌘C,
 // ⌘Z ⇧⌘Z ⌘Y); Space and the transport belong to the page.
 export function key(event) {
+  // (while a take records, no key moves the caret or selects: the page's keys alone, Space and R its stop)
+  if (recording?.open) return
   assign({ moving: null })
   const mod = event.metaKey || event.ctrlKey, step = (end - start) / 100, k = event.key
   // the room's caret goes back into the edited track as a caret moves, or Esc; R and a paste are its own

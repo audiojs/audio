@@ -3,7 +3,9 @@ import { glyph } from './icons.js'
 // The app menu: every act the page offers, grouped as desktop apps group them, each with its keys, so the menu is also
 // the map of the page. `model()` gives the menus afresh each time one opens (what is checked, what can't be done now):
 //   [{ name, items: [{ label, keys?, hint?, tip?, run?, checked?, disabled?, items? } | '-' | { group: 'Heading' }] }]
-// An item's `tip`, its tooltip (popoff): only what the row and a try don't say
+// An item's `tip`, its tooltip (popoff): only what the row and a try don't say. Its hint (keys, or a word on what it is) at
+// the row's right end, as much as its room holds (editor.css: 12em at most), cut with an ellipsis past it, the whole of it
+// then in the tooltip, with the tip (hinted)
 // Keys as in desktop menus (WAI-ARIA menubar): ←/→ across the bar, ↓, Enter or Space opens, ↑/↓ through a menu, → into
 // a submenu, ← back out, Enter runs, Esc closes; F10 reaches the bar. Hovering across the bar while a menu is open
 // opens the one under the pointer. After an item runs, the keys go back to where they were, so Space still plays.
@@ -14,8 +16,9 @@ import { glyph } from './icons.js'
 // The aim alone holds a submenu open, no delay on every row besides (Kamens: a delay is what aiming makes needless)
 const REST = 300
 export default function menubar(root, model) {
-  // what the pointer does next (a submenu to open, a row it rests on), and where it was its last few moves
-  let open = null, back = null, hovering = 0, trail = []
+  // what the pointer does next (a submenu to open, a row it rests on: aim)
+  let open = null, back = null
+  const aimed = aim()
   const narrow = matchMedia('(max-width: 720px)')
   const menus = () => narrow.matches ? [{ name: 'Menu', items: model().map(m => ({ label: m.name, items: m.items })) }] : model()
 
@@ -65,15 +68,16 @@ export default function menubar(root, model) {
     document.body.append(panel)
     panel.showPopover()
     const r = owner?.getBoundingClientRect()
-    place(panel, r ? { left: r.right - panel.offsetWidth, right: r.right, top: r.top, bottom: r.bottom } : { left: x, right: x, top: y - 4, bottom: y - 4 }, 'below')
+    place(panel, r ? { left: r.right - panel.offsetWidth, right: r.right, top: r.top, bottom: r.bottom } : { left: x, right: x, top: y - 4, bottom: y - 4 }, 'below', !!r)
     addEventListener('pointerdown', outside, true)
     owner?.setAttribute('aria-expanded', 'true')
-    panel.addEventListener('toggle', event => { if (event.newState === 'closed') { removeEventListener('pointerdown', outside, true); owner?.setAttribute('aria-expanded', 'false') } })
+    // (its toggle comes a task after it closed: by then its button may have opened another, which it leaves open)
+    panel.addEventListener('toggle', event => { if (event.newState === 'closed') { removeEventListener('pointerdown', outside, true); if (!open || open.panel === panel) owner?.setAttribute('aria-expanded', 'false') } })
     opened({ i: -1, button: null, panel, owner }, false)
   }
   function opened(o, focus) {
     const { panel, button } = open = o
-    trail = []
+    aimed.stop()
     panel.addEventListener('toggle', event => { if (event.newState === 'closed' && open?.panel === panel) finish() })
     // opened by the pointer, the menu itself has the keys until an item does
     panel.addEventListener('keydown', event => {
@@ -86,6 +90,7 @@ export default function menubar(root, model) {
       else return
       event.preventDefault()
     })
+    hinted(rows(panel))
     if (focus) first(panel)?.focus()
     else panel.focus({ preventScroll: true })
   }
@@ -99,7 +104,7 @@ export default function menubar(root, model) {
     panel.tabIndex = -1
     // its own rows', not its submenus' (inside it), each move; none where the pointer goes out of the menus
     panel.addEventListener('pointermove', event => { if (event.pointerType !== 'touch' && event.target.closest('.menubar-list') === panel) moved(panel, event.target.closest('.menu-row'), event) })
-    panel.addEventListener('pointerleave', () => { clearTimeout(hovering); trail = [] })
+    panel.addEventListener('pointerleave', () => aimed.stop())
     for (const it of items) {
       if (it === '-') { const hr = panel.appendChild(document.createElement('hr')); hr.setAttribute('role', 'separator'); continue }
       if (it.group) { const p = panel.appendChild(document.createElement('p')); p.className = 'menu-group'; p.textContent = it.group; continue }
@@ -110,7 +115,7 @@ export default function menubar(root, model) {
       if (it.checked != null) row.setAttribute('aria-checked', String(!!it.checked))
       if (it.disabled) row.setAttribute('aria-disabled', 'true')
       row.tabIndex = -1
-      if (it.tip) row.title = it.tip
+      if (it.tip) row.dataset.tip = it.tip
       row.innerHTML = '<span class="menu-check" aria-hidden="true"></span><span class="menu-label"></span><span class="menu-keys"></span>'
       row.children[1].textContent = it.label
       // its icon, in the check's place, where it has one (a path of the page's own)
@@ -143,11 +148,8 @@ export default function menubar(root, model) {
   // apart: jQuery-menu-aim, 2013; the grace area of Radix's submenus, Floating UI's safePolygon); else that row is the one
   // now
   function moved(panel, row, event) {
-    trail = [...trail.slice(-2), [event.clientX, event.clientY]]
-    clearTimeout(hovering)
     const sub = panel.querySelector(':scope > .menubar-sub:popover-open')
-    if (sub && row?.sub !== sub && aims(sub)) hovering = setTimeout(() => point(panel, row), REST)
-    else point(panel, row)
+    aimed.move(event, sub && row?.sub !== sub ? sub : null, () => point(panel, row))
   }
   // The row the pointer is on: lit, its submenu opening, any other the panel has closing now
   function point(panel, row) {
@@ -158,23 +160,13 @@ export default function menubar(root, model) {
     if (row.sub && !narrow.matches) expand(row)
   }
   const live = panel => panel.matches(':popover-open, .inline:not([hidden])')
-  // Whether the pointer heads into `sub`: from where it was a few moves ago, into the triangle that point makes with the
-  // submenu's near edge. A move straight down the rows never does, nor one that stays put
-  function aims(sub) {
-    const p = trail[0], q = trail.at(-1)
-    if (p[0] === q[0] && p[1] === q[1]) return false
-    const r = sub.getBoundingClientRect(), x = r.left >= p[0] ? r.left : r.right, a = [x, r.top], b = [x, r.bottom]
-    const s = [cross(p, a, q), cross(a, b, q), cross(b, p, q)]
-    return s.every(v => v >= 0) || s.every(v => v <= 0)
-  }
-  // which side of the line o→u v is on, by its sign
-  const cross = (o, u, v) => (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0])
   // A submenu opens beside its row, or, where there is no room beside, under it; in a narrow window, in place
   function expand(row, focus = false) {
     const panel = row.parentElement
     if (row.sub.classList.contains('inline')) {
       row.sub.hidden = !row.sub.hidden
       row.setAttribute('aria-expanded', String(!row.sub.hidden))
+      cue(row.closest('.menubar-menu'))
       if (focus && !row.sub.hidden) first(row.sub)?.focus()
       return
     }
@@ -182,6 +174,7 @@ export default function menubar(root, model) {
     if (!row.sub.matches(':popover-open')) {
       row.sub.showPopover({ source: row })
       place(row.sub, row.getBoundingClientRect(), 'beside')
+      hinted(rows(row.sub))
       row.setAttribute('aria-expanded', 'true')
     }
     if (focus) first(row.sub)?.focus()
@@ -194,14 +187,24 @@ export default function menubar(root, model) {
     }
   }
   // Within the window: below its button, or beside its row, else the other side; one with no room below opens over its
-  // button where it fits there (a status bar's at the window's foot), else as low as the window lets it
-  function place(panel, at, where) {
+  // button where it fits there (a status bar's at the window's foot), else as low as the window lets it. A button's own
+  // menu (`held`) never over its button: where it fits neither under it nor over it, on the side with more room, as
+  // tall as that room, scrolled within (an embed's short frame), saying so at its cut edges (cue)
+  function place(panel, at, where, held = false) {
     const w = panel.offsetWidth, h = panel.offsetHeight, W = innerWidth, H = innerHeight
     let x = where === 'below' ? at.left : at.right - 2, y = where === 'below' ? at.bottom + 4 : at.top - 6
     if (x + w > W - 8) x = where === 'below' ? W - 8 - w : at.left - w + 2
     if (x < 8) x = 8
-    if (y + h > H - 8) y = where === 'below' && at.top - 4 - h >= 8 ? at.top - 4 - h : Math.max(8, H - 8 - h)
-    Object.assign(panel.style, { left: `${x}px`, top: `${y}px` })
+    const under = H - 8 - (at.bottom + 4), over = at.top - 4 - 8
+    if (held && h > under && h > over) {
+      const down = under >= over
+      Object.assign(panel.style, { left: `${x}px`, top: `${down ? at.bottom + 4 : 8}px`, maxHeight: `${down ? under : over}px` })
+    }
+    else {
+      if (y + h > H - 8) y = where === 'below' && at.top - 4 - h >= 8 ? at.top - 4 - h : Math.max(8, H - 8 - h)
+      Object.assign(panel.style, { left: `${x}px`, top: `${y}px` })
+    }
+    cue(panel)
   }
   // a panel's rows, and those of the submenus open in place inside it
   const rows = panel => [...panel.children].flatMap(el => el.classList.contains('menu-row') ? [el] : el.classList.contains('inline') && !el.hidden ? rows(el) : [])
@@ -217,7 +220,7 @@ export default function menubar(root, model) {
     const { panel, button, owner } = open
     open = null
     // a submenu about to open under the pointer opens no more: its menu is gone
-    clearTimeout(hovering)
+    aimed.stop()
     for (const b of [button, owner]) b?.setAttribute('aria-expanded', 'false')
     if (panel.matches(':popover-open')) panel.hidePopover()
     panel.remove()
@@ -237,7 +240,7 @@ export default function menubar(root, model) {
   }
   function menuKey(event, row, panel) {
     // the keys lead now: nothing the pointer was about to do
-    clearTimeout(hovering)
+    aimed.stop()
     const k = event.key, list = rows(panel), at = list.indexOf(row), sub = panel.classList.contains('menubar-sub')
     const move = d => { let j = at; do j = (j + d + list.length) % list.length; while (list[j].getAttribute('aria-disabled') === 'true' && j !== at); list[j].focus() }
     if (k === 'ArrowDown') move(1)
@@ -276,4 +279,88 @@ export default function menubar(root, model) {
   // the menus as they are now, for a host that shows them its own way (desktop/app.js: the Mac's menu bar)
   root.menus = model
   return { draw, close, at }
+}
+
+// The pointer's aim at an open submenu, the one rule both lists go by, these menus and the chain's field's
+// (repl/editor/menus.js findPoint): each move (`move`), where it heads from where it was a few moves ago; into the
+// triangle that point makes with the submenu's near edge (`sub`, the one open beside the row it is over, else none),
+// the row it is over lets it pass, taking it (`take`) only once it rests there REST ms; else at once. A move straight
+// down the rows never aims, nor one that stays put. `stop`: the keys lead, the menu shut or left, nothing pending
+export function aim() {
+  let trail = [], resting = 0
+  const heads = r => {
+    const p = trail[0], q = trail.at(-1)
+    if (p[0] === q[0] && p[1] === q[1]) return false
+    const x = r.left >= p[0] ? r.left : r.right, a = [x, r.top], b = [x, r.bottom], s = [cross(p, a, q), cross(a, b, q), cross(b, p, q)]
+    return s.every(v => v >= 0) || s.every(v => v <= 0)
+  }
+  return {
+    move(event, sub, take) {
+      trail = [...trail.slice(-2), [event.clientX, event.clientY]]
+      clearTimeout(resting)
+      if (sub && heads(sub.getBoundingClientRect())) resting = setTimeout(take, REST)
+      else take()
+    },
+    stop() { clearTimeout(resting); trail = [] }
+  }
+}
+// which side of the line o→u v is on, by its sign
+const cross = (o, u, v) => (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0])
+
+// A list as tall as its room lets it be, scrolled only where it is still cut short (an embed's frame): no bare
+// scrollbar, but at each edge more lies past, the rows fading out under a chevron pointing there (Figma's arrow), the
+// top's once it is scrolled (editor.css .menu-more); pointed at, it scrolls the list that way at a steady pace, ROLL px
+// a second, as Figma's does, till the list's end or the pointer leaves it. Both lists' (these menus, the chain's
+// field's), told again as it scrolls; call it again as the list is laid anew
+const MORE = { up: 'm7 14 5-5 5 5', down: 'm7 10 5 5 5-5' }, ROLL = 360
+export function cue(list) {
+  if (!list) return
+  for (const edge of ['up', 'down']) {
+    let more = list.querySelector(`:scope > .menu-more.${edge}`)
+    if (!more) {
+      more = document.createElement('span')
+      more.className = `menu-more ${edge}`
+      more.setAttribute('aria-hidden', 'true')
+      more.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${MORE[edge]}"/></svg>`
+      more.addEventListener('pointerenter', () => roll(list, edge === 'up' ? -1 : 1))
+      more.addEventListener('pointerleave', () => roll(list, 0))
+    }
+    // (the first child and the last, where the rows scroll under them)
+    if (edge === 'up' ? list.firstElementChild !== more : list.lastElementChild !== more) edge === 'up' ? list.prepend(more) : list.append(more)
+  }
+  if (!list.cued) { list.cued = true; list.addEventListener('scroll', () => told(list), { passive: true }) }
+  told(list)
+}
+function told(list) {
+  const top = list.scrollTop
+  list.toggleAttribute('data-up', top > 1)
+  list.toggleAttribute('data-down', top + list.clientHeight < list.scrollHeight - 1)
+}
+// the list scrolled `dir`ward (−1 up, 1 down, 0 stopped) a frame at a time, by the time each took, till it can go no
+// further that way or it is no longer shown
+const rolls = new WeakMap()
+function roll(list, dir) {
+  cancelAnimationFrame(rolls.get(list))
+  if (!dir) return
+  let then = performance.now()
+  const step = now => {
+    list.scrollTop += dir * ROLL * (now - then) / 1000
+    then = now
+    told(list)
+    if (list.checkVisibility() && (dir < 0 ? list.scrollTop > 0 : list.scrollTop + list.clientHeight < list.scrollHeight - 1)) rolls.set(list, requestAnimationFrame(step))
+  }
+  rolls.set(list, requestAnimationFrame(step))
+}
+
+// Rows of a menu laid out, each its tooltip: its name and its hint where their room cut them short (the whole of each,
+// then its tip or what it says it does), else its tip alone; a hint left less than 2em not shown (data-tight: a narrow
+// column's), the tooltip holding it. The field's list (repl/editor/menus.js) by the same rule
+const short = e => e && e.scrollWidth > e.clientWidth + 1
+export function hinted(rows) {
+  for (const row of rows) {
+    const name = row.querySelector('.menu-label, .found-name'), hint = row.querySelector('.menu-keys, .found-hint > span'), cut = short(hint)
+    row.toggleAttribute('data-tight', cut && hint.clientWidth < 2 * parseFloat(getComputedStyle(hint).fontSize))
+    const title = [short(name) && name.textContent, cut && hint.textContent, row.dataset.tip].filter(Boolean).join('\n')
+    title ? row.title = title : row.removeAttribute('title')
+  }
 }

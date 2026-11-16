@@ -1,11 +1,11 @@
 import measure, { coloured } from '../tint.js'
-import { LINGER, plot, lanes, extent, own, tickTop, row, MAP } from './geometry.js'
-import { TICK, color, barStrip, runway, head, headLines, headTick, headTime, oc, c, rate, duration, hovered, start, end, selection, band, cursor, playhead, ruler, waveLook, data, tracks, focus, scroll, reached, moving, leavesOf, map, assign } from './model.js'
+import { LINGER, plot, lanes, extent, own, tickTop, tickLong, row, MAP, BAR } from './geometry.js'
+import { TICK, color, barStrip, runway, head, headLines, headTick, headTime, oc, c, rate, duration, hovered, start, end, selection, band, cursor, playhead, ruler, within, overshoot, waveLook, data, tracks, focus, scroll, reached, moving, leavesOf, map, assign } from './model.js'
 import { labelled } from './notes.js'
-import { say, lanesEnd, seenTo, fitTo, away } from './overlay.js'
+import { say, lanesEnd, seenTo, fitTo, away, TAIL } from './overlay.js'
 import { drag } from './pointer.js'
-import { H, dpr, shade, invalidate, tints, paletted, tone, wash, caretColour, hues, rgba } from './render.js'
-import { bar, onBar, x, X, fy } from './scales.js'
+import { H, dpr, shade, invalidate, tints, paletted, tone, wash, caretColour, hues, rgba, seen } from './render.js'
+import { bar, onBar, x, X, fy, footRoom } from './scales.js'
 import { ranges } from './select.js'
 import { tag, gauge, size, label, stamp } from './strips.js'
 
@@ -14,14 +14,18 @@ import { tag, gauge, size, label, stamp } from './strips.js'
 
 export const steer = () => { assign({ steered: playhead != null }); assign({ moving: null }) }
 export let barOn = null, barTimer = 0
-// `labels`: the time row's own times and ticks too (on the reel), or only these marks' (the playhead's)
+// `labels`: the time row's own times and ticks too (on the reel), or only these marks' (the playhead's).
+// Within the sheet (?ui= axis inside) the grid ends on the lanes' foot and the times stand under it plain: each under
+// its own line, flush with it, in the quiet ink (QUIET of the values'), small; no line and no tick down the strip, a
+// mark's (the pointer's, an edge's) neither, its time still written there
+const QUIET = .6
 export function paintRuler(marks, spans = [], labels = true) {
   if (ruler === 'off') return null
   // the tick and chevron of what is out of sight (away) taken first: the labels give way to them
   const { w } = plot(), y = row(), { step, digits, first } = labelled(), taken = away && c === oc ? [[away.x0 - 2, away.x1 + 2]] : []
   c.textAlign = 'left'
   const shown = []
-  // held ⌘ (Ctrl), each length measured, a line along the row in the measuring red, on a pill over the middle of its span, as
+  // held ⌘ (Ctrl), each length measured, a line along the row in the accent (gauge), on a pill over the middle of its span, as
   // Figma draws and labels a gap it measures; the pills before all else here, the other labels giving way to them, the
   // ruler's to the line too
   const pills = spans.map(([p, q]) => {
@@ -45,24 +49,35 @@ export function paintRuler(marks, spans = [], labels = true) {
   }
   for (const [p, q] of spans) taken.push([X(p), X(q)])
   if (labels && ruler !== 'none') {
+    // (a time beside its tick, or within the sheet flush with its line; there the strip's right end, where the view
+    // ends, the last lane's foot value's, on a ground that hides what is under it (scales.js footRoom, a gap before
+    // it): none written across that ground's edge, so none stands there cut; those under it and past it written, for
+    // the view to scroll onto)
+    const lx = within ? 0 : 4, edge = within ? seen()[1] - footRoom() - 4 : w
     for (let i = first; i * step <= end + 1e-9; i++) {
-      const t = i * step, px = X(t), text = stamp(t, digits), tw = c.measureText(text).width
-      if (px + 4 + tw > w) break
+      const t = i * step, px = X(t), at = px + lx, text = stamp(t, digits), tw = c.measureText(text).width
+      if (within ? at < edge && at + tw > edge : at + tw > w) { if (within) continue; break }
+      // (within the sheet, a view that ends with the sound: no time written across the sound's end, where the scale's
+      // line would cut it short)
+      if (within && !overshoot && at + tw > X(duration) + TAIL) continue
       // a label's room: its text and a gap after it as wide as the one before it, so no two times touch
-      if (taken.some(([a, b]) => px + tw + 8 > a && px - 4 < b)) continue
-      c.fillStyle = color('--color-screen-rule')
-      c.fillRect(px, tickTop(), 1, TICK)
-      if (ruler === 'labels') { c.fillStyle = color('--color-screen-line-number'); c.fillText(text, px + 4, y) }
+      if (taken.some(([a, b]) => at + tw + 4 > a && at - 8 < b)) continue
+      if (!within) { c.fillStyle = color('--color-screen-rule'); c.fillRect(px, tickTop(), 1, TICK) }
+      if (ruler !== 'labels') continue
+      c.fillStyle = color('--color-screen-line-number')
+      c.globalAlpha = within ? QUIET : 1
+      c.fillText(text, at, y)
+      c.globalAlpha = 1
     }
     // ticks between the labelled too, none through a time written on it
-    paintTicks(taken)
+    if (!within) paintTicks(taken)
   }
   c.fillStyle = gauge()
   for (const [p, q] of spans) c.fillRect(X(p), Math.round(y), X(q) - X(p), 1)
   for (const m of shown) {
     if (m.head) continue
     c.fillStyle = m.fill
-    c.fillRect(m.px, tickTop(), 1, TICK)
+    c.fillRect(m.px, tickTop(), 1, tickLong())
     if (m.text) tag(m.text, m.lx, y, 'left')
   }
   for (const { text, lx } of pills) tag(text, lx, y, 'left', color('--color-screen-bright'), gauge())
@@ -95,7 +110,7 @@ export function layHead(L, m) {
     laid = key
     runway.style.width = `${w}px`
     headLines.replaceChildren(...segs.map(([a, b, other]) => Object.assign(document.createElement('i'), { className: other ? 'other' : '', style: `top: ${a}px; height: ${b - a}px` })))
-    Object.assign(headTick.style, { top: `${tickTop()}px`, height: `${TICK}px` })
+    Object.assign(headTick.style, { top: `${tickTop()}px`, height: `${tickLong()}px` })
     Object.assign(headTime.style, { top: `${row() - lh / 2}px`, height: `${lh}px`, lineHeight: `${lh}px`, font: label() })
   }
   headTick.hidden = !m
@@ -186,9 +201,10 @@ export function moveOn() {
   if (k >= 1) assign({ moving: null })
   fitTo(mid - w / 2, mid + w / 2)
 }
-// The scrollbar's thumb, a pixel under the lanes: THIN px, as a native overlay scrollbar's at rest; under the pointer or
-// dragged, brighter, never wider, as the page's scrollbars draw theirs (editor.css); THICK, the height it takes
-export const THIN = 4, THICK = 6
+// The scrollbar's thumb, in the middle of its strip under the time row (geometry.js BAR): THIN px, as a native overlay
+// scrollbar's at rest; under the pointer or dragged, brighter, never wider, as the page's scrollbars draw theirs
+// (editor.css)
+export const THIN = 4
 export function paintBar() {
   if (scroll === 'overview') return paintMap()
   const b = bar()
@@ -197,7 +213,7 @@ export function paintBar() {
   c.globalAlpha = lit ? .6 : .3
   c.fillStyle = color('--color-screen-soft')
   c.beginPath()
-  c.roundRect(Math.round(b.x0), plot().h + 1, Math.round(b.x1 - b.x0), t, t / 2)
+  c.roundRect(Math.round(b.x0), H - (BAR + t) / 2, Math.round(b.x1 - b.x0), t, t / 2)
   c.fill()
   c.globalAlpha = 1
 }
