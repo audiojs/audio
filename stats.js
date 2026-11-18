@@ -344,12 +344,14 @@ function derivePointwise(desc, stats, opts) {
   }
 }
 
-/** A block clips where its derived extremes reach full scale: its count kept (one at least), else none */
+/** A block clips where its derived extremes reach full scale; how many of its samples do, only its samples tell: there
+ *  the count goes, so a query that counts renders (the clipping stat finds the blocks by their extremes); where no
+ *  block reaches full scale, none clips */
 function reclip(stats) {
-  if (stats.clipping) stats.clipping.forEach((cl, c) => {
-    let lo = stats.min[c], hi = stats.max[c]
-    for (let i = 0; i < cl.length; i++) cl[i] = lo[i] <= -FULL || hi[i] >= FULL ? Math.max(1, cl[i]) : 0
-  })
+  if (!stats.clipping) return
+  let reach = stats.min.some((lo, c) => { let hi = stats.max[c]; for (let i = 0; i < lo.length; i++) if (lo[i] <= -FULL || hi[i] >= FULL) return true; return false })
+  if (reach) delete stats.clipping
+  else stats.clipping.forEach(cl => cl.fill(0))
 }
 
 /** Resolve block range from opts. Recomputes stats if edits are dirty, or if the
@@ -453,7 +455,10 @@ audio.fn.stat = async function(name, opts) {
     return v ?? this[name](opts)
   }
 
-  let { stats, ch, sr, from, to } = await queryRange(this, opts, desc.fields ?? (desc.block ? [name] : null))
+  // binned, a block stat reduces its own field, whatever its query reads
+  let need = desc.fields ?? (desc.block ? [name] : null)
+  if (bins != null && desc.block && desc.reduce && !need.includes(name)) need = [...need, name]
+  let { stats, ch, sr, from, to } = await queryRange(this, opts, need)
 
   // Resolve channel selection once
   let { chs, perCh } = resolveChannels(opts?.channel, ch)
@@ -461,7 +466,8 @@ audio.fn.stat = async function(name, opts) {
   let blockStats = stats[name], aggregate = desc.reduce
   let reduce = (values, from, to) => aggregate(values, from, to, stats)
 
-  // Binned block stats: each channel's blocks reduced per bin, the channels averaged
+  // Binned block stats: each channel's blocks reduced per bin, the channels averaged; a count (`count`: clipped samples)
+  // is every channel's, the channels added
   if (bins != null && blockStats && aggregate) {
     let reduce1 = c => binReduce(blockStats[c], from, to, bins, reduce)
     if (perCh) return chs.map(reduce1)
@@ -470,7 +476,7 @@ audio.fn.stat = async function(name, opts) {
     for (let i = 0; i < bins; i++) {
       let [a, b] = binAt(from, to, bins, i), sum = 0
       for (let c of chs) sum += reduce(blockStats[c], a, b)
-      out[i] = sum / chs.length
+      out[i] = desc.count ? sum : sum / chs.length
     }
     return out
   }

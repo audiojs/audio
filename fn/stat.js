@@ -1,4 +1,4 @@
-import audio from '../core.js'
+import audio, { FULL } from '../core.js'
 import { rMean, blockMean } from './loudness.js'
 import { block } from './block.js'
 import { peakOf } from '../stats.js'
@@ -35,13 +35,14 @@ audio.stat('dc', {
 audio.stat('clipping', {
   block,
   reduce: rSum,
+  // clipped samples: binned, every channel's, added
+  count: true,
+  // the blocks that clip, by their extremes (a sample at ±32767/32768 or past it, as block.js counts): an edit derives
+  // those, not how many of a block's samples clip (stats.js reclip), which a count (bins) reads from the field
+  fields: ['min', 'max'],
   query: (stats, chs, from, to, sr) => {
     let bs = stats.blockSize, times = []
-    for (let i = from; i < to; i++) {
-      let n = 0
-      for (let c of chs) n += stats.clipping[c][i] || 0
-      if (n > 0) times.push(i * bs / sr)
-    }
+    for (let i = from; i < to; i++) if (chs.some(c => stats.min[c][i] <= -FULL || stats.max[c][i] >= FULL)) times.push(i * bs / sr)
     return new Float32Array(times)
   }
 })

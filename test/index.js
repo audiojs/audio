@@ -4895,6 +4895,47 @@ test('stat(clipping) — clean audio returns empty', async t => {
   t.is(clips.length, 0, 'no clips in clean audio')
 })
 
+test('stat(clipping) – an edit past full scale counts what its render holds, not a block each', async t => {
+  // a 440 Hz sine at 0.6, lifted: a sample clips where |0.6·g·sin| ≥ 32767/32768, counted here on the samples
+  let sr = 44100, ch = Float32Array.from({ length: sr }, (_, i) => 0.6 * Math.sin(2 * Math.PI * 440 * i / sr)), full = 32767 / 32768
+  for (let d of [6, 12, -6]) {
+    let g = 10 ** (d / 20), want = ch.map(v => v * g).reduce((n, v) => n + (Math.abs(v) >= full ? 1 : 0), 0)
+    let a = audio.from([ch], { sampleRate: sr }).gain(d), rendered = audio.from(await a.clone().read(), { sampleRate: sr })
+    t.is((await a.stat('clipping', { bins: 1 }))[0], want, `gain ${d} dB: ${want} samples`)
+    t.is([...await a.stat('clipping', { bins: 4 })], [...await rendered.stat('clipping', { bins: 4 })], 'each bin as the render counts it')
+    t.is([...await a.stat('clipping')], [...await rendered.stat('clipping')], 'the blocks it clips in')
+  }
+})
+
+test('stat(clipping) – at full scale clips; every channel counts, the channels added; an edit back under full scale clips none', async t => {
+  // counted here on the samples: |v| ≥ 32767/32768 clips (README: "at 16-bit full scale (±32767/32768) or beyond");
+  // a block clips where any channel has such a sample, at i·BLOCK_SIZE/sr
+  let sr = 44100, full = 32767 / 32768, bs = audio.BLOCK_SIZE, sine = amp => Float32Array.from({ length: sr }, (_, i) => amp * Math.sin(2 * Math.PI * 440 * i / sr))
+  let count = chs => chs.reduce((n, ch) => n + ch.reduce((m, v) => m + (Math.abs(v) >= full ? 1 : 0), 0), 0)
+  let blocks = chs => [...Float32Array.from({ length: Math.ceil(chs[0].length / bs) }, (_, i) => i).filter(i => chs.some(ch => ch.subarray(i * bs, (i + 1) * bs).some(v => Math.abs(v) >= full))).map(i => i * bs / sr)]
+  // a 16-bit take clipped at +32767: its samples at full scale, none past it
+  let at = sine(1.5).map(v => Math.max(-full, Math.min(full, v))), a = audio.from([at], { sampleRate: sr })
+  t.ok(count([at]) > 0 && at.every(v => Math.abs(v) <= full), `${count([at])} samples at full scale exactly`)
+  t.is([...await a.stat('clipping')], blocks([at]), 'the blocks they stand in')
+  t.is((await a.stat('clipping', { bins: 1 }))[0], count([at]), 'counted')
+  // the right channel lifted past full scale by an edit derived from the block stats, the left not
+  let one = audio.from([sine(0.1), sine(0.6)], { sampleRate: sr }).gain(9), r1 = await one.clone().read()
+  t.ok(count([r1[0]]) === 0 && count([r1[1]]) > 0, `the right alone clips: ${count([r1[1]])}`)
+  t.is((await one.stat('clipping', { bins: 1 }))[0], count(r1), 'its count, the left adding none')
+  t.is([...await one.stat('clipping')], blocks(r1), 'the blocks the right clips in')
+  // both channels clipped, each its own count: the bin holds their sum, not their mean
+  let both = audio.from([sine(0.6), sine(0.4)], { sampleRate: sr }).gain(9), r2 = await both.clone().read()
+  t.ok(count([r2[0]]) !== count([r2[1]]) && count([r2[1]]) > 0, `${count([r2[0]])} and ${count([r2[1]])}`)
+  t.is((await both.stat('clipping', { bins: 1 }))[0], count(r2), 'the channels added')
+  // four bins of the block grid over 44100 samples (44 blocks): blocks 0–10, 11–21, 22–32, 33–43
+  let edges = [0, 11, 22, 33, 44].map(i => Math.min(sr, i * bs))
+  t.is([...await both.stat('clipping', { bins: 4 })], edges.slice(0, 4).map((e, i) => count(r2.map(ch => ch.subarray(e, edges[i + 1])))), 'each bin, the channels added')
+  // a take past full scale (a float file), turned down 6 dB: no sample of the edit clips, whatever the source counted
+  let c = audio.from([sine(1.6)], { sampleRate: sr }).gain(-6), rc = await c.clone().read()
+  t.ok(count(rc) === 0 && count([sine(1.6)]) > 0, `${count([sine(1.6)])} clipped before, none after`)
+  t.is([(await c.stat('clipping', { bins: 1 }))[0], [...await c.stat('clipping')]], [0, []], 'none counted, no block')
+})
+
 test('stat(clipping) — bins mode returns per-bin counts', async t => {
   let sr = 44100
   // All clipping
