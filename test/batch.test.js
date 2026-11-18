@@ -351,8 +351,9 @@ test('a stepped number reaches the processor on its step in toBatch, toStream an
 	assert.ok(seen.length > 1 && seen.every(p => p === 2 || p === 4) && seen.includes(2) && seen.includes(4), `automation from 2 to 4: 2 or 4 at each call, not ${seen}`)
 })
 
-// An endless tail (CONTRACT.md § Latency, tail: `Infinity` is allowed) cannot be flushed: no host renders one
-test('an endless tail renders none: toStream end(), toBatch and audio give the input\'s frames', async () => {
+// An endless tail (CONTRACT.md § Latency, tail: `Infinity` is allowed) cannot be flushed: the reference hosts render
+// none of it; audio's render takes audio.TAIL seconds of the ring, as the processor makes it
+test('an endless tail: toStream end() and toBatch render none, audio renders audio.TAIL seconds of it', async () => {
 	const { default: audio } = await import('../audio.js')
 	// holds the last sample it was given that was not 0, for ever
 	let hold = () => { let last = 0; return (ins, outs) => { for (let i = 0; i < outs[0][0].length; i++) { if (ins[0][0][i]) last = ins[0][0][i]; for (let c of outs[0]) c[i] = last } } }
@@ -367,10 +368,21 @@ test('an endless tail renders none: toStream end(), toBatch and audio give the i
 		}
 		assert.equal(toBatch(p)(x).length, 100, `${id}: toBatch, the input's frames`)
 		audio.use(p)
-		let a = audio.from([x], { sampleRate: SR })[id]()
-		assert.equal(a.duration, 100 / SR, `${id}: audio, the input's duration`)
-		assert.equal((await a.read())[0].length, 100, `${id}: and frames`)
+		let n = Math.round(audio.TAIL * SR), a = audio.from([x], { sampleRate: SR })[id]()
+		assert.equal(a.length, 100 + n, `${id}: audio, the input's frames and audio.TAIL seconds`)
+		let y = (await a.read())[0]
+		assert.equal(y.length, 100 + n, `${id}: and rendered`)
+		assert.ok(y.subarray(100).every(v => v === 1), `${id}: the ring itself, the sample it holds`)
+		// the length is audio.TAIL's, read at the render
+		let kept = audio.TAIL
+		audio.TAIL = 0.01
+		try { assert.equal((await audio.from([x], { sampleRate: SR })[id]().read())[0].length, 100 + Math.round(0.01 * SR), `${id}: audio.TAIL = 0.01`) }
+		finally { audio.TAIL = kept }
 	}
+	// a decay that ends is rendered whole, however long
+	let long = Object.assign(() => (ins, outs) => { ins[0].forEach((c, i) => outs[0][i].set(c)) }, { id: 'long-tail', params: {}, channels: 'any', tail: audio.TAIL + 2 })
+	audio.use(long)
+	assert.equal(audio.from([x], { sampleRate: SR })['long-tail']().length, 100 + Math.round((audio.TAIL + 2) * SR), 'a tail of audio.TAIL + 2 s: all of it')
 })
 
 // CONTRACT.md § Latency, tail: a host takes `tail` when it needs it, with the values then in force

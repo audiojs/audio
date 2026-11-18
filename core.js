@@ -287,6 +287,10 @@ audio.fn = fn                    // instance prototype (like $.fn)
 
 audio.BLOCK_SIZE = 1024
 audio.PAGE_SIZE = 1024 * audio.BLOCK_SIZE
+/** Seconds of an endless decay a render takes. A ring with no last sample (a reverb held open, a ladder at full
+ *  resonance, an integrator: a processor's `tail` of Infinity) cannot be rendered whole; a `pad` before the edit gives
+ *  another length */
+audio.TAIL = 10
 
 /** The block of `bs` samples a time is in, `round` the way (floor: where a range starts; ceil: past where it ends), by its
  *  nearest sample: a time the library gave (a pause's end, k·bs/sr) lands on its block's edge, not a float's hair past
@@ -451,10 +455,13 @@ export function correlation(p, q, n) {
   return pp && qq ? Math.max(0, Math.min(1, pq / Math.sqrt(pp * qq))) : 0
 }
 
+/** A decay in seconds as a render takes it: an endless one audio.TAIL, none or a negative one 0 */
+const decay = t => t === Infinity ? audio.TAIL : t > 0 ? t : 0
+
 /** An op's expand into the hidden op `name` that renders it, `o` its options, and its decay, `t` s, as a pad after it:
  *  the user's edit stays one (undo, serialize whole), the decay renders into the pad (a contract plugin's tail, convolve,
- *  a native plugin's or a WAM's). An endless decay (Infinity) cannot be rendered: it gets none */
-export const tailed = (name, o, t) => t > 0 && t < Infinity ? [['pad', { before: 0, after: t }], [name, o]] : [[name, o]]
+ *  a native plugin's or a WAM's). An endless decay (Infinity) renders audio.TAIL seconds */
+export const tailed = (name, o, t) => (t = decay(t)) > 0 ? [['pad', { before: 0, after: t }], [name, o]] : [[name, o]]
 
 /** A whole-render op over a range: it reads all of its input, its output kept in the range alone, the input as it was
  *  outside it (one that renders in place, channel for channel; a time-stretch's range is its frames hook's). Each edge
@@ -604,8 +611,8 @@ export function hostOp(m, name) {
   // Declared latency → plan-level plugin delay compensation (fn form: once per instance)
   let latency = typeof m.latency === 'function' ? (o, sr) => m.latency(setting(o, sr)) | 0 : m.latency | 0
   // tail: seconds, or a function of the values in force (mirrors latency's fn form): a feedback delay's decay depends on
-  // its feedback setting, not the declared maximum. An endless one (Infinity) renders none
-  let tail = m.tail || 0, finite = t => t > 0 && t < Infinity ? t : 0
+  // its feedback setting, not the declared maximum. An endless one (Infinity) renders audio.TAIL seconds (decay)
+  let tail = m.tail || 0
 
   // An instance, built where its block loop starts (frame f) or for the one call of a whole render: its values from
   // the edit, its widest bus from those it reads and writes, declared layouts resolved against the input width (a
@@ -695,7 +702,9 @@ export function hostOp(m, name) {
     // that many seconds of silence so the decay renders instead of truncating (the
     // plugin still sees equal frames in/out — both sides extended).
     // A tail function is handed the transport where the input ends, its `n` frames (plan.js tailN)
-    let wholeTail = typeof m.tail === 'function' ? (o, sr, n) => finite(m.tail(setting(o, sr, 0, n))) : finite(m.tail)
+    // (an endless one is read at the render too: audio.TAIL then)
+    let wholeTail = typeof m.tail === 'function' || m.tail === Infinity
+      ? (o, sr, n) => decay(typeof m.tail === 'function' ? m.tail(setting(o, sr, 0, n)) : m.tail) : decay(m.tail)
     // Declared frames hook → structural output length (time-stretch class): the plan
     // sizes the output buffers by it and continues from the result's actual length.
     let frames = m.frames ? (n, o, sr) => m.frames(n, setting(o, sr)) : undefined
@@ -726,7 +735,7 @@ export function hostOp(m, name) {
     expand: (ctx) => {
       let o = {}
       for (let k of taken) if (ctx[k] !== undefined) o[k] = ctx[k]
-      return tailed('_' + name, o, finite(typeof tail === 'function' ? tail(setting(o, ctx.sampleRate, Math.round(ctx.totalDuration * ctx.sampleRate))) : tail))
+      return tailed('_' + name, o, typeof tail === 'function' ? tail(setting(o, ctx.sampleRate, Math.round(ctx.totalDuration * ctx.sampleRate))) : tail)
     }
   })
 }
