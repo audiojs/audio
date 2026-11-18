@@ -220,7 +220,7 @@ audio.from = function(source, opts = {}) {
   if (source?.pages) {
     // the copy holds the source's pages, not what its edits make of them: their stats, else one measured through its
     // edits would be taken for its samples'
-    let b = create([...source.pages], opts.sampleRate ?? source.sampleRate,
+    let b = create([...source.pages], opts.sampleRate ?? source._.sr,
       opts.channels ?? source._.ch, source._.len,
       { source: source.source, storage: source.storage, cache: source.cache, budget: opts.budget ?? source.budget, bitDepth: opts.bitDepth ?? source._.bits }, source.srcStats)
     // the sound whose samples it plays, at their rate and channels (checkpoint.js names a sound by it)

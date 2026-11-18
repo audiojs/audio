@@ -311,3 +311,13 @@ test('pacer — a loop gives way to a task once its ms of work have passed, noth
   t.ok(heard, 'what was waiting ran in it')
   t.is(pace(), undefined, 'counted again from its end')
 })
+
+// audio.from(instance) holds the source's pages, not what its edits make of them: so at the pages' rate, whatever
+// rate the edits come to
+test('audio.from(instance) — a copy of a resampled sound keeps the rate its pages are at', async t => {
+  let a = audio.from([new Float32Array(88200).fill(0.5)], { sampleRate: 44100 }).resample(22050)
+  t.is([a.sampleRate, a.duration], [22050, 2], 'the source: 2 s, through its edit at 22050 Hz')
+  let b = audio.from(a)
+  t.is([b.sampleRate, b.length, b.duration], [44100, 88200, 2], 'the copy: the 88200 samples at 44100 Hz, 2 s')
+  t.is(audio.from(a, { sampleRate: 48000 }).sampleRate, 48000, 'a rate asked for is the copy\'s')
+})
