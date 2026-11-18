@@ -164,6 +164,9 @@ let clips = await a.stat('clipping')
 
 // does it pass? each rule of the spec, measured
 let { pass, rules } = await a.check('podcast')         // acx, podcast, spotify, broadcast, netflix, atsc
+
+// what the edits changed, measured
+let { changes } = await a.compare(await audio('raw-take.wav'))  // ['lag 10.9 ms (480 samples), read from 0.00 s to 60.00 s', 'voice band of 2870 voiced frames: median change -1.20 dB, …', …]
 ```
 
 ### Master & deliver
@@ -591,6 +594,7 @@ m.stop()                                                           // release
 | `await .detect(opts?)` | `{ bpm, confidence, beats, onsets }` in one pass; `{ channel }` as in `stat`. |
 | `await .check(spec)` | pass or fail against a delivery spec: `{ pass, rules: [{ name, value, unit, min, max, pass, required, hint }] }`. `'acx'` (RMS, peak, noise floor, room tone, 44.1 kHz), `'podcast'` (Apple: -16 LUFS ±1, ≤ -1 dBTP), `'spotify'` (plays at -14 LUFS, ≤ -1 dBTP), `'broadcast'` (EBU R 128: -23 ±0.2 LUFS, ≤ -1 dBTP), `'netflix'` (dialog -27 ±2 LUFS, ≤ -2 dBTP), `'atsc'` (A/85: dialog -24 ±2 LUFS, under 3 minutes the full mix; ≤ -2 dBTP). A rule its source recommends rather than requires is `required: false` (Apple's, Spotify's, ATSC's, ACX's room tone at each end); missed, it fails as any rule does. A failed rule's `hint` names what would fix it: `normalize('podcast')`. Each limit cites its source in [fn/check.js](fn/check.js). |
 | `await .check(limits)` | limits of your own, by stat name (`rms`, `peak` in dB) or `duration`, `sampleRate`, `channels`, each `'min..max'`, `'..max'`, `'min..'`, `'value±tolerance'`, a number or `[min, max]`: `.check({ loudness: '-17..-15', truepeak: '..-1', sampleRate: 44100 })` → `{ pass, rules }`. |
+| `await .compare(before)` | what changed from `before` (the sound before an edit, or any reference), measured; it names no cause: `{ lag, why, period, readings, gain, polarity, swapped, difference, voice, measures: [{ name, unit, before, after, delta }], changes }`. `measures`, each sound alone: duration, channels, rate, loudness, LRA, true peak, noise floor, clipped samples, samples past full scale, DC, L/R correlation and width, each octave band 31.5 Hz to 16 kHz (IEC 61260-1). `lag`: s, the lag its readings agree on over the stretches they name (this sound later there: positive), to 0.01 of a sample: both 2 s or longer, two of four spans sharing a waveform (one, where only one holds sound in both), every span and channel that shares one reading within 0.25 ms of the others, no correlation peaking again within 1 % of its top past a dip under half of it; else `null`, and `why` the first that fails: `'short'`, `'unrelated'`, `'varies'`, `'repeats'` (`period`: s to that peak); `readings`: each span's `{ at, duration, channel, lag }`, `lag` `null` where it shares no waveform. A span's reading is the lag its correlation peaks at, which a part of the span need not share (a cut inside it); the lag line, at 0 too, names the stretches read and those that shared no waveform. At the lag (`null` without one): `gain` and `difference`, dB, the level from `before` and what is left once aligned and level-matched; `polarity`, each channel's 1 or -1; `voice`, over `before`'s voiced frames (@audio/vad), each frame's change in the voice band (300 to 3400 Hz), dB: `{ frames, change: { p10, p50, p90 }, under, over, silenced }`, its percentiles, the shares 10 dB or more under and over the median change, and those that stood 10 dB over `before`'s noise floor and fell under it (the floor moved by the loudness change) or to zero; on a take with no pause that floor (its quietest 0.4 s) is quiet speech, and `silenced` undercounts: read `under` with it. `under` or `silenced` past 1 %, or `p90 - p10` of 10 dB or more with the median under the loudness change: part of the voice fell 10 dB or more against another part, or under the noise floor, and the edit took voice from it or lifted the rest; `over` past 1 %: part of it rose 10 dB or more over the median. The figures cannot tell a part lifted from the rest lowered, as the output is the same. `swapped`: left and right read crossed. `changes`: the lag line, or why there is none, then a line for each measure past its resolution (1 LU of loudness, 1 dB of true peak or passing -1 dBTP, 3 dB of an octave against the rest, 1 % of the voiced frames…), each resolution's reason in [fn/compare.js](fn/compare.js). It loads on first use, out of a page's bundle. An hour of stereo takes about a minute of CPU and up to 4.4 GB of memory, the memory mostly the `lra` and `truepeak` stats', each of which reads the sound whole. |
 
 | Stat                         | Description                                                                                                                         |
 |:--|:--|
@@ -796,6 +800,7 @@ stat [NAMES...]    print analysis (default)
 play [loop]        open player UI
 save PATH          encode and write (or `-` for stdout); `192k` bitrate, `24bit` depth
 check SPEC         pass or fail each rule of a delivery spec, or NAME:LIMIT of your own (exit 1 on a fail)
+compare BEFORE     what changed from BEFORE, measured: a line for each measure past its resolution
 
 # options
 -f --force         overwrite existing output
@@ -918,6 +923,9 @@ audio episode.wav normalize podcast check podcast
 audio chapter.wav check acx --json
 audio spot.wav check loudness:-26..-22 truepeak:..-2    # limits of your own, by stat name
 
+# what an edit changed, measured: a line for each measure past its resolution; --json: every measure, before and after
+audio take.wav omlsa normalize podcast compare take.wav
+
 # pitch / chords / key
 audio song.mp3 stat notes
 audio song.mp3 stat chords
@@ -982,7 +990,7 @@ audio --completions fish | source       # fish
 <dd>No ffmpeg: codecs and processing are JS and WASM. Playing and recording in Node go through a small native addon, prebuilt for macOS, Linux (x64, arm64) and Windows (x64), so nothing compiles at install; elsewhere playback falls back to <code>ffplay</code>, SoX or <code>aplay</code>. For the CLI, install globally: <code>npm i -g audio</code>.</dd>
 
 <dt>How big is it?</dt>
-<dd>In a page: 149.5 KB gzipped, the whole library minified (<code>dist/audio.min.js</code>); codecs and plugins load on first use via <code>import()</code>, so unused formats aren't fetched. In Node: <code>npm i audio</code> installs 16.6 MB in 328 packages (every codec and plugin; measured on 2.15.1), nothing compiled; <code>npm i audio --omit=optional</code> 12.1 MB in 116 (the codecs and the core: filters, EQ, loudness, pitch, stretch; measured on 2.15.1), each plugin family then installed by name when used (<code>npm i @audio/dynamics</code>).</dd>
+<dd>In a page: 149.5 KB gzipped, the whole library minified (<code>dist/audio.min.js</code>); codecs, plugins and <code>compare</code> load on first use via <code>import()</code>, so unused formats aren't fetched. In Node: <code>npm i audio</code> installs 16.6 MB in 328 packages (every codec and plugin; measured on 2.15.1), nothing compiled; <code>npm i audio --omit=optional</code> 12.1 MB in 116 (the codecs and the core: filters, EQ, loudness, pitch, stretch; measured on 2.15.1), each plugin family then installed by name when used (<code>npm i @audio/dynamics</code>).</dd>
 
 <dt>How does it handle large files?</dt>
 <dd>Audio is stored in fixed-size pages. In the browser, with <code>{ storage: 'persistent' }</code> (or <code>'auto'</code>, where OPFS exists), cold pages evict to OPFS when memory exceeds budget — auto-sized from <code>navigator.storage.estimate()</code> (quota/4, 64MB..512MB), overridable via <code>{budget}</code>; each instance keeps its own store, its copies share it. Works for decoded files, <code>audio.from(pcm)</code> and pushed streams. Stats stay resident (~7 MB for 2h stereo).</dd>

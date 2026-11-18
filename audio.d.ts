@@ -155,6 +155,25 @@ export interface AudioInstance {
   /** Limits of your own, by stat name (rms and peak in dB) or duration, sampleRate, channels: a number (exactly it),
    *  [min, max] (null: open), or 'min..max', '..max', 'min..', 'value±tolerance', a unit allowed ('-1db', '120m') */
   check(limits: Record<string, number | string | [number | string | null, number | string | null]>): Promise<{ pass: boolean, rules: CheckRule[] }>
+  /** What changed from `before` (the reference) to this sound, measured; it names no cause. lag: s, the lag its
+   *  readings agree on over the stretches they name (this sound later there: positive), where both are 2 s or longer,
+   *  two of four spans share a waveform (one, where only one holds sound in both), every span and channel that shares one
+   *  reads within 0.25 ms of the others, and no correlation peaks again within 1 % of its top past a dip under half of
+   *  it; else null, and why the first that fails, period (s) where it repeats; readings: each span's, lag null where it
+   *  shares no waveform. A span's reading is the lag its correlation peaks at, which a part of the span need not share (a
+   *  cut inside it). At the lag (null without one): the least-squares gain (dB), each channel's polarity (1 or -1), what
+   *  is left once aligned and level-matched (dB: -Infinity nothing, +Infinity none of before), and the voice: over
+   *  before's voiced frames (@audio/vad), each frame's change in the voice band (300 to 3400 Hz, dB), its 10th, 50th and
+   *  90th percentiles; under and over, the shares 10 dB or more under and over the median change; silenced, those that
+   *  stood 10 dB over before's noise floor and fell under it (the floor moved by the loudness change) or to zero (null
+   *  under 1 s of voicing). On a take with no pause that floor (its quietest 0.4 s) is quiet speech, and silenced
+   *  undercounts: read under with it. under or silenced past 1 %, or p90 - p10 of 10 dB or more with the median under
+   *  the loudness change: part of the voice fell 10 dB or more against another part, or under the noise floor, and the
+   *  edit took voice from it or lifted the rest; over past 1 %: part of it rose 10 dB or more over the median. The
+   *  figures cannot tell a part lifted from the rest lowered, as the output is the same. Each measure before and after;
+   *  changes: the lag line (the stretches read, at 0 too, and those that shared no waveform) or why there is none, then
+   *  a line for each measure past its resolution */
+  compare(before: AudioInstance): Promise<{ lag: number | null, why: 'short' | 'unrelated' | 'varies' | 'repeats' | null, period: number | null, readings: { at: number, duration: number, channel: number | null, lag: number | null }[], gain: number | null, polarity: number[] | null, swapped: boolean | null, difference: number | null, voice: { frames: number, change: { p10: number, p50: number, p90: number }, under: number, over: number, silenced: number } | null, measures: { name: string, unit: string, before: number | null, after: number | null, delta: number | null }[], changes: string[] }>
   stat(name: 'clipping', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
   stat(name: 'clipping', opts: { bins: number, at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
   stat(name: 'dc', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<number>

@@ -23,21 +23,22 @@ import kWeighting from '@audio/weighting/k'
 import { peaking, lowshelf, highshelf, process as biquad, state } from '@audio/biquad'
 import { refLen } from '../plan.js'
 
-const FRAME = 4096, HOP = FRAME / 2, F0 = 30, F1 = 16000, XFADE = 0.1, TYPES = { peak: peaking, lowshelf, highshelf }
-const HANN = Float64Array.from({ length: FRAME }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (FRAME - 1)))
+const FRAME = 4096, F0 = 30, F1 = 16000, XFADE = 0.1, TYPES = { peak: peaking, lowshelf, highshelf }
 
 /** Streaming Welch accumulator over a mono signal: power per bin, averaged over frames. */
-function welch() {
-  let buf = new Float64Array(FRAME), f = new Float64Array(FRAME), fill = 0, acc = new Float64Array(FRAME / 2 + 1), frames = 0
+// frames of N (a power of two), half overlapped: compare reads its octave bands from it at a finer N
+export function welch(N = FRAME) {
+  let win = Float64Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)))
+  let buf = new Float64Array(N), f = new Float64Array(N), fill = 0, acc = new Float64Array(N / 2 + 1), frames = 0
   return {
     push(x) {
       for (let i = 0; i < x.length; i++) {
         buf[fill++] = x[i]
-        if (fill < FRAME) continue
-        for (let k = 0; k < FRAME; k++) f[k] = buf[k] * HANN[k]
+        if (fill < N) continue
+        for (let k = 0; k < N; k++) f[k] = buf[k] * win[k]
         let [re, im] = fft(f)
-        for (let k = 0; k <= FRAME / 2; k++) acc[k] += re[k] * re[k] + im[k] * im[k]
-        frames++; buf.copyWithin(0, HOP); fill = FRAME - HOP
+        for (let k = 0; k <= N / 2; k++) acc[k] += re[k] * re[k] + im[k] * im[k]
+        frames++; buf.copyWithin(0, N / 2); fill = N / 2
       }
     },
     power: () => frames ? acc.map(v => v / frames) : null,

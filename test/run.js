@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 const SUITES = [
   'index',          // the library, isomorphic (the browser runs it too: test/test.html)
   'pro',            // delivery grade: loudness to spec, files, CLI, video, bare atom imports
-  'check',          // verify: each spec's limits from their sources, limits of your own
+  'check',          // verify: each spec's limits from their sources, limits of your own, what an edit changed (compare)
   'plugin-denoise',
   'recipes',        // the editor's voice recipes against the specs they name
   'deck',           // playback offline: the deck fed by a voice, sample by sample (the browser plays it: test/play.html)

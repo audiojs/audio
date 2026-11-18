@@ -268,6 +268,10 @@ import './fn/save.js'
 import './fn/check.js'
 import './fn/cuts.js'
 
+// compare (what changed from a sound before) reads two sounds whole: its module loads on first use, as the registry's
+// plugins do, out of a page's bundle (.esbuild.js leaves it beside dist/); it reads the sounds through their methods
+audio.fn.compare = async function(ref) { return (await import('./fn/compare.js')).default.call(this, ref) }
+
 // ── Ops ─────────────────────────────────────────────────────────────────
 
 import './fn/crop.js'

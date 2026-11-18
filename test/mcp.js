@@ -207,6 +207,15 @@ test('mcp: check takes limits of its own', E2E, async t => {
   } finally { await c.close() }
 })
 
+test('mcp: compare says what an edit changed, each measure before and after', E2E, async t => {
+  let c = client()
+  try {
+    let d = await c.call(`${lena} gain -6db compare ${lena}`)
+    t.is(d.isError, false, d.content[0].text)
+    t.ok(/· loudness -17\.22 → -23\.22 LUFS/.test(d.content[0].text) && /· true peak -4\.06 → -10\.06 dBTP/.test(d.content[0].text), d.content[0].text)
+  } finally { await c.close() }
+})
+
 test('mcp: errors come back as tool errors the model can act on', E2E, async t => {
   let c = client()
   try {

@@ -1,6 +1,6 @@
 ---
 name: audio
-description: Inspect, edit, convert and analyze audio files (wav, mp3, flac, ogg, opus, m4a, aiff…) and the sound of videos (mp4, mov) with the `audio` CLI, no ffmpeg. Loudness/LUFS, true peak and noise floor, normalize and check against podcast, Spotify, broadcast, audiobook (ACX) or Netflix specs, trim silence, cut, fade, EQ, match EQ, repair, denoise, ducking, speed, pitch, mix, split, BPM, key, chords. Use for any task that reads or changes an audio file.
+description: Inspect, edit, convert and analyze audio files (wav, mp3, flac, ogg, opus, m4a, aiff…) and the sound of videos (mp4, mov) with the `audio` CLI, no ffmpeg. Loudness/LUFS, true peak and noise floor, normalize and check against podcast, Spotify, broadcast, audiobook (ACX) or Netflix specs, compare what an edit changed, trim silence, cut, fade, EQ, match EQ, repair, denoise, ducking, speed, pitch, mix, split, BPM, key, chords. Use for any task that reads or changes an audio file.
 ---
 
 Shell: `npx -y audio ARGS`. MCP tool `audio`: same ARGS.

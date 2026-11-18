@@ -2,7 +2,7 @@
 
 A landscape of audio tools across the web, Python, CLI, and desktop. The goal: help you pick the right tool for the job — including, often, *not* `audio`.
 
-`audio` occupies a specific niche: **a non-destructive audio workstation library for JavaScript runtimes (Node, Deno, Bun, browsers)**. Decode, edit, analyze, encode, play, record — chainable API + CLI, nothing to compile: 149.5 KB gzipped in a page (the whole library minified; codecs and plugins load on first use), 16.6 MB installed in Node with every codec and plugin (2.15.1).
+`audio` occupies a specific niche: **a non-destructive audio workstation library for JavaScript runtimes (Node, Deno, Bun, browsers)**. Decode, edit, analyze, encode, play, record — chainable API + CLI, nothing to compile: 149.5 KB gzipped in a page (the whole library minified; codecs, plugins and compare load on first use), 16.6 MB installed in Node with every codec and plugin (2.15.1).
 
 `audio` is part of the [audiojs](https://github.com/audiojs) ecosystem — a constellation of small focused packages (`@audio/decode`, `@audio/encode`, `@audio/speaker`, `@audio/mic`, `@audio/filter`, `@audio/dynamics`, `@audio/denoise`, `wavearea`, ...) that together cover most JS audio needs. `audio` itself composes many of them into a unified workstation.
 

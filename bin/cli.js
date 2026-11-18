@@ -154,7 +154,7 @@ function isOpName(s) {
 
 // Verb taxonomy — sources produce audio, sinks terminate the chain
 const SOURCE_VERBS = new Set(['record'])
-const SINK_VERBS = new Set(['play', 'stat', 'save', 'check'])
+const SINK_VERBS = new Set(['play', 'stat', 'save', 'check', 'compare'])
 const STAT_AGG = new Set(['key', 'notes', 'chords'])  // stat names handled via dedicated methods
 function isVerb(s) { return SOURCE_VERBS.has(s) || SINK_VERBS.has(s) }
 function isStatName(s) { return audio.stat(s) != null || STAT_AGG.has(s) }
@@ -234,6 +234,7 @@ const HELP = {
   play:   { usage: 'play [loop]', desc: 'Open player UI (autoplay)', examples: ['play', 'play loop', '1s..10s play loop', 'normalize play'], kind: 'sink' },
   stat:   { usage: 'stat [NAMES...]', desc: 'Print analysis (default: overview)', examples: ['stat', 'stat loudness rms', 'stat spectrum 128'], kind: 'sink', params: () => wrapWords(Object.keys(audio.stat())) },
   check:  { usage: 'check SPEC | NAME:LIMIT…', desc: 'Pass or fail each rule of a delivery spec (a rule its source only recommends marked so), or limits of your own on stats by name (MIN..MAX, ..MAX, MIN.., VALUE±TOL), a fix named for each fail; exits 1 on a fail', examples: ['check podcast', 'normalize podcast check podcast', 'check acx --json', 'check loudness:-17..-15 truepeak:..-1'], kind: 'sink', params: () => specs.join(', ') },
+  compare: { usage: 'compare BEFORE', desc: 'What changed from BEFORE, measured: each measure before and after (loudness LUFS, true peak dBTP, noise floor and each octave dB, stereo, clipping samples), the lag its readings agree on, the stretches they were read over and those that shared no waveform, or why there is none (short, unrelated, varies, repeats), and at the lag the gain, polarity, what is left (dB) and the voice band of its voiced frames (the median change and 10th, 90th in dB; the shares 10 dB under and over the median, silenced); a line for each measure past its resolution. --json: every measure with its unit; lag and period in s, why, readings, gain and difference in dB, voice', examples: ['compare before.wav', 'omlsa normalize podcast compare in.wav', 'compare golden.wav --json'], kind: 'sink' },
   save:   { usage: 'save PATH [BITRATE] [DEPTH]', desc: 'Encode and write to file (or - for stdout); lossless keeps the source depth; .edl/.fcpxml/.otio write the cuts for a video editor (fps:N)', examples: ['save out.wav', 'save out.mp3 192k', 'save out.wav 24bit', 'save out.m4a codec:alac', 'shrink save cuts.edl', 'save -'], kind: 'sink' },
   // ── sources (provide input) ─────────────────────────────────────────────
   record: { usage: 'record [DUR]', desc: 'Capture from microphone (to recording.wav when no sink follows)', examples: ['record save out.wav', 'record 30s normalize save out.wav'], kind: 'source' },
@@ -291,7 +292,7 @@ function showOpHelp(name) {
   let params = typeof h.params === 'function' ? h.params() : h.params
   if (params) console.log('  Params:\n' + params + '\n')
   if (h.examples.length) console.log('  Examples:')
-  let sinkless = ex => !/(^|\s)(save|play|stat|check)(\s|$)/.test(ex)
+  let sinkless = ex => !/(^|\s)(save|play|stat|check|compare)(\s|$)/.test(ex)
   for (let ex of h.examples) console.log(`    ${h.kind === 'source' ? `audio ${ex}` : h.kind === 'sink' ? `audio in.wav ${ex}` : `audio in.wav ${ex}${sinkless(ex) ? ' save out.wav' : ''}`}`)
   console.log()
 }
@@ -1124,7 +1125,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
 
     // Context-aware completions
     let out = []
-    if (prev === 'save') {
+    if (prev === 'save' || prev === 'compare') {
       // Need filename — return empty, shell falls back to file completion
       process.exit(0)
     } else if (prev === 'check') {
@@ -1325,6 +1326,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     ;[a] = await applyTransforms(a, transforms)  // clip rebinds a
 
     if (sink.name === 'check') return printCheck(a, specArg(sink), opts.json)
+    if (sink.name === 'compare') return printCompare(a, sink.args[0], opts.json)
     let statNames = sink.args.filter(v => typeof v === 'string')
     if (!statNames.length) return printOverview(a, range, loadTime, opts.json)
     return printStats(a, sink.args, statNames, range, sink.opts, opts.json)
@@ -1631,6 +1633,24 @@ async function printCheck(a, spec, json) {
   let r = await a.check(spec)
   console.log(json ? JSON.stringify(r) : fmtCheck(r))
   process.exit(r.pass ? 0 : 1)
+}
+
+/** The changes, a line each, under what the sound was compared to, its gain and what is left; the first line is always
+ *  the lag's or why there is none, so a lag of 0 alone is no change */
+function fmtCompare(r, before) {
+  let db = v => v == null ? null : Number.isFinite(v) ? `${v.toFixed(2)} dB` : `${v < 0 ? '-' : '+'}∞ dB`
+  let head = [r.gain != null && `gain ${db(r.gain)}`, r.difference != null && `difference ${db(r.difference)}`].filter(Boolean).join(', ')
+  return [`  against ${before}${head ? `: ${head}` : ''}`, ...r.changes.map(c => `  · ${c}`), ...r.lag === 0 && r.changes.length === 1 ? ['  no change past its threshold'] : []].join('\n')
+}
+
+// JSON has no ±Infinity (stringify writes null, which compare's fields use for "not read"): the strings, as Number() reads them
+const infinite = (k, v) => v === Infinity ? 'Infinity' : v === -Infinity ? '-Infinity' : v
+
+async function printCompare(a, before, json) {
+  if (typeof before !== 'string') throw new Error('compare: against what? compare BEFORE.wav')
+  let r = await a.compare(await audio(before))
+  console.log(json ? JSON.stringify(r, infinite) : fmtCompare(r, before))
+  process.exit(0)
 }
 
 async function runBatch(globPattern, transforms, sink, range, opts) {
