@@ -354,14 +354,16 @@ export function popEdit(a) {
  *  edit list through op `.sr`/`.ch` hooks (lightweight: no segments, no resolve). */
 function deriveFormat(a) {
   if (a._.fmtV === a.version) return a._.fmt
-  let sr = a._.sr, ch = a._.ch
+  let sr = a._.sr, ch = a._.ch, known = true
   for (let [i, [type, o = {}]] of a.edits.entries()) try {
     let desc = ops[type]
-    if (!desc) continue
+    if (!desc) { known = false; continue }
     if (desc.sr) sr = desc.sr(sr, o) || sr
     if (desc.ch) { let { at, duration, channel, ...extra } = o; ch = widthOf(desc, ch, channel, extra) }
   } catch (e) { throw blame(e, a, i) }
-  a._.fmt = { sr, ch }; a._.fmtV = a.version
+  // an op not loaded yet (a registry plugin before the first read) is passed as keeping the format; loading it changes
+  // no version, so that answer is not kept
+  a._.fmt = { sr, ch }; a._.fmtV = known ? a.version : -1
   return a._.fmt
 }
 

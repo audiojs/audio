@@ -170,6 +170,27 @@ test('audio.use(name) loads through audio.import, so a bundle can supply literal
   } finally { audio.import = original; delete audio.plugins.echo; delete audio.fn.echo }
 })
 
+// A registry op's module loads at the first read; a width asked before that cannot know what the op makes of it
+test('channels asked before a registry op is loaded: the width read, from the read on', async () => {
+  let original = audio.import
+  let wideprobe = () => (inputs, outputs) => { for (let out of outputs[0]) out.set(inputs[0][0]) }
+  wideprobe.channels = { inputs: 1, outputs: 2 }
+  wideprobe.params = {}
+  audio.plugins.wideprobe = '@audio/wide-probe/audio'
+  audio.import = spec => spec === '@audio/wide-probe/audio' ? Promise.resolve({ wideprobe }) : original(spec)
+  try {
+    let one = () => audio.from([tone(440, 0.1)], { sampleRate: SR }).run(['wideprobe'])
+    let a = one(), b = one()
+    ok(!audio.op('wideprobe'), 'not loaded yet')
+    // both asked before the load: what either says then is not kept
+    void a.channels, void b.channels
+    let out = await a.read()
+    is([out.length, a.channels], [2, 2], 'two channels read, two said')
+    is(b.channels, 2, 'by a sound asked before the load and not read since')
+    is(a.clone().channels, 2, 'and by a copy')
+  } finally { audio.import = original; delete audio.plugins.wideprobe; delete audio.fn.wideprobe }
+})
+
 // ── Wave B: dynamics-gate + denoise-dehum ─────────────────────────────
 
 import { gate } from '@audio/dynamics-gate/audio'
