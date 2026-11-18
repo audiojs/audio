@@ -1,6 +1,6 @@
 {
   "name": "audio",
-  "version": "2.15.1",
+  "version": "2.15.2",
   "description": "High-level audio manipulations: loading, playback, analysis and editing. 140+ plugins: denoise, dynamics, EQ, filters, effects, reverb, time and pitch, spatial, synthesis, music analysis.",
   "type": "module",
   "main": "audio.js",

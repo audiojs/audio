@@ -773,7 +773,7 @@ function compilePlan(a, len, final, measure = false) {
   // an op that sets the rate from here on (resample)
   let rerate = (op, o) => { let ns = op?.sr?.(sr, o); if (ns) sr = ns }
   // a whole op's declared decay, in samples: rendered past its input's end
-  let tailN = (op, o) => Math.round((typeof op.tail === 'function' ? op.tail(o, sr) : op.tail || 0) * sr)
+  let tailN = (op, o) => { let t = typeof op.tail === 'function' ? op.tail(o, sr) : op.tail || 0; return t < Infinity ? Math.round(t * sr) : 0 }
 
   // Apply edits emitted by an expand/resolve hook: structural → segment rewrite,
   // otherwise pipeline. Inherits the parent edit's range and mix unless overridden.

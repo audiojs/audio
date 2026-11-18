@@ -51,6 +51,23 @@ test('declared tail composes a trailing pad — freeverb decay is not truncated'
   ok(out.every(isFinite))
 })
 
+// A processor that never stops ringing (an integrator, a ladder at full resonance) declares an endless tail: nothing
+// is rendered past the input for it
+test('an endless declared tail (Infinity) extends no render: a streaming module and a whole-signal one', async () => {
+  let pass = (inputs, outputs) => { inputs[0].forEach((c, i) => outputs[0][i].set(c)) }
+  let ringing = () => pass, ringingwhole = () => pass
+  ringing.params = {}; ringing.channels = 'any'; ringing.tail = () => Infinity
+  ringingwhole.params = {}; ringingwhole.channels = 'any'; ringingwhole.tail = Infinity; ringingwhole.streaming = false
+  audio.use(ringing, ringingwhole)
+  for (let name of ['ringing', 'ringingwhole']) {
+    let input = tone(440, 0.25), a = audio.from([input], { sampleRate: SR })
+    a[name]()
+    is(a.length, input.length, `${name}: the length said is the input's`)
+    let out = (await a.read())[0]
+    ok(out.length === input.length && out.every((v, i) => v === input[i]), `${name}: rendered, the input's frames`)
+  }
+})
+
 test('op introspection carries module param metadata (CLI help substrate)', () => {
   let d = audio.op('compressor')
   is(d.plugin.params.threshold.min, -60)
