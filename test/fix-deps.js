@@ -101,6 +101,11 @@ test('fix package.json — audio.d.ts declares every static of audio, and none t
   is(statics.filter(k => !(k in declared) && !own.includes(k)), [], 'statics of audio without a declaration')
   is(own.filter(k => !statics.includes(k) || k in declared), [], 'named here as the library\'s own, and gone or declared')
   is(Object.keys(declared).filter(k => !statics.includes(k) && !/\| undefined\b/.test(declared[k])), [], 'declared as always there, absent at import')
+  // the entry's named exports alike; these three no document gives a user: undeclared until one does
+  let mod = await import('../audio.js'), names = [...dts.matchAll(/^export (?:function|const|let|class) (\w+)/gm)].map(m => m[1])
+  let undocumented = ['parseTime', 'bitDepth', 'render']
+  is(Object.keys(mod).filter(k => k !== 'default' && !names.includes(k) && !undocumented.includes(k)), [], 'named exports without a declaration')
+  is([...names.filter(k => !(k in mod)), ...undocumented.filter(k => !(k in mod) || names.includes(k))], [], 'declared and not exported, or named here and gone or declared')
 })
 
 // the deployed site is built into a folder cleared first (node .site-build.js _site): never the repository nor one above it
