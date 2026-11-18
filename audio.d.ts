@@ -763,13 +763,20 @@ declare namespace audio {
   interface CodecPlugin { codec: string, test?(bytes: Uint8Array): boolean, decode?(bytes: Uint8Array): { channelData: Float32Array[], sampleRate: number } | Promise<{ channelData: Float32Array[], sampleRate: number }>, encode?(opts: { sampleRate: number, channels: number }): ((chunk?: Float32Array[]) => Uint8Array) | Promise<(chunk?: Float32Array[]) => Uint8Array> }
   /** @deprecated ≤2.5 name — alias of CodecPlugin */
   type CodecAtom = CodecPlugin
-  /** Registered codec plugins by format name */
-  const codecs: Record<string, CodecPlugin>
+  /** Registered codec plugins by format name: undefined until one registers */
+  const codecs: Record<string, CodecPlugin> | undefined
   /** Register plugins: contract factories (audio.js manifests with own `params`), `(audio) => {}` plugin functions, or registry names. String names dynamic-import — returns a promise; direct values register synchronously.
    *  A processor registers under its id: under a built-in op's name or an instance method's it throws (audio.op(name, processor) registers it under another), under another processor's it replaces it, the same one again is a no-op. A stat plugin under a built-in stat's, an op's or a method's name throws, under another stat plugin's it replaces it. */
   function use(...plugins: (string | Function | StatPlugin | CodecPlugin)[]): typeof audio & Promise<typeof audio>
   /** Audio instance prototype — extensible (like $.fn) */
   const fn: Record<string, any>
+}
+// `import` is a reserved word, so it is exported by alias; a block with an export statement exports nothing else
+declare namespace audio {
+  /** How a registry package loads: `import(spec)` by default. A bundle whose bundler cannot follow a computed
+   *  `import()` sets literal ones: `audio.import = spec => loaders[spec]()`. */
+  let _import: (spec: string) => Promise<any>
+  export { _import as import }
 }
 
 /** Checkpoints (checkpoint.js): the keys of an instance's start and of its output after each edit, as far as they can be

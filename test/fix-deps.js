@@ -87,6 +87,22 @@ test('fix package.json — audio.d.ts declares every op the library registers', 
   is(ops.filter(k => !new RegExp(`^\\s+${k}\\(`, 'm').test(dts)), [], 'ops without a method in audio.d.ts')
 })
 
+test('fix package.json — audio.d.ts declares every static of audio, and none the entry lacks unless it may be undefined', async () => {
+  let { default: audio } = await import('../audio.js')
+  let dts = readFileSync(new URL('../audio.d.ts', import.meta.url), 'utf8')
+  let ns = dts.split(/^declare namespace audio \{$/m).slice(1).map(b => b.slice(0, b.indexOf('\n}\n'))).join('\n')
+  let declared = {}
+  for (let [, name, type] of ns.matchAll(/^  (?:let|const|function|class) (\w+)(.*)$/gm)) declared[name] = type
+  for (let [, name, as] of ns.matchAll(/^  export \{ (\w+) as (\w+) \}$/gm)) declared[as] = declared[name], delete declared[name]
+  // what the library's own modules reach each other by (plan, cache and stats hang theirs on the entry, which imports
+  // none of them): no part of what a user is given
+  let own = ['hosted', 'render', 'renderAt', 'evict', 'ensurePages', 'DEFAULT_BUDGET', 'statSession', 'adaptStats']
+  let statics = Object.getOwnPropertyNames(audio).filter(k => !Object.getOwnPropertyNames(function () {}).includes(k))
+  is(statics.filter(k => !(k in declared) && !own.includes(k)), [], 'statics of audio without a declaration')
+  is(own.filter(k => !statics.includes(k) || k in declared), [], 'named here as the library\'s own, and gone or declared')
+  is(Object.keys(declared).filter(k => !statics.includes(k) && !/\| undefined\b/.test(declared[k])), [], 'declared as always there, absent at import')
+})
+
 // the deployed site is built into a folder cleared first (node .site-build.js _site): never the repository nor one above it
 test('fix package.json — the site\'s build clears no folder that holds the repository', async () => {
   let { holds } = await import('../.site-build.js'), root = '/a/repo/'
