@@ -233,7 +233,7 @@ const HELP = {
   // ── sinks (terminate chain) ─────────────────────────────────────────────
   play:   { usage: 'play [loop]', desc: 'Open player UI (autoplay)', examples: ['play', 'play loop', '1s..10s play loop', 'normalize play'], kind: 'sink' },
   stat:   { usage: 'stat [NAMES...]', desc: 'Print analysis (default: overview)', examples: ['stat', 'stat loudness rms', 'stat spectrum 128'], kind: 'sink', params: () => wrapWords(Object.keys(audio.stat())) },
-  check:  { usage: 'check SPEC', desc: 'Pass or fail each rule of a delivery spec; exits 1 on a fail', examples: ['check podcast', 'normalize podcast check podcast', 'check acx --json'], kind: 'sink', params: () => specs.join(', ') },
+  check:  { usage: 'check SPEC | NAME:LIMIT…', desc: 'Pass or fail each rule of a delivery spec (a rule its source only recommends marked so), or limits of your own on stats by name (MIN..MAX, ..MAX, MIN.., VALUE±TOL), a fix named for each fail; exits 1 on a fail', examples: ['check podcast', 'normalize podcast check podcast', 'check acx --json', 'check loudness:-17..-15 truepeak:..-1'], kind: 'sink', params: () => specs.join(', ') },
   save:   { usage: 'save PATH [BITRATE] [DEPTH]', desc: 'Encode and write to file (or - for stdout); lossless keeps the source depth; .edl/.fcpxml/.otio write the cuts for a video editor (fps:N)', examples: ['save out.wav', 'save out.mp3 192k', 'save out.wav 24bit', 'save out.m4a codec:alac', 'shrink save cuts.edl', 'save -'], kind: 'sink' },
   // ── sources (provide input) ─────────────────────────────────────────────
   record: { usage: 'record [DUR]', desc: 'Capture from microphone (to recording.wav when no sink follows)', examples: ['record save out.wav', 'record 30s normalize save out.wav'], kind: 'source' },
@@ -360,6 +360,8 @@ function parseArgs(args) {
       while (i < args.length && !isFlag(args[i])) {
         let a = args[i++]
         if (isRange(a)) range = parseRange(a)
+        // a check's limit as written (loudness:-17..-15): check() reads its grammar, not a time range
+        else if (name === 'check' && (m = a.match(/^([a-zA-Z]\w*):(.+)$/))) sinkOpts[m[1]] = m[2]
         else if (kv = namedOpt(a)) sinkOpts[kv[0]] = kv[1]
         // encoder shorthands after the path: 192k = bitrate (kbps), 24bit = sample depth
         else if (name === 'save' && sinkArgs.length && (m = a.match(/^(\d+)k(?:bps)?$/i))) sinkOpts.bitrate = +m[1]
@@ -1125,6 +1127,8 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     if (prev === 'save') {
       // Need filename — return empty, shell falls back to file completion
       process.exit(0)
+    } else if (prev === 'check') {
+      out = specs
     } else if (prev === 'stat') {
       out = [...Object.keys(audio.stat()), ...STAT_AGG]
     } else if (prev === 'normalize') {
@@ -1320,7 +1324,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     // ── sink: stat ──────────────────────────────────────────────────────
     ;[a] = await applyTransforms(a, transforms)  // clip rebinds a
 
-    if (sink.name === 'check') return printCheck(a, sink.args[0], opts.json)
+    if (sink.name === 'check') return printCheck(a, specArg(sink), opts.json)
     let statNames = sink.args.filter(v => typeof v === 'string')
     if (!statNames.length) return printOverview(a, range, loadTime, opts.json)
     return printStats(a, sink.args, statNames, range, sink.opts, opts.json)
@@ -1598,13 +1602,16 @@ function fmtLimit({ min, max }) {
 
 const fmtVal = v => Number.isInteger(v) || !Number.isFinite(v) ? String(v) : v.toFixed(2)
 
+// A rule its source only recommends says so after its limits, met or missed: missed, it fails as any rule does
+const fmtLimits = x => fmtLimit(x) + (x.required === false ? ' recommended' : '')
+
 function fmtCheck(r) {
-  let lines = [`  ${r.name}  ${r.url}`], w = Math.max(...r.rules.map(x => x.name.length))
+  let lines = r.name ? [`  ${r.name}  ${r.url}`] : [], w = Math.max(...r.rules.map(x => x.name.length))
   for (let x of r.rules) {
     let mark = x.pass == null ? '·' : x.pass ? '✓' : '✗'
     let val = fmtVal(x.value)
-    let lim = fmtLimit(x)
-    lines.push(`  ${mark} ${x.name.padEnd(w)}  ${val.padStart(8)} ${x.unit.padEnd(4)}  ${lim}${x.note ? `${lim ? '  ' : ''}(${x.note})` : ''}`)
+    let lim = fmtLimits(x)
+    lines.push(`  ${mark} ${x.name.padEnd(w)}  ${val.padStart(8)} ${x.unit.padEnd(4)}  ${lim}${x.note ? `${lim ? '  ' : ''}(${x.note})` : ''}${x.hint ? `  → ${x.hint}` : ''}`)
   }
   let failed = r.rules.filter(x => x.pass === false).length
   if (r.note) lines.push(`  ${r.note}`)
@@ -1612,8 +1619,15 @@ function fmtCheck(r) {
   return lines.join('\n')
 }
 
+/** What a check sink holds the sound to: a spec by name, or its limits by name:value */
+function specArg({ args, opts }) {
+  let own = Object.keys(opts ?? {}).length ? opts : null
+  if (args[0] != null && own) throw new Error(`check: a spec by name, or limits (loudness:-17..-15), not both`)
+  if (args[0] == null && !own) throw new Error(`check: which spec? ${specs.join(', ')}, or limits: loudness:-17..-15 truepeak:..-1`)
+  return args[0] ?? own
+}
+
 async function printCheck(a, spec, json) {
-  if (spec == null) throw new Error(`check: which spec? ${specs.join(', ')}`)
   let r = await a.check(spec)
   console.log(json ? JSON.stringify(r) : fmtCheck(r))
   process.exit(r.pass ? 0 : 1)
@@ -1627,7 +1641,7 @@ async function runBatch(globPattern, transforms, sink, range, opts) {
   let files = readdirSync(dir).filter(f => re.test(f)).map(f => join(dir, f)).sort()
   if (!files.length) throw new Error(`No files matching: ${globPattern}`)
 
-  if (sink.name === 'check') return batchCheck(files, transforms, sink.args[0], opts)
+  if (sink.name === 'check') return batchCheck(files, transforms, specArg(sink), opts)
   if (sink.name !== 'save') throw new Error(`batch mode requires 'save' or 'check' sink, got '${sink.name}'`)
   let pattern = sink.args.find(v => typeof v === 'string')
   // A literal pattern with no {name}/{ext} placeholder resolves to the same path for every
@@ -1656,20 +1670,19 @@ async function runBatch(globPattern, transforms, sink, range, opts) {
 /** One line per file (✓, or ✗ with the failed rules), then the count. ACX wants a whole book
  *  mono or stereo: the one rule only a batch can check. */
 async function batchCheck(files, transforms, spec, opts) {
-  if (spec == null) throw new Error(`check: which spec? ${specs.join(', ')}`)
   let reports = [], channels = new Set()
   for (let file of files) {
     let a = await audio(file)
     ;[a] = await applyTransforms(a, transforms)
     let r = { file, ...await a.check(spec) }
     reports.push(r); channels.add(a.channels)
-    if (!opts.json) console.log(`  ${r.pass ? '✓' : '✗'} ${file}${r.pass ? '' : '  ' + r.rules.filter(x => x.pass === false).map(x => `${x.name} ${fmtVal(x.value)} ${x.unit} (${fmtLimit(x)})`).join(' · ')}`)
+    if (!opts.json) console.log(`  ${r.pass ? '✓' : '✗'} ${file}${r.pass ? '' : '  ' + r.rules.filter(x => x.pass === false).map(x => `${x.name} ${fmtVal(x.value)} ${x.unit} (${fmtLimits(x)})`).join(' · ')}`)
   }
   let mixed = reports[0].spec === 'acx' && channels.size > 1, failed = reports.filter(r => !r.pass).length
   if (opts.json) console.log(JSON.stringify(mixed ? { reports, pass: false, note: 'mixed mono and stereo files' } : reports))
   else {
     if (mixed) console.log('  ✗ mixed mono and stereo files: ACX wants all mono or all stereo')
-    console.log(`  ${reports[0].name}: ${failed ? `${failed} of ${files.length} files failed` : `all ${files.length} files pass`}`)
+    console.log(`  ${reports[0].name ? `${reports[0].name}: ` : ''}${failed ? `${failed} of ${files.length} files failed` : `all ${files.length} files pass`}`)
   }
   process.exit(failed || mixed ? 1 : 0)
 }

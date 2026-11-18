@@ -1056,7 +1056,7 @@ test('cli: check prints each rule and exits 1 on a fail; --json; a folder is che
   t.is(bad.status, 1, 'fail exits 1')
   t.ok(/✗ Loudness\s+-17\.22 LUFS\s+-23\.2 to -22\.8/.test(bad.stdout) && /· Loudness range/.test(bad.stdout), bad.stdout)
   let j = JSON.parse(run(lena, 'check', 'acx', '--json').stdout)
-  t.is([j.spec, j.pass, j.rules.length], ['acx', false, 7], 'JSON report')
+  t.is([j.spec, j.pass, j.rules.length], ['acx', false, 8], 'JSON report')
   t.is(JSON.parse(run(lena, 'stat', 'rms', 'noisefloor', '--json').stdout).noisefloor.toFixed(2), acxFloor(await (await audio(lena)).read(), 44100).toFixed(2), 'stat --json')
   run(lena, 'save', tmp('book-1.wav'), '-f'); run(lena, 'remix', '2', 'save', tmp('book-2.wav'), '-f')
   let book = run(join(dir, 'book-*.wav'), 'check', 'acx')

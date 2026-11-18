@@ -197,6 +197,16 @@ test('mcp: a failed check is a result with its report; a bad spec is an error', 
   } finally { await c.close() }
 })
 
+// The verifying sinks reach an agent through the one tool: limits of its own, a fail a result
+test('mcp: check takes limits of its own', E2E, async t => {
+  let c = client()
+  try {
+    let r = await c.call(`${lena} check loudness:-17..-15 truepeak:..-1`)
+    t.is(r.isError, false, 'a failed check is its report')
+    t.ok(/✗ loudness .*→ normalize\(-16, 'lufs'\)/.test(r.content[0].text), r.content[0].text)
+  } finally { await c.close() }
+})
+
 test('mcp: errors come back as tool errors the model can act on', E2E, async t => {
   let c = client()
   try {

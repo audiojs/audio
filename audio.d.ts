@@ -50,6 +50,9 @@ type RepairOpts = { at: Time, duration: Time, method?: 'auto' | 'ar' | 'sinusoid
 type Mix = number | { t: number[], v: number[] } | ((t: number) => number)
 /** The sound to look for: a range, and optionally its band (Hz) and how alike a match must be */
 type SimilarOpts = { at: Time, duration?: Time, d?: Time, band?: [number, number], threshold?: number }
+/** required: false where the source recommends the rule rather than requires it (missed, it fails as any rule does);
+ *  hint, on a failed rule: what would fix it ("normalize('podcast')") */
+type CheckRule = { name: string, value: number, unit: string, min?: number | null, max?: number | null, pass: boolean | null, required?: boolean, note?: string, hint?: string }
 type DenoiseOpts = { noise: { at?: Time, duration: Time } | { at?: Time, duration: Time }[] | number[] | number[][], band?: [number, number], at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }
 
 export interface AudioInstance {
@@ -142,11 +145,16 @@ export interface AudioInstance {
   [Symbol.asyncIterator](): AsyncGenerator<Float32Array[], void, unknown>
   /** Ensure stats are fresh, return stats + block range */
   /** loudness: integrated LUFS (BS.1770-4, surround weighted) · momentary/shortterm: max 400 ms / 3 s LUFS (EBU Tech 3341) · dialog: speech-gated LUFS (AES TD1008) · noisefloor: dB RMS of the quietest 0.4 s (ACX Check) */
+  /** relative: false: its gating windows without BS.1770's relative gate (what Netflix and ATSC A/85 call BS.1770-1) */
+  stat(name: 'dialog', opts: { relative: boolean, at?: Time, duration?: Time, d?: Time }): Promise<number>
   stat(name: 'db' | 'rms' | 'noisefloor' | 'loudness' | 'momentary' | 'shortterm' | 'dialog' | 'peak' | 'crest', opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): Promise<number | number[]>
   /** bins: the value over each of n spans of the range, on the block grid (as waveform bins); NaN where the stat has none */
   stat<C extends number | number[] = number>(name: 'db' | 'rms' | 'noisefloor' | 'loudness' | 'momentary' | 'shortterm' | 'dialog' | 'peak' | 'crest' | 'dc' | 'correlation' | 'centroid' | 'flatness' | 'bpm', opts: { bins: number, at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
   /** Each rule of a delivery spec, measured: pass is null for rules the spec describes without bounding */
-  check(spec: Delivery | 'acx' | 'netflix'): Promise<{ spec: string, name: string, url: string, note?: string, pass: boolean, rules: { name: string, value: number, unit: string, min?: number | null, max?: number | null, pass: boolean | null, note?: string }[] }>
+  check(spec: Delivery | 'acx' | 'netflix' | 'atsc'): Promise<{ spec: string, name: string, url: string, note?: string, pass: boolean, rules: CheckRule[] }>
+  /** Limits of your own, by stat name (rms and peak in dB) or duration, sampleRate, channels: a number (exactly it),
+   *  [min, max] (null: open), or 'min..max', '..max', 'min..', 'value±tolerance', a unit allowed ('-1db', '120m') */
+  check(limits: Record<string, number | string | [number | string | null, number | string | null]>): Promise<{ pass: boolean, rules: CheckRule[] }>
   stat(name: 'clipping', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
   stat(name: 'clipping', opts: { bins: number, at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
   stat(name: 'dc', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<number>

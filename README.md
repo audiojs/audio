@@ -73,8 +73,8 @@ npm i -g audio # or: npx audio …
 audio voice.wav trim normalize podcast save clean.mp3
 audio clean.mp3 check podcast
 #   Apple Podcasts  https://podcasters.apple.com/support/893-audio-requirements
-#   ✓ Loudness     -16.44 LUFS  -17 to -15
-#   ✓ True peak     -1.18 dBTP  ≤ -1
+#   ✓ Loudness     -16.44 LUFS  -17 to -15 recommended
+#   ✓ True peak     -1.18 dBTP  ≤ -1 recommended
 #   pass
 ```
 
@@ -163,7 +163,7 @@ a.remove({ at: 120, duration: 15 }).fade(0.1, { at: 120 })
 let clips = await a.stat('clipping')
 
 // does it pass? each rule of the spec, measured
-let { pass, rules } = await a.check('podcast')         // acx, podcast, spotify, broadcast, netflix
+let { pass, rules } = await a.check('podcast')         // acx, podcast, spotify, broadcast, netflix, atsc
 ```
 
 ### Master & deliver
@@ -589,7 +589,8 @@ m.stop()                                                           // release
 |:--|:--|
 | `await .stat(name, opts?)` | one value; with `{ bins: n }` a `Float32Array`, the value over each of n spans of the range: where, not only how much (lists, a key and spectra come whole; `bins` sizes spectrum and cepstrum); an array of names gives an array. `{ channel: n }` one channel, `[n, m]` per channel; `{at, duration}` sub-range. |
 | `await .detect(opts?)` | `{ bpm, confidence, beats, onsets }` in one pass; `{ channel }` as in `stat`. |
-| `await .check(spec)` | pass or fail against a delivery spec: `{ pass, rules: [{ name, value, unit, min, max, pass }] }`. `'acx'` (RMS, peak, noise floor, room tone, 44.1 kHz), `'podcast'` (Apple: -16 LUFS ±1, ≤ -1 dBTP), `'spotify'` (plays at -14 LUFS, ≤ -1 dBTP), `'broadcast'` (EBU R 128: -23 ±0.2 LUFS, ≤ -1 dBTP), `'netflix'` (dialog -27 ±2 LUFS, ≤ -2 dBTP). Each limit cites its source in [fn/check.js](fn/check.js). |
+| `await .check(spec)` | pass or fail against a delivery spec: `{ pass, rules: [{ name, value, unit, min, max, pass, required, hint }] }`. `'acx'` (RMS, peak, noise floor, room tone, 44.1 kHz), `'podcast'` (Apple: -16 LUFS ±1, ≤ -1 dBTP), `'spotify'` (plays at -14 LUFS, ≤ -1 dBTP), `'broadcast'` (EBU R 128: -23 ±0.2 LUFS, ≤ -1 dBTP), `'netflix'` (dialog -27 ±2 LUFS, ≤ -2 dBTP), `'atsc'` (A/85: dialog -24 ±2 LUFS, under 3 minutes the full mix; ≤ -2 dBTP). A rule its source recommends rather than requires is `required: false` (Apple's, Spotify's, ATSC's, ACX's room tone at each end); missed, it fails as any rule does. A failed rule's `hint` names what would fix it: `normalize('podcast')`. Each limit cites its source in [fn/check.js](fn/check.js). |
+| `await .check(limits)` | limits of your own, by stat name (`rms`, `peak` in dB) or `duration`, `sampleRate`, `channels`, each `'min..max'`, `'..max'`, `'min..'`, `'value±tolerance'`, a number or `[min, max]`: `.check({ loudness: '-17..-15', truepeak: '..-1', sampleRate: 44100 })` → `{ pass, rules }`. |
 
 | Stat                         | Description                                                                                                                         |
 |:--|:--|
@@ -600,7 +601,7 @@ m.stop()                                                           // release
 | `'peak'` | `max(\|min\|, \|max\|)`, linear. |
 | `'loudness'` | integrated LUFS (ITU-R BS.1770-4; surround channels weighted, LFE excluded). |
 | `'momentary'`, `'shortterm'` | maximum 400 ms / 3 s loudness, LUFS (EBU Tech 3341). |
-| `'dialog'` | loudness of the speech only, LUFS: speech found automatically (AES TD1008 dialog loudness). |
+| `'dialog'` | loudness of the speech only, LUFS: speech found automatically (AES TD1008 dialog loudness). `{ relative: false }`: its gating windows without BS.1770's relative gate, the measure Netflix and ATSC A/85 call BS.1770-1. |
 | `'dc'` | DC offset. |
 | `'clipping'` | clipped samples, at 16-bit full scale (±32767/32768) or beyond (scalar: timestamps, binned: counts). |
 | `'silence'` | silent ranges as `{at, duration}`. |
@@ -794,6 +795,7 @@ repair       copy        cut         paste       plugin
 stat [NAMES...]    print analysis (default)
 play [loop]        open player UI
 save PATH          encode and write (or `-` for stdout); `192k` bitrate, `24bit` depth
+check SPEC         pass or fail each rule of a delivery spec, or NAME:LIMIT of your own (exit 1 on a fail)
 
 # options
 -f --force         overwrite existing output
@@ -914,6 +916,7 @@ audio mix.wav stat loudness momentary shortterm dialog truepeak
 # pass or fail against a delivery spec (exit 1 on a fail); --json for scripts
 audio episode.wav normalize podcast check podcast
 audio chapter.wav check acx --json
+audio spot.wav check loudness:-26..-22 truepeak:..-2    # limits of your own, by stat name
 
 # pitch / chords / key
 audio song.mp3 stat notes
@@ -979,7 +982,7 @@ audio --completions fish | source       # fish
 <dd>No ffmpeg: codecs and processing are JS and WASM. Playing and recording in Node go through a small native addon, prebuilt for macOS, Linux (x64, arm64) and Windows (x64), so nothing compiles at install; elsewhere playback falls back to <code>ffplay</code>, SoX or <code>aplay</code>. For the CLI, install globally: <code>npm i -g audio</code>.</dd>
 
 <dt>How big is it?</dt>
-<dd>In a page: 147.8 KB gzipped, the whole library minified (<code>dist/audio.min.js</code>); codecs and plugins load on first use via <code>import()</code>, so unused formats aren't fetched. In Node: <code>npm i audio</code> installs 16.6 MB in 328 packages (every codec and plugin; measured on 2.15.1), nothing compiled; <code>npm i audio --omit=optional</code> 12.1 MB in 116 (the codecs and the core: filters, EQ, loudness, pitch, stretch; measured on 2.15.1), each plugin family then installed by name when used (<code>npm i @audio/dynamics</code>).</dd>
+<dd>In a page: 149.5 KB gzipped, the whole library minified (<code>dist/audio.min.js</code>); codecs and plugins load on first use via <code>import()</code>, so unused formats aren't fetched. In Node: <code>npm i audio</code> installs 16.6 MB in 328 packages (every codec and plugin; measured on 2.15.1), nothing compiled; <code>npm i audio --omit=optional</code> 12.1 MB in 116 (the codecs and the core: filters, EQ, loudness, pitch, stretch; measured on 2.15.1), each plugin family then installed by name when used (<code>npm i @audio/dynamics</code>).</dd>
 
 <dt>How does it handle large files?</dt>
 <dd>Audio is stored in fixed-size pages. In the browser, with <code>{ storage: 'persistent' }</code> (or <code>'auto'</code>, where OPFS exists), cold pages evict to OPFS when memory exceeds budget — auto-sized from <code>navigator.storage.estimate()</code> (quota/4, 64MB..512MB), overridable via <code>{budget}</code>; each instance keeps its own store, its copies share it. Works for decoded files, <code>audio.from(pcm)</code> and pushed streams. Stats stay resident (~7 MB for 2h stereo).</dd>

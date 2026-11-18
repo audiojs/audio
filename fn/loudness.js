@@ -170,8 +170,11 @@ audio.stat('shortterm', {})
 audio.fn.shortterm = maxWindow(SHORTTERM)
 
 /** Integrated loudness in bounded memory: gating-window powers binned at 0.01 LU (the
- *  histogram of libebur128), so the relative gate needs no history. ITU-R BS.1770-4 §5. */
-function gated() {
+ *  histogram of libebur128), so the relative gate needs no history. ITU-R BS.1770-4 §5.
+ *  `relative` false: the windows' mean power over the absolute gate alone, BS.1770 "without relative-level gating",
+ *  which "can be referred to as BS.1770-1" (ATSC A/85:2026-07 §5.2.2; BS.1770-1 itself gates nothing, and the
+ *  absolute gate drops only windows under -70 LKFS). */
+function gated(relative = true) {
   const LO = ABS_GATE, STEP = 0.01, BINS = 9000
   let count = new Float64Array(BINS), sum = new Float64Array(BINS), n = 0, total = 0
   return {
@@ -183,6 +186,7 @@ function gated() {
     },
     value() {
       if (!n) return null
+      if (!relative) return LUFS_OFFSET + 10 * Math.log10(total / n)
       let rel = LUFS_OFFSET + 10 * Math.log10(total / n) + REL_GATE, c = 0, z = 0
       for (let i = Math.max(0, Math.floor((rel - LO) / STEP)); i < BINS; i++) { c += count[i]; z += sum[i] }
       return c ? LUFS_OFFSET + 10 * Math.log10(z / c) : null
@@ -221,13 +225,19 @@ audio.fn.noisefloor = async function(opts) {
  *  Loudness" / Dialog Integrated Loudness; Netflix delivers dialog-gated at -27 LKFS). Streams:
  *  speech is found by @audio/vad (sound over a tracked noise floor, grown from voicing) over
  *  10 s windows; each 100 ms sub-block keeps its K-weighted power and speech share; gating
- *  windows (400 ms, 100 ms hop) at least half speech count. -Infinity when no speech is found. */
+ *  windows (400 ms, 100 ms hop) at least half speech count. -Infinity when no speech is found.
+ *  `{ relative: false }`: those windows without BS.1770's relative gate, as Netflix and ATSC A/85 measure dialog
+ *  (BS.1770-1, "without the relative-level gate added in subsequent versions": A/85 Table M.1 note 31). */
 audio.stat('dialog', {})
-audio.fn.dialog = async function(opts) {
-  await this[LOAD]()
+audio.fn.dialog = async function(opts) { return (await dialogOf(this, opts)).lufs }
+
+/** Dialog loudness (as the `dialog` stat) and the speech's share of the programme: of the gating windows the absolute
+ *  gate keeps, those the speech gate counts: { lufs, share } */
+export async function dialogOf(a, opts) {
+  await a[LOAD]()
   let { vad } = await import('@audio/vad')
-  let sr = this.sampleRate, nch = this.channels, G = channelWeights(nch), SUB = Math.round(sr / 10), WIN = 100 * SUB
-  let k = Array.from({ length: nch }, () => ({ fs: sr })), acc = gated()
+  let sr = a.sampleRate, nch = a.channels, G = channelWeights(nch), SUB = Math.round(sr / 10), WIN = 100 * SUB
+  let k = Array.from({ length: nch }, () => ({ fs: sr })), acc = gated(opts?.relative !== false), all = 0, speech = 0, absT = 10 ** ((ABS_GATE - LUFS_OFFSET) / 10)
   let mono = new Float32Array(WIN), fill = 0, zs = [], z = 0, zn = 0, tail = []  // tail: last 3 sub-blocks
   const window = () => {
     let { active, hop } = vad(mono.subarray(0, fill), { fs: sr })
@@ -239,11 +249,14 @@ audio.fn.dialog = async function(opts) {
     for (let b of subs) {
       tail.push(b)
       if (tail.length > 4) tail.shift()
-      if (tail.length === 4 && tail.reduce((s, t) => s + t.s, 0) >= 2) acc.add(tail.reduce((s, t) => s + t.z, 0) / 4)
+      if (tail.length < 4) continue
+      let p = tail.reduce((s, t) => s + t.z, 0) / 4, on = tail.reduce((s, t) => s + t.s, 0) >= 2
+      if (p > absT) { all++; if (on) speech++ }
+      if (on) acc.add(p)
     }
     fill = 0; zs = []
   }
-  for await (let chunk of this.stream({ at: opts?.at, duration: opts?.duration })) {
+  for await (let chunk of a.stream({ at: opts?.at, duration: opts?.duration })) {
     let n = chunk[0].length, w = chunk.map((ch, c) => { let x = Float32Array.from(ch); kWeighting(x, k[c]); return x })
     for (let i = 0; i < n; i++) {
       let m = 0
@@ -254,5 +267,5 @@ audio.fn.dialog = async function(opts) {
     }
   }
   if (zs.length) window()
-  return acc.value() ?? -Infinity
+  return { lufs: acc.value() ?? -Infinity, share: all ? speech / all : 0 }
 }
