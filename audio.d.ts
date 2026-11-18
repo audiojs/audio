@@ -692,6 +692,9 @@ declare namespace audio {
   let PAGE_SIZE: number
   /** Samples per stat block (default 1024). Set before creating instances. */
   let BLOCK_SIZE: number
+  /** Seconds a render takes of an endless tail, a processor's `tail` of Infinity (a reverb held open, a ladder at full
+   *  resonance, an integrator): default 10, read at the render. A tail that ends is rendered whole. */
+  let TAIL: number
   /** Page budget from navigator.storage.estimate() — quota/4 clamped 64MB..512MB; null when unavailable */
   function detectBudget(): Promise<number | null>
   /** OPFS-backed cache backend for large files (browser only) */
