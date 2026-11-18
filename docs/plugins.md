@@ -100,7 +100,9 @@ audio.op('myOp', {
   resolve: (ctx) => edit,                 // stat-conditioned: replace using decoded stats
   ranged: true,                           // op handles {at, duration} itself — engine skips its range scoping
   auto: 'sample',                         // op samples function params itself (default: engine, 128-sample steps)
+                                          // 'own': takes functions, curves and patched values as they are (a hosted processor)
   fnArgs: ['arg1'],                       // params that are genuine functions, not automation (e.g. transform's fn)
+  settle: (o) => o,                       // an edit's options checked and settled as it is made (a plugin's units)
   prepare: async (a, index) => { },       // async work before render (model inference), see below
 })
 ```
@@ -239,13 +241,16 @@ version. During a live decode the safe limit stays 0 (the whole signal isn't kno
 yet); output begins once decode completes. Bounded by the flat-render guard (2³⁰
 samples). Cannot be emitted by `expand`/`resolve`. A `streaming: false` plugin given `{ at, duration }`
 reads the whole signal and keeps its output in the range alone; the hook gets `ctx.at`/`ctx.duration` to do so itself.
+An edit on chosen channels (`channel`) hands the hook those alone, in and out, and the others stay as they came, as
+with `process`; a hook that changes the length (`frames`) is handed every channel, with `ctx.channel`.
 
 ### sidechain key
 
 A contract plugin declaring more than one input bus (`channels: { inputs: [2, 2] }`)
-receives bus 1 from the op's `key` option — an audio instance or `Float32Array[]`,
-rendered per block at the op's timeline position, sample-rate-reconciled, page-primed
-and awaited like any ref:
+receives bus 1 from the op's `key` option: an audio instance, an AudioBuffer (what
+`decodeAudioData` gives) or `Float32Array[]`, each carrying as many channels as it holds
+(any other value is an error at the call), rendered per block at the op's timeline
+position, sample-rate-reconciled, page-primed and awaited like any ref:
 
 ```js
 music.ducker({ key: voice, threshold: -30 })
@@ -474,13 +479,15 @@ Codec plugins — `{ codec: fmt, test?(bytes), decode?(bytes), encode?(opts) }` 
 
 ## Engine-less hosts
 
-Plugins also run without the engine: `audio/batch` hosts one over a whole signal, `audio/stream` over live chunks — same param semantics (defaults, automation functions, smoothing), no plan or context.
+Plugins also run without the engine: `audio/batch` hosts one over a whole signal, `audio/stream` over live chunks — same param semantics (defaults, automation functions and curves, smoothing), no plan or context.
 
 ```js
 import { toBatch, toStream } from 'audio/batch'
 const compress = toBatch(compressor, { sampleRate: 44100 })
 const out = compress(samples, { params: { threshold: -24 } })
 ```
+
+Both take, beside `params` (a value, a function of the time in seconds, or a curve `{ t, v }`): `buffers` (`{ ir: Float32Array[] }`: planar arrays at the render's rate; a sound is an error, as these hosts cannot render one), `notes` (`[{ time, midi, duration, velocity }]`, seconds), `transport` (`{ bpm, timeSig: [6, 8] }`, which sets `ctx.transport` at each call) and `maxBlockSize`. They keep the host's duties as audio does: a value changes between calls only, a call starts where one jumps, and while one moves (an automation function, a curve's slope, a `smoothing` ramp) no call is longer than 32 frames; where nothing moves, a call is a whole block. `smoothing` ramps a jump (a value set anew, a curve's step) from the value in force; a function or a curve's slope is its own value, not smoothed again, and a step into a slope ends on the slope. A number reaches the processor clamped to its range and, where it declares a `step`, on the nearest step from `min` (a tie upward): a value, automation and a smoothing ramp alike. A processor that declares a count on an input bus (`channels: 2`, a key of 2) gets that many: one channel fed is copied to each, another count is an error naming both. Its input holds no NaN or Infinity: one in what is fed reaches it as 0, in a copy of that channel, the arrays given left as they are; a clean input is handed over as it is. `toBatch` returns what the processor wrote, raw: as many frames as it was given (a whole-signal processor's `frames` says how many it writes), its latency not compensated and no tail rendered. For either, use `toStream` (its `latency` says how many frames lead the output, `end()` renders the tail) or audio itself (`audio.use(processor)`: an op that compensates latency and renders the tail). `toStream` builds its instance at the first `write`, from that chunk's channels: a bus carries from then on what it carried there, a later chunk of one channel copied to each of more; a chunk of another count is an error, since other channels are another instance (another `toStream`); `write(chunk, params)` takes values by name or alias (a jump at the chunk's first frame, ramped over a param's `smoothing`), not functions or curves; `write(n)` renders n frames with nothing fed (a generator); `end()` renders the tail, its function read with the values in force then, and none for a tail of `Infinity`, which cannot be flushed. A `latency`, `tail` or `frames` function is handed `{ sampleRate, params, buffers, transport }`, `transport` as `ctx.transport` is where the host asks, of the `transport` option's tempo (none: 120 bpm, 4/4, standing still): where the input ends for a tail (so a delay synced to the tempo can declare its echoes at that tempo, not the longest its line holds), at the start for the others. Each is asked outside the block loop (`frames` at the call, `latency` as `toStream` is made, `tail` at `end()`; audio asks all three as it plans a render), so it may allocate.
 
 ## Note events
 
@@ -491,9 +498,17 @@ await audio.use('poly')
 audio(4).poly({ notes: [{ time: 0, midi: 60, duration: 1 }, { time: 0, midi: 64, duration: 1 }] })
 ```
 
+Each call's `ctx.events` holds its notes as `{ time, kind: 'on' | 'off', midi, velocity, id }`: `time` the frame within the call, sorted, at one frame an off before an on; `velocity` 0..1; ids from 0 in the list's order, an off carrying its on's. Each slot also has `pitch`, the same as `midi`, for manifests published before 1.0.
+
+## A processor's options
+
+A processor hosted as an op takes, beside its params: its buffers by name (`a.cabinet({ ir: speakerSound })`: a sound is rendered at the op's rate, samples pass as they are); a further input bus by its `name`, `key` where it has none, a sound (`a.ducker({ key: voice })`), the first one also as the call's first argument where that is a sound (`a.ducker(voice, -30)`: key and threshold; any other first argument is the first param, `a.compressor(-30, 8)`: threshold and ratio, whether the compressor has a key bus or not); `notes`; `bpm` and `timeSignature`, the tempo `ctx.transport` counts beats by from the timeline's start (with none, it stands still at 120 bpm, 4/4), and the transport its `latency`, `tail` and `frames` functions are handed, as in the engine-less hosts above (a tail's where its input ends); and `emitted(name, value, time)`, which receives what it reports with `ctx.emit`. A change of a `restart` param, of a buffer or of `layouts` while it plays builds a new instance, crossfaded in as a changed chain is; other values change in place. A processor that declares a count on input bus 0 (`channels: 2`) gets that many channels: a mono sound is copied to each, as a plugin host feeds a mono track to a stereo plugin, and the edits after it read its output's width (a range, or a `mix` where the processor has no `mix` param of its own, is then an error, where the width changes: make the sound that wide first, `a.remix(2)`); a sound of another count is an error at the render, naming both. A further bus that declares a count is fed the same way (a mono key to a key of 2). On chosen channels (`channel`) such a processor runs only on as many as it takes and makes, written back in place, the others as they came, whether it streams or reads the whole signal (`streaming: false`): `a.panner({ channel: [2, 3] })` on a sound of four; a generator (no input bus) writes into a choice of as many channels as it makes, and takes a range or a `mix` there, the sound's width kept. Another choice (`channel: 0` of a stereo sound) is an error at the call, or at the first read for a registry op called before it loaded. A processor that changes the length (`frames`: a stretch) is handed every channel whatever `channel` chooses and stretches them all, and a choice the sound lacks is no error: audio's own length-changing ops (`speed`, `resample`, `crop`, `remove`, `pad`, `repeat`, `reverse`) ignore a choice too. Its params, buses and samples reach it as in the engine-less hosts above: numbers clamped and on their step, no NaN or Infinity.
+
 ## Registry
 
-`audio.plugins` maps name → package; the packages install with `audio`. Registry ops are instance methods from the start: `a.compressor(-30, 8)` records the edit and the package loads (dynamic import) at the first render, mapping the positional args onto its params. Until then the edit can't be planned at once: `a.duration` throws, saying so, and a `mark()` after it waits for the first read; `await audio.use('compressor')` before the call plans it at once. Registry stats load inside `a.stat(name)`. The CLI resolves names the same way; a sidechain file is `key:FILE` (`ducker key:voice.wav`).
+`audio.plugins` maps name → package; the packages install with `audio`. Registry ops are instance methods from the start: `a.compressor(-30, 8)` records the edit and the package loads (dynamic import) at the first render, mapping the positional args onto its params; `a.run(['compressor', { args: [-30, 8] }])` records them so too, since an edit is `[name]` or `[name, options]` and any other shape (`['compressor', -30, 8]`) is an error; a trailing `undefined` is one not passed, as in a call. Until then the edit can't be planned at once: `a.duration` throws, saying so, and a `mark()` after it waits for the first read; `await audio.use('compressor')` before the call plans it at once. Registry stats load inside `a.stat(name)`. The CLI resolves names the same way; a param is named `name:value`, a one-letter one too (`deesser Q:3`; `C:\take.wav` stays a path), and a sidechain file is `key:FILE` (`ducker key:voice.wav`).
+
+A plugin's parameter that declares a `unit` takes a value written with one, in that unit, here, in `audio/batch` and on the command line: `a.compressor({ attack: '10ms' })`, `{ attack: '0.01s' }` and `{ attack: 10 }` are one attack, in ms; `a.delay({ time: '250ms' })` is 0.25 s; `attack: '3db'` is an error. Here and in `audio/batch` a value of another kind than its parameter's is an error at the call too, naming what was passed: a number takes a number (not `NaN`) or a value with a unit (`a.ducker(oneChannel, -30)`: `ducker: threshold takes dB, not a Float32Array`), an enum one of its values (`a.expander(-30)`: `expander: mode takes 'downward' or 'upward', not -30`), a bool `true` or `false` (on the command line the word, by its place too: `limiter -1 5 50 false`), and each a function of the time or a curve, which is an error where it gives a value of another kind (an enum's or a bool's curve holds each point's value to the next). A parameter flagged `restart` (`restart: true`, or `flags: ['restart']` as manifests published before 1.0 mark it) is read once, as the processor is built: a function or a curve for it is an error, and so is a change between `audio/stream` chunks. A processor registers under its `id`, else its function's name: one with neither throws. Under a built-in op's name it throws too, and `audio.op('my-gain', processor)` registers it under another; under the name of a processor registered before, it replaces that one (a script run again defines its processor again); the same processor again is already there; under an instance method's name (`read`, `save`), which no call could reach, it throws. A stat plugin follows the same rule: a built-in stat's, an op's or a method's name throws, another stat plugin's is replaced. An op whose name is not an identifier (a dashed id, `transient-shaper`) is also a method under its camelCase, `a.transientShaper()`, which records the edit under the name, unless that is a method already (an instance's own, another op's).
 
 `audio.import(spec)` is how a registry package loads, `import(spec)` by default. A bundle whose bundler cannot follow a computed `import()` (a worker has no import map) replaces it with literal imports: `audio.import = spec => loaders[spec]()`. The editor's worker does this with one generated `() => import('…')` per registry package.
 
@@ -503,12 +518,12 @@ Op plugins:
 **denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · dewow · declip · decrackle · debreath · rnnoise (optional package: `@audio/neural-denoise`) · vocos (optional package: `@audio/neural-vocode`) —
 **effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr · rotary · tapestop —
 **reverb** freeverb · schroeder · plate · fdn · spring · shimmer —
-**filter** moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis · derivative · integral —
+**filter** moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis · derivative · integral · a-weighting · b-weighting · c-weighting · d-weighting · k-weighting · itu468 · riaa —
 **eq** geq · tilt · baxandall · dyneq —
-**spatial** widener · haas · panner · autopan · midside · microshift · surround —
+**spatial** widener · haas · panner · autopan · midside · microshift · surround · ambisonic-panner · ambisonic-decoder · ambisonic-rotate —
 **shift** pitch-shift · vocoder · formant-shift · paulstretch —
 **color** tape · transistor · waveshaper · multisat · amp · cabinet · defeedback —
-**generate** osc · noise · chirp · pluck · risset · rhythm · sfx · kick · cymbal · snare · adsr · voice · poly · fm · bell · epiano · modal —
+**generate** osc · noise · chirp · pluck · risset · rhythm · sfx · kick · cymbal · snare · adsr · voice · poly · tonewheel · fm · bell · epiano · modal —
 **more** tube · isolate · tune
 
 Stat plugins (land on `a.stat(name)`):

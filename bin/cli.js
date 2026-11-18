@@ -19,6 +19,7 @@ import { specs } from '../fn/check.js'
 import { LOUDNESS } from '../fn/specs.js'
 import { formats as cutFormats } from '../fn/cuts.js'
 import { parseTime, TIMECODE } from '../core.js'
+import { inUnit } from '../batch.js'
 import fft from 'fourier-transform'
 
 // FIXME: why do we have so many dynamic imports here? They can be static, no?
@@ -50,14 +51,31 @@ function isBand(s) {
   return !!e && e[1] !== '' && e.some(t => FREQ_TOK.test(t)) && e.every(t => t === '' || FREQ_TOK.test(t) || /^\d+(\.\d+)?$/.test(t))
 }
 
-/** `name:value`: a named op/sink option (ceiling:-2, key:voice.wav, crossfade:10ms); a time range gives
- *  `{ at, duration }` (noise:0.5s..1s). Two-letter minimum keeps drive letters (C:\) out; URLs (http://…) stay positional. */
-function namedOpt(tok) {
-  let m = typeof tok === 'string' && tok.match(/^([a-zA-Z][\w-]+):(.+)$/)
-  if (!m || m[2].startsWith('//')) return null
+/** `name:value`: a named op/sink option (ceiling:-2, key:voice.wav, crossfade:10ms, deesser Q:3); a time range gives
+ *  `{ at, duration }` (noise:0.5s..1s). A one-letter name followed by \ or / is a drive's path (C:\take.wav,
+ *  C:/take.wav), and URLs (http://…) stay positional. `read(value, name)` reads the value (parseValue, or an op's own
+ *  reader). */
+function namedOpt(tok, read = parseValue) {
+  let m = typeof tok === 'string' && tok.match(/^([a-zA-Z][\w-]*):(.+)$/)
+  if (!m || m[2].startsWith('//') || m[1].length === 1 && /^[\\/]/.test(m[2])) return null
   let v = m[2]
   if (isRange(v)) { let { offset, duration } = parseRange(v); return [m[1], { at: offset, duration }] }
-  return [m[1], v === 'true' ? true : v === 'false' ? false : parseValue(v)]
+  return [m[1], v === 'true' ? true : v === 'false' ? false : read(v, m[1])]
+}
+
+// A number written with a unit (10ms, 0.25s, 1khz, -3db, 1m30s)
+const QUANTITY = new RegExp(`^-?${NUM}[a-z]+(${NUM}[a-z]+)*$`, 'i')
+
+/** Token `tok` for parameter `p` of op `name`: to a contract plugin's parameter that declares a unit, a value written
+ *  with a unit in that unit (attack:10ms to an attack in ms: 10, delay 250ms to a time in s: 0.25, attack:3db an error),
+ *  as every host reads one (batch.js inUnit); to a bool, true or false as the word says, by its place as by name (its
+ *  help reads `limiter [CEILING LOOKAHEAD RELEASE TRUEPEAK]`: the word false, passed on as text, was a truthy string,
+ *  and is a value of no kind the processor takes); to any other parameter, and to every built-in, as parseValue reads
+ *  it: a time in s, a frequency in Hz, a level in dB. */
+function paramValue(name, p, tok) {
+  let specs = audio.op(name)?.plugin?.params, s = p == null ? null : specs?.[p] ?? Object.values(specs ?? {}).find(s => s.alias === p)
+  if (s?.type === 'bool' && (tok === 'true' || tok === 'false')) return tok === 'true'
+  return s?.unit && s.type === 'number' && QUANTITY.test(tok) ? inUnit(s, tok, name, p) : parseValue(tok)
 }
 
 function parseValue(str) {
@@ -367,9 +385,9 @@ function parseArgs(args) {
       if (!p && (isOpName(args[i]) || isVerb(args[i]))) break
       let tok = args[i++]
       if (p) { if (at === opArgs.length) opArgs.push(tok); else (opOpts ??= {})[p] = tok }
-      else if (kv = namedOpt(tok)) (opOpts ??= {})[kv[0]] = kv[1]
+      else if (kv = namedOpt(tok, (v, k) => paramValue(name, k, v))) (opOpts ??= {})[kv[0]] = kv[1]
       else if (isRange(tok)) ({ offset, duration } = parseRange(tok))
-      else opArgs.push(parseValue(tok))
+      else opArgs.push(paramValue(name, params[opArgs.length], tok))
     }
     if (opArgs.length === 0 && !opOpts && offset == null && i < args.length && (args[i] === '--help' || args[i] === '-h')) {
       helpOp = name; i++; continue

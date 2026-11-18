@@ -57,6 +57,21 @@ test('parseArgs: a word among an op\'s enumerated values is its argument, though
   } finally { for (let n in audio.op()) if (!loaded.has(n)) delete audio.op()[n] }  // unloaded again: the docs coverage test counts built-ins
 })
 
+// A param of one letter by name (deesser, autowah, wah, variable, dyneq and defeedback's Q, dcblocker's R): the help
+// lists them and documents name:value, but a name needed two letters, so `deesser Q:3` went by place to the first param
+// (deesser's mode). A one-letter name followed by \ or / stays a drive's path
+test('parseArgs: a one-letter param by name (deesser Q:3); a drive\'s path stays a path', async t => {
+  let op = a => parseArgs(['in.wav', ...a, 'save', 'o.wav']).transforms[0]
+  t.is([op(['deesser', 'Q:3']).args, op(['deesser', 'Q:3']).opts], [[], { Q: 3 }], 'deesser Q:3: its Q, nothing by place')
+  t.is(op(['dcblocker', 'R:0.995']).opts, { R: 0.995 }, 'dcblocker R:0.995')
+  t.is(op(['deesser', '-30', 'Q:2.5', 'frequency:6khz']), { name: 'deesser', args: [-30], offset: null, duration: null, opts: { Q: 2.5, frequency: 6000 } }, 'among values by place and other names')
+  for (let path of ['C:\\take.wav', 'C:/take.wav', 'd:\\a\\b.wav']) {
+    t.is([op(['mix', path]).args, op(['mix', path]).opts], [[path], undefined], `mix ${path}: a path, by place`)
+    t.is(parseArgs(['in.wav', 'save', path]).sink, { name: 'save', args: [path], opts: {} }, `save ${path}: the path`)
+  }
+  t.is(parseArgs(['C:\\in.wav', 'gain', '-3db']).source, 'C:\\in.wav', 'a source on a drive')
+})
+
 test('parseArgs — transform with multiple args', t => {
   let r = parseArgs(['in.wav', 'fade', '1.5s', 'linear'])
   t.is(r.transforms[0].name, 'fade')
@@ -1754,6 +1769,35 @@ test('CLI — batch without {name}/{ext} in the save pattern errors (would other
       t.ok(e.message.includes('{name}'), 'error names the missing {name} placeholder')
     }
   } finally { cleanup(src1); cleanup(src2); cleanup(out) }
+})
+
+test('CLI – a plugin\'s value with a unit reaches its parameter in the unit the parameter declares', { timeout: 60000 }, async t => {
+  // the compressor's attack and release are in ms (unit: 'ms'), the delay's time in s (unit: 's'); the built-ins take s, Hz, dB
+  const dir = mkdtempSync(join(tmpdir(), 'audio-units-cli-'))
+  const input = join(dir, 'in.wav')
+  try {
+    const sr = 16000, pcm = Float32Array.from({ length: sr / 2 }, (_, i) => (i < sr / 4 ? 0.01 : 0.6) * Math.sin(2 * Math.PI * 440 * i / sr))
+    await audio.from([pcm], { sampleRate: sr }).save(input)
+    // every render through the CLI, the plain numbers (in the parameter's own unit) the reference: the plugins stay
+    // unloaded here, where the docs coverage test counts the built-ins
+    const cli = async (...args) => {
+      let out = join(dir, `${args.join('-').replace(/[^\w-]/g, '_')}.wav`)
+      await runCli([input, ...args, 'save', out])
+      return (await (await audio(out)).read())[0]
+    }
+    const near = (a, b) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) <= 1 / 32767)   // the 16-bit file's step
+    const ms = await cli('compressor', 'attack:10', 'release:200')
+    for (let args of [['attack:10ms', 'release:200ms'], ['attack:0.01s', 'release:0.2s']])
+      t.ok(near(await cli('compressor', ...args), ms), `compressor ${args.join(' ')}: attack 10 ms, release 200 ms`)
+    t.ok(!near(ms, await cli('compressor', 'attack:0.1', 'release:1')), 'not the 0.1 ms and 1 ms the seconds were held to')
+    const s = await cli('delay', 'time:0.25')
+    t.ok(near(await cli('delay', 'time:250ms'), s), 'delay time:250ms: 0.25 s')
+    t.ok(near(await cli('delay', '250ms'), s), 'delay 250ms, positional: 0.25 s')
+    await t.rejects(() => runCli([input, 'compressor', 'attack:3db', 'save', join(dir, 'no.wav')]), /compressor: attack takes ms, not '3db'/, 'a level to a time: an error naming the op, the parameter and its unit')
+    t.ok(!existsSync(join(dir, 'no.wav')), 'and nothing written')
+    let ops = parseArgs([input, 'fade', '500ms', 'crop', '1s..10s', 'highpass', '80hz']).transforms
+    t.is(ops.map(o => [o.name, o.args, o.offset ?? null, o.duration ?? null]), [['fade', [0.5], null, null], ['fade', [-0.5], null, null], ['crop', [], 1, 9], ['highpass', [80], null, null]], 'the built-ins as before: s, Hz')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
 test('CLI — batch with a literal pattern is fine for a single matched file', async t => {

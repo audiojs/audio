@@ -416,6 +416,8 @@ export interface AudioStats {
 }
 
 export type EditOp = [type: string, opts?: Record<string, any>]
+/** An error an edit raised as it loaded, prepared or rendered (read, stream, save, encode, play): `edit`, its index in the `edits` of the instance read (`a.edits[e.edit]`: a failure inside a sound an edit takes, a mix's source, is that edit's), and `op`, its name. Its message and class are the error's own; a value thrown that is not an object carries neither. */
+export type EditError = Error & { edit?: number, op?: string }
 
 /** Normalized container tags. Unknown fields kept under `.raw`. Pass `meta: false` to save() to strip. */
 export interface Meta {
@@ -600,13 +602,20 @@ export interface OpDescriptor {
   /** With `plan`, while the source still decodes: of `limit` input samples, how many output samples are final (crop, remove, insert…); none, the same */
   limit?: (limit: number, ctx: Record<string, any>) => number
   resolve?: (ctx: Record<string, any>) => EditOp | EditOp[] | false | null
+  /** Its output width from `channels` in (falsy: the same). An edit on chosen channels of a hosted processor that keeps the timeline keeps the sound's width: it writes them in place */
   ch?: (channels: number, ctx: Record<string, any>) => number
+  /** With `ch`: a width that changes only for some inputs (a native plugin's, a processor's fixed count fed one channel), so a range or a mix is refused only where it changes */
+  chKeeps?: boolean
   /** Sample-rate transform (e.g. resample). Return the new rate, or falsy to leave it unchanged. */
   sr?: (sampleRate: number, ctx: Record<string, any>) => number | undefined
   /** Structural output length for whole-render ops (time-stretch class): input frames → output frames */
   frames?: (frames: number, ctx: Record<string, any>, sampleRate: number) => number
   /** Hosted contract plugin (audio.js manifest factory), when this op wraps one */
   plugin?: Function
+  /** An edit's options checked and settled as the edit is made, in place (a contract plugin's values with units into its params' units); throws what is wrong */
+  settle?: (opts: Record<string, any>) => Record<string, any>
+  /** 'sample': the op samples its function params itself (default: the engine, every 128 samples); 'own': it takes functions, curves and patched values as they are and resolves them in time itself (a hosted contract processor) */
+  auto?: 'sample' | 'own'
   /** Pure, monotonic per-sample transform: the engine derives min/max/clipping by probing `process` with block extremes; energy/ms/dc queries re-render. */
   pointwise?: boolean
   /** Lazy module for the op (e.g. `() => import('@audio/x')`), resolved at LOAD onto `mod` before plans compile */
@@ -614,7 +623,7 @@ export interface OpDescriptor {
   mod?: any
   /** Asynchronous work an edit needs before any render (e.g. model inference over its input), awaited per edit at LOAD after `load` */
   prepare?: (a: AudioInstance, index: number) => Promise<void>
-  /** Whole-render processing, once over the entire signal (materialized plan so far) */
+  /** Whole-render processing, once over the entire signal (materialized plan so far). An edit on chosen channels hands it those alone, in and out, the others kept as they came; one with `frames` gets every channel and `ctx.channel` */
   whole?: (input: Float32Array[], output: Float32Array[], ctx: Record<string, any>) => void
   /** Algebraic stats update for advanced cases pointwise can't cover (e.g. rms/dc/energy) — mutate `stats` in place, or return `false` to bail to a full recompute. Clipping is recounted from the new min/max after it. */
   deriveStats?: (stats: AudioStats, opts: Record<string, any>) => void | false
@@ -706,7 +715,7 @@ declare namespace audio {
   function from(source: Int16Array | Int8Array | Uint8Array | Uint16Array, opts: AudioOpts & { format: string }): AudioInstance
   /** Over a page store (opfsCache's, or a file's pages): its shape given, no page in memory till read */
   function from(store: { read(i: number): Promise<Float32Array[]>, has(i: number): Promise<boolean>, write(i: number, data: Float32Array[]): Promise<void> }, opts: AudioOpts & { length: number, budget?: number, stats?: object }): AudioInstance
-  /** Op registration and query */
+  /** Op registration and query. A contract processor (a function with its own `params`) is hosted under the name given, as `use` hosts one under its id; any op given a name replaces the one that had it */
   function op(): Record<string, OpDescriptor>
   function op(name: string): OpDescriptor | undefined
   function op(name: string, descriptor: OpDescriptor | Function): void
@@ -735,7 +744,6 @@ declare namespace audio {
   /** Where jobs that go out to threads (parallel.js: declip()'s and auto()'s rebuild) run in a page or a worker: a () → Worker whose entry
    *  calls parallel.js's serve(). Node uses worker threads of its own; unset elsewhere, the jobs run in turn, the same samples either way. */
   let worker: (() => Worker) | null | undefined
-  /** Register plugins: contract factories (audio.js manifests with own `params`), `(audio) => {}` plugin functions, or registry names. String names dynamic-import — returns a promise; direct values register synchronously. */
   /** Stat plugin — whole-signal analyzer registered as a.stat(name) */
   interface StatPlugin { stat: string, compute(channels: Float32Array[], opts: { sampleRate: number, [k: string]: unknown }): unknown }
   /** @deprecated ≤2.5 name — alias of StatPlugin */
@@ -746,6 +754,8 @@ declare namespace audio {
   type CodecAtom = CodecPlugin
   /** Registered codec plugins by format name */
   const codecs: Record<string, CodecPlugin>
+  /** Register plugins: contract factories (audio.js manifests with own `params`), `(audio) => {}` plugin functions, or registry names. String names dynamic-import — returns a promise; direct values register synchronously.
+   *  A processor registers under its id: under a built-in op's name or an instance method's it throws (audio.op(name, processor) registers it under another), under another processor's it replaces it, the same one again is a no-op. A stat plugin under a built-in stat's, an op's or a method's name throws, under another stat plugin's it replaces it. */
   function use(...plugins: (string | Function | StatPlugin | CodecPlugin)[]): typeof audio & Promise<typeof audio>
   /** Audio instance prototype — extensible (like $.fn) */
   const fn: Record<string, any>

@@ -199,6 +199,17 @@ test('worker: errors surface', async t => {
   t.ok(/NaN/.test(err3?.message), 'pending op error rejects next call')
 })
 
+test('worker: an error raised as an edit prepares names that edit across the boundary', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  w.gain(-3)
+  w.deepfilter(18, { floor: '40' })  // refused by the op's own check as it prepares, before any model loads
+  let err = null
+  try { await w.read() } catch (e) { err = e }
+  t.ok(/floor/.test(err?.message), `read() rejects (${err?.message})`)
+  t.is(err?.edit, 1, 'edit: its index in the edits')
+  t.is(err?.op, 'deepfilter', 'op: its name')
+})
+
 test('worker: Blob/File source survives the boundary (file input path)', async t => {
   let { readFile } = await import('fs/promises')
   let buf = await readFile('test/fixture.wav')

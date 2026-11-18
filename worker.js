@@ -111,7 +111,8 @@ function channel(workerOrPromise) {
   }
 }
 
-const remoteErr = e => { let err = new Error(e.message); if (e.stack) err.stack = e.stack; return err }
+// (which edit failed, where the engine says so (core.js blame), comes across with it)
+const remoteErr = e => { let err = new Error(e.message); if (e.stack) err.stack = e.stack; if (e.edit != null) err.edit = e.edit, err.op = e.op; return err }
 
 async function spawn(url) {
   if (typeof Worker !== 'undefined') return new Worker(url, { type: 'module' })
@@ -449,7 +450,7 @@ function host(nodePort) {
     edits: safeEdits(a.edits),
   })
 
-  const errObj = e => ({ message: e?.message ?? String(e), stack: e?.stack })
+  const errObj = e => ({ message: e?.message ?? String(e), stack: e?.stack, ...e?.edit != null && { edit: e.edit, op: e.op } })
 
   function register(a) {
     if (ids.has(a)) return ids.get(a)

@@ -3,7 +3,8 @@
  * Intercepts create/run/read/stream to track and materialize edits.
  */
 
-import audio, { readPages, copyPages, walkPages, missed, parseTime, named, fromEnd, LOAD, READ, emit, resolveChannels, xfade, correlation, arrived, fingerprint } from './core.js'
+import audio, { readPages, copyPages, walkPages, missed, parseTime, named, fromEnd, LOAD, READ, emit, resolveChannels, pickChannels, xfade, correlation, arrived, fingerprint, hostOp, positional, blame } from './core.js'
+import { isCurve, fixed, what } from './batch.js'
 
 let fn = audio.fn
 let ops = {}
@@ -123,10 +124,37 @@ function ownMix(desc, o) {
 
 /** A mix the engine can take: a share 0..1, a curve or a function, on an op that keeps the timeline and the channels
  *  (the output and the input line up sample for sample; an op whose width depends on what it hosts, chKeeps, is
- *  checked where it compiles). Throws what is wrong. */
-function mixable(name, m, desc) {
+ *  checked where it compiles), on chosen channels as widthOf has it. Throws what is wrong. */
+function mixable(name, m, desc, channel) {
   if (!(typeof m === 'function' || isCurve(m) || m >= 0 && m <= 1)) throw new RangeError(`${name}: mix is a share, 0 to 1, a curve { t, v } or t => share, not ${JSON.stringify(m)}`)
-  if (m !== 1 && (desc?.plan || desc?.ch && !desc.chKeeps || desc?.frames)) throw new TypeError(`${name}: mix blends an edit's output with its input, so it is for edits that keep the timeline and the channels`)
+  if (m !== 1 && (desc?.plan || reshapes(desc, channel) || desc?.frames)) throw new TypeError(`${name}: mix blends an edit's output with its input, so it is for edits that keep the timeline and the channels`)
+}
+
+/** Whether an edit of op `desc` on `channel` runs in place: on chosen channels a processor audio hosts that keeps the
+ *  timeline reads and writes those alone (core.js hostOp refuses a choice of a count it does not take and make) */
+const inPlace = (desc, channel) => channel != null && !!desc?.plugin && !desc.frames
+
+/** Whether an edit of op `desc` on `channel` changes the channel count whatever it is fed (an op whose width depends on
+ *  what it hosts, chKeeps, changes it only on some: renderWidth): what a call refuses a range or a mix for */
+const reshapes = (desc, channel) => !!desc?.ch && !desc.chKeeps && !inPlace(desc, channel)
+
+/** The channels an edit of op `desc` leaves of `n`, `ctx` what its width hook reads: the hook's, but one in place
+ *  (inPlace) leaves them as they are */
+function widthOf(desc, n, channel, ctx) {
+  return desc?.ch && !inPlace(desc, channel) ? desc.ch(n, ctx) || n : n
+}
+
+/** The channels edit `[type, o]` leaves of `n` where it renders, as a stage (initProcs) or whole: an op whose width
+ *  depends on what it hosts (chKeeps: a plugin) takes a range or a mix only where it keeps the width; refused, it is
+ *  named as written (a hidden op renders the edit of the op it is named after: _haas, a tailed processor's, haas's),
+ *  with the way through: the sound made as wide first */
+function renderWidth(type, desc, n, o, ctx) {
+  let w = widthOf(desc, n, o.channel, ctx)
+  if (w !== n && desc.chKeeps && (o.at != null || o.duration != null || ownMix(desc, o) != null)) {
+    let as = desc.hidden ? type.replace(/^_/, '') : type, why = o.at != null || o.duration != null ? 'a range keeps the channel count, and this changes it' : 'mix blends the output with the input, and this changes the channel count'
+    throw new TypeError(`${as}: ${why} (${n} → ${w}); make the sound ${w === 2 ? 'stereo' : `${w} channels`} first: a.remix(${w})`)
+  }
+  return w
 }
 
 /** Compute [start, end] sample range from a process ctx (at/duration) over a buffer of given len. */
@@ -173,12 +201,34 @@ function normalizeOpts(opts, sr) {
   return o
 }
 
-/** Normalize an edit to compact ['type', opts] storage form. Accepts ['type'] or ['type', opts]. An op whose options
- *  name another op to do it (`via`: a stretch's method, its algorithm's own op) gives that op's edit in its place: the
- *  edit is that op's from then on, its module the only one loaded for it (audio.js autowire). */
+// An edit as its refusal shows it: an array's items in turn, options as { … }, any other value as batch.js `what` names
+// it (a number as written, a string quoted, a sound by its kind, not its samples)
+const shown = v => Array.isArray(v) ? `[${v.map(shown).join(', ')}]` : isOpts(v) ? '{ … }' : what(v)
+
+/** Normalize an edit to compact ['type', opts] storage form. Accepts ['type'] or ['type', opts], anything else an
+ *  error showing that form. An op whose options name another op to do it (`via`: a stretch's method, its algorithm's
+ *  own op) gives that op's edit in its place: the edit is that op's from then on, its module the only one loaded for
+ *  it (audio.js autowire). An op that settles its options (`settle`: a contract plugin's units and fixed params) does
+ *  so here, so a wrong one throws at the call. */
 function normalizeEdit(edit, sr) {
-  if (!Array.isArray(edit) || typeof edit[0] !== 'string') throw new TypeError('audio.run: edit must be [type, opts?]')
-  let [type, opts] = edit, o = normalizeOpts(opts || {}, sr)
+  // a trailing undefined is one not passed, as a method's argument is: ['gain', { value: -6 }, undefined] is the edit
+  // without it
+  if (Array.isArray(edit)) {
+    let n = edit.length
+    while (n > 1 && edit[n - 1] === undefined) n--
+    if (n < edit.length) edit = edit.slice(0, n)
+  }
+  let [type, opts] = Array.isArray(edit) ? edit : []
+  // after the name, one object of options: values past it or in its place would be dropped and the op render its
+  // defaults (a.run(['compressor', -30, 8])); values by position go in it as `args`, mapped as a call's arguments are,
+  // and the error shows that form only for an op that takes them (one with params, or a registry op not loaded yet):
+  // autowire maps `args` onto params alone, so ['reverse', { args: [5] }] would drop the 5 as silently
+  if (typeof type !== 'string' || edit.length > 2 || opts != null && !isOpts(opts)) {
+    let vals = typeof type === 'string' ? edit.slice(1) : [], takes = !ops[type] || ops[type].params?.length > 0
+    throw new TypeError(`audio.run: an edit is [name] or [name, options]${takes && vals.length && !vals.some(isOpts) ? `, values by position in options.args: ['${type}', { args: ${shown(vals)} }]` : ''}, not ${shown(edit)}`)
+  }
+  let o = normalizeOpts(opts || {}, sr)
+  ops[type]?.settle?.(o)
   return ops[type]?.via?.(o) ?? [type, o]
 }
 
@@ -219,10 +269,12 @@ function hasFunction(v, seen = new Set()) {
   return false
 }
 
-/** Register/query op: audio.op(name, descriptor|process) */
+/** Register/query op: audio.op(name, descriptor|process|processor). A contract processor (a function with its own
+ *  `params`) is hosted under the name given (core.js hostOp), replacing what had it, as any op given a name does */
 audio.op = function(name, arg1, arg2, arg3) {
   if (!arguments.length) return ops
   if (arguments.length === 1) return ops[name]
+  if (arguments.length === 2 && typeof arg1 === 'function' && Object.hasOwn(arg1, 'params') && typeof arg1.params === 'object') return hostOp(arg1, name)
 
   // Normalize to descriptor object
   let desc
@@ -237,33 +289,45 @@ audio.op = function(name, arg1, arg2, arg3) {
     if (opts) Object.assign(desc, opts)
   }
 
-  if (!fn[name] && !desc.hidden) fn[name] = opMethod(name)
+  if (!desc.hidden) opMethods(name)
   ops[name] = desc
 }
 
+/** Op `name` as an instance method, made once: a[name](), unless the instance has a method of its own by that name;
+ *  another op's camelCase there (below) gives way to the op of the name. A name a script cannot write after a dot (a
+ *  dashed id: a['transient-shaper']()) is the same method under its camelCase too (a.transientShaper(), the edit
+ *  recorded under the name), unless that is a method already (an instance's own, another op's) */
+export function opMethods(name) {
+  if (!fn[name] || fn[name].op != null && fn[name].op !== name) fn[name] = opMethod(name)
+  let alias = name.replace(/-+(.)/g, (_, c) => c.toUpperCase())
+  if (alias !== name && /^[A-Za-z_$][\w$]*$/.test(alias) && !fn[alias]) fn[alias] = fn[name]
+}
+
 /** Instance method for op `name`. Positional args map to the op's params at call time (a
- *  `...rest` param takes the remaining ones); an op not registered yet (a registry plugin still
- *  to load) keeps them as `args`, mapped once it loads. More positional args than params is an
- *  error, not a silent drop: an op without params takes options only. */
+ *  `...rest` param takes the remaining ones; a sound first, a keyed processor's key: core.js positional); an op not
+ *  registered yet (a registry plugin still to load) keeps them as `args`, mapped once it loads. More positional args
+ *  than params is an error, not a silent drop: an op without params takes options only. */
 export function opMethod(name) {
-  return function(...a) {
+  let method = function(...a) {
     // an argument passed as undefined is one not passed (options handed on by a caller that has none)
     while (a.length && a.at(-1) === undefined) a.pop()
     let hasOpts = a.length && isOpts(a.at(-1))
     let o = hasOpts ? { ...named(a.pop()) } : {}
     let d = ops[name]
     if (d) {
-      let p = d.params || []
+      let p = positional(d, a)
       if (!p.at(-1)?.startsWith('...') && a.length > p.length)
         throw new TypeError(p.length ? `${name}: expected at most ${p.length} argument${p.length === 1 ? '' : 's'} (${p.join(', ')}), got ${a.length}` : `${name}: takes options ({ at, duration, … }), not positional arguments`)
       mapParams(p, a, o)
     }
     else if (a.length) o.args = a
     for (let k in o) if (typeof o[k] === 'number' && Number.isNaN(o[k])) throw new RangeError(`${name}: ${k} is NaN`)
-    if (d?.ch && !d.chKeeps && (o.at != null || o.duration != null)) throw new TypeError(`${name}: range options not supported for channel-changing ops`)
-    if (o.mix != null && !d?.params?.includes('mix')) mixable(name, o.mix, d)
+    if (reshapes(d, o.channel) && (o.at != null || o.duration != null)) throw new TypeError(`${name}: range options not supported for channel-changing ops`)
+    if (o.mix != null && !d?.params?.includes('mix')) mixable(name, o.mix, d, o.channel)
     return this.run([name, o])
   }
+  method.op = name  // an op's method, not an instance's own (read, save): a processor may take the name of the one only
+  return method
 }
 
 
@@ -291,12 +355,12 @@ export function popEdit(a) {
 function deriveFormat(a) {
   if (a._.fmtV === a.version) return a._.fmt
   let sr = a._.sr, ch = a._.ch
-  for (let [type, o = {}] of a.edits) {
+  for (let [i, [type, o = {}]] of a.edits.entries()) try {
     let desc = ops[type]
     if (!desc) continue
     if (desc.sr) sr = desc.sr(sr, o) || sr
-    if (desc.ch) { let { at, duration, channel, ...extra } = o; ch = desc.ch(ch, extra) || ch }
-  }
+    if (desc.ch) { let { at, duration, channel, ...extra } = o; ch = widthOf(desc, ch, channel, extra) }
+  } catch (e) { throw blame(e, a, i) }
   a._.fmt = { sr, ch }; a._.fmtV = a.version
   return a._.fmt
 }
@@ -329,9 +393,11 @@ export async function ensurePlan(a, plan, offset, duration, visiting = new Set()
   if (!audio.ensurePages || duration === 0) return
   if (visiting.has(a)) throw new Error('audio: circular source reference')
   visiting.add(a)
-  const restore = (ref, at, duration) => ref.edits.length
-    ? ensurePlan(ref, buildPlan(ref), at, duration, visiting)
-    : audio.ensurePages(ref, at, duration)
+  // a sound an edit takes failing as its pages come (its plan, a page from its store): that edit's
+  const restore = async (ref, at, duration) => {
+    try { await (ref.edits.length ? ensurePlan(ref, buildPlan(ref), at, duration, visiting) : audio.ensurePages(ref, at, duration)) }
+    catch (e) { throw blame(e, a, holderOf(a, ref)) }
+  }
   // A stage (baked prefix) is a plan over the same instance — recurse without re-entering a
   const prime = async (plan, offset, duration) => {
     let { segs, sr, latency = 0 } = plan
@@ -375,12 +441,21 @@ function eachRef(a, cb) {
   }
 }
 
+/** The edit of `a` whose options hold the sound `ref` (a mix's source, an insert's, a key), -1 where none does (the
+ *  clipboard a paste reads): a failure of that sound is that edit's (core.js blame) */
+const holderOf = (a, ref) => a.edits.findIndex(([, o]) => o && Object.values(o).includes(ref))
+
+/** The index in a.edits of the edit a pipeline entry renders: the entry itself, or the edit whose expand or resolve
+ *  emitted it (`origin`: a tailed processor's hidden op, a normalize's gain); -1 for none, which blame leaves be */
+const origin = new WeakMap()
+const editOf = (a, ed) => a.edits.indexOf(origin.get(ed) ?? ed)
+
 /** Await full decode of every referenced source — a ref's length/PCM must be
  *  settled before its plan segment or ctx.render pull reads from it. */
 export async function loadRefs(a) {
   let refs = []
   eachRef(a, r => refs.push(r))
-  for (let r of refs) { if (r.ready) await r.ready; await r[LOAD]() }
+  for (let r of refs) try { if (r.ready) await r.ready; await r[LOAD]() } catch (e) { throw blame(e, a, holderOf(a, r)) }
 }
 
 fn[READ] = async function(offset, duration) {
@@ -446,7 +521,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
       const fresh = t => {
         nch = width; T = plan.latency; sigP = sig
         bufA = Array.from({ length: nch }, () => new Float32Array(BS))
-        procs = initProcs(plan.pipeline, plan.totalLen / sr, sr, nch)
+        procs = initProcs(a, plan.pipeline, plan.totalLen / sr, sr, nch)
         outPos = t + T
         warm = t
       }
@@ -464,7 +539,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
         // the warm-up loses the first T − warm-up samples
         nch = width; T = plan.latency; sigP = sig
         bufA = Array.from({ length: nch }, () => new Float32Array(BS))
-        procs = initProcs(plan.pipeline, plan.totalLen / sr, sr, nch)
+        procs = initProcs(a, plan.pipeline, plan.totalLen / sr, sr, nch)
         outPos = (startSample > 0 || T > 0) && procs.length ? warmStart(startSample, startSample + T, plan.warmup) : startSample
       } else {
         // Latency refined as the source arrives — keep content continuity: cursor c ↦ c + ΔT
@@ -488,14 +563,14 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
         }
         await ensurePlan(a, plan, offset, duration)
         let seen = new Set()
-        for (let s of plan.segs) if (s[4]?.pages && !seen.has(s[4])) { seen.add(s[4]); await s[4][LOAD]() }
+        for (let s of plan.segs) if (s[4]?.pages && !seen.has(s[4])) try { seen.add(s[4]); await s[4][LOAD]() } catch (e) { throw blame(e, a, holderOf(a, s[4])) }
       }
       // new procs mid-stream: warmed up over what precedes the timeline position, which has rendered already
       if (warm != null && procs.length) for (let p = warmStart(warm, outPos, plan.warmup); p < outPos;) {
         let len = Math.min(BS, outPos - p)
         for (let b of bufA) b.fill(0, 0, len)
         renderBlock(a, plan.segs, p, len, bufA)
-        applyProcs(len < BS ? bufA.map(b => b.subarray(0, len)) : bufA, procs, p, sr)
+        applyProcs(a, len < BS ? bufA.map(b => b.subarray(0, len)) : bufA, procs, p, sr)
         p += len
       }
     }
@@ -524,13 +599,13 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
 
     if (!rendered(a, plan, outPos, len, bufA)) { await ensurePlan(a, plan, outPos / sr, len / sr); rendered(a, plan, outPos, len, bufA) }
     let src = len < BS ? bufA.map(b => b.subarray(0, len)) : bufA
-    let out = procs.length ? applyProcs(src, procs, outPos, sr) : src
+    let out = procs.length ? applyProcs(a, src, procs, outPos, sr) : src
     if (xf) {
       // the old render over the same stretch of the timeline, fading out as the new one fades in
       let ob = xf.buf
       if (!rendered(a, xf.plan, xf.pos, len, ob)) { await ensurePlan(a, xf.plan, xf.pos / sr, len / sr); rendered(a, xf.plan, xf.pos, len, ob) }
       let os = len < BS ? ob.map(b => b.subarray(0, len)) : ob
-      let oo = xf.procs.length ? applyProcs(os, xf.procs, xf.pos, sr) : os, k = xf.n - xf.left
+      let oo = xf.procs.length ? applyProcs(a, os, xf.procs, xf.pos, sr) : os, k = xf.n - xf.left
       for (let c = 0; c < out.length; c++) {
         let o = oo[c % oo.length], y = out[c]
         for (let i = 0; i < len; i++) { let t = Math.min(1, (k + i + 1) / xf.n); y[i] = o[i] * (1 - t) + y[i] * t }
@@ -574,7 +649,9 @@ fn.run = function(...edits) {
 }
 
 fn.toJSON = function() {
-  let edits = this.edits.filter(e => !hasFunction(e[1]))
+  let left = [], edits = this.edits.filter(e => hasFunction(e[1]) ? (left.push(e[0]), false) : true)
+  // a function does not serialize: the edits that hold one are left out, said once a call (a curve { t, v } is kept)
+  if (left.length) console.warn(`audio: toJSON leaves out ${left.length} edit${left.length > 1 ? 's' : ''} holding a function, which does not serialize: ${[...new Set(left)].join(', ')} (automation written as a curve { t, v } is kept)`)
   return { source: this.source, edits, sampleRate: this.sampleRate, channels: this.channels, duration: this.duration }
 }
 
@@ -609,6 +686,7 @@ export function refLen(source, sr) {
 /** Render n target-rate samples at srcOff (target coords) from a source,
  *  resampling when the source's sample rate differs. */
 audio.renderAt = renderAt  // sidechain bus reads in core's useOp (no core→plan import)
+audio.render = render  // a buffer (an audio instance) read whole there too
 
 export function renderAt(render, source, srcOff, n, sr) {
   let ssr = source?.sampleRate
@@ -624,10 +702,12 @@ export function render(a, offset, count) {
   if (Array.isArray(a) && a[0] instanceof Float32Array) {
     return offset != null ? a.map(ch => ch.subarray(offset, offset + count)) : a
   }
-  // AudioBuffer
+  // AudioBuffer: a slice as views of its channels, as Float32Array[] gives one (the readers of a block, a key's, a mix's
+  // source's, never write it; a copy of every channel whole for each block made a key's read grow with the square of
+  // its length); the whole as copies
   if (a?.getChannelData && !a.pages) {
-    let chs = Array.from({ length: a.numberOfChannels }, (_, i) => new Float32Array(a.getChannelData(i)))
-    return offset != null ? chs.map(ch => ch.subarray(offset, offset + count)) : chs
+    if (offset != null) return Array.from({ length: a.numberOfChannels }, (_, i) => a.getChannelData(i).subarray(offset, offset + count))
+    return Array.from({ length: a.numberOfChannels }, (_, i) => new Float32Array(a.getChannelData(i)))
   }
   if (offset != null) return readRange(a, offset, count)
   if (a._.pcm && a._.pcmV === a.version) return a._.pcm
@@ -707,7 +787,7 @@ function resolveCtxStats(a, index, st) {
     c.session = audio.statSession(sr); c.done = 0; c.stats = null
   }
   if (c.stats) return c.stats
-  st.outCh = stageWidth(pipeline, st.ch, st.totalLen / sr, sr)
+  st.outCh = stageWidth(a, pipeline, st.ch, st.totalLen / sr, sr)
   st.cur = c
   let settled = st.final ? st.totalLen : Math.max(0, Math.min(st.limit, st.totalLen) - st.latency)
   for (let n; (n = Math.min(1 << 16, settled - c.done)) > 0; c.done += n) c.session.page(readStage(a, st, c.done, n))
@@ -753,7 +833,7 @@ function compilePlan(a, len, final, measure = false) {
   let bake = () => {
     if (!pipeline.length) return
     let st = { segs, pipeline, totalLen: planLen(segs), sr, ch, latency, warmup, pulls, limit }
-    st.outCh = stageWidth(pipeline, ch, st.totalLen / sr, sr)
+    st.outCh = stageWidth(a, pipeline, ch, st.totalLen / sr, sr)
     st.cur = stageCursor(a, index, bakes++)
     segs = [seg(0, st.totalLen, 0, undefined, st)]
     ch = st.outCh
@@ -772,8 +852,9 @@ function compilePlan(a, len, final, measure = false) {
   }
   // an op that sets the rate from here on (resample)
   let rerate = (op, o) => { let ns = op?.sr?.(sr, o); if (ns) sr = ns }
-  // a whole op's declared decay, in samples: rendered past its input's end
-  let tailN = (op, o) => Math.round((typeof op.tail === 'function' ? op.tail(o, sr) : op.tail || 0) * sr)
+  // a whole op's declared decay, in samples: rendered past the end of its input, `n` samples (a hosted processor's tail
+  // function is handed the transport there)
+  let tailN = (op, o, n) => Math.round((typeof op.tail === 'function' ? op.tail(o, sr, n) : op.tail || 0) * sr)
 
   // Apply edits emitted by an expand/resolve hook: structural → segment rewrite,
   // otherwise pipeline. Inherits the parent edit's range and mix unless overridden.
@@ -787,8 +868,9 @@ function compilePlan(a, len, final, measure = false) {
       // the mix is the processor's: a structural edit it emits (a tail's pad) changes the timeline, not the sound
       if (mix != null && !rOp?.plan) o.mix ??= mix
       re = [rType, o]
+      origin.set(re, a.edits[index])
       if (rOp?.whole) throw new Error(`audio: whole-render op '${rType}' cannot be emitted by expand/resolve`)
-      if (o.mix != null && !rOp?.params?.includes('mix')) mixable(rType, o.mix, rOp)
+      if (o.mix != null && !rOp?.params?.includes('mix')) mixable(rType, o.mix, rOp, o.channel)
       if (typeof rOp?.plan === 'function') {
         let { at: rAt, duration: rDur, channel: rCh, ...rExtra } = o
         restructure(rOp, rType, rAt, rDur, rExtra)
@@ -799,7 +881,7 @@ function compilePlan(a, len, final, measure = false) {
     }
   }
 
-  for (let [i, edit] of a.edits.entries()) {
+  for (let [i, edit] of a.edits.entries()) try {
     index = i; bakes = 0
     let [type, o = {}] = edit
     let { at, duration, channel, ...extra } = o
@@ -808,7 +890,7 @@ function compilePlan(a, len, final, measure = false) {
     if (!op) throw new Error(audio.plugins?.[type] ? `${type}: not loaded until the first read (or await audio.use('${type}') before calling it)` : `Unknown op: ${type}`)
     // a mix of the engine's, not the op's own: blended after it, never handed to it
     let mix = op.params?.includes('mix') ? undefined : extra.mix
-    if (mix !== undefined) { delete extra.mix; mixable(type, mix, op) }
+    if (mix !== undefined) { delete extra.mix; mixable(type, mix, op, channel) }
 
     if (type === 'copy' || type === 'cut') {
       if (!final) { limit = 0; continue }
@@ -858,7 +940,9 @@ function compilePlan(a, len, final, measure = false) {
           if (ops[t]?.plan || ops[t]?.whole) throw new Error(`measure: '${t}' is structural; pipeline ops only`)
           o.at ??= at; o.duration ??= duration; o.channel ??= channel
           if (mix != null) o.mix ??= mix
-          pl.push([t, o]); lat += procLatency(ops[t], o, sr); wu = Math.max(wu, procWarmup(ops[t], o, sr))
+          let ed = [t, o]
+          origin.set(ed, edit)
+          pl.push(ed); lat += procLatency(ops[t], o, sr); wu = Math.max(wu, procWarmup(ops[t], o, sr))
         }
         return streamPlan(a, { segs, pipeline: pl, totalLen: planLen(segs), sr, ch, latency: lat, warmup: wu, pulls })
       }
@@ -888,7 +972,7 @@ function compilePlan(a, len, final, measure = false) {
       let ranged = op.frames && (at != null || duration != null), framesOf = n => Math.max(0, Math.round(op.frames(n, extra, sr)))
       if (measure && !a.edits.slice(i + 1).some(([n]) => ops[n]?.resolve)) {
         let [s0, s1] = ranged ? spanOf(t, at, duration, sr) : [0, 0]
-        let n = t + tailN(op, extra)
+        let n = t + tailN(op, extra, t)
         segs = [seg(0, ranged ? t - (s1 - s0) + framesOf(s1 - s0) : op.frames ? framesOf(n) : n, 0, undefined, null)]
         clear()
         rerate(op, extra)
@@ -902,23 +986,29 @@ function compilePlan(a, len, final, measure = false) {
         let input = readPlan(a, { segs, pipeline, totalLen: t, sr, ch, latency, pulls })
         // mid-decode the materialized timeline can be empty — keep channel shape, zero frames
         if (!input.length) input = Array.from({ length: ch || 1 }, () => new Float32Array(0))
+        // channel-changing whole op (e.g. 2→5.1 upmix) — output owns its declared width
+        // (a range or a mix refused where it changes it, as a stage's is)
+        let outCh = renderWidth(type, op, input.length, o, extra)
         // a range: read with what is either side of it, so the op is under way at its edges (time-linear, as a
         // stretch is: input sample p comes out at frames(p))
         let [s0, s1] = ranged ? spanOf(input[0].length, at, duration, sr) : [0, 0], whole = input, cl = 0
         if (ranged) { let c = Math.round(SEAM_CONTEXT * sr); cl = Math.min(c, s0); input = input.map(x => x.subarray(s0 - cl, Math.min(x.length, s1 + c))) }
         // declared tail → extend input with silence so the decay renders (equal frames in/out)
-        let tail = ranged ? 0 : tailN(op, extra)
+        let tail = ranged ? 0 : tailN(op, extra, input[0].length)
         if (tail > 0) input = input.map(chn => { let e = new Float32Array(chn.length + tail); e.set(chn); return e })
-        // channel-changing whole op (e.g. 2→5.1 upmix) — output owns its declared width
-        let outCh = (op.ch && op.ch(input.length, extra)) || input.length
+        // an edit on chosen channels hands the op those alone, in and out, the others kept as they came (applyProcs);
+        // a structural one (frames) changes the timeline of every channel, so it is handed all of them
+        let all = input, chs = channel != null && !op.frames ? resolveChannels(channel, input.length).chs : null
+        if (chs) input = chs.map(c => all[c]), outCh = chs.length
         // structural whole op (e.g. time-stretch) — declared frames hook sets output length
         let outLen = op.frames ? framesOf(input[0].length) : input[0].length
         if (outLen > MAX_FLAT_SIZE) throw new Error(`Audio too large for whole-render op '${type}' (${(outLen / 1e6).toFixed(0)}M samples out)`)
         let output = Array.from({ length: outCh }, () => new Float32Array(outLen))
-        let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: input[0].length / sr, at: ranged ? undefined : at, duration: ranged ? undefined : duration, channel, render, ...extra }
+        let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: input[0].length / sr, at: ranged ? undefined : at, duration: ranged ? undefined : duration, channel: chs ? undefined : channel, render, ...extra }
         op.whole(input, output, wctx)
         let share = ownMix(op, o)
         if (share != null) blend(share, input, output, 0, sr)
+        if (chs) output = all.map((x, c) => chs.includes(c) ? output[chs.indexOf(c)] : x)
         if (ranged) { let from = framesOf(cl), n = framesOf(s1 - s0); output = whole.map((c, k) => seamed(c, output[k].subarray(from, from + n), n, s0, s1, sr)) }
         a._.wrc.m.set(key, ref = audio.from(output, { sampleRate: sr }))
         // without a frames hook it renders in place: the timeline it read stays the time map under it (fn/cuts.js)
@@ -934,7 +1024,7 @@ function compilePlan(a, len, final, measure = false) {
     if (op.plan) restructure(op, type, at, duration, extra)
     else pushProc(edit)
     rerate(op, extra)
-  }
+  } catch (e) { throw blame(e, a, i) }
   let totalLen = planLen(segs)
   if (final) limit = totalLen
   // ch = pipeline input width — a._.ch unless a whole op rewrote the timeline to a
@@ -976,7 +1066,8 @@ export const prepared = (key, own, make) => async (a, index) => {
   let stamp = `${stampOf(a)}:${mine}`, done = o[key]
   if (done?.stamp === stamp) return
   let input = inputOf(a, index), pcm = await input.read()
-  if (chs) pcm = chs.map(c => pcm[c])
+  // a channel the sound lacks is an error that says so (resolveChannels), as every other op's
+  if (chs) pcm = pickChannels(pcm, o.channel)
   let fp = `${mine}:${fingerprint(pcm)}`
   if (done?.key === fp) { done.stamp = stamp; return }
   o[key] = { key: fp, stamp, pcm: pcm[0]?.length ? await make(pcm, input.sampleRate, o, a) : pcm }
@@ -1098,7 +1189,7 @@ function readRange(a, srcStart, n, sg, at) {
     // stage, so its processor state carries across blocks instead of re-warming each one
     let plan = buildPlan(a)
     plan.cur ??= a._.cursor ??= { pos: 0, hl: 0 }
-    plan.outCh ??= stageWidth(plan.pipeline, plan.ch, plan.totalLen / plan.sr, plan.sr)
+    plan.outCh ??= stageWidth(a, plan.pipeline, plan.ch, plan.totalLen / plan.sr, plan.sr)
     return readStage(a, plan, srcStart, n, sg, at)
   } finally { refStack.delete(a) }
 }
@@ -1192,7 +1283,10 @@ function renderSeg(a, sg, chunk, dstOff, n, at) {
   let bufStart = base - margin
   let copyOff = bufStart < 0 ? -bufStart : 0
   let copyStart = Math.max(0, bufStart)
-  let srcPcm = ref.segs ? readStage(a, ref, copyStart, srcN - copyOff, sg, at) : readRange(ref, copyStart, srcN - copyOff, sg, at)
+  let srcPcm
+  try { srcPcm = ref.segs ? readStage(a, ref, copyStart, srcN - copyOff, sg, at) : readRange(ref, copyStart, srcN - copyOff, sg, at) }
+  // a sound an edit takes (an insert's) failing as it renders: that edit's; a stage's edits are this instance's own
+  catch (e) { throw ref.segs ? e : blame(e, a, holderOf(a, ref)) }
   for (let c = 0; c < chunk.length; c++) {
     let src = srcPcm[c % srcPcm.length]
     if (copyOff || src.length < srcN) {
@@ -1210,13 +1304,13 @@ function renderSeg(a, sg, chunk, dstOff, n, at) {
 // ── Stages ─────────────────────────────────────────────────────
 
 /** Output width of a pipeline — channel-changing stages fold like initProcs. */
-function stageWidth(pipeline, ch, totalDur, sr) {
-  for (let [type, o = {}] of pipeline) {
-    let desc = ops[type]
+function stageWidth(a, pipeline, ch, totalDur, sr) {
+  for (let ed of pipeline) try {
+    let [type, o = {}] = ed, desc = ops[type]
     if (!desc?.ch) continue
     let { at, duration, channel, ...extra } = o
-    ch = desc.ch(ch, { duration, sampleRate: sr, totalDuration: totalDur, render, ...extra }) || ch
-  }
+    ch = widthOf(desc, ch, channel, { duration, sampleRate: sr, totalDuration: totalDur, render, ...extra })
+  } catch (e) { throw blame(e, a, editOf(a, ed)) }
   return ch
 }
 
@@ -1271,7 +1365,7 @@ function carryStage(c, st) {
  *  the others; none reading on from s, an unused one seeks there, else the one read longest ago. */
 const READERS = 4
 let readTick = 0, reading = null, apart = null
-function reader(st, s, sg, at) {
+function reader(a, st, s, sg, at) {
   let main = st.cur, all = [main, ...(main.more ??= [])], BS = audio.BLOCK_SIZE, best = null, gap = Infinity
   let mine = r => (r.apart ?? null) === apart && (!sg || r.till == null || at >= r.till || r.from === sg[0] && r.to === sg[2] && r.by === reading)
   // the nearest that reads on from s, the one read last among as near: a cursor left further on by an earlier read
@@ -1284,7 +1378,7 @@ function reader(st, s, sg, at) {
   }
   if (!best) {
     best = all.find(r => !r.procs) ?? (all.length < READERS ? main.more[main.more.push({ pos: 0, hl: 0, st }) - 1] : all.reduce((p, q) => p.used <= q.used ? p : q))
-    seekStage(st, best, s)
+    seekStage(a, st, best, s)
   }
   Object.assign(best, { used: ++readTick, from: sg?.[0], to: sg?.[2], till: sg ? sg[2] + sg[1] : null, by: reading, apart })
   return best
@@ -1292,9 +1386,9 @@ function reader(st, s, sg, at) {
 
 /** Start a stage cursor at timeline sample s, warmed up like streamPlan: up to WARMUP
  *  blocks before the latency-shifted cursor, never past s. */
-function seekStage(st, c, s) {
+function seekStage(a, st, c, s) {
   let BS = audio.BLOCK_SIZE, T = st.latency, sc = s + T
-  c.procs = initProcs(st.pipeline, st.totalLen / st.sr, st.sr, st.ch)
+  c.procs = initProcs(a, st.pipeline, st.totalLen / st.sr, st.sr, st.ch)
   c.sig = pipelineSig(st.pipeline)
   c.buf = Array.from({ length: st.ch }, () => new Float32Array(BS))
   c.hist = Array.from({ length: st.outCh }, () => new Float32Array(BS))
@@ -1306,7 +1400,7 @@ function seekStage(st, c, s) {
  *  processor state stays exact; overlaps come from a one-block history; a jump back or
  *  far ahead re-seeks with warm-up — the approximation seeking already makes. */
 function readStage(a, st, s, n, sg, at) {
-  let c = reader(st, s, sg, at), BS = audio.BLOCK_SIZE, T = st.latency
+  let c = reader(a, st, s, sg, at), BS = audio.BLOCK_SIZE, T = st.latency
   let out = Array.from({ length: st.outCh }, () => new Float32Array(n))
   let k = Math.min(c.pos, s + n) - s
   if (k > 0) for (let ch = 0; ch < out.length; ch++) out[ch].set(c.hist[ch].subarray(BS - (c.pos - s), BS - (c.pos - s) + k))
@@ -1320,7 +1414,7 @@ function readStage(a, st, s, n, sg, at) {
       reading = c
       try { renderBlock(a, st.segs, c.pos + T, len, c.buf) } finally { reading = was }
       let src = len < BS ? c.buf.map(b => b.subarray(0, len)) : c.buf
-      let blk = applyProcs(src, c.procs, c.pos + T, st.sr)
+      let blk = applyProcs(a, src, c.procs, c.pos + T, st.sr)
       for (let ch = 0; ch < out.length; ch++) {
         let b = blk[ch % blk.length].subarray(0, len), h = c.hist[ch]
         if (c.pos >= s) out[ch].set(b, c.pos - s)
@@ -1340,7 +1434,7 @@ const SUB = 128
 
 /** Breakpoint curve {t, v} (seconds → value) — the serializable stand-in for `t => v`
  *  automation; survives toJSON and the worker boundary. */
-export const isCurve = x => x != null && typeof x === 'object' && x.t?.length > 0 && x.v?.length === x.t.length && typeof x.t[0] === 'number'
+export { isCurve }
 
 /** Curve → sampled function. Linear interpolation, clamped ends, t ascending. */
 export function curveFn(c) {
@@ -1359,9 +1453,9 @@ export function curveFn(c) {
 /** Apply process pipeline to a block. Each proc owns output buffers sized to its
  *  stage's channel width (set in initProcs) — channel-count changes are a per-stage
  *  property, not a special case, and the hot path stays allocation-free. */
-function applyProcs(bufA, procs, outOff, sr) {
+function applyProcs(a, bufA, procs, outOff, sr) {
   let cur = bufA
-  for (let proc of procs) {
+  for (let proc of procs) try {
     let { op, at, dur, channel, ctx } = proc
     if (!op) continue
     let BS = cur[0].length
@@ -1370,6 +1464,8 @@ function applyProcs(bufA, procs, outOff, sr) {
     // This stage's input content sits preLat cursor samples later than its timeline —
     // all time semantics (blockOffset, ranges, automation) shift back accordingly
     let tOff = outOff - proc.preLat
+    // the channels it is on: a channel the audio hasn't is an error that says so, not a crash further in
+    let chs = channel != null ? resolveChannels(channel, cur.length).chs : null
 
     let run = (i0, i1) => {
       ctx.blockOffset = (tOff + i0) / sr
@@ -1377,9 +1473,7 @@ function applyProcs(bufA, procs, outOff, sr) {
       let full = i0 === 0 && i1 === BS
       let inV = full ? cur : cur.map(ch => ch.subarray(i0, i1))
       let outV = full ? out : out.map(ch => ch.subarray(i0, i1))
-      if (channel != null) {
-        // a channel the audio hasn't is an error that says so, not a crash further in
-        let { chs } = resolveChannels(channel, inV.length)
+      if (chs) {
         // Channels outside the scope pass through, delayed by the stage's latency, so they
         // stay aligned with the processed ones once the engine compensates the whole stage
         for (let c = 0; c < inV.length; c++) if (!chs.includes(c)) {
@@ -1433,25 +1527,27 @@ function applyProcs(bufA, procs, outOff, sr) {
         for (let i = i1; i < BS; i++) o[i] = d[i]
       }
     }
-    if (span) seams(out, dry, span)
+    if (span) seams(out, dry, span, chs)
     // a mix under 1: what it played lined up with what came in, in that share; a number changed, ramped once
     if (proc.mix != null) {
       blend(proc.mix, dry, out, tOff - proc.lat, sr)
       if (Array.isArray(proc.mix)) proc.mix = proc.mix[1] === 1 ? null : proc.mix[1]
     }
     cur = out
-  }
+  } catch (err) { throw blame(err, a, editOf(a, proc.ed)) }
   return cur
 }
 
 /** A range's edges in a block of an op's output (`span`: its start and end in the block's samples, which may lie outside
  *  it, and the crossfade's length): what the op made comes in from its input `dry` over the first samples and goes back
  *  over the last, at constant power for signals half alike (Fink et al.'s ρ = ½: within 1.5 dB whether the op keeps its
- *  input's shape, an EQ, or makes another, a pitch shift; a stream can't measure which before it plays) */
-function seams(out, dry, [b0, b1, x]) {
+ *  input's shape, an EQ, or makes another, a pitch shift; a stream can't measure which before it plays). On the channels
+ *  `chs` alone where it chose some: the others are their input, which a crossfade into itself at that power would swell */
+function seams(out, dry, [b0, b1, x], chs) {
   if (x <= 0) return
   let n = out[0].length
   for (let c = 0; c < out.length; c++) {
+    if (chs && !chs.includes(c)) continue
     let o = out[c], d = dry[c % dry.length]
     for (let i = Math.max(0, b0), end = Math.min(n, b0 + x); i < end; i++) { let [g, w] = xfade((i - b0 + .5) / x, .5); o[i] = g * d[i] + w * o[i] }
     for (let i = Math.max(0, b1 - x), end = Math.min(n, b1); i < end; i++) { let [w, g] = xfade((i - b1 + x + .5) / x, .5); o[i] = w * o[i] + g * d[i] }
@@ -1508,16 +1604,27 @@ function delayed(proc, x) {
   return n === BS ? y : y.map(v => v.subarray(0, n))
 }
 
-/** Structural signature — op types only. Value changes patched in place. */
+/** Structural signature: op types, and what only a new instance of a hosted processor takes (contract § Lifecycle): the
+ *  values of its restart params, its buffers and the layouts it is given. Other value changes are patched in place. */
 function pipelineSig(pipeline) {
-  return pipeline.map(ed => ed[0]).join('|')
+  return pipeline.map(([type, o]) => {
+    let m = ops[type]?.plugin, keys = m ? Object.keys(m.params || {}).filter(k => fixed(m.params[k])).concat(Object.keys(m.buffers || {})) : []
+    let sig = keys.map(k => instanceSig(o?.[k] ?? o?.[m.params?.[k]?.alias]))
+    if (m && o?.layouts != null) sig.push(JSON.stringify(o.layouts))
+    return sig.length ? `${type}(${sig.join()})` : type
+  }).join('|')
 }
+// a value as the signature holds it: a number or a name as written; an object (a buffer: samples, a sound) by which it
+// is and, a sound, its version
+let sigIds = new WeakMap(), sigN = 0
+const instanceSig = v => v !== null && typeof v === 'object' ? `#${sigIds.get(v) ?? (sigIds.set(v, ++sigN), sigN)}.${v.version ?? ''}` : JSON.stringify(v)
 
 /** Patch proc contexts with updated parameter values (no reinit). Numeric changes
  *  ramp across the next block (applyProcs sub-block loop); function values re-captured. */
 function patchProcs(procs, pipeline) {
   for (let i = 0; i < procs.length && i < pipeline.length; i++) {
     let p = procs[i], o = pipeline[i][1] || {}
+    p.ed = pipeline[i]
     let { at, duration, channel, ...extra } = o
     if (!p.desc.params?.includes('mix')) {
       let was = p.mix ?? 1, now = ownMix(p.desc, o) ?? 1
@@ -1531,6 +1638,8 @@ function patchProcs(procs, pipeline) {
     let ramp = null
     for (let k in extra) {
       let v = extra[k]
+      // an op that resolves its values in time (a hosted processor: core.js hostOp) takes them as they are
+      if (p.desc.auto === 'own') { p.ctx[k] = v; continue }
       if (isCurve(v)) v = curveFn(v)
       if (typeof v === 'function') {
         if (p.fns?.[k]) p.fns[k] = v
@@ -1546,9 +1655,9 @@ function patchProcs(procs, pipeline) {
 
 /** Initialize process pipeline contexts from plan. Each proc gets its own output
  *  buffers sized to its stage's channel width — zero allocation in the block loop. */
-function initProcs(pipeline, totalDur, sr, nch) {
-  let curCh = nch, BS = audio.BLOCK_SIZE, preLat = 0
-  return pipeline.map(ed => {
+function initProcs(a, pipeline, totalDur, sr, nch) {
+  let curCh = nch, BS = audio.BLOCK_SIZE, preLat = 0, procs = []
+  for (let ed of pipeline) try {
     let desc = ops[ed[0]]
     let o = ed[1] || {}
     let { at, duration: dur, channel, ...extra } = o
@@ -1556,11 +1665,8 @@ function initProcs(pipeline, totalDur, sr, nch) {
     let mix = ownMix(desc, o)
     if (!desc.params?.includes('mix')) delete extra.mix
     let ctx = { duration: dur, sampleRate: sr, totalDuration: totalDur, render, ...extra }
-    let outCh = desc.ch ? desc.ch(curCh, ctx) : 0
+    let outCh = renderWidth(ed[0], desc, curCh, o, ctx)
     if (outCh === curCh) outCh = 0
-    // an op whose width depends on what it hosts (chKeeps: a plugin) takes a range only where it keeps the width
-    if (outCh && desc.chKeeps && (at != null || dur != null)) throw new TypeError(`${ed[0]}: a range keeps the channel count, and this changes it (${curCh} → ${outCh})`)
-    if (outCh && desc.chKeeps && mix != null) throw new TypeError(`${ed[0]}: mix blends the output with the input, and this changes the channel count (${curCh} → ${outCh})`)
     let w = outCh || curCh
     if (outCh) curCh = outCh
     // Cumulative latency of prior stages — this stage's input content sits preLat
@@ -1570,7 +1676,7 @@ function initProcs(pipeline, totalDur, sr, nch) {
     // Function-valued (or breakpoint-curve) params become engine automation unless the
     // op samples them itself (auto: 'sample') or declares genuine function args (fnArgs)
     let fns = null, autos = null
-    for (let k in extra) {
+    if (desc.auto !== 'own') for (let k in extra) {
       let val = extra[k]
       if (isCurve(val)) val = curveFn(val)
       if (typeof val !== 'function' || desc.fnArgs?.includes(k)) continue
@@ -1578,9 +1684,10 @@ function initProcs(pipeline, totalDur, sr, nch) {
       ;(fns ??= {})[k] = val; (autos ??= []).push(k)
       ctx[k] = val(0)
     }
-    return {
+    procs.push({
       op: desc.process,
       desc,
+      ed,
       origAt: at,
       at: at != null && at < 0 ? totalDur + at : at,
       dur,
@@ -1591,8 +1698,9 @@ function initProcs(pipeline, totalDur, sr, nch) {
       out: Array.from({ length: w }, () => new Float32Array(BS)),
       fns, autos, ramp: null, mix,
       ctx
-    }
-  })
+    })
+  } catch (e) { throw blame(e, a, editOf(a, ed)) }
+  return procs
 }
 
 /** Maximum source sample needed by self-referencing segments for output range [start, end). */
@@ -1617,7 +1725,7 @@ function maxSrcSample(segs, start, end) {
 export function* streamPlan(a, plan, offset, duration) {
   let { segs, pipeline, totalLen, sr, ch = a._.ch, latency: T = 0 } = plan
   let s = Math.round((offset || 0) * sr), e = duration != null ? s + Math.round(duration * sr) : totalLen
-  let procs = initProcs(pipeline, totalLen / sr, sr, ch)
+  let procs = initProcs(a, pipeline, totalLen / sr, sr, ch)
 
   let sc = s + T, ec = e + T
   // Same warm-up bound as the async reader: never past the requested start s
@@ -1631,7 +1739,7 @@ export function* streamPlan(a, plan, offset, duration) {
     for (let b of bufA) b.fill(0, 0, len)
     renderBlock(a, segs, outOff, len, bufA)
     let src = len < BS ? bufA.map(b => b.subarray(0, len)) : bufA
-    let out = procs.length ? applyProcs(src, procs, outOff, sr) : src
+    let out = procs.length ? applyProcs(a, src, procs, outOff, sr) : src
     if (outOff >= sc) yield out.map(b => b.subarray(0, len))
     outOff += len
   }

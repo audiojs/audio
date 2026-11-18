@@ -344,6 +344,9 @@ test('declip on threads: empty and unclipped as they are; one channel of two', a
 	let out = await audio.from([L.slice(), R.slice()], { sampleRate: SR }).declip({ channel: 1 }).read()
 	ok(same(out[0], L), 'the channel not asked for as it was')
 	ok(same(out[1], kernel(R, { fs: SR, clipLevel: 0, order: 256 })), 'the one asked for the kernel\'s')
+	// both clipped: the one not asked for is kept too (the whole render once declipped every channel, the choice ignored)
+	let both = await audio.from([R.slice(), R.slice()], { sampleRate: SR }).declip({ channel: 1 }).read()
+	ok(same(both[0], R) && same(both[1], out[1]), 'both clipped: the channel not asked for as it was, the one asked for as above')
 }, { timeout: 600000 })
 
 test('decrackle (streaming:false): reduces a high-rate impulse shower', async () => {

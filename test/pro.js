@@ -683,6 +683,16 @@ test('cli: ranges anywhere, paths with .., bands, name:value options, save short
   t.is(parseArgs(['in.wav', 'save', 'o.mp3', '192k', '24bit', 'quality:2']).sink.opts, { bitrate: 192, bitDepth: 24, quality: 2 })
   t.is(op(['in.wav', 'dither', '16', 'shape:false']).opts, { shape: false }, 'booleans, not truthy strings')
   t.is(op(['in.wav', 'ducker', 'key:voice.wav']).opts, { key: 'voice.wav' }, 'sidechain file')
+  // a keyed processor's words are its params in their order, its key by key:FILE: 5ms is the ducker's attack, in ms (it
+  // was read against the param before it, range, in dB)
+  await audio.use('ducker')
+  let d = op(['in.wav', 'ducker', '-30', '8', '6', '-40', '5ms', 'key:voice.wav'])
+  t.is([d.args, d.opts], [[-30, 8, 6, -40, 5], { key: 'voice.wav' }], 'ducker -30 8 6 -40 5ms key:voice.wav')
+  // a bool param's word in its place is true or false, as by name (its help reads `limiter [CEILING LOOKAHEAD RELEASE
+  // TRUEPEAK]`): the text 'false' was passed on, a truthy string, and turned true peak on
+  await audio.use('limiter')
+  t.is(op(['in.wav', 'limiter', '-1', '5', '50', 'false']).args, [-1, 5, 50, false], 'limiter -1 5 50 false')
+  t.is(op(['in.wav', 'limiter', '-1', '5', '50', 'true']).args, [-1, 5, 50, true], 'limiter -1 5 50 true')
 })
 
 // The skill teaches the CLI: every op and stat it names must exist (built in or registry).

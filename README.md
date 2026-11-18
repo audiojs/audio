@@ -7,7 +7,7 @@ _High-level audio manipulations: loading, playback, analysis and editing. 140+ p
 * **Any Format** — fast [wasm codecs](https://github.com/audiojs/decode), no ffmpeg.
 * **Non-destructive** — virtual edits, infinite undo, instant clone.
 * **Stream-first** — playback/encode during decode, realtime editing.
-* **Paged** — no 2Gb memory limit, open 10Gb+ files.
+* **Paged** — no 2Gb memory limit: a 2.4Gb render streams without being held whole, pages past a memory budget evict to OPFS.
 * **Analysis** — loudness, spectrum, beats, pitch, chords, key.
 * **Modular** – pluggable ops, tree-shakable.
 * **CLI** — playback, batch processing, scripting, unix pipes, tab completion.
@@ -317,7 +317,7 @@ let f = audio.from(store, { length, channels, sampleRate }) // pages in a store 
 | `.bitDepth` | stored sample depth of the source: 16, 24, 32 (float); null for lossy or generated audio. Lossless `save` keeps it. |
 | `.pages` | `Float32Array` page store. |
 | `.stats` | per-block stats (peak, rms, etc.). |
-| `.edits` | edit list. |
+| `.edits` | edit list. An error an edit raises as it loads, prepares or renders says which: `e.edit`, its index here, and `e.op`, its name. |
 | `.version` | increments on each edit. |
 
 ### Structure
@@ -979,7 +979,7 @@ audio --completions fish | source       # fish
 <dd>No ffmpeg: codecs and processing are JS and WASM. Playing and recording in Node go through a small native addon, prebuilt for macOS, Linux (x64, arm64) and Windows (x64), so nothing compiles at install; elsewhere playback falls back to <code>ffplay</code>, SoX or <code>aplay</code>. For the CLI, install globally: <code>npm i -g audio</code>.</dd>
 
 <dt>How big is it?</dt>
-<dd>In a page: 128 KB gzipped, the whole library minified (<code>dist/audio.min.js</code>); codecs and plugins load on first use via <code>import()</code>, so unused formats aren't fetched. In Node: <code>npm i audio</code> installs 16 MB in 327 packages (every codec and plugin), nothing compiled; <code>npm i audio --omit=optional</code> 11.5 MB in 115 (the codecs and the core: filters, EQ, loudness, pitch, stretch), each plugin family then installed by name when used (<code>npm i @audio/dynamics</code>).</dd>
+<dd>In a page: 147.8 KB gzipped, the whole library minified (<code>dist/audio.min.js</code>); codecs and plugins load on first use via <code>import()</code>, so unused formats aren't fetched. In Node: <code>npm i audio</code> installs 16.6 MB in 328 packages (every codec and plugin; measured on 2.15.1), nothing compiled; <code>npm i audio --omit=optional</code> 12.1 MB in 116 (the codecs and the core: filters, EQ, loudness, pitch, stretch; measured on 2.15.1), each plugin family then installed by name when used (<code>npm i @audio/dynamics</code>).</dd>
 
 <dt>How does it handle large files?</dt>
 <dd>Audio is stored in fixed-size pages. In the browser, with <code>{ storage: 'persistent' }</code> (or <code>'auto'</code>, where OPFS exists), cold pages evict to OPFS when memory exceeds budget — auto-sized from <code>navigator.storage.estimate()</code> (quota/4, 64MB..512MB), overridable via <code>{budget}</code>; each instance keeps its own store, its copies share it. Works for decoded files, <code>audio.from(pcm)</code> and pushed streams. Stats stay resident (~7 MB for 2h stereo).</dd>
@@ -1000,7 +1000,7 @@ audio --completions fish | source       # fish
 <dd>Yes — the <a href="https://github.com/audiojs">audiojs</a> ecosystem covers the practical baseline of FFmpeg filters, SoX effects, librosa analysis, Pedalboard and MIREX, all as <code>@audio/*</code> plugins <code>audio</code> wires through one API (the few uncovered items are esoteric or deliberately skipped). Every effect, filter, generator and analyzer lives in the <a href="docs/plugins.md#registry">registry</a> — call one by name and it loads on first use. Coverage matrix: <a href="docs/comparison.md">docs/comparison.md</a>.</dd>
 
 <dt>How is this different from SoX / FFmpeg / Audacity / librosa / Web Audio / Tone.js?</dt>
-<dd>In one line: <code>audio</code> is the only one that runs the same API in Node and the browser, with non-destructive lazy edits that stream during decode. The native tools (SoX, FFmpeg) have no JS API, browser, or undo, and only FFmpeg is still faster on most raw throughput; the browser libs (Web Audio, Tone.js, Howler) are real-time graphs, not file editors. Full feature and <a href="docs/comparison.md#performance">performance</a> matrices vs pydub, librosa, aubio, essentia, Pedalboard, SoX, FFmpeg, Audacity and MATLAB are in <a href="docs/comparison.md">docs/comparison.md</a>.</dd>
+<dd>In one line: <code>audio</code> runs the same API in Node and the browser, with non-destructive lazy edits that stream during decode. The native tools (SoX, FFmpeg) have no JS API, browser, or undo. On raw throughput the picture is mixed: of the 23 task-and-tool pairs in <code>bench/results.json</code> (a 10-minute file, 2026-11-14), <code>audio</code> is faster in 13 and slower in 10, from 7.3× slower decoding WAV (246 ms, Pedalboard 34 ms) to 7.8× faster resampling (450 ms, Pedalboard 3510 ms), each row in the performance matrix; the browser libs (Web Audio, Tone.js, Howler) are real-time graphs, not file editors. Full feature and <a href="docs/comparison.md#performance">performance</a> matrices vs pydub, librosa, aubio, essentia, Pedalboard, SoX, FFmpeg, Audacity and MATLAB are in <a href="docs/comparison.md">docs/comparison.md</a>.</dd>
 </dl>
 
 ## Built with

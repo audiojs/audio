@@ -12,8 +12,8 @@ export { parseTime, bitDepth } from './core.js'
 export { render, wholeOf } from './plan.js'
 export { keysOf, recall, keep, onto, prefix, rootOf, idOf } from './checkpoint.js'
 
-import audio, { LOAD, loadOps } from './core.js'
-import { opMethod } from './plan.js'
+import audio, { LOAD, loadOps, positional, blame } from './core.js'
+import { opMethods } from './plan.js'
 
 // ── Plugin registry: name → package, loaded by dynamic import on first use (autowired:
 // a.compressor() works without audio.use; the atom loads at the first render).
@@ -85,6 +85,9 @@ const OPS = {
   microshift: '@audio/spatial/microshift/audio',
   binaural: '@audio/spatial/binaural/audio',
   surround: '@audio/spatial/surround/audio',
+  'ambisonic-panner': '@audio/spatial/ambisonic/audio',
+  'ambisonic-decoder': '@audio/spatial/ambisonic/audio',
+  'ambisonic-rotate': '@audio/spatial/ambisonic/audio',
   vocoder: '@audio/shift/pvoc/audio',
   'formant-shift': '@audio/shift/formant/audio',
   paulstretch: '@audio/shift/paulstretch/audio',
@@ -127,6 +130,13 @@ const OPS = {
   deemphasis: '@audio/filter/preemphasis/audio',
   derivative: '@audio/filter/derivative/audio',
   integral: '@audio/filter/derivative/audio',
+  'a-weighting': '@audio/weighting/a/audio',
+  'b-weighting': '@audio/weighting/b/audio',
+  'c-weighting': '@audio/weighting/c/audio',
+  'd-weighting': '@audio/weighting/d/audio',
+  'k-weighting': '@audio/weighting/k/audio',
+  itu468: '@audio/weighting/itu468/audio',
+  riaa: '@audio/weighting/riaa/audio',
   geq: '@audio/eq/graphic/audio',
   tilt: '@audio/eq/tilt/audio',
   baxandall: '@audio/eq/baxandall/audio',
@@ -151,9 +161,11 @@ const OPS = {
   adsr: '@audio/synth/envelope/audio',
   voice: '@audio/synth/voice/audio',
   poly: '@audio/synth/poly/audio',
+  tonewheel: '@audio/synth/tonewheel/audio',
   // ── Time-stretch (whole-render + frames hook — structural output length) ──
   'stretch-pvoc-lock': '@audio/stretch/pvoc-lock/audio',
   'stretch-pvoc': '@audio/stretch/pvoc/audio',
+  'stretch-pvsola': '@audio/stretch/pvsola/audio',
   'stretch-pghi': '@audio/stretch/pghi/audio',
   'stretch-wsola': '@audio/stretch/wsola/audio',
   'stretch-psola': '@audio/stretch/psola/audio',
@@ -197,25 +209,30 @@ const STATS = {
 audio.plugins = { ...OPS, ...STATS }
 audio.atoms = audio.plugins  // deprecated ≤2.5 name — same object, mutations visible through both
 
-// Registry ops are methods from the start; positional args wait as `args` until the op loads
-for (let name in OPS) audio.fn[name] ??= opMethod(name)
+// Registry ops are methods from the start (a dashed name under its camelCase too); positional args wait as `args`
+// until the op loads
+for (let name in OPS) opMethods(name)
 
 /** Load every registry op an instance's edits name (dynamic import), then map the
- *  positional args recorded before it loaded onto its params; so for the sources its edits take (mix, insert, a key),
+ *  positional args recorded before it loaded onto its params, and settle its options as a call to it loaded would
+ *  (plan.js normalizeEdit); so for the sources its edits take (mix, insert, a key),
  *  which its plan reads synchronously: an insert's length, a normalize measuring a mix. */
 async function autowire(a, seen = new Set()) {
   if (seen.has(a)) return
   seen.add(a)
-  for (let e of a.edits) {
+  // a failure is said of its edit (core.js blame); one of a sound an edit takes, of that edit
+  for (let [j, e] of a.edits.entries()) try {
     let [type, o] = e, d = audio.op(type)
     if (!d && audio.plugins[type]) { await audio.use(type); d = audio.op(type) }
-    if (!o?.args || !d?.params) continue
-    let { args, ...rest } = o
-    if (args.length > d.params.length) throw new TypeError(`${type}: expected at most ${d.params.length} arguments (${d.params.join(', ')}), got ${args.length}`)
-    d.params.forEach((p, i) => { if (i < args.length) rest[p] = args[i] })
-    e[1] = rest
-  }
-  for (let [, o] of a.edits) for (let k in o) if (o[k]?.edits?.length) { await autowire(o[k], seen); await loadOps(o[k]) }
+    if (o?.args && d?.params) {
+      let { args, ...rest } = o, p = positional(d, args)
+      if (args.length > p.length) throw new TypeError(`${type}: expected at most ${p.length} arguments (${p.join(', ')}), got ${args.length}`)
+      p.forEach((k, i) => { if (i < args.length) rest[k] = args[i] })
+      e[1] = rest
+    }
+    if (e[1]) d?.settle?.(e[1])
+  } catch (err) { throw blame(err, a, j) }
+  for (let [j, [, o]] of a.edits.entries()) for (let k in o) if (o[k]?.edits?.length) try { await autowire(o[k], seen); await loadOps(o[k]) } catch (err) { throw blame(err, a, j) }
 }
 let load = audio.fn[LOAD], stream = audio.fn.stream
 audio.fn[LOAD] = async function() { if (this.edits?.length) await autowire(this); return load.call(this) }

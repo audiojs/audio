@@ -299,8 +299,11 @@ test('deesser: sibilance-keyed broadband reduction, inactive without sibilance',
 test('softclip: bounded by ceiling, enum curve validated', async () => {
   let out = (await audio.from([tone(440, 0.2, 1.0)], { sampleRate: SR }).softclip({ curve: 'hard', drive: 4, ceiling: 0.5 }).read())[0]
   ok(out.every(v => Math.abs(v) <= 0.5 + 1e-6), 'hard curve clamps at ceiling')
-  let out2 = (await audio.from([tone(440, 0.2, 1.0)], { sampleRate: SR }).softclip({ curve: 'nope' }).read())[0]
-  ok(out2.every(v => Math.abs(v) <= 1 + 1e-6) && out2.every(isFinite), 'unknown enum falls back to default')
+  // a value the enum does not declare is refused at the call (CONTRACT.md § What a host owes, 2); it fell back to the
+  // default and rendered
+  let err = null
+  try { audio.from([tone(440, 0.2, 1.0)], { sampleRate: SR }).softclip({ curve: 'nope' }) } catch (e) { err = e }
+  is(err?.message, "softclip: curve takes 'tanh', 'atan', 'cubic', 'sin' or 'hard', not 'nope'", 'an unknown enum value: refused at the call, naming its values')
 })
 
 // ── Dynamics wave: expander, compand, leveler, transient-shaper, ducker ───
@@ -462,6 +465,7 @@ import { exciter as exciterAtom } from '@audio/effect-exciter/audio'
 import { subbass as subbassAtom } from '@audio/effect-subbass/audio'
 import { sbr as sbrAtom } from '@audio/effect-sbr/audio'
 import { toBatch } from '../batch.js'
+import { execFileSync } from 'node:child_process'
 
 audio.use(defeedback, exciterAtom, subbassAtom, sbrAtom)
 
@@ -502,31 +506,848 @@ test('filter ops: Q, and the former q still read', async () => {
   ok(pos.every((v, i) => v === named[i]), 'positional (freq, Q) ≡ named')
 })
 
-// Layout tags (contract §Buses), declared as @audio/spatial-ambisonic declares them: widths follow the resolved
-// layout, the factory sees ctx.layouts, and a `layouts` option picks among the declared ones
+// Layout tags (contract § Channels), declared as @audio/spatial-ambisonic declares them from 1.0, a choice of layouts as
+// one bus `[{ layouts: [...] }]`: widths follow the resolved layout, the factory sees ctx.layouts, and a `layouts`
+// option picks among the declared ones. The same declared as lists of tags, the form manifests published before 1.0
+// carry (@audio/spatial-ambisonic 0.1.0, as audio installs it), is hosted alike
 let built = []
+const AMBI = ['ambisonic-1', 'ambisonic-2', 'ambisonic-3'], SPEAKERS = ['stereo', 'quad', '5.1', '7.1']
 function layoutEncode(ctx) {
   built.push(ctx.layouts)
   return (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][0]) }
 }
-layoutEncode.channels = { inputs: 1, outputs: ['ambisonic-1', 'ambisonic-2', 'ambisonic-3'] }
+layoutEncode.channels = { inputs: 1, outputs: [{ layouts: AMBI }] }
 layoutEncode.params = {}
 function layoutDecode(ctx) {
   built.push(ctx.layouts)
   return (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][c]) }
 }
-layoutDecode.channels = { inputs: ['ambisonic-1', 'ambisonic-2', 'ambisonic-3'], outputs: ['stereo', 'quad', '5.1', '7.1'] }
+layoutDecode.channels = { inputs: [{ layouts: AMBI }], outputs: [{ layouts: SPEAKERS }] }
 layoutDecode.params = {}
 audio.use(layoutEncode, layoutDecode)
+audio.op('layout-encode-0', Object.assign(ctx => layoutEncode(ctx), { params: {}, channels: { inputs: 1, outputs: AMBI } }))
+audio.op('layout-decode-0', Object.assign(ctx => layoutDecode(ctx), { params: {}, channels: { inputs: AMBI, outputs: SPEAKERS } }))
 
-test('use(module) hosts declared layouts: mono → ambisonic → speakers', async () => {
+test('use(module) hosts declared layouts: mono → ambisonic → speakers; lists of tags, as before 1.0, alike', async () => {
   let x = tone(440, 0.5)
-  let enc = await audio.from([x], { sampleRate: SR })['layout-encode']().read()
-  is(enc.length, 4, 'first order by default')
-  ok(enc.every(c => c.every((v, i) => v === x[i])), 'every channel written')
-  is(built.at(-1), { inputs: [undefined], outputs: ['ambisonic-1'] })
-  is((await audio.from([x], { sampleRate: SR })['layout-encode']({ layouts: { outputs: ['ambisonic-2'] } }).read()).length, 9, 'second order chosen')
-  let dec = await audio.from([x], { sampleRate: SR })['layout-encode']()['layout-decode']().read()
-  is(dec.length, 2, 'decoded to stereo')
-  is(built.at(-1), { inputs: ['ambisonic-1'], outputs: ['stereo'] })
+  for (let [encode, decode] of [['layout-encode', 'layout-decode'], ['layout-encode-0', 'layout-decode-0']]) {
+    let enc = await audio.from([x], { sampleRate: SR })[encode]().read()
+    is(enc.length, 4, `${encode}: first order by default`)
+    ok(enc.every(c => c.every((v, i) => v === x[i])), 'every channel written')
+    is(built.at(-1), { inputs: [undefined], outputs: ['ambisonic-1'] })
+    is((await audio.from([x], { sampleRate: SR })[encode]({ layouts: { outputs: ['ambisonic-2'] } }).read()).length, 9, 'second order chosen')
+    let dec = await audio.from([x], { sampleRate: SR })[encode]()[decode]().read()
+    is(dec.length, 2, `${decode}: decoded to stereo`)
+    is(built.at(-1), { inputs: ['ambisonic-1'], outputs: ['stereo'] })
+  }
+})
+
+// One op to a name. A built-in's is not a processor's to take (effect-gain's `gain`, in dB, over the built-in gain;
+// pitch-yin's analyzer over the pitch shifter): the error says how to register it under another, which audio.op does. A
+// processor registered under its id before gives way to a new one: a script run again in the editor defines its
+// processor again. The same one again is there already. An instance method's name (read, save, clone) no call could
+// reach, and one with neither an id nor a function name has no name a call can mean: both throw
+test('use(module): a built-in\'s name throws, saying how to register it under another; a processor\'s is replaced; the same one again is a no-op', async () => {
+  let pass = (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][c]) }
+  function gain() { return pass }
+  gain.channels = 'any'
+  gain.params = { dB: { type: 'number', min: -60, max: 24, default: 0, unit: 'dB' } }
+  let err = null
+  try { audio.use(gain) } catch (e) { err = e }
+  ok(err?.message.includes(`'gain' is a built-in op; register this processor under another name: audio.op('my-gain', processor)`), `a built-in's name: ${err?.message}`)
+  is(audio.op('gain').params, ['value'], 'the built-in gain is the one called')
+  ok(!audio.op('gain').plugin, 'not the processor')
+  audio.op('my-gain', gain)
+  is(audio.op('my-gain').plugin, gain, 'audio.op(name, processor): hosted under the name given')
+  let x = tone(440, 0.05)
+  ok((await audio.from([x], { sampleRate: SR })['my-gain']().read())[0].every((v, i) => v === x[i]), 'and called by it')
+
+  for (let take = 0; take < 2; take++) {
+    let again = () => (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) outputs[0][c].fill(take + 1) }
+    again.id = 'freeverb'
+    again.channels = 'any'
+    again.params = {}
+    audio.use(again)
+    is(audio.op('freeverb').plugin, again, `another processor under freeverb's id replaces it, take ${take + 1}`)
+    is((await audio.from([x], { sampleRate: SR }).freeverb().read())[0][0], take + 1, 'and is the one called')
+  }
+  audio.use(freeverb)
+  is(audio.op('freeverb').plugin, freeverb, 'and the first back again')
+
+  let before = audio.op('compressor')
+  audio.use(compressor)
+  await audio.use('compressor')
+  is(audio.op('compressor'), before, 'the same processor again, by itself or by its registry name: as it was')
+
+  for (let id of ['read', 'save', 'clone']) {
+    let f = Object.assign(() => pass, { id, channels: 'any', params: {} })
+    for (let register of [() => audio.use(f), () => audio.op(id, f)]) {
+      err = null
+      try { register() } catch (e) { err = e }
+      ok(err?.message.includes(`'${id}' is an instance method (a.${id}())`), `${id}: ${err?.message}`)
+    }
+    ok(!audio.op(id), `nothing registered as ${id}`)
+  }
+
+  let nameless = [() => pass, () => pass].map(f => Object.assign(f, { channels: 'any', params: {} }))
+  for (let f of nameless) {
+    err = null
+    try { audio.use(f) } catch (e) { err = e }
+    ok(/needs an id or a function name/.test(err?.message), 'neither an id nor a name')
+  }
+  ok(!audio.op('module'), 'nothing registered as "module"')
+})
+
+// One stat to a name, by the same rule: a built-in stat's, an op's or an instance method's name throws, saying how to
+// register it under another; a stat plugin under a stat plugin's name replaces it
+test('use(stat): a built-in stat\'s, an op\'s or a method\'s name throws, saying how; a stat plugin\'s is replaced', async () => {
+  for (let [stat, what] of [['rms', 'a built-in stat'], ['gain', 'an op'], ['read', 'an instance method (a.read())']]) {
+    let err = null
+    try { audio.use({ stat, compute: () => 1 }) } catch (e) { err = e }
+    ok(err?.message.includes(`'${stat}' is ${what}; register this stat under another name: audio.use({ ...stat, stat: 'my-${stat}' })`), `${stat}: ${err?.message}`)
+  }
+  ok(audio.stat('rms').query, 'the built-in rms kept')
+  let a = audio.from([new Float32Array(64)], { sampleRate: SR })
+  for (let v of [1, 2]) {
+    audio.use({ stat: 'probe-stat', compute: () => v })
+    is(await a.stat('probe-stat'), v, `take ${v}: the latest is the one asked`)
+  }
+})
+
+// A whole-signal processor over no samples has nothing to be called with (contract § process: a call's frame count is
+// never 0)
+test('process is never called with 0 frames: a whole-signal processor over none is not called', async () => {
+  let calls = []
+  let whole = () => (inputs, outputs) => { calls.push(outputs[0][0].length); for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][c]) }
+  Object.assign(whole, { id: 'whole-probe', channels: 'any', params: {}, streaming: false })
+  audio.use(whole)
+  is((await audio.from([new Float32Array(0)], { sampleRate: SR })['whole-probe']().read())[0].length, 0, 'no frames out')
+  is(calls, [], 'not called')
+  await audio.from([new Float32Array(5)], { sampleRate: SR })['whole-probe']().read()
+  is(calls, [5], 'called once over 5')
+})
+
+// Buffers (contract § Buffers): an option of the buffer's name; a sound is rendered at the op's rate, samples pass as
+// they are; a channel count the declaration does not take throws at the call, naming it
+test('buffers: a sound rendered at the op\'s rate, samples as they are, none undefined; a count not declared throws', async () => {
+  let got = []
+  let probe = ctx => { got.push(ctx.buffers.ir); return (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][c]) } }
+  Object.assign(probe, { id: 'buffer-probe', channels: 'any', params: {}, buffers: { ir: { channels: [1, 2] } } })
+  audio.use(probe)
+  let a = () => audio.from([new Float32Array(64)], { sampleRate: SR }), x = Float32Array.from({ length: 8 }, (_, i) => i / 8)
+  await a()['buffer-probe']({ ir: audio.from([x], { sampleRate: SR / 2 }) }).read()
+  is(got.at(-1).length, 1, 'a sound of 1 channel')
+  is(got.at(-1)[0].length, 16, 'at half the rate: twice the frames at the op\'s')
+  is(got.at(-1)[0][2], x[1], 'a sample of it, where it lands')
+  await a()['buffer-probe']({ ir: x }).read()
+  is(got.at(-1), [x], 'a Float32Array: one channel, as it is')
+  await a()['buffer-probe']().read()
+  is(got.at(-1), undefined, 'none: undefined')
+  // an AudioBuffer (a stand-in of its shape: Node has none) has a rate, as a sound has: its channels at the op's rate
+  // (its length is its frames, which were counted as its channels: 8 refused, as not 1 or 2)
+  let y = Float32Array.from(x, v => -v)
+  await a()['buffer-probe']({ ir: { numberOfChannels: 2, length: 8, sampleRate: SR / 2, duration: 16 / SR, getChannelData: c => [x, y][c] } }).read()
+  is([got.at(-1).length, got.at(-1)[0].length, got.at(-1)[0][2], got.at(-1)[1][2]], [2, 16, x[1], y[1]], 'an AudioBuffer of 2 channels at half the rate: 2 channels, twice the frames at the op\'s')
+  let err = null
+  try { a()['buffer-probe']({ ir: [x, x, x] }) } catch (e) { err = e }
+  ok(err?.message.includes('buffer-probe: buffer ir has 3 channels, it takes 1 or 2'), `at the call: ${err?.message}`)
+})
+
+// Contract § process: "Input bus 0 always carries its channels". A processor that declares a count on bus 0, fed one
+// channel, gets it on each, as plugin hosts feed a mono track to a stereo plugin, and the edits after it read its
+// output's width; another count it cannot carry is refused at the render, naming both
+test('bus 0 of a declared count: one channel copied to each, the width the edits after it read; another count refused', async () => {
+  let seen = []
+  let swap = () => (inputs, outputs) => { seen.push(inputs[0].length); outputs[0][0].set(inputs[0][1]); outputs[0][1].set(inputs[0][0]) }
+  Object.assign(swap, { id: 'swap-probe', params: {}, channels: 2 })
+  audio.use(swap)
+  let x = tone(440, 0.05), g = 10 ** (-6 / 20)
+  let a = audio.from([x], { sampleRate: SR })['swap-probe']().gain(-6)
+  is(a.channels, 2, 'stereo from it on')
+  let y = await a.read()
+  is(y.length, 2, 'the gain after it reads 2 channels')
+  ok(y.every(c => c.every((v, i) => Math.abs(v - x[i] * g) < 1e-6)), 'each the mono input, through the gain')
+  ok(seen.length && seen.every(n => n === 2), 'bus 0 carried 2 at every call')
+  let err = await audio.from([x, x, x], { sampleRate: SR })['swap-probe']().read().then(() => null, e => e)
+  ok(err?.message.includes('swap-probe: input bus 0 takes 2 channels, not the 3 that feed it'), `3 refused: ${err?.message}`)
+  // a range is taken where the width stays, refused where it changes
+  is((await audio.from([x, x], { sampleRate: SR })['swap-probe']({ at: 0.01 }).read()).length, 2, 'a range on 2 channels')
+  err = await audio.from([x], { sampleRate: SR })['swap-probe']({ at: 0.01 }).read().then(() => null, e => e)
+  ok(/a range keeps the channel count, and this changes it \(1 → 2\)/.test(err?.message), `a range on 1: ${err?.message}`)
+  // a published one: @audio/spatial-panner (channels: 2) on a mono sound renders as on two channels of it
+  await audio.use('panner')
+  let mono = await audio.from([x], { sampleRate: SR }).panner({ pan: -0.5 }).read(), two = await audio.from([x, x], { sampleRate: SR }).panner({ pan: -0.5 }).read()
+  is(mono.length, 2, 'panner: stereo from mono')
+  ok(mono.every((c, k) => c.every((v, i) => v === two[k][i])), 'panner on 1 channel ≡ panner on 2 of it')
+})
+
+// An edit on chosen channels (`channel`) hands its op those alone, in and out: a processor that takes 2 cannot run on a
+// choice of 1 (it threw inside the processor at the render, writing a second output it was not given). Refused at the
+// call, naming the op, both counts and what to do instead; on a choice of its count it runs
+test('a processor of a fixed count on a choice of channels of another count: refused at the call, saying what to do', async () => {
+  let x = tone(440, 0.05), z = tone(330, 0.05, 0.5)
+  for (let name of ['panner', 'widener', 'haas', 'autopan']) {
+    await audio.use(name)
+    let a = audio.from([x, z], { sampleRate: SR }), err = null
+    try { a[name]({ channel: 0 }) } catch (e) { err = e }
+    is(err?.message, `${name}: it takes 2 channels, and channel: 0 chooses 1; an op on chosen channels reads and writes those alone: choose 2 (channel: [0, 1]) or leave channel out`, `${name}: refused at the call`)
+    is(a.edits, [], `${name}: no edit made`)
+    // a choice of 2 of 4 channels: those through it, the others as they were (not haas: a param of its own is named
+    // `channel`, left or right, and takes a choice of channels for its value)
+    if (name === 'haas') continue
+    let four = await audio.from([x, z, z, x], { sampleRate: SR })[name]({ channel: [2, 3] }).read(), whole = await audio.from([z, x], { sampleRate: SR })[name]().read()
+    ok(four.length === 4 && [0, 1].every(c => four[c].every((v, i) => v === ([x, z][c][i] ?? 0))) && [2, 3].every(c => four[c].every((v, i) => v === whole[c - 2][i])), `${name}: on a choice of 2, those 2 as it renders a stereo sound, the rest untouched`)
+  }
+})
+
+// On a mono sound a processor of 2 channels makes it stereo; a range or a mix keeps the width, so with either it is
+// refused, naming the op as written (haas, which has a tail, renders as a hidden op, _haas) and the way through
+test('a range or a mix on a mono sound through a processor of 2 channels: refused, naming the op and the way through', async () => {
+  let x = tone(440, 0.05)
+  for (let name of ['haas', 'panner']) {
+    await audio.use(name)
+    for (let [opts, why] of [[{ at: 0.01 }, 'a range keeps the channel count, and this changes it'], [{ mix: 0.5 }, 'mix blends the output with the input, and this changes the channel count']]) {
+      let err = await audio.from([x], { sampleRate: SR })[name](opts).read().then(() => null, e => e)
+      is(err?.message, `${name}: ${why} (1 → 2); make the sound stereo first: a.remix(2)`, `${name} ${JSON.stringify(opts)}`)
+    }
+    let y = await audio.from([x], { sampleRate: SR }).remix(2)[name]({ at: 0.01, mix: 0.5 }).read()
+    ok(y.length === 2 && y.every(c => c.every(Number.isFinite)), `${name}: the way through renders`)
+  }
+})
+
+// A mic on lena's voice with another stretch of lena (`ref`) bled into it 6 ms late, 10 dB under, half a second of it:
+// enough for @audio/denoise-debleed to find the path and take it out (between tones it finds none and passes the mic on)
+import raw from 'audio-lena/raw'
+const lena = new Float32Array(raw)
+const bled = (n = SR / 2) => { let ref = lena.subarray(5 * SR, 5 * SR + n); return { ref, mic: Float32Array.from(lena.subarray(0, n), (v, i) => v + 0.3 * (ref[i - 265] ?? 0)) } }
+
+// A whole-signal processor (streaming: false) renders by another branch of the engine than a streaming one, under the
+// same rule: of 2 channels on a mono sound, a range or a mix is refused as a streaming one's is (it rendered 2 channels,
+// the range ignored, the mix blended over the width it changed); on the sound made stereo first, the range holds
+test('a whole-signal processor of 2 channels on a mono sound: a range or a mix refused as a streaming one\'s; debleed too', async () => {
+  let neg = () => (inputs, outputs) => { for (let c = 0; c < 2; c++) for (let i = 0; i < outputs[0][c].length; i++) outputs[0][c][i] = -inputs[0][c][i] }
+  Object.assign(neg, { id: 'whole-pair', params: {}, channels: 2, streaming: false })
+  audio.use(neg)
+  await audio.use('debleed')
+  let x = tone(440, 0.05), key = audio.from([tone(220, 0.05)], { sampleRate: SR })
+  let range = 'a range keeps the channel count, and this changes it', mix = 'mix blends the output with the input, and this changes the channel count'
+  for (let [name, run] of [['whole-pair', (a, o) => a['whole-pair'](o)], ['debleed', (a, o) => a.debleed(key, o)]])
+    for (let [opts, why] of [[{ at: 0.01 }, range], [{ duration: 0.02 }, range], [{ mix: 0.5 }, mix]]) {
+      let err = await run(audio.from([x], { sampleRate: SR }), opts).read().then(() => null, e => e)
+      is(err?.message, `${name}: ${why} (1 → 2); make the sound stereo first: a.remix(2)`, `${name} ${JSON.stringify(opts)}`)
+    }
+  // made stereo first: the input as it was outside the range, the op's output inside it past the 10 ms crossfades
+  let two = await audio.from([x], { sampleRate: SR }).remix(2).read(), y = await audio.from([x], { sampleRate: SR }).remix(2)['whole-pair']({ at: 0.01, duration: 0.03 }).read()
+  let a = Math.round(0.01 * SR), b = Math.round(0.04 * SR), mid = Math.round(0.025 * SR)
+  ok(y.length === 2 && y.every((c, k) => c.every((v, i) => i >= a && i < b || v === two[k][i]) && c[mid] === -two[k][mid]), 'stereo first: the range holds')
+})
+
+// A whole-signal processor on chosen channels is handed those alone, its output written back in place, the others as
+// they came, as a streaming one's (an 'any' one processed every channel; one of 2 on 2 of 4 was refused at the read,
+// handed all 4); its tail pads the others with silence, as the pad before a streaming one does
+test('a whole-signal processor on chosen channels: those alone, written back in place, the others as they came; debleed', async () => {
+  let neg = () => (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) for (let i = 0; i < outputs[0][c].length; i++) outputs[0][c][i] = -inputs[0][c][i] }
+  Object.assign(neg, { id: 'whole-neg', params: {}, channels: 'any', streaming: false, tail: 0.01 })
+  let swap = () => (inputs, outputs) => { outputs[0][0].set(inputs[0][1]); outputs[0][1].set(inputs[0][0]) }
+  Object.assign(swap, { id: 'whole-swap', params: {}, channels: 2, streaming: false })
+  audio.use(neg, swap)
+  let x = tone(440, 0.05), z = tone(330, 0.05, 0.5), n = x.length, t = Math.round(0.01 * SR), at = (c, i) => c[i] ?? 0
+  let y = await audio.from([x, z], { sampleRate: SR })['whole-neg']({ channel: 1 }).read()
+  ok(y.length === 2 && y[0].length === n + t && y[0].every((v, i) => v === at(x, i)) && y[1].every((v, i) => v === -at(z, i)), 'channel 1 alone; channel 0 as it came, the tail\'s silence after it')
+  let four = await audio.from([x, z, z, x], { sampleRate: SR })['whole-swap']({ channel: [2, 3] }).read()
+  ok(four.length === 4 && [x, z, x, z].every((s, c) => four[c].every((v, i) => v === s[i])), 'a choice of 2 of 4: those through it, the others as they came')
+  let r = await audio.from([x, z, z, x], { sampleRate: SR })['whole-swap']({ channel: [2, 3], at: 0.01, duration: 0.03 }).read()
+  let a = Math.round(0.01 * SR), b = Math.round(0.04 * SR), mid = Math.round(0.025 * SR)
+  ok([x, z, z, x].every((s, c) => r[c].every((v, i) => c > 1 && i >= a && i < b || v === s[i])) && r[2][mid] === x[mid] && r[3][mid] === z[mid], 'and a range: the choice within it alone')
+  let err = null
+  try { audio.from([x, z], { sampleRate: SR })['whole-swap']({ channel: 0 }) } catch (e) { err = e }
+  is(err?.message, 'whole-swap: it takes 2 channels, and channel: 0 chooses 1; an op on chosen channels reads and writes those alone: choose 2 (channel: [0, 1]) or leave channel out', 'a choice of 1: refused at the call')
+  // the published debleed on 2 of 4 channels: those as it renders a stereo mic, the others as they came
+  await audio.use('debleed')
+  let { mic, ref } = bled(), from = chs => audio.from(chs.map(c => c.slice()), { sampleRate: SR })
+  let stereo = await from([mic, mic]).debleed(from([ref])).read(), got = await from([ref, ref, mic, mic]).debleed(from([ref]), { channel: [2, 3] }).read()
+  ok(stereo.some(c => c.some((v, i) => v !== mic[i])), 'debleed takes the bleed out here')
+  ok(got.length === 4 && [0, 1].every(c => got[c].every((v, i) => v === ref[i])) && [2, 3].every(c => got[c].every((v, i) => v === stereo[c - 2][i])), 'debleed on 2 of 4: those as on a stereo mic, the others as they came')
+})
+
+// A streaming edit on chosen channels with a range leaves the others bit for bit, as without one: the range's 10 ms seams
+// crossfade the chosen channels alone (they crossfaded every channel, at a power that made one that was its own input up
+// to 1.155 times as loud at each edge); an op with latency (the limiter's true peak) the same
+test('a range on chosen channels: the others bit for bit at its edges too; the chosen as on a sound of their own', async () => {
+  let q = [440, 330, 550, 220].map(f => tone(f, 0.1, 0.4)), from = chs => audio.from(chs.map(c => c.slice()), { sampleRate: SR })
+  for (let [name, f] of [
+    ['lowpass', (a, o) => a.lowpass(800, o)],
+    ['compressor', (a, o) => a.compressor({ threshold: -30, ratio: 6, ...o })],
+    ['limiter', (a, o) => a.limiter({ ceiling: -12, truePeak: true, ...o })],
+  ]) for (let range of [{ at: 0.02, duration: 0.03 }, { at: 0.02, duration: 0.03, mix: 0.4 }]) {
+    let y = await f(from(q), { channel: [2, 3], ...range }).read(), two = await f(from([q[2], q[3]]), range).read()
+    ok([0, 1].every(c => y[c].every((v, i) => v === q[c][i])), `${name} ${JSON.stringify(range)}: channels 0 and 1 as they came`)
+    ok([2, 3].every(c => y[c].every((v, i) => v === two[c - 2][i])), `${name} ${JSON.stringify(range)}: 2 and 3 as on a sound of their own`)
+  }
+})
+
+// An op made ahead of the render over its whole input (declip, auto, dereverb: plan.js prepared) given a channel the
+// sound lacks says so, as every other op does (it threw a TypeError from inside, reading the channel that is not there)
+test('an op prepared ahead on a channel the sound lacks: the message every op gives', async () => {
+  let x = tone(440, 0.1, 0.4)
+  await audio.use('declip')
+  for (let [name, f, chs, channel] of [['declip', a => a.declip({ channel: [0, 1] }), 1, 1], ['auto', a => a.auto({ channel: [0, 1] }), 1, 1], ['dereverb', a => a.dereverb({ channel: [0, 1] }), 1, 1], ['declip', a => a.declip({ channel: 2 }), 2, 2]]) {
+    let err = await f(audio.from(Array.from({ length: chs }, () => x.slice()), { sampleRate: SR })).read().then(() => null, e => e)
+    is(err?.message, `channel ${channel}: the audio has ${chs} channel${chs === 1 ? '' : 's'}`, `${name} on ${chs}: channel ${channel}`)
+  }
+})
+
+// A processor with no input bus (a generator) on chosen channels writes what it makes into them, the others as they
+// came, streaming or whole (a streaming one's stage was sized to its one channel, and the engine threw copying the
+// other channel into it; a whole one ignored the choice); a choice of another count is refused, saying what it makes
+// (it said it took the count chosen)
+test('a generator on chosen channels: what it makes in those, the others as they came; another count refused', async () => {
+  let x = tone(440, 0.05), z = tone(330, 0.05, 0.5)
+  for (let streaming of [true, false]) {
+    let id = streaming ? 'gen-probe' : 'gen-whole', gen = () => (inputs, outputs) => { outputs[0][0].fill(0.25) }
+    Object.assign(gen, { id, params: {}, channels: { inputs: [], outputs: [1] }, streaming })
+    audio.use(gen)
+    let a = audio.from([x, z], { sampleRate: SR })[id]({ channel: 1 })
+    is(a.channels, 2, `${id}: the width kept`)
+    let y = await a.read()
+    ok(y.length === 2 && y[0].every((v, i) => v === x[i]) && y[1].every(v => v === 0.25), `${id}: channel 1 what it makes, channel 0 as it came`)
+    is((await audio.from([x, z], { sampleRate: SR })[id]().read()).length, 1, `${id}, no choice: its one channel`)
+    let err = null
+    try { audio.from([x, z], { sampleRate: SR })[id]({ channel: [0, 1] }) } catch (e) { err = e }
+    is(err?.message, `${id}: it makes 1 channel, and channel: [0,1] chooses 2; an op on chosen channels reads and writes those alone: choose 1 (channel: [0]) or leave channel out`, `${id}: a choice of 2 refused at the call`)
+  }
+  // the published osc as the probe
+  await audio.use('osc')
+  let [sine] = await audio.from([x], { sampleRate: SR }).osc().read(), o = await audio.from([x, z], { sampleRate: SR }).osc({ channel: 0 }).read()
+  ok(o.length === 2 && o[0].every((v, i) => v === sine[i]) && o[1].every((v, i) => v === z[i]), 'osc on channel 0: its tone there, channel 1 as it came')
+})
+
+// On a choice a generator keeps the sound's width, so a range or a mix is taken at the call as at the render (the call
+// refused both as for an op that changes the width, while the same edit through a.run rendered the range)
+test('a generator on chosen channels takes a range and a mix: the method as a.run', async () => {
+  let x = tone(440, 0.1, 0.3), z = tone(330, 0.1, 0.2), from = () => audio.from([x.slice(), z.slice()], { sampleRate: SR })
+  await audio.use('osc')
+  let [sine] = await audio.from([x], { sampleRate: SR }).osc().read(), a = Math.round(0.02 * SR), b = Math.round(0.05 * SR)
+  for (let o of [{ channel: 0, at: 0.02, duration: 0.03 }, { channel: 0, mix: 0.4 }, { channel: 1, at: 0.02, duration: 0.03, mix: 0.4 }]) {
+    let y = await from().osc(o).read(), r = await from().run(['osc', o]).read(), c = o.channel, mine = [x, z][c]
+    ok(y.length === 2 && y.every((ch, k) => ch.every((v, i) => v === r[k][i])), `${JSON.stringify(o)}: the method ≡ a.run`)
+    ok(y[1 - c].every((v, i) => v === [x, z][1 - c][i]), `${JSON.stringify(o)}: channel ${1 - c} as it came`)
+    if (o.at == null) ok(y[c].every((v, i) => Math.abs(v - (0.4 * sine[i] + 0.6 * mine[i])) < 1e-6), `${JSON.stringify(o)}: 0.4 of the tone, 0.6 of the input`)
+    else ok(y[c].every((v, i) => i >= a && i < b || v === mine[i]), `${JSON.stringify(o)}: the input outside the range`)
+  }
+})
+
+// Where a processor cannot write a choice back in place, the choice is refused at the call: isolate and debleed take 2
+// channels (on a choice of 1, this morning, isolate rendered the input as it was, debleed the whole sound as if nothing
+// was chosen), surround makes 6 of 2 (its choice was ignored). A processor with a `mix` of its own blends inside itself
+// at its own width, so on a mono sound it takes one (pingpong, microshift, binaural), rendering as on two channels of it
+test('a choice that cannot be written back in place refused at the call; a mix of its own taken on a mono sound', async () => {
+  let x = tone(440, 0.05), z = tone(330, 0.05, 0.5)
+  for (let [name, channel] of [['isolate', 0], ['debleed', 0], ['surround', 0], ['surround', [0, 1]]]) {
+    await audio.use(name)
+    let a = audio.from([x, z], { sampleRate: SR }), err = null, k = [channel].flat().length
+    try { a[name]({ channel }) } catch (e) { err = e }
+    is(err?.message, name === 'surround' ? `surround: it takes 2 channels and makes 6, and channel: ${JSON.stringify(channel)} chooses ${k}; an op on chosen channels reads and writes those alone: leave channel out` : `${name}: it takes 2 channels, and channel: 0 chooses 1; an op on chosen channels reads and writes those alone: choose 2 (channel: [0, 1]) or leave channel out`, `${name}, channel: ${JSON.stringify(channel)}`)
+    is(a.edits, [], `${name}: no edit made`)
+  }
+  for (let name of ['pingpong', 'microshift', 'binaural']) {
+    await audio.use(name)
+    let mono = await audio.from([x], { sampleRate: SR })[name]({ mix: 0.3 }).read(), two = await audio.from([x, x], { sampleRate: SR })[name]({ mix: 0.3 }).read()
+    ok(mono.length === 2 && mono.every((c, k) => c.length === two[k].length && c.every((v, i) => v === two[k][i])), `${name}: its own mix on a mono sound ≡ on two channels of it`)
+  }
+})
+
+// A registry op called before it loads is recorded as it is and settled at the first read, where it loads: a choice
+// of another count is refused there (docs/plugins.md)
+test('a registry processor called before it loads: a choice of another count refused at the first read', () => {
+  let script = `import audio from './audio.js'; let a = audio.from([new Float32Array(64), new Float32Array(64)], { sampleRate: 44100 }); a.widener({ channel: 0 }); console.log(JSON.stringify(a.edits)); await a.read().then(() => console.log('rendered'), e => console.log(e.message)); process.exit(0)`
+  let out = execFileSync(process.execPath, ['--input-type=module', '-e', script], { cwd: new URL('..', import.meta.url), encoding: 'utf8' }).trim().split('\n')
+  is(out, ['[["widener",{"channel":0}]]', 'widener: it takes 2 channels, and channel: 0 chooses 1; an op on chosen channels reads and writes those alone: choose 2 (channel: [0, 1]) or leave channel out'], 'recorded at the call, refused at the first read')
+})
+
+// A further input bus that declares a count carries it, as bus 0 does: one channel fed is copied to each, another count
+// refused, naming both. @audio/dynamics-ducker and @audio/denoise-debleed declare a key of 2 and guard it themselves:
+// with none they render as before (the ducker keyed by its main); a key of one is now the same on both channels (the
+// ducker's guard keyed its second channel by the main)
+test('a further bus of a declared count: one channel copied to each, another refused; ducker and debleed', async () => {
+  let seen = [], x = tone(440, 0.05), k = tone(220, 0.05, 0.3), from = chs => audio.from(chs.map(c => c.slice()), { sampleRate: SR })
+  let less = () => (inputs, outputs) => { seen.push(inputs[1].length); for (let c = 0; c < 2; c++) for (let i = 0; i < outputs[0][c].length; i++) outputs[0][c][i] = inputs[0][c][i] - inputs[1][c][i] }
+  Object.assign(less, { id: 'key-less', params: {}, channels: { inputs: [2, 2], outputs: [2] } })
+  audio.use(less)
+  let y = await from([x, x])['key-less']({ key: from([k]) }).read()
+  ok(y.length === 2 && y.every(c => c.every((v, i) => v === Math.fround(x[i] - k[i]))), 'a key of one: on each channel')
+  ok(seen.length && seen.every(n => n === 2), 'bus 1 carried 2 at every call')
+  let err = await from([x, x])['key-less']({ key: from([k, k, k]) }).read().then(() => null, e => e)
+  ok(err?.message.includes('key-less: input bus 1 takes 2 channels, not the 3 that feed it'), `a key of 3: ${err?.message}`)
+
+  let main = [tone(440, 0.4, 0.4), tone(330, 0.4, 0.3)], burst = Float32Array.from(tone(220, 0.4, 0.8), (v, i) => i > 0.1 * SR && i < 0.25 * SR ? v : 0)
+  let duck = o => from(main).ducker({ threshold: -30, ratio: 8, range: -40, attack: 5, release: 50, ...o }).read()
+  let same = (p, q) => p.length === q.length && p.every((c, j) => c.every((v, i) => v === q[j][i]))
+  ok(same(await duck(), await duck({ key: from(main) })), 'ducker, no key: keyed by its main, as its guard does')
+  ok(same(await duck({ key: from([burst]) }), await duck({ key: from([burst, burst]) })), 'ducker, a key of one ≡ that key on both channels')
+  await audio.use('debleed')
+  let { mic, ref } = bled(), once = await from([mic]).debleed(from([ref])).read()
+  ok(once.some(c => c.some((v, i) => v !== mic[i])), 'debleed takes the bleed out here')
+  ok(same(once, await from([mic]).debleed(from([ref, ref])).read()), 'debleed, a reference of one ≡ that one on both channels')
+  ok(same(await from([mic, mic]).debleed().read(), [mic, mic]), 'debleed, no reference: the mic as it was')
+})
+
+// A keyed processor's first argument is its key only where it is a sound, what the key option takes (an audio instance,
+// an AudioBuffer, Float32Array[]): a.ducker(voice, -30). Any other is its first param: a.compressor(-30, 8) is threshold
+// and ratio on a compressor with a key bus too (it read -30 as the key and threw at the read). The same loaded at the
+// call or later (the arguments wait as `args`, a.run's form of them too), under a bus's own name as under `key`
+test('a keyed processor\'s first argument: its key where it is a sound, else its first param; loaded at the call or later', async () => {
+  let x = tone(440, 0.05, 0.25), n = x.length, loud = new Float32Array(n).fill(0.9), quiet = new Float32Array(n).fill(0.001)
+  let from = chs => audio.from(chs.map(c => c.slice()), { sampleRate: SR }), voice = from([loud])
+  // automation is a param's value, never a sound: a curve or a function of time first is the level
+  let curve = { t: [0, 1], v: [-30, -30] }, fall = t => -30
+  for (let bus of ['key', 'ref']) {
+    // its output: the input times `gain`, 0 wherever the key is above `level`
+    let probe = Object.assign(() => (inputs, outputs, p) => {
+      let [s, k] = inputs, y = outputs[0], t = 10 ** (p.level[0] / 20)
+      for (let c = 0; c < y.length; c++) for (let i = 0; i < y[c].length; i++) y[c][i] = k.length && Math.abs(k[c % k.length][i]) > t ? 0 : s[c][i] * p.gain[0]
+    }, {
+      params: { level: { type: 'number', min: -60, max: 0, default: -20, unit: 'dB' }, gain: { type: 'number', min: 0, max: 4, default: 1 } },
+      channels: { inputs: [{ channels: 'any' }, { channels: 'any', name: bus }], outputs: 'any' },
+    })
+    let id = `${bus}-probe`
+    audio.op(id, probe)
+    let cases = [
+      ['(-30, 2)', a => a[id](-30, 2), null, { level: -30, gain: 2 }, 2],
+      ['(-30)', a => a[id](-30), null, { level: -30 }, 1],
+      ["('-30dB', 2)", a => a[id]('-30dB', 2), null, { level: -30, gain: 2 }, 2],
+      ['(a curve, 2)', a => a[id](curve, 2), null, { level: curve, gain: 2 }, 2],
+      ['(t => -30, 2)', a => a[id](fall, 2), null, { level: fall, gain: 2 }, 2],
+      [`(${bus}, -30, 2)`, a => a[id](voice, -30, 2), voice, { level: -30, gain: 2 }, 0],
+      [`(${bus}, { level })`, a => a[id](voice, { level: -30 }), voice, { level: -30 }, 0],
+      [`({ ${bus}, level })`, a => a[id]({ [bus]: voice, level: -30 }), voice, { level: -30 }, 0],
+      [`(Float32Array[], -30, 2)`, a => a[id]([loud], -30, 2), 'channels', { level: -30, gain: 2 }, 0],
+      [`(a quiet ${bus}, -30, 2)`, a => a[id](from([quiet]), -30, 2), 'quiet', { level: -30, gain: 2 }, 2],
+    ]
+    // what an edit renders, the input times the gain or 0 under a loud key, and records once read, its key aside
+    let check = async (a, label, k, opts, g) => {
+      let [y] = await a.read(), { [bus]: got, ...rest } = a.edits.at(-1)[1]
+      ok(y.length === n && y.every((v, i) => v === x[i] * g), `${id} ${label}: ${g ? `the input${g === 1 ? ', untouched' : ` times ${g}`}` : 'ducked to 0'}`)
+      ok(k == null ? got === undefined : k === voice ? got === voice : got != null, `${id} ${label}: ${k == null ? 'no' : 'the'} ${bus}`)
+      is(rest, opts, `${id} ${label}: ${JSON.stringify(opts)}`)
+    }
+    for (let [label, f, k, opts, g] of cases) await check(f(from([x])), label, k, opts, g)
+    let fails = f => { try { f(from([x])) } catch (e) { return e.message } }
+    is(fails(a => a[id](-30, 2, 3)), `${id}: expected at most 2 arguments (level, gain), got 3`, `${id}: three numbers, of two params`)
+    is(fails(a => a[id](voice, -30, 2, 3)), `${id}: expected at most 3 arguments (${bus}, level, gain), got 4`, `${id}: a sound and three numbers`)
+    is(fails(a => a[id]({ [bus]: -30 })), `${id}: ${bus} is a sound its input bus reads (an audio instance, an AudioBuffer or Float32Array[]), not -30`, `${id}: a ${bus} that is not a sound, at the call`)
+
+    // loaded after the call: the arguments wait, then map as above at the first read; a.run takes them so too
+    let d = audio.op(id)
+    delete audio.op()[id]
+    let later = cases.map(([, f]) => f(from([x]))), over = from([x])[id](-30, 2, 3)
+    is(later[0].edits, [[id, { args: [-30, 2] }]], `${id}: before it loads, the arguments wait`)
+    audio.op(id, d)
+    for (let [j, [label, , k, opts, g]] of cases.entries()) await check(later[j], label + ', loaded later', k, opts, g)
+    is(await over.read().then(() => null, e => e.message), `${id}: expected at most 2 arguments (level, gain), got 3`, `${id}: three numbers, loaded later`)
+    await check(from([x]).run([id, { args: [-30, 2] }]), 'a.run, args: [-30, 2]', null, { level: -30, gain: 2 }, 2)
+    await check(from([x]).run([id, { args: [voice, -30, 2] }]), `a.run, args: [${bus}, -30, 2]`, voice, { level: -30, gain: 2 }, 0)
+  }
+})
+
+// @audio/dynamics' compressor, gate and four more declare a key bus in their next release (inputs: [{ channels: 'any' },
+// { channels: 'any', name: 'key' }]); the published compressor and gate, declared so, stand in for them here (the sibling
+// checkout that has them is not where CI runs). The ducker, published with a key of 2, reads its documented calls as before
+test('a compressor or gate with a key bus: (-30, 8) and (-45) are their params, as the options; the ducker as documented', async () => {
+  let x = tone(440, 0.5), from = chs => audio.from(chs.map(c => c.slice()), { sampleRate: SR })
+  let same = (p, q) => p.length === q.length && p.every((c, j) => c.every((v, i) => v === q[j][i]))
+  let keyBus = { inputs: [{ channels: 'any' }, { channels: 'any', name: 'key' }], outputs: 'any' }
+  audio.op('compressor-keyed', Object.assign(ctx => compressor(ctx), compressor, { channels: keyBus }))
+  audio.op('gate-keyed', Object.assign(ctx => gate(ctx), gate, { channels: keyBus }))
+  for (let [label, f, opts] of [
+    ['compressor (-30, 8)', a => a['compressor-keyed'](-30, 8), { threshold: -30, ratio: 8 }],
+    ['gate (-45)', a => a['gate-keyed'](-45), { threshold: -45 }],
+    ["gate ('-45dB')", a => a['gate-keyed']('-45dB'), { threshold: -45 }],
+  ]) {
+    let a = f(from([x]))
+    is(a.edits[0][1], opts, label)
+    ok(same(await a.read(), await from([x])[a.edits[0][0]](opts).read()), `${label} ≡ ${JSON.stringify(opts)}`)
+  }
+  ok((await from([x])['compressor-keyed'](-30, 8).read())[0].some((v, i) => v !== x[i]), 'the compressor compresses there')
+  // the ducker: a voice first is its key, numbers its params, alone or after the voice
+  let main = [tone(440, 0.4, 0.4), tone(330, 0.4, 0.3)], voice = from([Float32Array.from(tone(220, 0.4, 0.8), (v, i) => i > 0.1 * SR && i < 0.25 * SR ? v : 0)])
+  let duck = (...a) => from(main).ducker(...a).read()
+  ok(same(await duck(voice, -30, 8), await duck({ key: voice, threshold: -30, ratio: 8 })), 'ducker(voice, -30, 8) ≡ ducker({ key: voice, threshold: -30, ratio: 8 })')
+  ok(same(await duck(voice, { threshold: -30 }), await duck({ key: voice, threshold: -30 })), 'ducker(voice, { threshold }) ≡ ducker({ key: voice, threshold })')
+  ok(same(await duck(-30, 8), await duck({ threshold: -30, ratio: 8 })), 'ducker(-30, 8) ≡ ducker({ threshold: -30, ratio: 8 }): no key')
+  ok(!same(await duck(voice, -30, 8), await duck(-30, 8)), 'the voice keys it')
+  is(audio.op('ducker').params, Object.keys(ducker.params), 'its params, the key not among them: what the CLI maps words onto')
+})
+
+// The sibling @audio/dynamics checkout's compressor declares that key bus now: where the checkout sits beside this one (as
+// plugin-host.js finds its test plugins), its manifest itself is called; elsewhere (CI) the test is skipped
+import { existsSync } from 'node:fs'
+const siblingCompressor = new URL('../../@audio/dynamics/packages/dynamics-compressor/audio.js', import.meta.url)
+test('the sibling checkout\'s compressor, its key bus declared: (-30, 8) and (kick, -30, 8) as their options', existsSync(siblingCompressor) ? {} : { skip: 'no @audio/dynamics checkout beside this one' }, async () => {
+  let { compressor: keyed } = await import(siblingCompressor.href)
+  ok(keyed.channels?.inputs?.[1]?.name === 'key', 'it declares a bus named key')
+  audio.op('compressor-sibling', keyed)
+  let x = tone(440, 0.5), kick = new Float32Array(x.length).fill(0.9), from = chs => audio.from(chs.map(c => c.slice()), { sampleRate: SR })
+  let same = (p, q) => p.length === q.length && p.every((c, j) => c.every((v, i) => v === q[j][i]))
+  let a = from([x])['compressor-sibling'](-30, 8)
+  is(a.edits[0][1], { threshold: -30, ratio: 8 }, '(-30, 8): threshold and ratio')
+  ok(same(await a.read(), await from([x])['compressor-sibling']({ threshold: -30, ratio: 8 }).read()), '(-30, 8) ≡ { threshold: -30, ratio: 8 }')
+  ok(same(await from([x])['compressor-sibling'](from([kick]), -30, 8).read(), await from([x])['compressor-sibling']({ key: from([kick]), threshold: -30, ratio: 8 }).read()), '(kick, -30, 8) ≡ { key: kick, threshold: -30, ratio: 8 }')
+})
+
+// Contract § What a host owes, 5: "Calls `process` with 1 to `maxBlockSize` frames of finite samples (a NaN or Infinity
+// coming in is made 0)": in a copy, never in the arrays given; a clean input is handed over as the engine holds it
+test('audio: a NaN or Infinity coming in reaches the processor as 0, the arrays given unchanged; clean, the engine\'s own', async () => {
+  let got = [], handed = []
+  let look = () => (inputs, outputs) => { got.push(inputs); for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][c]) }
+  Object.assign(look, { params: {}, channels: { inputs: ['any', 'any'], outputs: 'any' } })
+  audio.op('look-probe', look)
+  let d = audio.op('look-probe'), process = d.process
+  d.process = (input, output, ctx) => { handed.push(input); process(input, output, ctx) }
+  let x = tone(440, 0.05), z = x.slice(), k = x.slice()
+  x[10] = NaN; x[11] = Infinity; k[30] = -Infinity
+  let y = await audio.from([x, z], { sampleRate: SR })['look-probe']({ key: audio.from([k], { sampleRate: SR }) }).read()
+  ok(y[0][10] === 0 && y[0][11] === 0 && y[0].every((v, i) => i === 10 || i === 11 || v === x[i]) && y[1].every((v, i) => v === z[i]), 'bus 0: NaN and Infinity as 0, the rest as fed')
+  ok(got[0][1][0][30] === 0 && got.flatMap(b => [...b[1][0]]).every(Number.isFinite), 'the key: -Infinity as 0')
+  ok(Number.isNaN(x[10]) && x[11] === Infinity && k[30] === -Infinity, 'the arrays given hold them still')
+  ok(got[0][0] !== handed[0] && got[0][0][1] === handed[0][1], 'a copy of the channel that held one; the other as the engine holds it')
+  got = []; handed = []
+  await audio.from([z, z], { sampleRate: SR })['look-probe']().read()
+  ok(got.length && got.every((b, j) => b[0] === handed[j]), 'clean: bus 0 the engine\'s own arrays, at every call')
+  d.process = process
+})
+
+// A processor's id is lowercase-dashed (contract § Identity), which a script cannot write after a dot: an op of such a
+// name is the same method under its camelCase too, the edit recorded under the id (its one name in edits, JSON, the CLI
+// and errors); not where that name is a method already, an instance's own or another op's
+test('an op of a dashed name is also a method under its camelCase: the same edit, render and JSON', async () => {
+  let x = tone(440, 0.1)
+  is(audio.fn.transientShaper, audio.fn['transient-shaper'], 'a registry processor: one method under both names')
+  ok(!audio.op('transientShaper') && !audio.plugins.transientShaper, 'a method only: the id is the op\'s and the registry\'s one name')
+  let a = audio.from([x], { sampleRate: SR }).transientShaper({ attack: 6 }), b = audio.from([x], { sampleRate: SR })['transient-shaper']({ attack: 6 })
+  is(a.edits, [['transient-shaper', { attack: 6 }]], 'the edit under the id')
+  is(a.edits, b.edits, 'as by the id')
+  let [ya] = await a.read(), [yb] = await b.read()
+  ok(ya.every((v, i) => v === yb[i]), 'the same render')
+  let doc = JSON.parse(JSON.stringify(a))
+  is(doc.edits, [['transient-shaper', { attack: 6 }]], 'its JSON names the id')
+  let [yc] = await audio.from([x], { sampleRate: SR }).run(...doc.edits).read()
+  ok(yc.every((v, i) => v === ya[i]), 'and renders the same from it')
+
+  let flip = () => Object.assign(() => (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) for (let i = 0; i < outputs[0][c].length; i++) outputs[0][c][i] = -inputs[0][c][i] }, { params: {}, channels: 'any' })
+  audio.op('flip-sign', flip())
+  is(audio.fn.flipSign, audio.fn['flip-sign'], 'one registered by audio.op under a dashed name: both too')
+  let f = audio.from([x], { sampleRate: SR }).flipSign()
+  is(f.edits, [['flip-sign', {}]], 'the edit under its name')
+  ok((await f.read())[0].every((v, i) => v === -x[i]), 'and it renders')
+
+  let toJSON = audio.fn.toJSON
+  audio.op('to-JSON', flip())
+  is(audio.fn.toJSON, toJSON, 'a camelCase that is an instance\'s own method keeps it')
+  audio.op('turnIt', (input, output) => { for (let c = 0; c < input.length; c++) output[c].set(input[c]) })
+  audio.op('turn-it', flip())
+  is(audio.fn.turnIt.op, 'turnIt', 'another op\'s keeps it')
+  audio.op('spin-it', flip())
+  is(audio.fn.spinIt, audio.fn['spin-it'], 'a camelCase set')
+  audio.op('spinIt', flip())
+  is([audio.fn.spinIt.op, audio.fn['spin-it'].op], ['spinIt', 'spin-it'], 'a processor of that name takes it after, the dashed one keeps its own')
+})
+
+// Processors from packages audio depends on, at versions that hold their manifests (@audio/spatial 1.1.0, @audio/stretch
+// 2.4.0, @audio/synth 1.5.0, @audio/weighting 1.3.0), in the registry since 2026-11-17: each loads by its name and renders
+// as its package's own kernel does, or else as toBatch, another host of it, does
+test('registry: ambisonic, stretch-pvsola, tonewheel and the weightings load by their names and render', async () => {
+  let x = tone(440, 0.25, 0.5), notes = [{ time: 0.01, midi: 60, duration: 0.2 }]
+  let batch = (name, chs, params) => toBatch(audio.op(name).plugin, { sampleRate: SR })(chs, { params, notes })
+  let kernel = w => async (name, chs) => { let { default: k } = await audio.import(`@audio/weighting/${w}`); return chs.map(c => k(c.slice(), { fs: SR })) }
+  for (let [name, chs, params, want] of [
+    ['ambisonic-panner', [x], { az: 30 }, batch],
+    ['ambisonic-decoder', [x, x, x, x], {}, batch],
+    ['ambisonic-rotate', [x, x, x, x], { yaw: 45 }, batch],
+    ['stretch-pvsola', [x], { factor: 2 }, batch],
+    ['tonewheel', [new Float32Array(x.length)], {}, batch],
+    ['a-weighting', [x], {}, kernel('a')],
+    ['b-weighting', [x], {}, kernel('b')],
+    ['c-weighting', [x], {}, kernel('c')],
+    ['d-weighting', [x], {}, kernel('d')],
+    ['k-weighting', [x], {}, kernel('k')],
+    ['itu468', [x], {}, kernel('itu468')],
+    ['riaa', [x], {}, kernel('riaa')],
+  ]) {
+    await audio.use(name)
+    ok(audio.plugins[name] && audio.op(name)?.plugin, `${name}: in the registry, loaded under its name`)
+    let y = await audio.from(chs.map(c => c.slice()), { sampleRate: SR })[name]({ ...params, ...name === 'tonewheel' && { notes } }).read()
+    let z = await want(name, chs, params)
+    ok(y.length === z.length && y.every((c, k) => c.length === z[k].length && c.every((v, i) => v === z[k][i])), `${name}: ${y.length} channel${y.length === 1 ? '' : 's'} of ${y[0].length} frames, as ${want === batch ? 'toBatch' : 'its kernel'} renders them`)
+    ok(y.some(c => c.some(v => v !== 0)), `${name}: not silent`)
+  }
+})
+
+// An AudioBuffer (what a page's decodeAudioData gives) as a key carries its channels, numberOfChannels: its length is
+// its frames, which were counted as its channels, so a key bus of any count carried a mono one as one channel per frame
+// and refused a stereo one. It renders as the same key given as planar arrays. Node has no AudioBuffer: a stand-in of
+// its shape
+test('an AudioBuffer key carries its channels: mono and stereo, on a key bus of any count and on the ducker, as planar arrays', async () => {
+  let x = tone(440, 0.25, 0.4), n = x.length, from = chs => audio.from(chs.map(c => c.slice()), { sampleRate: SR })
+  let same = (p, q) => p.length === q.length && p.every((c, j) => c.every((v, i) => v === q[j][i]))
+  let ab = chs => ({ numberOfChannels: chs.length, length: chs[0].length, sampleRate: SR, duration: chs[0].length / SR, getChannelData: c => chs[c] })
+  let k1 = Float32Array.from({ length: n }, (_, i) => i > n / 4 && i < n / 2 ? 0.9 : 0), k2 = Float32Array.from({ length: n }, (_, i) => i > n / 2 ? 0.9 : 0)
+  // channel c of its output: the input's, 0 wherever channel c of the key (its last where it has fewer) is above
+  // `threshold`; what its key bus carried, at each call
+  let carried = []
+  let keyed = Object.assign(() => (inputs, outputs, p) => {
+    let [s, k] = inputs, y = outputs[0], t = 10 ** (p.threshold[0] / 20)
+    carried.push(k.length)
+    for (let c = 0; c < y.length; c++) for (let i = 0; i < y[c].length; i++) y[c][i] = k.length && Math.abs(k[Math.min(c, k.length - 1)][i]) > t ? 0 : s[c][i]
+  }, { params: { threshold: { type: 'number', min: -60, max: 0, default: -20, unit: 'dB' } }, channels: { inputs: [{ channels: 'any' }, { channels: 'any', name: 'key' }], outputs: 'any' } })
+  audio.op('any-key', keyed)
+  await audio.use('ducker')
+  for (let [op, key] of [['any-key', [k1]], ['any-key', [k1, k2]], ['ducker', [k1]], ['ducker', [k1, k2]]]) {
+    let o = { threshold: -30 }, label = `${op}, an AudioBuffer of ${key.length}`
+    carried = []
+    let y = await from([x, x])[op]({ key: ab(key), ...o }).read()
+    if (op === 'any-key') ok(carried.length && carried.every(c => c === key.length), `${label}: its key bus carries ${key.length} channel${key.length === 1 ? '' : 's'}${carried.some(c => c !== key.length) ? `, not ${carried.find(c => c !== key.length)}` : ''}`)
+    ok(same(y, await from([x, x])[op]({ key, ...o }).read()), `${label} ≡ the key as Float32Array[]`)
+    ok(!same(y, await from([x, x])[op](o).read()), `${label}: it keys it`)
+  }
+  ok(same(await from([x, x])['any-key'](ab([k1, k2]), -30).read(), await from([x, x])['any-key']([k1, k2], -30).read()), 'any-key(an AudioBuffer, -30) ≡ any-key(Float32Array[], -30): the call\'s first argument, a sound, its key')
+})
+
+// A value of another kind than its param's is an error at the call, naming the op, the param and what was passed: each
+// of these rendered, silently (a lone Float32Array first was the ducker's threshold, its output not finite; a number set
+// the expander's mode; the text 'false' turned the limiter's true peak on). Loaded after the call, the same error at the
+// first read. A key that is not a sound says what it is. What each param takes renders as before
+test('a value of another kind than its param\'s: refused at the call, naming the op, the param and what was passed', async () => {
+  await audio.use('ducker', 'expander', 'limiter')
+  let x = tone(440, 0.05), one = new Float32Array(x.length).fill(0.5), from = () => audio.from([x.slice(), x.slice()], { sampleRate: SR })
+  let key = 'ducker: key is a sound its input bus reads (an audio instance, an AudioBuffer or Float32Array[]), not'
+  let cases = [
+    [a => a.ducker(one, -30, 8), 'ducker: threshold takes dB, not a Float32Array'],
+    [a => a.ducker([], -30, 8), 'ducker: threshold takes dB, not an array'],
+    [a => a.ducker(true), 'ducker: threshold takes dB, not true'],
+    [a => a.compressor(audio.from([one], { sampleRate: SR })), 'compressor: threshold takes dB, not an audio instance'],
+    [a => a.compressor({ ratio: [8] }), 'compressor: ratio takes a number, not an array'],
+    [a => a.compressor({ threshold: { v: -30 } }), 'compressor: threshold takes dB, not an object'],
+    [a => a.expander(-30), "expander: mode takes 'downward' or 'upward', not -30"],
+    [a => a.expander({ mode: 'sideways' }), "expander: mode takes 'downward' or 'upward', not 'sideways'"],
+    [a => a.limiter({ truePeak: 1 }), 'limiter: truePeak takes true or false, not 1'],
+    [a => a.limiter({ truePeak: 'false' }), "limiter: truePeak takes true or false, not 'false'"],
+    [a => a.ducker({ key: one }), `${key} a Float32Array`],
+    [a => a.ducker({ key: [] }), `${key} an array`],
+    [a => a.ducker({ key: JSON.parse(JSON.stringify(audio.from([one], { sampleRate: SR }))) }), `${key} an audio instance's JSON`],
+    // NaN is a number held as it is, not clamped: the method refuses it at its own call (a loaded op's), and these ways
+    // past it, a.run's options and the arguments of an op loaded later, rendered it, NaN out
+    [a => a.run(['compressor', { threshold: NaN }]), 'compressor: threshold takes dB, not NaN'],
+  ]
+  let fails = f => { try { f(from()) } catch (e) { return e.message } }
+  for (let [f, msg] of cases) is(fails(f), msg, `at the call: ${msg}`)
+  // loaded after the call: its arguments wait as `args`, mapped and checked at the first read
+  let names = ['ducker', 'expander', 'limiter', 'compressor'], held = names.map(n => audio.op(n))
+  for (let n of names) delete audio.op()[n]
+  let later = cases.map(([f]) => f(from()))
+  names.forEach((n, j) => audio.op()[n] = held[j])
+  for (let [j, a] of later.entries()) is(await a.read().then(() => null, e => e.message), cases[j][1], `loaded later, at the first read: ${cases[j][1]}`)
+  // compressor(NaN) loaded later: its arguments wait as `args`, past the method's own check of a NaN
+  delete audio.op().compressor
+  let nan = from().compressor(NaN)
+  audio.op().compressor = held[names.indexOf('compressor')]
+  is(await nan.read().then(() => null, e => e.message), 'compressor: threshold takes dB, not NaN', 'compressor(NaN) loaded later, at the first read')
+  // a unit declared empty is none: the message says 'a number' (it said "takes , not")
+  audio.op('blank-unit', Object.assign(() => (inputs, outputs) => outputs[0][0].set(inputs[0][0]), { id: 'blank-unit', params: { beta: { type: 'number', min: 0, max: 1, default: 0.5, unit: '' } }, channels: 'any' }))
+  is(fails(a => a['blank-unit']({ beta: [0.5] })), 'blank-unit: beta takes a number, not an array', "a unit '': 'a number'")
+  // what each takes
+  for (let [label, f] of [
+    ['a number', a => a.ducker(-30, 8)], ["a value with its unit, '-30dB'", a => a.ducker('-30dB')], ['a function of the time', a => a.ducker(t => -30 - t)],
+    ['a curve', a => a.ducker({ t: [0, 0.05], v: [-30, -20] })], ["an enum's value", a => a.expander('upward', -30)], ['a boolean', a => a.limiter({ truePeak: true })],
+    ['null, a param left to its default', a => a.ducker(null, 8)],
+  ]) ok((await f(from()).read()).every(c => c.length === x.length && c.every(Number.isFinite)), `${label}: renders`)
+})
+
+// An edit is [name] or [name, options], a call's positional values in its options as `args`: a longer one, or options
+// that are not an object, recorded {} and rendered the op's defaults, the values dropped. Refused, showing the form.
+// audio's own documents write [name, options] only (toJSON: the edits as normalizeEdit made them)
+test('a.run: an edit of positional values, or of options that are not an object, is refused, showing [name, { args }]', async () => {
+  let x = tone(440, 0.05), from = () => audio.from([x.slice()], { sampleRate: SR })
+  let fails = e => { try { from().run(e) } catch (err) { return err.message } }
+  let form = 'audio.run: an edit is [name] or [name, options]'
+  is(fails(['compressor', -30, 8]), `${form}, values by position in options.args: ['compressor', { args: [-30, 8] }], not ['compressor', -30, 8]`, 'positional values after the name')
+  is(fails(['gain', -6]), `${form}, values by position in options.args: ['gain', { args: [-6] }], not ['gain', -6]`, 'a value in place of the options')
+  is(fails(['gain', { t: [0, 1], v: [0, -6] }]), `${form}, values by position in options.args: ['gain', { args: [a curve] }], not ['gain', a curve]`, 'a curve in place of the options')
+  is(fails(['gain', { value: -6 }, { at: 0.01 }]), `${form}, not ['gain', { … }, { … }]`, 'two objects of options')
+  is(fails([-6]), `${form}, not [-6]`, 'no name')
+  // an op that takes no values by position is not shown { args }, which it would leave unread
+  is(fails(['reverse', 5]), `${form}, not ['reverse', 5]`, 'an op with no params: no { args } form shown')
+  // a trailing undefined is one not passed, as a method's argument is; one before a value is not
+  is(from().run(['gain', { value: -6 }, undefined]).edits, [['gain', { value: -6 }]], 'a trailing undefined: the edit without it')
+  is(from().run(['gain', undefined, undefined]).edits, [['gain', {}]], 'two: [name]')
+  is(fails(['gain', -6, undefined]), `${form}, values by position in options.args: ['gain', { args: [-6] }], not ['gain', -6]`, 'a value, then a trailing undefined: refused as the value alone')
+  is(fails(['gain', undefined, { value: -6 }]), `${form}, not ['gain', undefined, { … }]`, 'an undefined before options: refused')
+  is(fails([undefined]), `${form}, not [undefined]`, 'no name: refused')
+  // the forms it takes
+  let a = from().run(['compressor', { args: [-30, 8] }], ['gain'], ['gain', { value: -6 }], ['gain', null])
+  is(a.edits.slice(1), [['gain', {}], ['gain', { value: -6 }], ['gain', {}]], '[name], [name, options], [name, null]')
+  await a.read()
+  is(a.edits[0], ['compressor', { threshold: -30, ratio: 8 }], "['compressor', { args: [-30, 8] }]: mapped at the first read")
+  let doc = JSON.parse(JSON.stringify(from().gain(-6).compressor(-30, 8)))
+  ok(doc.edits.every(e => e.length === 2), 'a document\'s edits are [name, options]')
+  is(from().run(...doc.edits).edits, doc.edits, 'and run again as they are')
+})
+
+// CONTRACT.md § Latency, tail, whole signals, as amended: a latency, tail or frames function is handed `transport`, as
+// ctx.transport is where the host asks (a tail's where the input ends, the others' as the instance is built), of the
+// edit's bpm and timeSignature (none: 120 bpm, 4/4, standing still). A tail of one beat renders 0.5 s past the input at
+// 120 bpm and 0.667 s at 90, streaming or whole; a tail of the values alone as before
+test('a latency, a tail and frames are handed the transport: one beat of tail at 120 and at 90 bpm, streaming and whole', async () => {
+  let x = tone(440, 2, 0.25), n = x.length, seen = []
+  let pass = () => (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][c]) }
+  let beat = at => (seen.push(['tail', at.transport]), 60 / at.transport.bpm)
+  audio.op('beat-tail', Object.assign((...a) => pass(...a), { params: {}, channels: 'any', tail: beat, latency: at => (seen.push(['latency', at.transport]), 0) }))
+  audio.op('beat-whole', Object.assign((...a) => pass(...a), { params: {}, channels: 'any', streaming: false, tail: beat }))
+  audio.op('beat-frames', Object.assign(() => (inputs, outputs) => outputs[0][0].set(inputs[0][0]), { params: {}, channels: 'any', streaming: false, frames: (k, at) => (seen.push(['frames', at.transport]), k + Math.round(60 / at.transport.bpm * SR)) }))
+  audio.op('values-tail', Object.assign((...a) => pass(...a), { params: { len: { type: 'number', min: 0, max: 2, default: 0.25 } }, channels: 'any', tail: ({ params }) => params.len[0] }))
+  for (let [bpm, timeSignature] of [[120, [3, 4]], [90, [6, 8]], []]) {
+    // the transport at frame f: where the input ends, 2 s, 4 beats at 120 bpm, past the first bar of 3/4 (3 quarters),
+    // and 3 beats at 90, the first bar of 6/8 (3 quarters) ended: barStart 3 in both
+    let bar = bpm && timeSignature[0] * 4 / timeSignature[1], beats = f => f * bpm / (60 * SR)
+    let at = f => bpm ? { playing: true, bpm, beat: beats(f), barStart: Math.floor(beats(f) / bar) * bar, timeSig: timeSignature } : { playing: false, bpm: 120, beat: 0, barStart: 0, timeSig: [4, 4] }
+    let want = Math.round(60 / (bpm ?? 120) * SR), label = bpm ? `${bpm} bpm, ${timeSignature.join('/')}` : 'no tempo'
+    if (bpm) is(at(n).barStart, 3, `${label}: the input ends past a bar line`)
+    for (let op of ['beat-tail', 'beat-whole', 'beat-frames']) {
+      seen = []
+      let y = await audio.from([x, x].map(c => c.slice()), { sampleRate: SR })[op](bpm ? { bpm, timeSignature } : {}).read()
+      is(y[0].length - n, want, `${op}, ${label}: ${want} frames past the input, one beat`)
+      for (let [k, t] of seen) is(t, at(k === 'tail' ? n : 0), `${op}, ${label}: its ${k} handed the transport ${k === 'tail' ? 'where the input ends' : 'as it is built'}`)
+      ok(seen.length, `${op}, ${label}: handed it`)
+    }
+    let y = await audio.from([x.slice()], { sampleRate: SR })['values-tail']({ len: 0.5, ...bpm && { bpm } }).read()
+    is(y[0].length - n, SR / 2, `values-tail, ${label}: its 0.5 s, as before`)
+  }
+})
+
+// The sibling @audio/effect checkout's delay follows the tempo (sync: '1/8' reads ctx.transport.bpm) and its tail reads
+// the transport it is handed: where the checkout sits beside this one it pads the render by its echoes at that tempo (an
+// eighth: 0.25 s at 120 bpm, a third of a second at 90; how many of them it counts is the delay's own rule, asked of its
+// manifest here), not the bound of its whole line it declares without a tempo; elsewhere (CI) the test is skipped
+const siblingDelay = new URL('../../@audio/effect/packages/effect-delay/audio.js', import.meta.url)
+test('the sibling checkout\'s delay synced to the tempo pads the render by its tail at that tempo, not the bound of its line', existsSync(siblingDelay) ? {} : { skip: 'no @audio/effect checkout beside this one' }, async () => {
+  let { delay } = await import(siblingDelay.href)
+  ok(delay.params.sync?.values.includes('1/8'), 'it declares sync')
+  audio.op('delay-sibling', delay)
+  let x = tone(440, 0.25), d = x.length / SR, params = { time: [0.25], feedback: [0.3], mix: [0.5], sync: '1/8' }
+  let bound = delay.tail({ sampleRate: SR, params }), tails = []
+  for (let bpm of [120, 90]) {
+    let tail = delay.tail({ sampleRate: SR, params, transport: { playing: true, bpm, beat: 0, barStart: 0, timeSig: [4, 4] } })
+    almost(audio.from([x.slice()], { sampleRate: SR })['delay-sibling']({ sync: '1/8', bpm }).duration - d, tail, 1e-4, `at ${bpm} bpm: ${tail.toFixed(3)} s past the input, its tail at that tempo`)
+    ok(tail < bound, `at ${bpm} bpm, less than the ${bound} s it declares with no tempo given`)
+    tails.push(tail)
+  }
+  ok(tails[1] > tails[0], `the slower tempo's echoes last longer: ${tails[1].toFixed(3)} s at 90 bpm, ${tails[0].toFixed(3)} s at 120`)
+})
+
+// An error an edit raises as it loads, prepares or renders says which edit: `edit`, its index in a.edits, and `op`, its
+// name, its message and class as they were. A caller that holds a chain (the editor) drops that edit and renders the
+// rest; the error raised at a call needs neither, the caller knows the call. The innermost edit of the instance read is
+// the one: an edit failing as a later one reads its input (a preparation) is the earlier; a failure inside a sound an
+// edit takes (a mix's source, an insert's, a key with edits of its own) is that edit's, whatever edit of the sound
+// failed, since the caller holds the instance it reads, not the sound
+import { prepared, playback } from '../plan.js'
+const failed = p => p.then(() => null, e => e)
+const drain = async a => { for await (let b of a.stream()); }
+// a processor that passes its input on and throws at its n-th call, in each instance (a render builds one)
+const failing = (n, thrown = () => new RangeError(`failing: call ${n}`)) => Object.assign(() => {
+  let k = 0
+  return (inputs, outputs) => { if (++k === n) throw thrown(); for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][c]) }
+}, { params: {}, channels: 'any' })
+audio.op('fails-fifth', failing(5))
+audio.op('fails-tailed', Object.assign(failing(1), { tail: 0.1 }))
+const voiced = () => audio.from([tone(440, 0.25, 0.25)], { sampleRate: SR })
+
+test('an edit that fails as it loads or prepares: the error says which, its index and name, its message as it was', async () => {
+  // positional values recorded before the op loaded, mapped onto its params as the edits load
+  let e = await failed(voiced().gain(-1).run(['deepfilter', { args: [18, 'pass', 40] }]).gain(-2).read())
+  ok(e instanceof TypeError && e.message === 'deepfilter: expected at most 1 arguments (limit), got 3', e?.message)
+  is([e?.edit, e?.op], [1, 'deepfilter'], 'args mapped as it loads: the second edit')
+  // the op's own check, as it prepares
+  e = await failed(voiced().gain(-1).deepfilter(18, { floor: '40' }).gain(-2).read())
+  ok(e instanceof TypeError && e.message === 'deepfilter: floor is dB under the voice, 0 or more (0: none), not 40', e?.message)
+  is([e?.edit, e?.op], [1, 'deepfilter'], 'its check as it prepares: the second edit')
+  // a registry op whose package is not there
+  audio.plugins['missing-op'] = '@audio/missing-op/audio'
+  e = await failed(voiced().gain(-1).run(['missing-op']).gain(-2).read())
+  delete audio.plugins['missing-op']
+  ok(/^audio\.use\('missing-op'\): install @audio\/missing-op/.test(e?.message), e?.message)
+  is([e?.edit, e?.op], [1, 'missing-op'], 'its module not found as it loads: the second edit')
+})
+
+test('an edit that fails as it renders: its index in a.edits, through read(), stream() and encode(), its tail expanded or not', async () => {
+  let a = voiced().gain(-1).gain(-2)['fails-fifth']().gain(-3)
+  for (let [how, go] of [['read()', a => a.read()], ['stream()', drain], ["encode('wav')", a => a.encode('wav')]]) {
+    let e = await failed(go(a))
+    ok(e instanceof RangeError && e.message === 'failing: call 5', `${how}: as thrown (${e?.message})`)
+    is([e?.edit, e?.op], [2, 'fails-fifth'], `${how}: a processor throwing at its 5th call, the third edit of four`)
+  }
+  // a whole-signal one, rendered as the plan compiles
+  audio.op('fails-whole', Object.assign(() => () => { throw new TypeError('fails-whole: no') }, { params: {}, channels: 'any', streaming: false }))
+  let e = await failed(voiced().gain(-1)['fails-whole']().gain(-2).read())
+  is([e?.message, e?.edit, e?.op], ['fails-whole: no', 1, 'fails-whole'], 'a whole-signal processor: the second edit')
+  // a tail: a pad and a hidden op of its own in the plan, after a stage of the edit before; the edit is still the caller's
+  a = voiced().gain(-1)['fails-tailed']().gain(-2)
+  for (let [how, go] of [['read()', a => a.read()], ['stream()', drain]]) {
+    e = await failed(go(a))
+    is([e?.message, e?.edit, e?.op], ['failing: call 1', 1, 'fails-tailed'], `${how}: a processor with a tail, by its own name, the second edit`)
+  }
+})
+
+test('a sound inside an edit that fails: the edit of the instance read that holds it; an edit before one prepared ahead: the earlier', async () => {
+  audio.op('keyed-pass', Object.assign(() => (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][c]) }, {
+    params: {}, channels: { inputs: [{ channels: 'any' }, { channels: 'any', name: 'key' }], outputs: 'any' },
+  }))
+  // a sound that fails in its own third edit
+  let inner = () => voiced().gain(-1).gain(-2)['fails-fifth']()
+  let e = await failed(inner().read())
+  is([e?.edit, e?.op], [2, 'fails-fifth'], 'the sound read alone: its own third edit')
+  for (let [how, make, op] of [
+    ["a mix's source", s => voiced().mix(s).gain(-3), 'mix'],
+    ["an insert's source", s => voiced().insert(s, 0.1).gain(-3), 'insert'],
+    ['a key', s => voiced()['keyed-pass']({ key: s }).gain(-3), 'keyed-pass'],
+  ]) {
+    e = await failed(make(inner()).read())
+    ok(e?.message === 'failing: call 5', `${how}: as thrown (${e?.message})`)
+    is([e?.edit, e?.op], [0, op], `${how}: the first edit, which holds it, not the 2 the sound's own edits gave it`)
+  }
+  // an edit made ahead of rendering reads its input, the edits before it: one of those failing is the one
+  let PASSED = Symbol('passed')
+  audio.op('prepared-pass', { prepare: prepared(PASSED, () => '', pcm => pcm), process: playback('prepared-pass', PASSED) })
+  e = await failed(voiced().gain(-1)['fails-fifth']()['prepared-pass']().read())
+  is([e?.edit, e?.op], [1, 'fails-fifth'], 'failing as the third edit prepares: the second, which failed')
+})
+
+test('a value thrown that is not an object, or one that takes no property, passes as it is; an Error is said so', async () => {
+  for (let [label, v] of [['a string', 'failing: a string'], ['a number', 5], ['a frozen object', Object.freeze({ message: 'frozen' })]]) {
+    audio.op('throws-value', failing(1, () => v))
+    let e = await failed(voiced().gain(-1)['throws-value']().read())
+    ok(e === v, `${label}: the value thrown`)
+    if (typeof v === 'object') ok(!('edit' in v) && !('op' in v), `${label}: nothing set on it`)
+  }
+  audio.op('throws-value', failing(1))
+  let e = await failed(voiced().gain(-1)['throws-value']().read())
+  is([e?.edit, e?.op], [1, 'throws-value'], 'an Error: said so')
+  // one whose class holds `op` as a getter: assigned, it would throw in the error's place
+  class Held extends Error { get op() { return 'held' } }
+  let held = new Held('failing: held')
+  audio.op('throws-value', failing(1, () => held))
+  e = await failed(voiced().gain(-1)['throws-value']().read())
+  ok(e === held, `an Error whose class holds op as a getter: the error thrown (${e?.message})`)
+  is([e?.edit, e?.op], [1, 'held'], 'its index said, its op its own')
+})
+
+test('the edit an error names dropped from a.edits, the rest renders', async () => {
+  let same = (p, q) => p.length === q.length && p.every((c, j) => c.length === q[j].length && c.every((v, i) => v === q[j][i]))
+  let want = await voiced().gain(-1).gain(-2).read()
+  for (let op of ['fails-fifth', 'fails-tailed']) {
+    let a = voiced().gain(-1)[op]().gain(-2), e = await failed(a.read())
+    // as undo drops one: the edit out, the version on (what is kept by it, a plan, is made again)
+    a.edits.splice(e?.edit, 1); a.version++
+    ok(same(await a.read(), want), `${op} dropped: the rest renders, as the chain without it`)
+  }
 })

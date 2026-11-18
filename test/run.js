@@ -22,6 +22,7 @@ const SUITES = [
   'pedalboard',     // Pedalboard's built-ins we lacked: convolution, MP3 VBR, GSM
   'desktop',        // the Mac app's server: the root forwards to the editor, a folder at its address with a slash
   'plugin-ops',
+  'hosts',          // the contract's host duties (test/conformance.js) on audio's op host, toBatch and toStream
   'plugin-notes', 'plugin-tune', 'plugin-stats', 'plugin-stretch', 'plugin-color', 'plugin-effects', 'plugin-reverb',
   'plugin-shift', 'plugin-dynamics', 'plugin-synth', 'plugin-filter', 'plugin-fate', 'plugin-spatial', 'plugin-eq',
   'plugin-host',    // native plugins (VST3, CLAP, AU, LV2) through the optional @audio/host

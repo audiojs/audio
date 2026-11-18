@@ -1,4 +1,6 @@
 import { build } from 'esbuild'
+import { readFileSync } from 'fs'
+import { gzipSync } from 'zlib'
 
 const NODE_BUILTINS = ['fs', 'fs/promises', 'url', 'path', 'node:*']
 
@@ -46,5 +48,12 @@ await build({
   external: [...NODE_BUILTINS, ...CODECS],
   minify: true,
 })
+
+// The size README.md and docs/comparison.md give for the page (`144 KB gzipped`, `144 KB gz`) is dist/audio.min.js at
+// gzip level 9, in KB of 1000 bytes: the build stops where one is more than 2 KB off, so a stale figure can't be published
+let gz = gzipSync(readFileSync('dist/audio.min.js'), { level: 9 }).length
+for (let file of ['README.md', 'docs/comparison.md'])
+  for (let [, kb] of readFileSync(file, 'utf8').matchAll(/(\d+(?:\.\d+)?) KB gz/g))
+    if (Math.abs(kb * 1000 - gz) > 2000) throw new Error(`${file} says ${kb} KB gzipped, dist/audio.min.js is ${(gz / 1000).toFixed(1)} KB at gzip level 9: write that in ${file}`)
 
 console.log('done')

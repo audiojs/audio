@@ -11,7 +11,7 @@ import getType from 'audio-type'
 import encode from '@audio/encode'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
-import { resolveBuses, held, snap, hostCtx } from './batch.js'
+import { resolveBuses, snap, hostCtx, fixed, idOf, paramState, setParam, valueAt, valuesAt, sourceAt, eachCall, noteEvents, notesIn, moveTransport, settingAt, buffersOf, channelsOf, widest, sideBuses, busIn, layoutChannels, what, accept } from './batch.js'
 
 audio.version = '2.15.1'
 
@@ -160,6 +160,8 @@ export default function audio(source, opts = {}) {
       return true
     } catch (e) {
       if (a._.disposed) return true
+      // the source's own failure, no edit's, though an edit's preparation meets it (blame)
+      a._.failed = e
       readyReject(e)
       a._.readyResolve = null
       emit(a, 'error', e)
@@ -400,6 +402,11 @@ fn.dispose = function() {
 if (Symbol.dispose) fn[Symbol.dispose] = fn.dispose
 
 const isOp = p => typeof p === 'function' && Object.hasOwn(p, 'params') && typeof p.params === 'object'
+/** A sound, as an option that feeds a processor's further input bus takes one (a key: plan.js render reads it): an audio
+ *  instance, an AudioBuffer or planar channels, Float32Array[] */
+const isSound = v => v != null && (!!v.pages || !!v.getChannelData || Array.isArray(v) && v[0] instanceof Float32Array)
+/** The options every edit takes, read by the engine (plan.js: its range and its choice of channels), never a param's */
+const EDIT_KEYS = ['at', 'duration', 'channel']
 const isStat = p => p != null && typeof p === 'object' && typeof p.stat === 'string' && typeof p.compute === 'function'
 const isCodec = p => p != null && typeof p === 'object' && typeof p.codec === 'string' && (typeof p.decode === 'function' || typeof p.encode === 'function')
 
@@ -446,8 +453,8 @@ export function correlation(p, q, n) {
 
 /** An op's expand into the hidden op `name` that renders it, `o` its options, and its decay, `t` s, as a pad after it:
  *  the user's edit stays one (undo, serialize whole), the decay renders into the pad (a contract plugin's tail, convolve,
- *  a native plugin's or a WAM's) */
-export const tailed = (name, o, t) => t > 0 ? [['pad', { before: 0, after: t }], [name, o]] : [[name, o]]
+ *  a native plugin's or a WAM's). An endless decay (Infinity) cannot be rendered: it gets none */
+export const tailed = (name, o, t) => t > 0 && t < Infinity ? [['pad', { before: 0, after: t }], [name, o]] : [[name, o]]
 
 /** A whole-render op over a range: it reads all of its input, its output kept in the range alone, the input as it was
  *  outside it (one that renders in place, channel for channel; a time-stretch's range is its frames hook's). Each edge
@@ -494,12 +501,15 @@ function useCodec(m) {
 /** Register a stat plugin: whole-signal analysis `compute(channels, { sampleRate, ...opts })`.
  *  The host reads the (ranged) PCM and hands it over — the batch shape every analysis
  *  kernel already is. Option values that are audio instances (e.g. similarity's `ref`)
- *  are pre-rendered to channel data. */
+ *  are pre-rendered to channel data. One stat to a name: a stat plugin under a name another holds replaces it (a script
+ *  run again defines it again); a built-in stat's, an op's or an instance method's name is not its to take. */
 function useStat(m) {
   if (!audio.stat) throw new Error('audio.use(stat): stat registry required — import "audio", not "audio/core.js"')
-  m = audio.hosted[m.stat]?.(m) ?? m
-  let name = m.stat
-  audio.stat(name, {})  // name registered; fn.stat dispatches to the instance method below
+  let name = m.stat, had = audio.stat(name), plugin = m
+  let taken = had && !had.plugin ? 'a built-in stat' : audio.op?.(name) ? 'an op' : !had && typeof audio.fn[name] === 'function' ? `an instance method (a.${name}())` : null
+  if (taken) throw new Error(`audio.use: '${name}' is ${taken}; register this stat under another name: audio.use({ ...stat, stat: 'my-${name}' })`)
+  m = audio.hosted[name]?.(m) ?? m
+  audio.stat(name, { plugin })  // name registered; fn.stat dispatches to the instance method below
   audio.fn[name] = async function(opts) {
     let { at, duration, ...rest } = opts || {}
     for (let k in rest) if (rest[k]?.pages && rest[k].read) rest[k] = await rest[k].read()
@@ -508,119 +518,174 @@ function useStat(m) {
   }
 }
 
-/** Map a contract plugin (audio.js manifest factory) to an op descriptor. The contract is a convention, not a
- *  library — audio consumes it natively: params read off the factory, per-instance
- *  state on the proc ctx, smoothing left to engine sub-block automation (it already
- *  ramps patched values click-free), currentTime from blockOffset. */
+/** Register a contract plugin (an audio.js manifest's factory) as the op its id names (hostOp). One op to a name: the
+ *  same processor again is there already; a processor registered before under that id gives way to this one (a script
+ *  run again in the editor defines its processor again); a built-in op's name is not its to take, and
+ *  audio.op(name, processor) registers it under another. */
 function useOp(m) {
   if (!audio.op) throw new Error('audio.use(module): op registry required — import "audio", not "audio/core.js"')
-  let specs = m.params || {}
-  let names = Object.keys(specs)
-  let id = m.id || (m.name || 'module').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
-  let reg = d => audio.op(id, audio.hosted[id]?.(d) ?? d)
-  // tail: seconds, or fn(ctx) of the actual params (mirrors latency's fn form) — a
-  // feedback delay's decay depends on its feedback setting, not the declared maximum
-  let tail = m.tail || 0
+  // its op's name: its id, else its function's name; one with neither would take a name no call can mean
+  if (!m.id && !m.name) throw new Error('audio.use: a processor needs an id or a function name to register as an op (fn.id = \'my-op\')')
+  let id = idOf(m), had = audio.op(id)
+  if (had?.plugin === m) return
+  if (had && !had.plugin) throw new Error(`audio.use: '${id}' is a built-in op; register this processor under another name: audio.op('my-${id}', processor)`)
+  hostOp(m, id)
+}
+
+/** The options a processor's further input buses are fed by (contract § Channels): each bus's `name`, `key` where it has
+ *  none */
+const furtherOf = m => sideBuses(m.channels?.inputs).slice(1).map(b => b.name ?? 'key')
+
+/** The params a call's positional arguments `a` map onto, in order (plan.js opMethod, audio.js autowire): op `d`'s, and
+ *  where `d` hosts a processor with a further input bus and the first argument is a sound (isSound), that bus first:
+ *  a.ducker(voice, -30) is key and threshold. Any other first argument is the first param: a.compressor(-30, 8) is
+ *  threshold and ratio, its key given by option or none */
+export function positional(d, a) {
+  let p = d?.params || [], bus = d?.plugin && isSound(a[0]) && furtherOf(d.plugin)[0]
+  return bus ? [bus, ...p] : p
+}
+
+/** Host a contract processor as op `name`: audio's own host of the contract (CONTRACT.md § What a host owes), its
+ *  params read off the factory. The op resolves its values in time itself, not the engine (auto: 'own'): a call split
+ *  where one jumps, at most 32 frames while one moves (batch.js eachCall, as toBatch and toStream do). Notes, the
+ *  transport (`bpm`, `timeSignature`), buffers and further input buses come from the edit's options, emissions go to
+ *  its `emitted(name, value, time)`. audio.use registers a processor under its id, audio.op(name, processor) under the
+ *  caller's name. */
+export function hostOp(m, name) {
+  // its op's method is how a call names it: an instance's own method under that name (read, save, clone) would answer;
+  // an op's method (another op's camelCase, plan.js opMethods) gives way to it
+  let method = audio.fn[name]
+  if (typeof method === 'function' && method.op == null && !audio.op(name)) throw new Error(`audio: '${name}' is an instance method (a.${name}()), so a processor under that name could not be called; register it under another: audio.op('my-${name}', processor)`)
+  let specs = m.params || {}, names = Object.keys(specs), id = idOf(m)
+  // Further input buses (contract § Channels): each fed a sound through the option its `name` gives, `key` where it has
+  // none; the first, too, by a call's first argument where that is a sound (positional)
+  let further = furtherOf(m)
+  // An edit's options as this op reads them, settled as the edit is made (plan.js normalizeEdit) or as the op loads
+  // after it (audio.js autowire): a value written with a unit in the unit its param declares ('10ms' to an attack in
+  // ms: 10); a value of another kind than its param's is an error (a.ducker(oneChannel, -30) would have rendered with
+  // the array for a threshold), and so is automation of a param read once, as the processor is built (restart), where
+  // the render would keep its first value throughout; a buffer of a channel count its declaration does not take, too,
+  // and a bus fed what is not a sound, which the render could not read
+  let settle = o => {
+    for (let name of names) {
+      let sp = specs[name], k = o[name] !== undefined ? name : sp.alias != null && o[sp.alias] !== undefined ? sp.alias : null
+      // an option every edit takes is the engine's, whatever a processor names so (haas's `channel`, left or right, is
+      // shadowed by the choice of channels, which `chosen` checks)
+      if (k == null || EDIT_KEYS.includes(name)) continue
+      o[k] = accept(sp, o[k], id, name)
+    }
+    for (let k of further) {
+      let v = o[k]
+      if (v != null && !isSound(v)) throw new TypeError(`${name}: ${k} is a sound its input bus reads (an audio instance, an AudioBuffer or Float32Array[]), not ${what(v)}`)
+    }
+    buffersOf(m, o)
+    chosen(o)
+    return o
+  }
+  let reg = d => (d.settle = settle, audio.op(name, audio.hosted[name]?.(d) ?? d))
 
   // a param's `alias` is its former name: hosts still accept it (contract §Parameter metadata)
   let given = (get, name) => get(name) ?? (specs[name].alias != null ? get(specs[name].alias) : undefined)
-
-  let snapParams = get => snap(specs, name => given(get, name) ?? specs[name].default)
-  // Declared latency → plan-level plugin delay compensation (fn form: once per instance)
-  let latency = typeof m.latency === 'function'
-    ? (o, sr) => m.latency({ sampleRate: sr, params: snapParams(n => o?.[n]) }) | 0
-    : m.latency | 0
-
-  let init = (ctx, maxBlock = audio.BLOCK_SIZE, width) => {
-    // declared layouts (contract §Buses) resolve against the input width; `layouts` option picks. Emissions: checked
-    // against events.out, routed nowhere yet
-    let mctx = hostCtx(m, { sampleRate: ctx.sampleRate, maxBlockSize: maxBlock, duration: ctx.totalDuration, params: snapParams(name => ctx[name]),
-      layouts: resolveBuses(m.channels, width == null ? [] : [width], ctx.layouts).layouts })
-    let st = { mctx, live: {}, bufs: {} }
-    for (let name of names) if (specs[name].type === 'number') st.bufs[name] = new Float32Array(1)
-    st.process = m(mctx)
-    return st
-  }
-
-  let fill = (st, ctx) => {
-    for (let name of names) {
-      let sp = specs[name]
-      let v = held(sp, given(n => ctx[n], name) ?? sp.default)
-      if (sp.type === 'number') { st.bufs[name][0] = v; st.live[name] = st.bufs[name] }
-      else st.live[name] = v
+  // a buffer that has a rate (an audio instance) rendered whole at the op's rate, again only once it changed
+  let made = new WeakMap()
+  let readAt = sr => b => {
+    let k = made.get(b)
+    if (k?.sr !== sr || k.v !== b.version) {
+      let pcm = audio.render(b)
+      made.set(b, k = { sr, v: b.version, data: b.sampleRate === sr ? pcm : audio.renderAt((_, at, n) => pcm.map(c => c.subarray(at, at + n)), b, 0, Math.round(pcm[0].length * sr / b.sampleRate), sr) })
     }
+    return k.data
   }
+  // what a latency, tail or frames function reads (contract § Latency, tail): the values an edit gives, automation as
+  // it is at frame f (the start; for a tail, where the input ends and it begins), the buffers, and the transport of the
+  // edit's tempo (`bpm`, `timeSignature`, one for the render) at frame `end`: where the input ends for a tail, even a
+  // whole-signal processor's, whose values are its start's
+  let setting = (o, sr, f = 0, end = f) => settingAt(specs, name => sourceAt(given(n => o?.[n], name) ?? specs[name].default, f, sr), buffersOf(m, o, readAt(sr)), { bpm: o?.bpm, timeSig: o?.timeSignature }, end, sr)
+  // Declared latency → plan-level plugin delay compensation (fn form: once per instance)
+  let latency = typeof m.latency === 'function' ? (o, sr) => m.latency(setting(o, sr)) | 0 : m.latency | 0
+  // tail: seconds, or a function of the values in force (mirrors latency's fn form): a feedback delay's decay depends on
+  // its feedback setting, not the declared maximum. An endless one (Infinity) renders none
+  let tail = m.tail || 0, finite = t => t > 0 && t < Infinity ? t : 0
 
-  // Declared extra input buses (contract §channels) — bus 1 fed from ctx.key
-  // (an audio instance / Float32Array[]), rendered per block, rate-reconciled
-  let keyed = Array.isArray(m.channels?.inputs) && m.channels.inputs.length > 1
-  // its params as a call takes them: a keyed op's key first, the sound it reads (a.ducker(voice, { threshold }))
-  let args = keyed ? ['key', ...names] : names
+  // An instance, built where its block loop starts (frame f) or for the one call of a whole render: its values from
+  // the edit, its widest bus from those it reads and writes, declared layouts resolved against the input width (a
+  // `layouts` option picks), its buffers read
+  let init = (ctx, f, maxBlock, input, output) => {
+    let sr = ctx.sampleRate, state = paramState(specs, ctx, id)
+    // what each input bus carries (batch.js busIn): bus 0 and a further one fed, their count; one fed by nothing, none
+    let keys = further.map(k => ctx[k] == null ? undefined : channelsOf(ctx[k])), res = resolveBuses(m.channels, [input.length, ...keys], ctx.layouts, id)
+    let carry = res.inputs.map((b, i) => i && keys[i - 1] == null ? 0 : b.channels)
+    let mctx = hostCtx(m, {
+      sampleRate: sr, maxBlockSize: maxBlock, maxChannels: widest(carry[0] ?? input.length, output.length, carry.slice(1)), duration: ctx.totalDuration,
+      params: snap(specs, name => valueAt(state[name], f, sr)), buffers: buffersOf(m, ctx, readAt(sr)),
+      layouts: res.layouts,
+    }, (name, args, time) => ctx.emitted?.(name, args[0], time))
+    return { mctx, state, live: {}, process: m(mctx), pool: [], view: [], evs: null, notes: undefined, carry, keep: [] }
+  }
+  // the edit's notes as note events, compiled once for each notes option
+  let noteIn = m.events?.in?.includes('note')
+  let notesOf = (st, ctx) => {
+    if (st.evs == null || st.notes !== ctx.notes) st.notes = ctx.notes, st.evs = ctx.notes ? noteEvents(ctx.notes, ctx.sampleRate) : []
+    return st.evs
+  }
+  // the input buses of a block of n frames from frame f, each with the channels it carries and its samples finite
+  // (batch.js busIn: one channel copied to a bus of more, a NaN or Infinity made 0 in the instance's scratch): bus 0,
+  // and each further one its option feeds (rendered, the rate reconciled), none where nothing does
+  let bus = (x, st, i) => busIn(x, st.carry[i], id, i, st.keep[i] ??= [])
+  let buses = (input, ctx, f, n, st) => [bus(input, st, 0), ...further.map((k, i) => ctx[k] != null && audio.renderAt ? bus(audio.renderAt(ctx.render, ctx[k], f, n, ctx.sampleRate), st, i + 1) : [])]
 
   // Declared fixed output count ≠ input (contract §channels, e.g. 2→5.1 upmix) →
-  // op-level `ch` hook; the plan pipeline sizes that stage's buffers to it
+  // op-level `ch` hook; the plan pipeline sizes that stage's buffers to it. The same fixed count on both sides (a
+  // stereo processor) widens a mono sound to it, one channel feeding it copied (busIn): a width that changes only there
+  // (chKeeps), a range or a mix refused there alone. Any other width stays: a choice of its count (`channel`) runs in
+  // place, another count is refused at the render
   let busN = side => typeof side === 'number' ? side
     : Array.isArray(side) && typeof side[0] === 'number' ? side[0] : null
-  let outN = busN(m.channels?.outputs)
-  let ch = outN != null && outN !== busN(m.channels?.inputs) ? () => outN : undefined
+  let decl = typeof m.channels === 'object' && !Array.isArray(m.channels) ? m.channels : { inputs: m.channels, outputs: m.channels }
+  let outN = busN(decl.outputs), inN = busN(decl.inputs), chKeeps = outN != null && outN === inN
+  let ch = outN == null ? undefined : chKeeps ? n => n === 1 ? outN : n : () => outN
   // Declared layouts (contract §Buses, e.g. mono → 'ambisonic-1'): the output width is the resolved layout's,
   // unless both sides declare the same layouts (the width carries through)
   let { inputs: li, outputs: lo } = m.channels ?? {}
   if (resolveBuses(m.channels).layouts && JSON.stringify(li) !== JSON.stringify(lo))
-    ch = (n, o) => resolveBuses(m.channels, [n], o?.layouts).outputs[0]?.channels
+    ch = (n, o) => resolveBuses(m.channels, [n], o?.layouts, id).outputs[0]?.channels
 
+  // An edit on chosen channels (`channel`: their numbers) hands its op those alone, in and out, a stage as a whole
+  // render (plan.js applyProcs, compilePlan), the sound's width kept (widthOf), so
+  // a processor that takes or makes a fixed count on bus 0 runs there only on a choice of that many: another is an error
+  // at the call (settle), naming the op, both counts and what to do instead
+  let [in0] = sideBuses(decl.inputs), [out0] = sideBuses(decl.outputs)
+  let count = b => b?.layouts ? b.layouts.map(layoutChannels).join(' or ') : b?.count === 'any' ? null : b?.count
+  let fits = (k, layouts) => {
+    try { let r = resolveBuses(m.channels, [k], layouts); return (r.inputs[0]?.channels ?? k) === k && (r.outputs[0]?.channels ?? k) === k }
+    catch { return false }   // none of its layouts has k channels
+  }
+  let chosen = o => {
+    let picked = [o.channel ?? []].flat(), k = picked.length
+    if (!k || picked.some(c => typeof c !== 'number') || fits(k, o.layouts)) return
+    // a generator (no input bus 0) takes none: a choice holds what it makes
+    let i = in0 ? count(in0) ?? k : null, u = count(out0) ?? i ?? k, n = c => `${c} channel${c === 1 ? '' : 's'}`, fit = (i ?? u) === u && typeof u === 'number' ? u : 0
+    throw new RangeError(`${name}: it ${i == null ? `makes ${n(u)}` : i === u ? `takes ${n(i)}` : `takes ${n(i)} and makes ${u}`}, and channel: ${JSON.stringify(o.channel)} chooses ${k}; an op on chosen channels reads and writes those alone: ${fit ? `choose ${fit} (channel: [${Array.from({ length: fit }, (_, c) => c).join(', ')}]) or leave channel out` : 'leave channel out'}`)
+  }
+
+  // A block of the timeline from frame f: the values patched into the edit since the last one (a live edit) are new
+  // sources, a restart param's excepted (it is the instance's: a change of it rebuilds it, plan.js pipelineSig); then
+  // one call for each stretch its values hold, ctx's time, transport and notes set for it
   let process = (input, output, ctx) => {
-    let st = ctx._am ??= init(ctx, undefined, input.length)
-    st.mctx.currentTime = ctx.blockOffset || 0
-    if (noteIn) feedEvents(st, ctx, input[0].length)
-    fill(st, ctx)
-    if (keyed && ctx.key != null && audio.renderAt) {
-      let n = input[0].length
-      let off = Math.round((ctx.blockOffset || 0) * ctx.sampleRate)
-      st.process([input, audio.renderAt(ctx.render, ctx.key, off, n, ctx.sampleRate)], [output], st.live)
-    } else st.process(keyed ? [input, undefined] : [input], [output], st.live)
-  }
-
-  // Per-block note feed for streaming instruments (contract §events): slice the
-  // compiled slots to [blockStart, blockEnd), times rebased block-relative. Slot
-  // objects are pooled per contract; binary search each block — streams can
-  // restart or seek, so no monotonic cursor.
-  let feedEvents = (st, ctx, frames) => {
-    if (ctx.notes && st.slots?.src !== ctx.notes)
-      st.slots = { src: ctx.notes, evs: noteSlots(ctx.notes, ctx.sampleRate), pool: [], view: [] }
-    if (!st.slots) { st.mctx.events = ctx.notes === undefined ? st.mctx.events : undefined; return }
-    let { evs, pool, view } = st.slots
-    let b0 = Math.round((ctx.blockOffset || 0) * ctx.sampleRate), b1 = b0 + frames
-    let lo = 0, hi = evs.length
-    while (lo < hi) { let mid = (lo + hi) >> 1; if (evs[mid].time < b0) lo = mid + 1; else hi = mid }
-    let n = 0
-    for (let i = lo; i < evs.length && evs[i].time < b1; i++, n++) {
-      let s = pool[n] ??= {}
-      let e = evs[i]
-      s.time = e.time - b0; s.type = e.type; s.kind = e.kind
-      s.pitch = e.pitch; s.velocity = e.velocity; s.channel = e.channel; s.id = e.id
-      view[n] = s
+    let n = input[0].length, sr = ctx.sampleRate, f = Math.round((ctx.blockOffset || 0) * sr)
+    let st = ctx._am ??= init(ctx, f, audio.BLOCK_SIZE, input, output)
+    for (let name of names) {
+      let p = st.state[name], v = given(k => ctx[k], name) ?? specs[name].default
+      if (v !== p.src && !fixed(p.spec)) setParam(p, v, id, name)
     }
-    view.length = n
-    st.mctx.events = view
-  }
-
-  // Declared note input (contract §events) — the offline host's event source is a
-  // `notes` option: [{ time, midi | freq, duration?, velocity? }] compiled to the
-  // contract's pooled slots ({ time: sample, type: 'note', kind: 'on'|'off', pitch,
-  // velocity, channel, id }), sorted, on/off paired by id.
-  let noteIn = m.events?.in?.includes('note')
-  let noteSlots = (notes, sr) => {
-    let evs = []
-    for (let i = 0; i < notes.length; i++) {
-      let n = notes[i]
-      let pitch = n.midi ?? (n.freq != null ? 69 + 12 * Math.log2(n.freq / 440) : 69)
-      let on = Math.round((n.time ?? 0) * sr)
-      let velocity = n.velocity ?? 1
-      evs.push({ time: on, type: 'note', kind: 'on', pitch, velocity, channel: 0, id: i })
-      if (n.duration != null) evs.push({ time: on + Math.round(n.duration * sr), type: 'note', kind: 'off', pitch, velocity: 0, channel: 0, id: i })
-    }
-    return evs.sort((a, b) => a.time - b.time)
+    let ins = buses(input, ctx, f, n, st), outs = [output], evs = noteIn && notesOf(st, ctx)
+    eachCall(st.state, st.live, f, n, sr, (i0, i1) => {
+      st.mctx.currentTime = (f + i0) / sr
+      moveTransport(st.mctx.transport, ctx.bpm, ctx.timeSignature, f + i0, sr)
+      if (evs) st.mctx.events = notesIn(evs, f + i0, i1 - i0, st.pool, st.view)
+      if (i0 === 0 && i1 === n) st.process(ins, outs, st.live)
+      else st.process(ins.map(b => b.map(c => c.subarray(i0, i1))), [output.map(c => c.subarray(i0, i1))], st.live)
+    })
   }
 
   // streaming: false — the module needs the entire signal in one call; the plan
@@ -629,38 +694,39 @@ function useOp(m) {
     // Declared tail on a whole-render plugin → plan pads the materialized input with
     // that many seconds of silence so the decay renders instead of truncating (the
     // plugin still sees equal frames in/out — both sides extended).
-    let wholeTail = typeof m.tail === 'function'
-      ? (o, sr) => m.tail({ sampleRate: sr, params: snapParams(n => o?.[n]) })
-      : m.tail || 0
+    // A tail function is handed the transport where the input ends, its `n` frames (plan.js tailN)
+    let wholeTail = typeof m.tail === 'function' ? (o, sr, n) => finite(m.tail(setting(o, sr, 0, n))) : finite(m.tail)
     // Declared frames hook → structural output length (time-stretch class): the plan
     // sizes the output buffers by it and continues from the result's actual length.
-    let frames = m.frames
-      ? (n, o, sr) => m.frames(n, { sampleRate: sr, params: snapParams(k => o?.[k]) })
-      : undefined
+    let frames = m.frames ? (n, o, sr) => m.frames(n, setting(o, sr)) : undefined
     return reg({
-      params: args, plugin: m, atom: m, ch, tail: wholeTail, frames,
+      params: names, plugin: m, atom: m, ch, chKeeps, tail: wholeTail, frames,
+      // one call of the whole signal (none of 0 frames), its values as they are at its start
       whole(input, output, ctx) {
-        let st = init(ctx, input[0].length, input.length)
-        if (noteIn && ctx.notes) st.mctx.events = noteSlots(ctx.notes, ctx.sampleRate)
-        fill(st, ctx)
+        let n = input[0].length, sr = ctx.sampleRate
+        if (!n) return
+        let st = init(ctx, 0, Math.max(n, output[0]?.length ?? 0), input, output)
+        valuesAt(st.state, st.live, 0, sr)
+        moveTransport(st.mctx.transport, ctx.bpm, ctx.timeSignature, 0, sr)
+        if (noteIn) st.mctx.events = notesIn(notesOf(st, ctx), 0, n, st.pool, st.view)
         // a keyed module reads its key bus whole too, rendered over the same length
-        let key = keyed && ctx.key != null && audio.renderAt ? audio.renderAt(ctx.render, ctx.key, 0, input[0].length, ctx.sampleRate) : undefined
-        st.process(keyed ? [input, key] : [input], [output], st.live)
+        st.process(buses(input, ctx, 0, n, st), [output], st.live)
         if (!frames) ranged(input, output, ctx)
       }
     })
   }
 
-  if (!tail) return reg({ params: args, plugin: m, atom: m, latency, process, ch })
+  if (!tail) return reg({ params: names, plugin: m, atom: m, latency, process, ch, chKeeps, auto: 'own' })
 
-  // Declared tail: expand into pad + hidden proc at compile time (tailed)
-  audio.op('_' + id, { params: args, hidden: true, plugin: m, atom: m, latency, process, ch })
+  // Declared tail: expand into pad + hidden proc at compile time (tailed), the options the host reads handed on
+  let taken = [...new Set([...names, ...further, ...Object.keys(m.buffers || {}), 'layouts', 'notes', 'bpm', 'timeSignature', 'emitted'])]
+  audio.op('_' + name, { params: names, hidden: true, plugin: m, atom: m, latency, process, ch, chKeeps, auto: 'own' })
   reg({
-    params: args, tail, plugin: m, atom: m, ch,
+    params: names, tail, plugin: m, atom: m, ch, chKeeps,
     expand: (ctx) => {
       let o = {}
-      for (let k of args) if (ctx[k] !== undefined) o[k] = ctx[k]
-      return tailed('_' + id, o, typeof tail === 'function' ? tail({ sampleRate: ctx.sampleRate, params: snapParams(n => o[n]) }) : tail)
+      for (let k of taken) if (ctx[k] !== undefined) o[k] = ctx[k]
+      return tailed('_' + name, o, finite(typeof tail === 'function' ? tail(setting(o, ctx.sampleRate, Math.round(ctx.totalDuration * ctx.sampleRate))) : tail))
     }
   })
 }
@@ -794,7 +860,7 @@ function storeOf(a, opts) {
 function stored(a, opts) {
   if (!opts.cache && opts.storage !== 'persistent' && opts.storage !== 'auto') return
   a._.storing = Promise.resolve(storeOf(a, opts)).then(() => audio.evict?.(a))
-  a._.storing.catch(e => emit(a, 'error', e))
+  a._.storing.catch(e => { a._.failed = e; emit(a, 'error', e) })
 }
 
 function fromSilence(seconds, opts = {}) {
@@ -829,6 +895,24 @@ Object.defineProperties(fn, {
   srcStats: { get() { let acc = this._.acc; return (this._.srcStats ?? this.stats) || (acc && (this.decoded ? acc.whole : acc.stats)) || null }, configurable: true },
 })
 
+/** An error edit `i` of `a` raised as it loaded, prepared or rendered, said so on it as it goes on up: `edit`, that index
+ *  (a.edits[e.edit] is the edit), and `op`, the edit's name; its message, class and stack as they are. Said once for
+ *  `a`: the innermost edit of its own is kept (one failing as a later one reads its input is the earlier); one said of
+ *  another sound's edits, a sound an edit of `a` takes (a mix's source, an insert's, a key), is that edit's, since the
+ *  caller holds `a`. A value that is not an object or takes no property, and what the sound's own source failed with
+ *  (its decode, its store), which no edit made, pass as they are. */
+const blamed = new WeakMap()
+export function blame(e, a, i) {
+  if (Object(e) !== e || !Object.isExtensible(e) || e === (a._.root ?? a)._.failed) return e
+  let ed = blamed.get(e), k = ed ? a.edits.indexOf(ed) : -1
+  if (k < 0) ed = a.edits[k = i]
+  if (!ed) return e
+  blamed.set(e, ed)
+  // set as assigned, not thrown over: a property its class holds as a getter (an error's own `op`) stays its own
+  Reflect.set(e, 'edit', k); Reflect.set(e, 'op', ed[0])
+  return e
+}
+
 /** Resolve lazily loaded op modules (a descriptor's `load: () => import(...)` hook) for
  *  the ops an instance's edits name, so sync plan compilation finds them on `desc.mod`,
  *  then run each edit's asynchronous preparation (`prepare(a, index)`, e.g. model inference
@@ -838,8 +922,13 @@ export async function loadOps(a) {
   // an op planned before its module loaded (a plugin's tail and latency) plans again once it has; so does one whose
   // preparation changes what the plan makes of it (how long an impulse response rings: prepare returns true)
   let changed = false
-  for (let [type] of a.edits ?? []) { let d = audio.op?.(type); if (d?.load && !d.mod && (d.mod = await (d.loading ??= d.load()))) changed = true }
-  for (let i = 0; i < (a.edits?.length ?? 0); i++) if (await audio.op?.(a.edits[i][0])?.prepare?.(a, i) === true) changed = true
+  for (let [i, [type]] of (a.edits ?? []).entries()) try {
+    let d = audio.op?.(type)
+    if (d?.load && !d.mod && (d.mod = await (d.loading ??= d.load()))) changed = true
+  } catch (e) { throw blame(e, a, i) }
+  for (let i = 0; i < (a.edits?.length ?? 0); i++) try {
+    if (await audio.op?.(a.edits[i][0])?.prepare?.(a, i) === true) changed = true
+  } catch (e) { throw blame(e, a, i) }
   if (changed) a._.planV = a._.lenV = -1
   // its edits as they are now prepared: what plans them synchronously may render through them (a mark placed, meta.js)
   a._.prepared = a.version

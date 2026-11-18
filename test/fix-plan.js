@@ -153,6 +153,23 @@ test('toJSON keeps edits with instance sources', t => {
   t.is(b.toJSON().edits.length, 0)
 })
 
+test('toJSON says which edits it leaves out, once a call, the JSON as it was', t => {
+  let a = audio.from([tone(440, 0.2)], { sampleRate: 44100 })
+  a.gain(-3); a.gain(t2 => -6 * t2); a.transform(chs => chs); a.gain({ value: { t: [0, 1], v: [0, -6] } }); a.gain(t2 => t2)
+  let said = [], warn = console.warn
+  console.warn = (...m) => said.push(m.join(' '))
+  let json
+  try { json = JSON.parse(JSON.stringify(a)) } finally { console.warn = warn }
+  t.is(said.length, 1, 'one warning for the call')
+  t.ok(/3 edits/.test(said[0]) && /gain, transform/.test(said[0]), `the count and the ops: ${said[0]}`)
+  t.is(Object.keys(json), ['source', 'edits', 'sampleRate', 'channels', 'duration'], 'the same shape')
+  t.is(json.edits.map(e => e[0]), ['gain', 'gain'], 'the number and the curve kept')
+  said = []
+  console.warn = (...m) => said.push(m.join(' '))
+  try { audio.from([tone(440, 0.2)], { sampleRate: 44100 }).gain(-3).toJSON() } finally { console.warn = warn }
+  t.is(said.length, 0, 'nothing left out, nothing said')
+})
+
 test('speed/stretch honor {at, duration}', async t => {
   let a = audio.from([tone(440, 1)], { sampleRate: 44100 })
   a.speed(2, { at: 0.4, duration: 0.2 })
@@ -173,6 +190,62 @@ test('mid-stream edits apply to an in-flight stream of decoded audio', async t =
   }
   t.ok(maxAbs[0] > 0.4, 'pre-edit chunks at full level')
   t.ok(maxAbs.at(-1) < 1e-4, `post-edit chunks attenuated (last ${maxAbs.at(-1)})`)
+})
+
+// A restart param and a buffer are read once, as their processor is built (contract § Lifecycle: a change of either is
+// a new instance): a new one while it plays rebuilds the instance, with the crossfade a pipeline change gets, where a
+// patch in place would leave the instance holding the first
+test('mid-stream: a restart param or a buffer changed while it plays rebuilds its processor, crossfaded', async t => {
+  let built = []
+  let sized = ctx => { let v = ctx.params.size[0] / 100; built.push(v * 100); return (inputs, outputs) => { for (let c of outputs[0]) c.fill(v) } }
+  Object.assign(sized, { id: 'sized', channels: 'any', params: { size: { type: 'number', min: 1, max: 64, default: 8, restart: true } } })
+  audio.use(sized)
+  let a = audio.from([new Float32Array(16 * 1024)], { sampleRate: 44100 }).sized({ size: 8 }), out = [], i = 0
+  for await (let chunk of a.stream()) { out.push(...chunk[0]); if (++i === 3) { a.undo(); a.sized({ size: 32 }) } }
+  let fade = Math.round(44100 * 0.02), at = 3 * 1024
+  t.ok(out.slice(0, at).every(v => Math.abs(v - 0.08) < 1e-7), 'size 8 until the edit')
+  t.ok(out.slice(at + fade).every(v => Math.abs(v - 0.32) < 1e-7), 'size 32 once the crossfade is done')
+  t.ok(out.slice(at, at + fade).every((v, k) => k === 0 || v >= out[at + k - 1]), 'rising through the crossfade, no step')
+  t.is(built.at(-1), 32, 'a new instance, built with 32')
+  // another buffer is another instance too; the same one again, the same instance
+  let read = ctx => { let v = ctx.buffers.ir?.[0][0] ?? 0; built.push(v); return (inputs, outputs) => { for (let c of outputs[0]) c.fill(v) } }
+  Object.assign(read, { id: 'buffer-read', channels: 'any', params: {}, buffers: { ir: {} } })
+  audio.use(read)
+  let c = audio.from([new Float32Array(16 * 1024)], { sampleRate: 44100 })['buffer-read']({ ir: Float32Array.of(0.1) }), same = []
+  built = []; i = 0
+  for await (let chunk of c.stream()) {
+    same.push(chunk[0].at(-1))
+    if (++i === 3) { let ir = c.edits[0][1].ir; c.undo(); c['buffer-read']({ ir }) }
+    if (i === 6) { c.undo(); c['buffer-read']({ ir: Float32Array.of(0.4) }) }
+  }
+  t.is(built, [0.10000000149011612, 0.4000000059604645], 'built twice: the same buffer again kept its instance, another made one')
+  t.ok(Math.abs(same.at(-1) - 0.4) < 1e-7, 'and plays the other')
+  // a live param's change stays a patch: the instance kept
+  let live = ctx => { built.push('live'); return (inputs, outputs, params) => { for (let c of outputs[0]) c.fill(params.level[0]) } }
+  Object.assign(live, { id: 'live-level', channels: 'any', params: { level: { type: 'number', min: 0, max: 1, default: 0.5 } } })
+  audio.use(live)
+  let b = audio.from([new Float32Array(8 * 1024)], { sampleRate: 44100 })['live-level']({ level: 0.25 })
+  built = []; i = 0
+  for await (let chunk of b.stream()) if (++i === 3) { b.undo(); b['live-level']({ level: 0.75 }) }
+  t.is(built, ['live'], 'one instance throughout')
+})
+
+// The layouts an instance runs with are another thing only a new instance takes (contract § Lifecycle: a change of
+// layouts is a new instance): a `layouts` option changed while it plays rebuilds it, crossfaded, where a patch in place
+// would leave it built with the first. Quad and first-order ambisonics are 4 channels each: the stream's width stays
+test('mid-stream: a layouts option changed while it plays rebuilds its processor, crossfaded', async t => {
+  let built = []
+  let speakers = ctx => { let tag = ctx.layouts.outputs[0], v = tag === 'quad' ? 0.25 : 0.5; built.push(tag); return (inputs, outputs) => { for (let c of outputs[0]) c.fill(v) } }
+  Object.assign(speakers, { id: 'speakers', params: {}, channels: { inputs: 1, outputs: [{ layouts: ['quad', 'ambisonic-1'] }] } })
+  audio.use(speakers)
+  let a = audio.from([new Float32Array(16 * 1024)], { sampleRate: 44100 }).speakers({ layouts: { outputs: ['quad'] } }), out = [], i = 0
+  for await (let chunk of a.stream()) { out.push(...chunk[0]); if (++i === 3) { a.undo(); a.speakers({ layouts: { outputs: ['ambisonic-1'] } }) } }
+  let fade = Math.round(44100 * 0.02), at = 3 * 1024
+  t.ok(out.slice(0, at).every(v => v === 0.25), 'quad until the edit')
+  t.ok(out.slice(at + fade).every(v => v === 0.5), 'first-order ambisonics once the crossfade is done')
+  t.ok(out.slice(at, at + fade).every((v, k) => k === 0 || v >= out[at + k - 1]), 'rising through the crossfade, no step')
+  t.is(built.at(-1), 'ambisonic-1', 'a new instance, built with it')
+  t.is(out.length, 16 * 1024, 'its frames, 4 channels throughout')
 })
 
 test('mid-stream parameter patches update range, zero duration and channel through the final sample', async t => {
@@ -828,4 +901,15 @@ test('range — a duration alone starts at 0, in every op that reads its own ran
     if (d) off[name] = d
   }
   t.is(off, {}, '{ duration: 1 } as { at: 0, duration: 1 }, sample for sample (the most any op parts by, if any)')
+})
+
+// A whole render on chosen channels is handed those alone, the others kept as they came, as a pipeline stage is
+// (applyProcs): roomtone fills the digital silence of the channel chosen, not the other's (it filled both)
+test('whole render – on chosen channels: those alone, the others as they came', async t => {
+  let sr = 8000, x = Float32Array.from({ length: 3 * sr }, (_, i) => i >= 2 * sr ? 0 : i % sr < sr / 2 ? .5 * Math.sin(i / 5) : 1e-4 * Math.sin(i))
+  let [mono] = await audio.from([x], { sampleRate: sr }).roomtone().read()
+  t.ok(mono.subarray(2 * sr).some(v => v !== 0), 'roomtone fills the last second here')
+  let [l, r] = await audio.from([x, x.slice()], { sampleRate: sr }).roomtone({ channel: 1 }).read()
+  t.ok(l.every((v, i) => v === x[i]), 'channel 0 as it came, its silence kept')
+  t.ok(r.every((v, i) => v === mono[i]), 'channel 1 as roomtone makes it alone')
 })
