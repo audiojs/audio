@@ -4304,14 +4304,17 @@ test('dither — stream ≡ read statistically (independent TPDF draws)', async 
 
 // A sound decoded or pushed holds its pages alone: the page its samples were gathered in (PAGE_SIZE a channel, 4 MB
 // whatever the sound's length) let go once they are emitted, drained or done. 32 sounds of 1 s kept: the memory they
-// hold grows by about their samples, 5.6 MB as float32, not by a page each, 128 MB. Measured in a process of its own,
-// where nothing the rest of the suite made is let go or kept meanwhile (in this one, 7 to 105 MB from run to run)
+// hold grows by about their samples, 5.6 MB as float32, not by a page each of the 16 pushed, 64 MB. Measured in a process of its own,
+// where nothing the rest of the suite made is let go or kept meanwhile (in this one, 7 to 105 MB from run to run).
+// V8 frees an unreachable ArrayBuffer's memory in a sweep on another thread, after the collection that found it, so a
+// count read as gc() returns may still hold buffers it let go; with that sweep made part of the collection
+// (--no-concurrent-array-buffer-sweeping), gc() returns with them freed
 test('pages — a short sound decoded or pushed keeps no page it was gathered in', { skip: !isNode }, async t => {
   let { execFileSync } = await import('node:child_process')
   let lib = JSON.stringify(new URL('../audio.js', import.meta.url).href)
   let make = `let tone = Float32Array.from({ length: 44100 }, (_, i) => .5 * Math.sin(i / 10))
     let wav = await (await audio([tone], { sampleRate: 44100 })).encode('wav')`
-  let grown = +execFileSync(process.execPath, ['--expose-gc', '--input-type=module', '-e', `
+  let grown = +execFileSync(process.execPath, ['--expose-gc', '--no-concurrent-array-buffer-sweeping', '--input-type=module', '-e', `
     let { default: audio } = await import(${lib}), held = []
     ${make}
     gc(); let before = process.memoryUsage().arrayBuffers
