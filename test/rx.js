@@ -1,7 +1,7 @@
 // iZotope RX 12's modules `audio` lacked, each against its ground truth: Wow & Flutter (dewow), Azimuth, Phase,
 // Streaming Preview (codec), Deconstruct, Find Similar. The signals are made here, their truth known: delays shifted
 // exactly by FFT, a disc's wow written into the phase, events planted at known times in a voice (audio-lena).
-import test, { ok, is } from 'tst'
+import test, { ok, is, throws } from 'tst'
 import { readdirSync, existsSync } from 'fs'
 import { homedir } from 'os'
 import { fileURLToPath } from 'url'
@@ -310,8 +310,7 @@ test('rebalance: the residual at its own level, r·x + Σ (g − r)·s; at −In
       ...['vocals', 'bass', 'drums'].map(s => at([{ ...mute, [s]: 0, residual: -Infinity }], SHARES[s]))])
     let err = Math.max(...x.map((c, k) => c.reduce((m, v, i) => Math.max(m, Math.abs(parts.reduce((p, y) => p + y[k][i], 0) - v)), 0)))
     ok(err < 1e-6, `the four add back to the input: max |error| ${err.toExponential(1)}`)
-    let e = await audio.from(x, { sampleRate: 44100 }).rebalance({ residual: Infinity }).read().catch(e => e)
-    ok(/rebalance: residual is dB/.test(e?.message), e?.message)
+    throws(() => audio.from(x, { sampleRate: 44100 }).rebalance({ residual: Infinity }), /rebalance: residual is a finite number or -Infinity \(muted\), not Infinity/, 'a residual of Infinity refused at the call')
   })
 })
 
@@ -349,9 +348,8 @@ test('rebalance: segments every half of one unless `step` says, each step its ow
 test('rebalance: a gain is dB or −Infinity; the model one the package has; the package named when missing', async () => {
   await withSeparation(async () => {
     let x = song(4410)
-    let err = await audio.from(x, { sampleRate: 44100 }).rebalance(Infinity).read().catch(e => e)
-    ok(/rebalance: vocals is dB/.test(err?.message), err?.message)
-    err = await audio.from(x, { sampleRate: 44100 }).rebalance(3, { model: 'spleeter' }).read().catch(e => e)
+    throws(() => audio.from(x, { sampleRate: 44100 }).rebalance(Infinity), /rebalance: vocals is a finite number or -Infinity \(muted\), not Infinity/, 'a gain of Infinity refused at the call')
+    let err = await audio.from(x, { sampleRate: 44100 }).rebalance(3, { model: 'spleeter' }).read().catch(e => e)
     ok(/unknown model 'spleeter', expected scnet-large, htdemucs/.test(err?.message), err?.message)
   })
   let orig = audio.import
@@ -419,8 +417,7 @@ test('scene: the input plus each stem\'s change, in dialogue, music, effects ord
     is(calls, ['tiger'], 'the model asked')
     let err = await audio.from(x, { sampleRate: 44100 }).scene(6, { model: 'scnet-large' }).read().catch(e => e)
     ok(/scene: unknown model 'scnet-large', expected mrx, tiger/.test(err?.message), err?.message)
-    err = await audio.from(x, { sampleRate: 44100 }).scene(Infinity).read().catch(e => e)
-    ok(/scene: dialogue is dB/.test(err?.message), err?.message)
+    throws(() => audio.from(x, { sampleRate: 44100 }).scene(Infinity), /scene: dialogue is a finite number or -Infinity \(muted\), not Infinity/, 'a gain of Infinity refused at the call')
   })
 })
 
@@ -460,7 +457,7 @@ test('derustle: the model\'s voice and its rest mixed back, rustle to `reduction
   audio.memo = { get: k => store.get(k) ?? null, set: (k, v) => store.set(k, v) }
   try {
     let half = x.map(c => c.map(v => v / 2))
-    for (let [args, want] of [[[], c => mixback(x[c], half[c], { limit: 12, floor: 45, sampleRate: 48000 })], [[30], c => mixback(x[c], half[c], { limit: 12, floor: 30, sampleRate: 48000 })], [[{ ambience: false }], c => half[c]]]) {
+    for (let [args, want] of [[[], c => mixback(x[c], half[c], { limit: 12, floor: 45, sampleRate: 48000 })], [[30], c => mixback(x[c], half[c], { limit: 12, floor: 30, sampleRate: 48000 })], [[{ ambience: false }], c => half[c]], [[Infinity], c => half[c]]]) {
       let y = await audio.from(x, { sampleRate: 48000 }).derustle(...args).read()
       y.forEach((ch, c) => { let w = want(c); ok(ch.every((v, i) => v === w[i]), `(${args.map(a => JSON.stringify(a)).join(', ')}) channel ${c}`) })
     }

@@ -122,6 +122,7 @@ export function enhancer(name, id, finish, again) {
 
 audio.op('deepfilter', {
   params: ['limit'],
+  nonfinite: { limit: { Infinity: 'none, as 0' } },
   ...enhancer('deepfilter', o => {
     let limit = o.limit ?? LIMIT, floor = o.floor
     if (typeof limit !== 'number' || !(limit >= 0)) throw new TypeError(`deepfilter: limit is dB, 0 or more (0: none), not ${limit}`)

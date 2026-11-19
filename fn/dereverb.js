@@ -89,4 +89,4 @@ async function dereverbed(pcm, fs, o) {
 }
 
 // the edit's input dereverbed ahead of rendering
-audio.op('dereverb', { params: ['reduction'], prepare: prepared(MADE, id, dereverbed), process: playback('dereverb', MADE) })
+audio.op('dereverb', { params: ['reduction'], nonfinite: { reduction: { Infinity: "the model's whole output" } }, prepare: prepared(MADE, id, dereverbed), process: playback('dereverb', MADE) })

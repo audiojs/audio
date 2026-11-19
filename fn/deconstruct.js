@@ -132,6 +132,7 @@ function deconstruct(input, output, ctx) {
 
 audio.op('deconstruct', {
   params: ['tonal', 'noise', 'transient'],
+  nonfinite: { tonal: { '-Infinity': 'taken out' }, noise: { '-Infinity': 'taken out' }, transient: { '-Infinity': 'taken out' } },
   ranged: true,
   latency,
   // a frame and the time median's frames before the first sample made

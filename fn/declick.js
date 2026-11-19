@@ -48,7 +48,9 @@ function declick(input, output, ctx) {
       if (ranged) opts.regions = [{ at: (s0 - i0) / sr, duration: (Math.min(s1, i1) - s0) / sr }]
       st.done.push({ a, out: st.buf.map(x => {
         let seg = x.subarray(i0 - st.base, i1 - st.base)
-        return (near ? mod(seg, opts) : seg).slice(a - i0, b - i0)
+        // no limit (Infinity): five times the span it is looked for in, so that the module's search of a click's ring,
+        // which runs to longest / 5 and has no end at Infinity, reaches across the whole span, as any longer limit's does
+        return (near ? mod(seg, opts.longest === Infinity ? { ...opts, longest: 5 * seg.length * 1000 / sr } : opts) : seg).slice(a - i0, b - i0)
       }) })
       st.k++
       // keep the next span's leading context
@@ -66,6 +68,7 @@ function grow(st) { st.buf = st.buf.map(x => { let y = new Float32Array(x.length
 
 audio.op('declick', {
   params: ['threshold', 'longest', 'order'],
+  nonfinite: { longest: { Infinity: 'no limit: no burst too long for a click' } },
   ranged: true,
   latency: delay,
   warmup: delay,

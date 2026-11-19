@@ -151,7 +151,7 @@ for (let name of ['lowpass', 'highpass']) {
             if (unified) a.filter(name, 1000, { order })
             else a[name](1000, order)
             await a.read()
-          }, /order (must be an even integer >= 2|is NaN)/, String(order))
+          }, Number.isFinite(order) ? /order must be an even integer >= 2/ : new RegExp(`${unified ? 'filter' : name}: order is a finite number, not ${order}`), String(order))
           a.undo()
           t.is((await a.read())[0], Float32Array.of(1, 0, 0), 'rejected render did not change the source')
         } finally { a.dispose() }

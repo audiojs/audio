@@ -145,6 +145,8 @@ function match(input, output, ctx) {
 
 audio.op('match', {
   params: ['source', 'amount'],
+  // its reference a sound, not read at the call
+  nonfinite: { source: true },
   latency: (o, sr) => Math.max(FRAME, Math.round((o.lookahead ?? 10) * sr)),
   load: () => import('@audio/eq/fit'),
   process: match,

@@ -323,6 +323,7 @@ function parseTarget(target, mode) {
 // following what it has heard so far, the ceiling guarding what it hasn't.
 audio.op('normalize', {
   params: ['target', 'mode'],
+  nonfinite: { ceiling: { Infinity: 'none, as false' } },
   holdback: (o, sr, total) => o.adaptive ? 0 : total,
   process: (input, output) => { for (let c = 0; c < input.length; c++) output[c].set(input[c]) },
   resolve: (ctx) => {

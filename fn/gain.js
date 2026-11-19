@@ -1,4 +1,4 @@
-import { opRange } from '../plan.js'
+import { opRange, RETURNED } from '../plan.js'
 
 const gain = (input, output, ctx) => {
   let lin = ctx.unit === 'linear', val = ctx.value ?? (lin ? 1 : 0)
@@ -11,16 +11,21 @@ const gain = (input, output, ctx) => {
   let toMul = lin ? v => v : v => 10 ** (v / 20)
   s = Math.max(0, Math.min(s, len)); end = Math.max(s, Math.min(end, len))
   for (let c = 0; c < input.length; c++) {
-    let inp = input[c], out = output[c]
+    let inp = input[c], out = output[c], i = s
     if (s > 0) out.set(inp.subarray(0, s))
-    for (let i = s; i < end; i++) out[i] = inp[i] * (auto ? toMul(val((off + i) / ctx.sampleRate)) : f)
+    // the first value its function gives in the block, read once, handed to the engine to judge (plan.js RETURNED)
+    if (auto && !c && i < end && ctx[RETURNED]) { let t = (off + i) / ctx.sampleRate, v = val(t); ctx[RETURNED]('value', v, t); out[i] = inp[i] * toMul(v); i++ }
+    for (; i < end; i++) out[i] = inp[i] * (auto ? toMul(val((off + i) / ctx.sampleRate)) : f)
     if (end < len) out.set(inp.subarray(end), end)
   }
 }
 
 import audio from '../core.js'
+// -Infinity dB is silence; as a multiplier (unit 'linear') it is a number like any other, its product not one
+const SILENT = { '-Infinity': 'silence' }
 audio.op('gain', {
   params: ['value'],
+  nonfinite: (k, o) => k === 'value' && o.unit !== 'linear' ? SILENT : undefined,
   ranged: true,
   auto: 'sample',
   process: gain,

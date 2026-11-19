@@ -191,14 +191,98 @@ function mapParams(params, args, ctx) {
   }
 }
 
-/** Normalize edit options: parse time fields and sample aliases. */
-function normalizeOpts(opts, sr) {
+/** Normalize edit options: parse time fields and sample aliases. A time no render can hold (±Infinity, NaN, as a number
+ *  or as text) refused naming op `type` (finite) */
+function normalizeOpts(opts, sr, type) {
   let o = isOpts(opts) ? { ...named(opts) } : {}
-  if (o.at != null) o.at = parseTime(o.at)
-  if (o.duration != null) o.duration = parseTime(o.duration)
-  if (o.offset != null) { o.at = o.offset / sr; delete o.offset }
-  if (o.length != null) { o.duration = o.length / sr; delete o.length }
+  if (o.at != null) o.at = time(type, 'at', o.at)
+  if (o.duration != null) o.duration = time(type, 'duration', o.duration)
+  if (o.offset != null) { o.at = finite(type, 'offset', o.offset) / sr; delete o.offset }
+  if (o.length != null) { o.duration = finite(type, 'length', o.length) / sr; delete o.length }
   return o
+}
+const time = (type, k, v) => typeof v === 'number' || numeric(v) ? (finite(type, k, v), parseTime(v)) : parseTime(v)
+
+// ── Values a render can hold ─────────────────────────────────────
+
+/** The ops this package registers, marked by audio.js once its modules have run: their edits' values are judged at the
+ *  call (judge); an op the user registers, or one in place of a built-in, takes what it is given */
+export const builtin = new WeakSet()
+
+/** The longest a sound can be, in samples: its positions are whole sample counts in doubles, exact to 2^53 − 1, which
+ *  is also the longest a typed array can be (ECMA-262 ToIndex) */
+export const LONGEST = Number.MAX_SAFE_INTEGER
+
+/** Text a number is written in (' -Infinity', '1e999', '0.5'); a word ('linear', 'inf', '300hz') is not */
+const numeric = v => typeof v === 'string' && v.trim() !== '' && !Number.isNaN(+v)
+
+/** What option `k` of op `d` takes beyond finite numbers, as the op declares it (`nonfinite`: option → { value: what it
+ *  means }, or true for an option it does not read as a number, samples or a function's own; a function of the option
+ *  and the options giving either; true for the whole op) */
+const means = (d, k, o) => { let nf = d?.nonfinite; return typeof nf === 'function' ? nf(k, o) : nf === true || nf?.[k] }
+
+/** What an option takes, as a refusal says it: of a value itself, or of one an array or an object of it holds */
+const takes = (ok, held) => `${held ? 'holds finite numbers' : 'is a finite number'}${ok && ok !== true ? Object.entries(ok).map(([v, m]) => ` or ${v} (${m})`).join('') : ''}`
+
+/** The one form every value no render can hold is refused in: `op: option is what it takes, not the value` (a value it
+ *  holds: `op: option holds finite numbers, not the value`), text quoted, `why` after it (where, in a function) */
+export const refuse = (type, k, what, v, why = '') => new RangeError(`${type}: ${k} ${what}, not ${typeof v === 'string' ? `'${v}'` : String(v)}${why}`)
+
+/** `v` as option `k` of op `type` reads it: a number, text as the number it is (Number), finite or a value the op declares
+ *  (`ok`, from means), else refused. An op that reads text later than the call (a filter's freq) refuses it where it
+ *  reads it, by this */
+export function finite(type, k, v, ok, why = '', held = false) {
+  let n = typeof v === 'number' ? v : Number(v)
+  if (Number.isFinite(n) || ok && ok !== true && String(n) in ok) return n
+  throw refuse(type, k, takes(ok, held), v, why)
+}
+
+/** An edit's values judged at the call, after its options are normalized (its times parsed, values by position placed):
+ *  every number in them, text that is one, a curve's points, through arrays and plain objects; a sound, samples (a
+ *  typed array), a function and a word are not read here (a function's values are, as the render reads them:
+ *  applyProcs). Nothing is made: a value is read once, in place */
+function judge(type, o) {
+  let d = ops[type]
+  if (!builtin.has(d) || d.nonfinite === true) return
+  for (let k in o) if (k !== 'args') { let ok = means(d, k, o); if (ok !== true) read(type, k, o[k], ok) }
+  // values by position (a.run(['pad', { args: [1] }])), read as the params they are placed in once the edit runs
+  if (Array.isArray(o.args)) {
+    let p = positional(d, o.args)
+    for (let i = 0; i < o.args.length; i++) {
+      let k = p[Math.min(i, p.length - 1)]?.replace(/^\.\.\./, '') ?? 'args', ok = means(d, k, o)
+      if (ok !== true) read(type, k, o.args[i], ok)
+    }
+  }
+}
+// a value nested deeper than DEEP is not read: an object that holds itself (an app's own among an op's options) stops
+// there, nothing made to tell it
+const DEEP = 32
+function read(type, k, v, ok, depth = 0) {
+  if (typeof v === 'number') return finite(type, k, v, ok, '', depth > 0)
+  if (typeof v === 'string') return numeric(v) && finite(type, k, v, ok, '', depth > 0)
+  if (v === null || typeof v !== 'object' || ArrayBuffer.isView(v) || v.pages || v.getChannelData || depth > DEEP) return
+  if (isCurve(v)) return points(type, k, v.t, ok) || points(type, k, v.v, ok)
+  if (Array.isArray(v)) { for (let i = 0; i < v.length; i++) read(type, k, v[i], ok, depth + 1); return }
+  let p = Object.getPrototypeOf(v)
+  if (p === Object.prototype || p === null) for (let j in v) read(type, k, v[j], ok, depth + 1)
+}
+// A curve's points, plain or typed: each a finite number. A curve is interpolated in its values' own unit, so a point at
+// -Infinity dB holds the segment to it at -Infinity from its start: no fade, and no meaning of the op's
+function points(type, k, xs, ok) {
+  for (let i = 0; i < xs.length; i++) {
+    let x = xs[i], n = typeof x === 'number' ? x : Number(x)
+    if (Number.isFinite(n)) continue
+    let m = ok && ok !== true && ok[String(n)]
+    throw refuse(type, k, 'is a curve of finite numbers', x, m ? ` (${m}: ${n} as the value itself, a fade to ramp to it)` : '')
+  }
+}
+
+/** The length the timeline holds after edit `type` (its options `o`), `n` samples: past LONGEST, or not a number, an error
+ *  naming the op and the options that made it, where the length is derived (its first length, duration or read) */
+function long(n, type, o) {
+  if (n <= LONGEST) return
+  let ks = Object.keys(o).filter(k => !['at', 'duration', 'channel'].includes(k) && (typeof o[k] === 'number' || typeof o[k] === 'string' || ArrayBuffer.isView(o[k])))
+  throw new RangeError(`${type}: ${ks.join(', ') || 'its options'} ${ks.length > 1 ? 'are values' : 'is a value'} that keep${ks.length > 1 ? '' : 's'} the sound within ${LONGEST} samples, not ${ks.map(k => shown(o[k])).join(', ')}`)
 }
 
 // An edit as its refusal shows it: an array's items in turn, options as { … }, any other value as batch.js `what` names
@@ -210,7 +294,7 @@ const shown = v => Array.isArray(v) ? `[${v.map(shown).join(', ')}]` : isOpts(v)
  *  own op) gives that op's edit in its place: the edit is that op's from then on, its module the only one loaded for
  *  it (audio.js autowire). An op that settles its options (`settle`: a contract plugin's units and fixed params) does
  *  so here, so a wrong one throws at the call. */
-function normalizeEdit(edit, sr) {
+function normalizeEdit(edit, sr, call = false) {
   // a trailing undefined is one not passed, as a method's argument is: ['gain', { value: -6 }, undefined] is the edit
   // without it
   if (Array.isArray(edit)) {
@@ -227,7 +311,9 @@ function normalizeEdit(edit, sr) {
     let vals = typeof type === 'string' ? edit.slice(1) : [], takes = !ops[type] || ops[type].params?.length > 0
     throw new TypeError(`audio.run: an edit is [name] or [name, options]${takes && vals.length && !vals.some(isOpts) ? `, values by position in options.args: ['${type}', { args: ${shown(vals)} }]` : ''}, not ${shown(edit)}`)
   }
-  let o = normalizeOpts(opts || {}, sr)
+  let o = normalizeOpts(opts || {}, sr, type)
+  // the edit a call makes, judged as it is called (an edit an op emits is the op's own)
+  if (call) judge(type, o)
   ops[type]?.settle?.(o)
   return ops[type]?.via?.(o) ?? [type, o]
 }
@@ -321,7 +407,10 @@ export function opMethod(name) {
       mapParams(p, a, o)
     }
     else if (a.length) o.args = a
-    for (let k in o) if (typeof o[k] === 'number' && Number.isNaN(o[k])) throw new RangeError(`${name}: ${k} is NaN`)
+    // NaN refused at the call: a built-in's values by the shared check (judge) where it reads them; an option it does not
+    // read (a native plugin's own parameter, a function's own option) and another op's (a registry processor, the
+    // user's) as given
+    for (let k in o) if (typeof o[k] === 'number' && Number.isNaN(o[k]) && (!builtin.has(d) || means(d, k, o) === true)) throw new RangeError(`${name}: ${k} is NaN`)
     if (reshapes(d, o.channel) && (o.at != null || o.duration != null)) throw new TypeError(`${name}: range options not supported for channel-changing ops`)
     if (o.mix != null && !d?.params?.includes('mix')) mixable(name, o.mix, d, o.channel)
     return this.run([name, o])
@@ -665,8 +754,10 @@ fn.undo = function(n = 1) {
 fn.run = function(...edits) {
   let sr = this.sampleRate
   for (let e of edits) {
-    if (e[0] === 'paste' && !this.edits.some(e => e[0] === 'copy' || e[0] === 'cut')) throw new Error('paste: clipboard is empty; call copy() or cut() first')
-    pushEdit(this, normalizeEdit(e, sr))
+    // its values judged before its place is asked: a paste's before its clipboard
+    let ed = normalizeEdit(e, sr, true)
+    if (ed[0] === 'paste' && !this.edits.some(e => e[0] === 'copy' || e[0] === 'cut')) throw new Error('paste: clipboard is empty; call copy() or cut() first')
+    pushEdit(this, ed)
   }
   return this
 }
@@ -878,6 +969,8 @@ function compilePlan(a, len, final, measure = false) {
     // the timeline it rewrites, for what reads it as it was (a stretch's vocoder, at its own rate)
     pctx.input = timelineOf(a, segs, ch)
     segs = op.plan(segs, pctx)
+    // where the length is derived: one the timeline cannot hold refused, naming the edit that made it
+    long(planLen(segs), ...a.edits[index])
     if (!final) limit = adjustLimit(limit, type, pctx)
   }
   // an op that sets the rate from here on (resample)
@@ -1004,6 +1097,7 @@ function compilePlan(a, len, final, measure = false) {
         let [s0, s1] = ranged ? spanOf(t, at, duration, sr) : [0, 0]
         let n = t + tailN(op, extra, t)
         segs = [seg(0, ranged ? t - (s1 - s0) + framesOf(s1 - s0) : op.frames ? framesOf(n) : n, 0, undefined, null)]
+        long(planLen(segs), ...a.edits[index])
         clear()
         rerate(op, extra)
         continue
@@ -1037,7 +1131,7 @@ function compilePlan(a, len, final, measure = false) {
         let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: input[0].length / sr, at: ranged ? undefined : at, duration: ranged ? undefined : duration, channel: chs ? undefined : channel, render, ...extra }
         op.whole(input, output, wctx)
         let share = ownMix(op, o)
-        if (share != null) blend(share, input, output, 0, sr)
+        if (share != null) blend(share, input, output, 0, sr, builtin.has(op) && type)
         if (chs) output = all.map((x, c) => chs.includes(c) ? output[chs.indexOf(c)] : x)
         if (ranged) { let from = framesOf(cl), n = framesOf(s1 - s0); output = whole.map((c, k) => seamed(c, output[k].subarray(from, from + n), n, s0, s1, sr)) }
         a._.wrc.m.set(key, ref = audio.from(output, { sampleRate: sr }))
@@ -1480,6 +1574,14 @@ export function curveFn(c) {
   }
 }
 
+/** A value a function of the time returned to option `k` of op `type`, at `t` s: a number a render can hold, or one the
+ *  op declares (`ok`), else refused as the option would be (finite), naming the time. An op that reads its function at
+ *  each sample (gain, pan) hands the first it reads in a block to ctx[RETURNED](option, value, time) */
+export const RETURNED = Symbol('returned')
+function returned(type, k, v, ok, t) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) finite(type, k, v, ok, ` (its function at ${+t.toFixed(6)} s)`)
+}
+
 /** Apply process pipeline to a block. Each proc owns output buffers sized to its
  *  stage's channel width (set in initProcs) — channel-count changes are a per-stage
  *  property, not a special case, and the hot path stays allocation-free. */
@@ -1541,7 +1643,11 @@ function applyProcs(a, bufA, procs, outOff, sr) {
       // patched values ramped linearly across this block (click-free updates)
       for (let i = s; i < e; i += SUB) {
         let j = Math.min(i + SUB, e)
-        if (autos) for (let k of autos) ctx[k] = proc.fns[k]((tOff + (i + j) / 2) / sr)
+        if (autos) for (let k of autos) {
+          let t = (tOff + (i + j) / 2) / sr
+          ctx[k] = proc.fns[k](t)
+          if (proc.said && k in proc.said) returned(proc.ed[0], k, ctx[k], proc.said[k], t)
+        }
         if (ramp) { let p = (j - s) / (e - s); for (let k in ramp) ctx[k] = ramp[k][0] + (ramp[k][1] - ramp[k][0]) * p }
         run(i, j)
       }
@@ -1560,7 +1666,7 @@ function applyProcs(a, bufA, procs, outOff, sr) {
     if (span) seams(out, dry, span, chs)
     // a mix under 1: what it played lined up with what came in, in that share; a number changed, ramped once
     if (proc.mix != null) {
-      blend(proc.mix, dry, out, tOff - proc.lat, sr)
+      blend(proc.mix, dry, out, tOff - proc.lat, sr, builtin.has(proc.desc) && proc.ed[0])
       if (Array.isArray(proc.mix)) proc.mix = proc.mix[1] === 1 ? null : proc.mix[1]
     }
     cur = out
@@ -1586,10 +1692,10 @@ function seams(out, dry, [b0, b1, x], chs) {
 
 /** `wet`, an op's output, in place as the share `m` of itself and the rest `dry`, its input lined up with it; a block at
  *  a time, so a whole render's blend needs no more than one block of shares */
-function blend(m, dry, wet, t0, sr) {
+function blend(m, dry, wet, t0, sr, who) {
   let n = wet[0].length
   for (let i = 0; i < n; i += audio.BLOCK_SIZE) {
-    let e = Math.min(n, i + audio.BLOCK_SIZE), w = shares(m, i, e, n, t0, sr)
+    let e = Math.min(n, i + audio.BLOCK_SIZE), w = shares(m, i, e, n, t0, sr, who)
     for (let c = 0; c < wet.length; c++) {
       let x = dry[c % dry.length], y = wet[c]
       for (let k = i; k < e; k++) y[k] = x[k] + w[k - i] * (y[k] - x[k])
@@ -1601,7 +1707,7 @@ function blend(m, dry, wet, t0, sr) {
  *  a curve {t, v} to the sample, straight between its points, flat past its ends; a function of the time in seconds,
  *  sampled every SUB samples, straight between */
 let _shares = new Float32Array(0)
-function shares(m, i, e, n, t0, sr) {
+function shares(m, i, e, n, t0, sr, who) {
   let w = _shares.length >= e - i ? _shares.subarray(0, e - i) : (_shares = new Float32Array(e - i))
   if (typeof m === 'number') return w.fill(m)
   if (Array.isArray(m)) { for (let k = i; k < e; k++) w[k - i] = m[0] + (m[1] - m[0]) * k / n; return w }
@@ -1616,6 +1722,7 @@ function shares(m, i, e, n, t0, sr) {
   }
   for (let k = i; k < e; k += SUB) {
     let q = Math.min(e, k + SUB), a = m((t0 + k) / sr), b = m((t0 + q) / sr)
+    if (who) { returned(who, 'mix', a, null, (t0 + k) / sr); returned(who, 'mix', b, null, (t0 + q) / sr) }
     for (let u = k; u < q; u++) w[u - i] = a + (b - a) * (u - k) / (q - k)
   }
   return w
@@ -1705,14 +1812,20 @@ function initProcs(a, pipeline, totalDur, sr, nch) {
     preLat += lat
     // Function-valued (or breakpoint-curve) params become engine automation unless the
     // op samples them itself (auto: 'sample') or declares genuine function args (fnArgs)
-    let fns = null, autos = null
+    let fns = null, autos = null, said = null
     if (desc.auto !== 'own') for (let k in extra) {
-      let val = extra[k]
+      let val = extra[k], f = typeof val === 'function'
       if (isCurve(val)) val = curveFn(val)
       if (typeof val !== 'function' || desc.fnArgs?.includes(k)) continue
-      if (desc.auto === 'sample') { ctx[k] = val; continue }
+      // what a built-in's function of the time returns is judged as its option would be, once a value read: the
+      // engine's every 128 samples; an op that reads it at each sample (auto: 'sample') hands over the first it reads in
+      // each block (ctx[RETURNED]), so the function is called as often as the op calls it
+      let ok = f && builtin.has(desc) ? means(desc, k, o) : true
+      if (ok !== true) (said ??= {})[k] = ok ?? null
+      if (desc.auto === 'sample') { ctx[k] = val; if (ok !== true) ctx[RETURNED] ??= (k, v, t) => k in said && returned(ed[0], k, v, said[k], t); continue }
       ;(fns ??= {})[k] = val; (autos ??= []).push(k)
       ctx[k] = val(0)
+      if (ok !== true) returned(ed[0], k, ctx[k], ok, 0)
     }
     procs.push({
       op: desc.process,
@@ -1726,7 +1839,7 @@ function initProcs(a, pipeline, totalDur, sr, nch) {
       ranged: !!desc.ranged,
       preLat: myPre, lat,
       out: Array.from({ length: w }, () => new Float32Array(BS)),
-      fns, autos, ramp: null, mix,
+      fns, autos, ramp: null, mix, said,
       ctx
     })
   } catch (e) { throw blame(e, a, editOf(a, ed)) }

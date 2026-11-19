@@ -3,6 +3,7 @@ import lsFilter from '@audio/eq/lowshelf'
 import hsFilter from '@audio/eq/highshelf'
 import parametricEq from '@audio/eq/parametric'
 import { highpass as hpCoefs, lowpass as lpCoefs } from '@audio/biquad'
+import { finite } from '../plan.js'
 const apFilter = allpass.second
 
 // Order > 2 (even): Butterworth as cascaded biquads, pole-pair Q_k = 1 / (2·cos((2k−1)π / 2N))
@@ -21,7 +22,8 @@ lpFilter.useButterworth(butterworth)
 // @audio/filter recomputes coefficients on param change, so automation
 // (engine-resolved fn params) reshapes the filter mid-stream.
 
-function apply(input, output, ctx, key, fn, makeParams, sync) {
+function apply(input, output, ctx, key, fn, makeParams, sync, as) {
+  if (as) read(as, ctx)
   if (!ctx[key]) ctx[key] = input.map(() => makeParams(ctx.sampleRate))
   let st = ctx[key]
   for (let c = 0; c < input.length; c++) {
@@ -32,6 +34,11 @@ function apply(input, output, ctx, key, fn, makeParams, sync) {
 }
 
 // ── Filter dispatch ─────────────────────────────────────────────────────
+
+// Its values as the filter reads them each block (a value, automation's, one patched in): numbers a render can hold.
+// Text the call let through (a word: '300hz', 'inf') is a number here or refused, as a number no render can hold is at
+// the call (plan.js finite); what reaches the filter is as given
+const read = (as, ctx) => { let q = Q(ctx); if (ctx.freq != null) finite(as, 'freq', ctx.freq); if (ctx.gain != null) finite(as, 'gain', ctx.gain); if (q != null) finite(as, 'Q', q) }
 
 const syncFc = (p, ctx) => {
   let order = ctx.order ?? 2
@@ -51,14 +58,14 @@ const syncEq = (p, ctx) => {
 }
 
 const types = {
-  highpass:  (input, output, ctx) => apply(input, output, ctx, '_hp', hpFilter, fs => ({ fc: ctx.freq, order: ctx.order, fs }), syncFc),
-  lowpass:   (input, output, ctx) => apply(input, output, ctx, '_lp', lpFilter, fs => ({ fc: ctx.freq, order: ctx.order, fs }), syncFc),
-  eq:        (input, output, ctx) => apply(input, output, ctx, '_eq', parametricEq, fs => ({ bands: [{ fc: ctx.freq, Q: Q(ctx, 1), gain: ctx.gain ?? 0, type: 'peak' }], fs }), syncEq),
-  lowshelf:  (input, output, ctx) => apply(input, output, ctx, '_ls', lsFilter, fs => ({ fc: ctx.freq, gain: ctx.gain ?? 0, Q: Q(ctx, 0.707), fs }), syncShelf),
-  highshelf: (input, output, ctx) => apply(input, output, ctx, '_hs', hsFilter, fs => ({ fc: ctx.freq, gain: ctx.gain ?? 0, Q: Q(ctx, 0.707), fs }), syncShelf),
-  notch:     (input, output, ctx) => apply(input, output, ctx, '_notch', notchFilter, fs => ({ fc: ctx.freq, Q: Q(ctx, 30), fs }), syncFcQ),
-  bandpass:  (input, output, ctx) => apply(input, output, ctx, '_bp', bpFilter, fs => ({ fc: ctx.freq, Q: Q(ctx, 0.707), fs }), syncFcQ),
-  allpass:   (input, output, ctx) => apply(input, output, ctx, '_ap', apFilter, fs => ({ fc: ctx.freq, Q: Q(ctx, 0.707), fs }), syncFcQ),
+  highpass:  (input, output, ctx, as = 'highpass') => apply(input, output, ctx, '_hp', hpFilter, fs => ({ fc: ctx.freq, order: ctx.order, fs }), syncFc, as),
+  lowpass:   (input, output, ctx, as = 'lowpass') => apply(input, output, ctx, '_lp', lpFilter, fs => ({ fc: ctx.freq, order: ctx.order, fs }), syncFc, as),
+  eq:        (input, output, ctx, as = 'eq') => apply(input, output, ctx, '_eq', parametricEq, fs => ({ bands: [{ fc: ctx.freq, Q: Q(ctx, 1), gain: ctx.gain ?? 0, type: 'peak' }], fs }), syncEq, as),
+  lowshelf:  (input, output, ctx, as = 'lowshelf') => apply(input, output, ctx, '_ls', lsFilter, fs => ({ fc: ctx.freq, gain: ctx.gain ?? 0, Q: Q(ctx, 0.707), fs }), syncShelf, as),
+  highshelf: (input, output, ctx, as = 'highshelf') => apply(input, output, ctx, '_hs', hsFilter, fs => ({ fc: ctx.freq, gain: ctx.gain ?? 0, Q: Q(ctx, 0.707), fs }), syncShelf, as),
+  notch:     (input, output, ctx, as = 'notch') => apply(input, output, ctx, '_notch', notchFilter, fs => ({ fc: ctx.freq, Q: Q(ctx, 30), fs }), syncFcQ, as),
+  bandpass:  (input, output, ctx, as = 'bandpass') => apply(input, output, ctx, '_bp', bpFilter, fs => ({ fc: ctx.freq, Q: Q(ctx, 0.707), fs }), syncFcQ, as),
+  allpass:   (input, output, ctx, as = 'allpass') => apply(input, output, ctx, '_ap', apFilter, fs => ({ fc: ctx.freq, Q: Q(ctx, 0.707), fs }), syncFcQ, as),
 }
 
 const filterParams = {
@@ -83,7 +90,7 @@ const filter = (input, output, ctx) => {
   }
   let fn = types[type]
   if (!fn) throw new Error(`filter: unknown type '${type}'`)
-  fn(input, output, ctx)
+  fn(input, output, ctx, 'filter')
 }
 
 // ── Register ────────────────────────────────────────────────────────────
@@ -92,6 +99,8 @@ import audio from '../core.js'
 audio.op('filter', {
   params: ['type', 'freq', 'gain', 'Q'],
   fnArgs: ['type'],
+  // a filter of the user's takes its own options
+  nonfinite: (k, o) => typeof o.type === 'function' || undefined,
   process: filter
 })
 

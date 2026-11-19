@@ -97,7 +97,7 @@ function rebalancer(name, STEMS, MODEL, STEP) {
     })
   }
 
-  return { params: STEMS, process, prepare }
+  return { params: STEMS, nonfinite: Object.fromEntries([...STEMS, 'residual'].map(s => [s, { '-Infinity': 'muted' }])), process, prepare }
 }
 
 // segments every half of one: half the time of SCNet's own quarter, 0.07 to 0.17 dB of SDR less (@audio/neural-separate)

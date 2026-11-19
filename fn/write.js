@@ -21,6 +21,8 @@ const write = (input, output, ctx) => {
 import audio from '../core.js'
 audio.op('write', {
   params: ['data'],
+  // samples, not read at the call: what a render holds is theirs
+  nonfinite: { data: true },
   ranged: true,
   expand: ctx => {
     let data = ctx.data

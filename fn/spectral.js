@@ -28,6 +28,9 @@ import { rangeOf } from '../plan.js'
 
 const N = 2048, HOP = N / 4
 
+// a band's edge at the end of the spectrum: its bins are clamped to it, as [0, sampleRate / 2] reads
+const EDGES = { Infinity: 'to the top of the spectrum', '-Infinity': 'from 0 Hz' }
+
 /** Absolute region [s0, s1) in samples and band [f0, f1] in Hz */
 function region(ctx) {
   let sr = ctx.sampleRate, [s0, s1] = rangeOf(ctx)
@@ -95,6 +98,7 @@ function spectral(input, output, ctx) {
 
 audio.op('spectral', {
   params: ['band', 'gain'],
+  nonfinite: { band: EDGES, gain: { '-Infinity': 'the band taken out' } },
   ranged: true,
   latency: N,
   warmup: 3 * N,  // a render starting inside the region begins where the STFT engages
@@ -151,6 +155,7 @@ function repair(input, output, ctx) {
 
 audio.op('repair', {
   params: ['band'],
+  nonfinite: { band: EDGES },
   ranged: true,
   latency,
   warmup,

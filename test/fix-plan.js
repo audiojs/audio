@@ -7,7 +7,7 @@
 import test from 'tst'
 import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
-import { prepared, playback } from '../plan.js'
+import { prepared, playback, builtin, LONGEST } from '../plan.js'
 import { tailed } from '../core.js'
 
 const ramp = n => { let ch = new Float32Array(n); for (let i = 0; i < n; i++) ch[i] = i; return ch }
@@ -973,6 +973,239 @@ test('documents: a sound in an edit read back as a sound; one made from samples 
   t.ok(x.length === y.length && x.every((v, i) => v === y[i]), 'read back, the same render')
   let p = (await audio(file)).mix(audio.from([tone(220, 0.1)], { sampleRate: 44100 }))
   t.throws(() => audio(JSON.parse(JSON.stringify(p))), /mix: a sound made from samples/)
+})
+
+// ── Values a render can hold (plan.js judge, long, returned) ─────────
+
+const says = f => { try { f(); return null } catch (e) { return e instanceof RangeError ? e.message : `${e.constructor.name}: ${e.message}` } }
+const saysAt = async f => { try { await f(); return null } catch (e) { return e.message } }
+
+// ±Infinity and NaN in an edit of a built-in op are refused at the call, naming the op, the option and the value, but
+// where the op declares that one means something (its `nonfinite`), judged once its options are normalized: at any depth
+// of its arrays and plain objects, as text that is a number, at a curve's points. A pad of Infinity has no end, a filter
+// at Infinity Hz renders NaN
+test('non-finite values: every built-in op refuses ±Infinity and NaN at the call, but where it declares a meaning', t => {
+  let a = () => audio.from([tone(440, 0.1)], { sampleRate: 44100 }), n = 0, wrong = []
+  for (let [name, d] of Object.entries(audio.op())) {
+    if (!builtin.has(d) || d.hidden || d.nonfinite === true) continue
+    for (let k of (d.params ?? []).map(p => p.replace(/^\.\.\./, ''))) for (let v of [Infinity, -Infinity, NaN]) {
+      let nf = typeof d.nonfinite === 'function' ? d.nonfinite(k, {}) : d.nonfinite?.[k]
+      if (nf === true || nf?.[String(v)]) continue
+      let m = says(() => a().run([name, { [k]: v }])); n++
+      if (!m?.startsWith(`${name}: ${k} is `)) wrong.push(`${name}(${k}: ${v}): ${m ?? 'taken'}`)
+    }
+  }
+  t.is(wrong, [], `${n} values refused, each naming its op and option`)
+  t.is(says(() => a().gain(Infinity)), 'gain: value is a finite number or -Infinity (silence), not Infinity', 'what it takes said')
+  t.is(says(() => a().pad(0, Infinity)), 'pad: after is a finite number, not Infinity')
+  t.is(says(() => a().repeat(Infinity)), 'repeat: times is a finite number, not Infinity')
+  t.is(says(() => a().gain(-3, { at: Infinity })), 'gain: at is a finite number, not Infinity', 'a range\'s too, the op named')
+  t.is(says(() => a().gain(-3, { d: NaN })), 'gain: duration is a finite number, not NaN', 'an option as normalized: d is duration')
+  t.is(says(() => a().run(['gain', { value: -3, d: Infinity }])), 'gain: duration is a finite number, not Infinity', 'run() too, its edit normalized first')
+  t.is(says(() => a().run(['pad', { args: [Infinity] }])), 'pad: before is a finite number, not Infinity', 'values by position, as the params they are placed in')
+  t.is(says(() => a().spectral([200, NaN], -20)), 'spectral: band holds finite numbers or Infinity (to the top of the spectrum) or -Infinity (from 0 Hz), not NaN', 'in an array: what it holds')
+  t.is(says(() => a().spectral([200, Infinity], -20)), null, "a band's edge at Infinity: the top of the spectrum, as [200, sampleRate / 2] reads")
+  t.is(says(() => a().warp([[0, 0], [0.05, NaN], [0.1, 0.1]])), 'warp: markers holds finite numbers, not NaN', 'in an array of arrays')
+  t.is(says(() => a().denoise({ noise: { at: 0, duration: Infinity } })), 'denoise: noise holds finite numbers, not Infinity', 'in a plain object')
+  t.is(says(() => a().run(['paste', { at: Infinity }])), 'paste: at is a finite number, not Infinity', 'before its context is asked')
+  t.is(says(() => a().gain(-Infinity, { unit: 'linear' })), 'gain: value is a finite number, not -Infinity', 'a multiplier of -Infinity: no silence, a product of none')
+  // samples, a sound and a function are not read at the call; options a function of the user's takes are its own
+  t.is(says(() => a().write([0.5, -Infinity])), null, 'samples given to write: theirs')
+  t.is(says(() => a().transform((i, o) => o, { level: Infinity })), null, 'transform: its options its function\'s')
+  t.is(says(() => a().filter((d, p) => {}, { cutoff: -Infinity })), null, 'a filter of the user\'s: the same')
+  t.is(says(() => a().plugin('Some Plugin', { tail: Infinity, feedback: Infinity })), null, 'a native plugin: its tail endless, its parameters its own')
+  t.is(says(() => a().plugin('Some Plugin', { tail: -Infinity })), 'plugin: tail is a finite number or Infinity (endless: audio.TAIL seconds rendered), not -Infinity')
+  t.is(says(() => a().align(audio.from([tone(440, 0.1)], { sampleRate: 44100 }), { within: -Infinity })), 'align: within is a finite number or Infinity (no bound on the lag), not -Infinity', 'a bound: Infinity none, -Infinity refused')
+  // an op of the user's takes what it is given, under a name of its own or a built-in's
+  audio.op('nfmine', { params: ['level'], process: (i, o) => { for (let c = 0; c < i.length; c++) o[c].set(i[c]) } })
+  let pad = audio.op('pad')
+  try {
+    t.is(says(() => a().nfmine(Infinity)), null, "an op of the user's: Infinity its own")
+    t.is(says(() => a().run(['nfmine', { level: [-Infinity, 'Infinity', { t: [0, 1], v: [0, NaN] }] }])), null, 'text, a curve: its own')
+    audio.op('pad', { params: ['before', 'after'], plan: s => s })
+    t.is(says(() => a().pad(Infinity)), null, "one in place of a built-in's: the user's")
+  } finally { delete audio.op().nfmine; delete audio.fn.nfmine; audio.op('pad', pad) }
+})
+
+// Three values that mean nothing their op can say: a separation of Infinity is NaN where a median is 0, a floor of
+// Infinity the limit of Infinity again, a curve to -Infinity -Infinity from its first point
+test('non-finite values: a curve\'s points are finite; deconstruct\'s separation and deepfilter\'s floor too', t => {
+  let a = () => audio.from([tone(440, 0.1)], { sampleRate: 44100 })
+  t.is(says(() => a().gain({ value: { t: [0, 1], v: [0, -Infinity] } })), 'gain: value is a curve of finite numbers, not -Infinity (silence: -Infinity as the value itself, a fade to ramp to it)')
+  t.is(says(() => a().gain({ value: { t: [0, 1], v: [0, NaN] } })), 'gain: value is a curve of finite numbers, not NaN')
+  t.is(says(() => a().gain({ value: { t: [0, Infinity], v: [0, -6] } })), 'gain: value is a curve of finite numbers, not Infinity', 'its times too')
+  t.is(says(() => a().gain({ value: { t: Float64Array.of(0, 1), v: Float32Array.of(0, NaN) } })), 'gain: value is a curve of finite numbers, not NaN', 'of typed arrays')
+  t.is(says(() => a().gain({ value: { t: [0, 1], v: [0, 'Infinity'] } })), "gain: value is a curve of finite numbers, not 'Infinity'", 'as text')
+  t.is(says(() => a().deconstruct(0, -Infinity, 0, { separation: Infinity })), 'deconstruct: separation is a finite number, not Infinity')
+  t.is(says(() => a().deepfilter({ floor: Infinity })), 'deepfilter: floor is a finite number, not Infinity')
+  t.is(says(() => a().gain(-Infinity)), null, 'gain(-Infinity) itself: silence')
+})
+
+// Text a number is written in is judged as that number (a value from a JSON document, a form, a text box): pad('Infinity')
+// has no end, lowpass('Infinity') renders NaN; a word is the op's to read, and a filter reads its values as it renders:
+// one that is no number is refused there, in the same form
+test('non-finite values: text that is a number judged as it; a word read by its op, a filter refusing one that is no number', async t => {
+  let a = () => audio.from([tone(440, 0.1)], { sampleRate: 44100 })
+  t.is(says(() => a().pad('Infinity')), "pad: before is a finite number, not 'Infinity'")
+  t.is(says(() => a().pad('1e999')), "pad: before is a finite number, not '1e999'", 'past the largest double')
+  t.is(says(() => a().lowpass(' -Infinity ')), "lowpass: freq is a finite number, not ' -Infinity '")
+  t.is(says(() => a().gain('-Infinity')), null, "'-Infinity' to gain: silence, as the number")
+  t.ok((await a().gain('-Infinity').read())[0].every(v => v === 0), 'and renders it')
+  t.is(says(() => a().gain(-6, { unit: 'linear' }).codec('mp3').normalize('podcast')), null, 'words: their ops\'')
+  t.is(await saysAt(() => a().eq(1000, 'inf').read()), "eq: gain is a finite number, not 'inf'", 'a word to a filter, refused as it renders')
+  t.is(await saysAt(() => a().lowpass('1e999hz').read()), "lowpass: freq is a finite number, not '1e999hz'")
+  t.is(await saysAt(() => a().filter('highpass', '300hz').read()), "filter: freq is a finite number, not '300hz'", 'through filter, named so')
+  let [x] = await a().lowpass('300').read(), [y] = await a().lowpass(300).read()
+  t.ok(x.every((v, i) => v === y[i]), "lowpass('300'): as lowpass(300)")
+})
+
+// What reads a value once reads it in place: a curve's points once each, samples and a sound not at all, nothing copied
+// (a curve of 10^5 points, a write of 10^6 numbers: one walk, none)
+test('non-finite values: a curve read once, in place; samples not read', t => {
+  let a = () => audio.from([tone(440, 0.1)], { sampleRate: 44100 })
+  // an array that counts its reads: by index, and any method or iterator (a copy, a second walk)
+  let watched = xs => { let seen = { reads: 0, other: [] }; return [new Proxy(xs, { get(x, k, r) { if (/^\d+$/.test(String(k))) seen.reads++; else if (typeof k === 'symbol' || typeof x[k] === 'function') seen.other.push(String(k)); return Reflect.get(x, k, r) } }), seen] }
+  let [t1, st] = watched([0, 0.5, 1]), [v1, sv] = watched([0, -3, -6])
+  a().gain({ value: { t: t1, v: v1 } })
+  t.ok(st.reads <= 4 && sv.reads === 3 && !st.other.length && !sv.other.length, `a curve's points: read once each at the call, no copy (t ${st.reads}, v ${sv.reads}; methods ${[...st.other, ...sv.other]})`)
+  let [band, sb] = watched([200, 400])
+  a().spectral(band, -6)
+  t.ok(sb.reads === 2 && !sb.other.length, `an array: read once, in place (${sb.reads}; methods ${sb.other})`)
+  let [d, sd] = watched([0.5, -0.5, 0.25])
+  a().write([d])
+  t.is(sd.reads, 0, 'samples given to write: not read at the call')
+})
+
+// A finite value no render can hold is refused as Infinity is: the length an edit makes must be a count of samples a
+// position can hold exactly, 2^53 − 1 (Number.MAX_SAFE_INTEGER, the longest a typed array can be). One guard where the
+// timeline's length is derived, at its first length, duration or read (before anything is written), naming the op and
+// its options. A repeat's plan is bounded where it is made: 2^24 segments, past which memory holds no plan
+test('non-finite values: a length no render can hold refused where it is derived, naming op and option', async t => {
+  let a = () => audio.from([tone(440, 1)], { sampleRate: 44100 }), long = (op, k, v) => `${op}: ${k} ${k.includes(',') ? 'are values' : 'is a value'} that keep${k.includes(',') ? '' : 's'} the sound within ${LONGEST} samples, not ${v}`
+  t.is(says(() => a().pad(1e300).length), long('pad', 'before', '1e+300'), 'pad(1e300): 2e300 s')
+  t.is(says(() => a().pad(Number.MAX_VALUE).duration), long('pad', 'before', Number.MAX_VALUE), 'Number.MAX_VALUE: Infinity once scaled')
+  t.is(says(() => a().pad(1, 1e300).length), long('pad', 'before, after', '1, 1e+300'), 'the options that made it')
+  t.is(says(() => a().speed(1e-300).length), long('speed', 'rate', '1e-300'))
+  t.is(says(() => a().stretch(1e300).length), long('stretch', 'factor', '1e+300'), 'through the edit it plans as')
+  t.is(says(() => a().resample(1e300).length), long('resample', 'rate', '1e+300'))
+  let s = a().speed(1e-12)
+  t.is(says(() => s.length), long('speed', 'rate', '1e-12'), 'past the bound for this sound')
+  t.is(await saysAt(() => s.read()), long('speed', 'rate', '1e-12'), 'and at the read')
+  t.is([a().pad(1, 2).length, a().repeat(3).length, a().speed(0.5).length], [44100 * 4, 44100 * 4, 88200], 'lengths a sound holds, as before')
+  let plan = v => `repeat: times is a value that keeps the plan within 16777216 segments, not ${v}`
+  t.is(says(() => a().repeat(1e9).length), plan(1000000000), 'repeat(1e9): 10^9 segments, refused before they are made')
+  t.is(says(() => a().pad(0.1, 0).repeat(2 ** 23).length), plan(2 ** 23), 'two segments 2^23 + 1 times: past 2^24')
+  t.is(says(() => a().repeat(1e9, { at: 0.1, duration: 0.2 }).length), plan(1000000000), 'a range repeated: its segments counted')
+})
+
+// A function of the time is read as the render reads it: what it returns judged as its option would be, once a value
+// read (the engine's every 128 samples; gain's and pan's, which read it each sample, once a block where it reads first),
+// naming op, option and the time; a value the op declares rendered (gain -Infinity: silence)
+test('non-finite values: what a function of the time returns, refused as the render reads it, naming the time', async t => {
+  let a = () => audio.from([tone(440, 1)], { sampleRate: 44100 })
+  t.is(await saysAt(() => a().gain(t => Infinity).read()), 'gain: value is a finite number or -Infinity (silence), not Infinity (its function at 0 s)')
+  t.is(await saysAt(() => a().gain(t => NaN).read()), 'gain: value is a finite number or -Infinity (silence), not NaN (its function at 0 s)')
+  let m = await saysAt(() => a().gain(t => t < 0.5 ? -6 : NaN).read())
+  t.ok(/^gain: value is .*, not NaN \(its function at 0\.5\d* s\)$/.test(m), `the first block it returns one in: ${m}`)
+  m = await saysAt(() => a().lowpass(t => t < 0.25 ? 1000 : Infinity).read())
+  t.ok(/^lowpass: freq is a finite number, not Infinity \(its function at 0\.25\d* s\)$/.test(m), `the engine's reads, every 128 samples: ${m}`)
+  t.ok((await a().gain(t => -Infinity).read())[0].every(v => v === 0), 'gain(t => -Infinity): silence, its meaning')
+  let [r] = await a().gain(t => 6 / t, { at: 0.5 }).read()
+  t.ok(r.every(Number.isFinite), 'a function read only where its range is: 6 / t from 0.5 s')
+  t.is(await saysAt(() => a().stream({ duration: 0.1 }).next()), null, 'a stream of what refuses nothing renders')
+})
+
+// Where a non-finite value means something it renders that: silence, a source not heard, no ceiling, digital silence
+// alone, a band taken out, no bound on a search (the denoisers' and the separations' are held in test/plugin-denoise.js
+// and test/rx.js)
+test('non-finite values with a meaning render it', async t => {
+  let sr = 44100, from = c => audio.from(c, { sampleRate: sr }), x = tone(440, 0.5, sr, 0.5)
+  t.ok((await from([x]).gain(-Infinity).read())[0].every(v => v === 0), 'gain(-Infinity): silence')
+  let [m] = await from([x]).mix(from([tone(1000, 0.5, sr)]), 0, -Infinity).read()
+  t.ok(arrEq(m, x), 'mix at -Infinity dB: the input, sample for sample')
+  let [c] = await from([x]).normalize(-3, { ceiling: Infinity }).read(), [f] = await from([x]).normalize(-3, { ceiling: false }).read()
+  t.ok(arrEq(c, f), 'normalize with a ceiling of Infinity: as with none (false)')
+  // digital silence, a tone, a tail 80 dB down, digital silence: -Infinity takes the silence and keeps the tail -60 takes
+  let q = new Float32Array(2 * sr); q.set(x, sr / 2)
+  for (let i = 0; i < 0.3 * sr; i++) q[sr + i] = 1e-4 * Math.sin(i / 9)
+  let n = async f => (await f(from([q.slice()])).read())[0].length
+  let [inf, sixty] = [await n(a => a.trim(-Infinity)), await n(a => a.trim(-60))]
+  t.ok(inf < q.length && inf > sixty, `trim(-Infinity): digital silence alone (${q.length} → ${inf}; at -60 dB ${sixty})`)
+  let p = new Float32Array(Math.round(2.4 * sr)); p.set(tone(440, 0.3, sr, 0.5)); p.set(tone(440, 0.3, sr, 0.5), Math.round(0.9 * sr)); p.set(tone(440, 0.3, sr, 0.5), Math.round(2.1 * sr))
+  for (let i = Math.round(1.2 * sr); i < 2.1 * sr; i++) p[i] = 1e-4 * Math.sin(i / 9)
+  let [sInf, sSixty] = [(await from([p.slice()]).shrink(0.1, -Infinity).read())[0].length, (await from([p.slice()]).shrink(0.1, -60).read())[0].length]
+  t.ok(sInf < p.length && sInf > sSixty, `shrink(0.1, -Infinity): digital silence alone a pause (${p.length} → ${sInf}; at -60 dB ${sSixty})`)
+  // two tones, the lower in the band: -Infinity takes it out and leaves the other
+  let two = Float32Array.from({ length: sr }, (_, i) => 0.3 * Math.sin(2 * Math.PI * 300 * i / sr) + 0.3 * Math.sin(2 * Math.PI * 3000 * i / sr))
+  let [s] = await from([two]).spectral([200, 400], -Infinity).read(), at = (y, f) => { let re = 0, im = 0; for (let i = 0.25 * sr; i < 0.75 * sr; i++) { re += y[i] * Math.cos(2 * Math.PI * f * i / sr); im += y[i] * Math.sin(2 * Math.PI * f * i / sr) } return 20 * Math.log10(Math.hypot(re, im) / (0.25 * sr)) }
+  t.ok(at(s, 300) - at(two, 300) < -40 && Math.abs(at(s, 3000) - at(two, 3000)) < 1, `spectral at -Infinity dB: the band out (300 Hz ${(at(s, 300) - at(two, 300)).toFixed(1)} dB, 3 kHz ${(at(s, 3000) - at(two, 3000)).toFixed(2)})`)
+  // decaying bursts, and the same 7000 samples late: aligned with no bound on the lag looked for, nor on what is read, as
+  // with bounds past both
+  let burst = d => Float32Array.from({ length: 2 * sr }, (_, i) => i < d ? 0 : 0.3 * Math.sin(2 * Math.PI * 440 * (i - d) / sr) * Math.exp(-((i - d) % 11025) / 4000))
+  let aligned = async o => (await from([burst(7000)]).align(from([burst(0)]), o).read())[0]
+  let [wide, far] = [await aligned({ within: 1e4 }), await aligned({ span: 1e4 })]
+  t.ok(!arrEq(wide, burst(7000)), 'align: the late one moved')
+  t.ok(arrEq(await aligned({ within: Infinity }), wide), 'align within Infinity: as within 10000 s')
+  t.ok(arrEq(await aligned({ span: Infinity }), far), 'align span Infinity: as span 10000 s')
+  // a native plugin's tail of Infinity: endless, audio.TAIL seconds of it rendered (core.js decay); planned without
+  // @audio/host, so its tail pads the length
+  let e = from([x]).plugin('Some Plugin', { tail: Infinity })
+  t.is(e.edits[0][1].tail, Infinity, 'plugin tail Infinity: kept as given')
+})
+
+// What the shared check does not read keeps the call's NaN refusal: a native plugin's own parameter, a function's own option
+test('non-finite values: NaN refused at the call where the check does not read', t => {
+  let a = () => audio.from([tone(440, 0.1)], { sampleRate: 44100 })
+  t.is(says(() => a().plugin('Some Plugin', { feedback: NaN })), 'plugin: feedback is NaN', "a native plugin's parameter")
+  t.is(says(() => a().transform((i, o) => o, { level: NaN })), 'transform: level is NaN', "a function's own option")
+})
+
+// Two infinities 2.16.1 rendered as their finite spelling, kept: pan past ±1 is ±1; declick's longest Infinity no limit,
+// as long as the span a click is looked for in (2.16.1 rendered it as 1e6 ms where it ended, and on a second of clicks
+// did not end: its search of a click's ring ran to Infinity / 5)
+test('non-finite values: pan at ±Infinity as at ±1; declick with no limit as with one longer than any burst', async t => {
+  let sr = 44100, st = () => audio.from([tone(440, 0.3, sr, 0.5), tone(550, 0.3, sr, 0.5)], { sampleRate: sr }), same = (x, y) => x.every((c, k) => c.every((v, i) => v === y[k][i]))
+  t.ok(same(await st().pan(Infinity).read(), await st().pan(1).read()), 'pan(Infinity): pan(1), sample for sample')
+  t.ok(same(await st().pan(-Infinity).read(), await st().pan(-1).read()), 'pan(-Infinity): pan(-1)')
+  t.ok(same(await st().pan(t => t < 0.1 ? -Infinity : Infinity).read(), await st().pan(t => t < 0.1 ? -1 : 1).read()), 'its function too')
+  let x = n => [Float32Array.from({ length: n }, (_, i) => 0.3 * Math.sin(2 * Math.PI * 330 * i / sr) + (i % 4410 < 3 ? 0.8 : 0))]
+  let dc = (n, l) => audio.from(x(n), { sampleRate: sr }).declick(8, l).read()
+  t.ok(same(await dc(sr / 2, Infinity), await dc(sr / 2, 1e6)), 'declick(8, Infinity): declick(8, 1e6), as 2.16.1 rendered it')
+  t.ok(same(await dc(sr, Infinity), await dc(sr, 1e6)), 'a second of clicks: rendered, as declick(8, 1e6)')
+  // a ring search that stops short of the span would render 0.25 s of these otherwise (a burst as long as the span: the
+  // search to a fifth of it)
+  let y = n => [Float32Array.from({ length: n }, (_, i) => 0.3 * Math.sin(2 * Math.PI * 330 * i / sr) + (i % 4410 === 100 ? 0.8 : 0))]
+  t.ok(same(await audio.from(y(sr / 4), { sampleRate: sr }).declick(8, Infinity).read(), await audio.from(y(sr / 4), { sampleRate: sr }).declick(8, 1e6).read()), 'single-sample clicks on 0.25 s: as declick(8, 1e6)')
+})
+
+// Samples are not read at the call: typed arrays given to an op that does not declare them, and a sound's samples given
+// as plain arrays, are the op's to read, as 2.16.1 had them; and an edit an op emits is the op's own, not judged
+test('non-finite values: samples not read, typed or plain, where an op takes a sound; an emitted edit the op\'s own', async t => {
+  let a = () => audio.from([tone(440, 0.1)], { sampleRate: 44100 })
+  t.is(says(() => a().mix([Float32Array.of(NaN, 0.5)])), null, 'typed samples holding NaN: not read')
+  t.is(says(() => a().gain(-3, { kept: Float32Array.of(NaN, Infinity) })), null, 'a typed array in an option the check reads: samples, not read')
+  t.is(says(() => a().mix([[0.1, NaN]])), null, "plain arrays where a sound goes: mix's to read")
+  t.is(says(() => a().mix(NaN)), 'mix: source is NaN', 'NaN where a sound goes: refused at the call, as 2.16.1')
+  audio.op('emitter', { expand: () => [['gain', { value: { t: [0, 1], v: [0, -Infinity] } }]] })
+  try { t.is(await saysAt(() => a().emitter().read()), null, 'an op that emits what a call is refused (a curve to -Infinity): its own') }
+  finally { delete audio.op().emitter; delete audio.fn.emitter }
+})
+
+// What a function of the time gives is judged as the op reads it, the first value of each block it reads: the function
+// is called as often as the op calls it, so one that keeps state renders as it did
+test('non-finite values: a function of the time called no more often than the op calls it', async t => {
+  let calls = 0, st = () => audio.from([tone(440, 1), tone(550, 1)], { sampleRate: 44100 })
+  await st().gain(t => (calls++, -3)).read()
+  t.is(calls, 2 * 44100, 'gain: once a sample of each channel')
+  calls = 0
+  await st().pan(t => (calls++, 0.5)).read()
+  t.is(calls, 44100, 'pan: once a sample')
+})
+
+// An object that holds itself among an op's options is not walked into
+test('non-finite values: an object that holds itself among the options', t => {
+  let cyc = { k: 1 }; cyc.self = cyc
+  t.is(says(() => audio.from([tone(440, 0.1)], { sampleRate: 44100 }).gain(-3, { ctx: cyc })), null)
 })
 
 // A document of the form before wrote no tag: an object shaped as one, or with a source and edits but no sampleRate, is

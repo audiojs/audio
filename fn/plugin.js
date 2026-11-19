@@ -24,7 +24,7 @@ import { isWam, prepare as prepareWam, WAM } from './wam.js'
 const OPTIONS = new Set(['ref', 'plugin', 'format', 'params', 'state', 'preset', 'key', 'notes', 'midi', 'bpm', 'timeSignature',
   'transport', 'tail', 'isolate', 'blockSize', 'offline', 'at', 'duration', 'channel', 'mix', 'offset', 'length', 'd', 'xfade',
   /* and what the engine puts beside them */ 'sampleRate', 'channelCount', 'totalDuration', 'blockOffset', 'render', 'final'])
-const RUN = Symbol('plugin.run')
+const RUN = Symbol('plugin.run'), ENDLESS = { Infinity: 'endless: audio.TAIL seconds rendered' }
 
 function host() {
   let mod = audio.op('plugin')?.mod
@@ -102,6 +102,8 @@ audio.op('_plugin', {
 
 audio.op('plugin', {
   params: ['ref'], auto: 'sample', ch: width, chKeeps: true,
+  // a tail of Infinity s: endless, audio.TAIL seconds rendered; the plugin's parameters are its own, in its own units
+  nonfinite: k => k === 'tail' ? ENDLESS : k === 'params' || !OPTIONS.has(k) || undefined,
   // native plugins need @audio/host (Node); a WAM, Web Audio: either may be all there is
   load: () => audio.import('@audio/host').catch(() => null),
   prepare: (a, index) => { let o = a.edits[index][1]; if (isWam(o.ref, o.format)) return prepareWam(a, index, paramsOf(o)) },

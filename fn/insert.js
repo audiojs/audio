@@ -70,4 +70,5 @@ function limit(limit, { offset, length, crossfade, sampleRate: sr, total, source
   return limit + (length != null ? Math.min(n, length) : n)
 }
 
-audio.op('insert', { params: ['source', 'at', 'crossfade'], plan: insertPlan, limit })
+// its source a sound (or samples), not read at the call
+audio.op('insert', { params: ['source', 'at', 'crossfade'], nonfinite: { source: true }, plan: insertPlan, limit })

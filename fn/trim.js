@@ -39,4 +39,4 @@ const trimResolve = (ctx) => {
 
 // The automatic threshold reads the whole input (its quietest tenth): on a live stream every cut
 // waits for the end. A given threshold decides block by block, so trim streams.
-audio.op('trim', { params: ['threshold'], process: trim, resolve: trimResolve, holdback: (o, sr, total) => o.threshold == null ? total : 0 })
+audio.op('trim', { params: ['threshold'], nonfinite: { threshold: { '-Infinity': 'digital silence alone' } }, process: trim, resolve: trimResolve, holdback: (o, sr, total) => o.threshold == null ? total : 0 })

@@ -646,6 +646,8 @@ export interface OpDescriptor {
   keeps?: boolean
   /** An edit's options checked and settled as the edit is made, in place (a contract plugin's values with units into its params' units); throws what is wrong */
   settle?: (opts: Record<string, any>) => Record<string, any>
+  /** What an option means beyond finite numbers, by value ({ value: { '-Infinity': 'silence' } }), or true for one the op does not read as a number (samples, a function's own); a function of the option and the options giving either; true for every option. A built-in op's other ±Infinity and NaN are refused at the call */
+  nonfinite?: true | Record<string, true | Record<string, string>> | ((option: string, opts: Record<string, any>) => true | Record<string, string> | undefined)
   /** 'sample': the op samples its function params itself (default: the engine, every 128 samples); 'own': it takes functions, curves and patched values as they are and resolves them in time itself (a hosted contract processor) */
   auto?: 'sample' | 'own'
   /** Pure, monotonic per-sample transform: the engine derives min/max/clipping by probing `process` with block extremes; energy/ms/dc queries re-render. */

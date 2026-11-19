@@ -3,7 +3,7 @@
  * Linear attenuation — never boosts, only attenuates one channel.
  */
 
-import { opRange } from '../plan.js'
+import { opRange, RETURNED } from '../plan.js'
 
 const pan = (input, output, ctx) => {
   let val = ctx.value ?? 0
@@ -31,7 +31,16 @@ const pan = (input, output, ctx) => {
   for (let c = 2; c < input.length; c++) output[c].set(input[c])
   let inL = input[0], inR = input[1], outL = output[0], outR = output[1]
   if (s > 0) { outL.set(inL.subarray(0, s)); outR.set(inR.subarray(0, s)) }
-  for (let i = s; i < end; i++) {
+  let i = s
+  // the first value its function gives in the block, read once, handed to the engine to judge (plan.js RETURNED)
+  if (i < end && ctx[RETURNED]) {
+    let t = (off + i) / ctx.sampleRate, v = val(t), p = Math.max(-1, Math.min(1, v))
+    ctx[RETURNED]('value', v, t)
+    outL[i] = inL[i] * (p <= 0 ? 1 : 1 - p)
+    outR[i] = inR[i] * (p >= 0 ? 1 : 1 + p)
+    i++
+  }
+  for (; i < end; i++) {
     let p = Math.max(-1, Math.min(1, val((off + i) / ctx.sampleRate)))
     outL[i] = inL[i] * (p <= 0 ? 1 : 1 - p)
     outR[i] = inR[i] * (p >= 0 ? 1 : 1 + p)
@@ -40,4 +49,5 @@ const pan = (input, output, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('pan', { params: ['value'], ranged: true, auto: 'sample', process: pan })
+// a value past ±1 is ±1 (clamped), ±Infinity too: hard right or left
+audio.op('pan', { params: ['value'], nonfinite: { value: { Infinity: 'hard right, as 1', '-Infinity': 'hard left, as -1' } }, ranged: true, auto: 'sample', process: pan })

@@ -1,4 +1,4 @@
-import { subSeg, sliceSegs, planOffset } from '../plan.js'
+import { subSeg, sliceSegs, planOffset, refuse } from '../plan.js'
 
 function repeatSegs(segs, times, total, off, dur) {
   if (off == null) {
@@ -24,10 +24,17 @@ function repeatSegs(segs, times, total, off, dur) {
   return r
 }
 
+// The segments a plan holds: each a few hundred bytes, so a count's plan, not its length, is what memory cannot hold
+// (10^9 segments of one: no heap holds them); 2^24 of them plan in seconds
+const SEGMENTS = 2 ** 24
+
 const repeatPlan = (segs, ctx) => {
-  let { total, length } = ctx
+  let { total, length } = ctx, times = ctx.times ?? 1
   let off = ctx.offset != null ? planOffset(ctx.offset, total) : null
-  return repeatSegs(segs, ctx.times ?? 1, total, off, length)
+  // what it makes, counted before it is made: every segment times + 1 times, or the range's `times` more
+  let made = off == null ? (times + 1) * segs.length : segs.length + 2 + times * sliceSegs(segs, off, length ?? total - off).length
+  if (!(made <= SEGMENTS)) throw refuse('repeat', 'times', `is a value that keeps the plan within ${SEGMENTS} segments`, ctx.times)
+  return repeatSegs(segs, times, total, off, length)
 }
 
 import audio from '../core.js'

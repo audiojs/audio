@@ -50,4 +50,4 @@ const shrinkResolve = (ctx) => {
 }
 
 // Like trim: an automatic threshold waits for the whole input, a given one streams
-audio.op('shrink', { params: ['gap', 'threshold', 'crossfade'], process: shrink, resolve: shrinkResolve, holdback: (o, sr, total) => o.threshold == null ? total : 0 })
+audio.op('shrink', { params: ['gap', 'threshold', 'crossfade'], nonfinite: { threshold: { '-Infinity': 'digital silence alone a pause' } }, process: shrink, resolve: shrinkResolve, holdback: (o, sr, total) => o.threshold == null ? total : 0 })

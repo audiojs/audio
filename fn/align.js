@@ -216,4 +216,4 @@ function expand(ctx) {
   return edits.length ? edits : false
 }
 
-audio.op('align', { params: ['source'], prepare, expand })
+audio.op('align', { params: ['source'], nonfinite: { source: true, within: { Infinity: 'no bound on the lag' }, span: { Infinity: 'both read whole' } }, prepare, expand })

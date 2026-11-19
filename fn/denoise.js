@@ -193,6 +193,7 @@ function denoise(input, output, ctx) {
 
 audio.op('denoise', {
   params: ['reduction', 'threshold'],
+  nonfinite: { reduction: { Infinity: 'the noise taken whole' } },
   ranged: true,
   latency: (o, sr) => frame(sr) - 1,
   warmup: (o, sr) => 4 * frame(sr),

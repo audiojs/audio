@@ -19,4 +19,4 @@ const mix = (input, output, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('mix', { params: ['source', 'at', 'gain'], ranged: true, process: mix })
+audio.op('mix', { params: ['source', 'at', 'gain'], nonfinite: { source: true, gain: { '-Infinity': 'the source not heard' } }, ranged: true, process: mix })

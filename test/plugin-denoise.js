@@ -509,6 +509,8 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 		ok(Math.abs(speech) < 1.5, `speech ${speech.toFixed(2)} dB from the clean take`)
 		let [none] = await audio.from([input], { sampleRate: SR }).deepfilter({ limit: 0, music: 'enhance' }).read()
 		is(maxDiff(none, y), 0, 'limit 0: the package unlimited')
+		let [inf] = await audio.from([input], { sampleRate: SR }).deepfilter({ limit: Infinity, music: 'enhance' }).read()
+		is(maxDiff(inf, y), 0, 'limit Infinity: the same, no limit')
 		// kept by the model and its input in a host's store (core.js memo), never by the limit: another instance at another
 		// limit reads the run back, the limit applied after it
 		let kept = new Map()
@@ -666,6 +668,8 @@ test('denoise: the noise learned from its range goes down by the reduction, the 
 		ok(Math.abs(speech) < 1, `reduction ${red}: speech ${speech.toFixed(2)} dB from the clean take`)
 		ok(segSnr(clean, y) > segSnr(clean, dirty) + 3, `reduction ${red}: segSNR ${segSnr(clean, dirty).toFixed(1)} → ${segSnr(clean, y).toFixed(1)} dB`)
 	}
+	let [all] = await audio.from([dirty], { sampleRate: SR }).denoise(Infinity, { noise: PAUSE }).read()
+	ok(rest(all) === -Infinity && all.every(Number.isFinite), 'reduction Infinity: the noise taken whole, the pause digital silence')
 	let [z] = await audio.from([dirty], { sampleRate: SR }).denoise(0, { noise: PAUSE }).read()
 	ok(maxDiff(z, dirty) < 1e-6, 'reduction 0: the input as it is')
 	// learned where the voice speaks, the "noise" is the voice: what is quieter than its average goes with it

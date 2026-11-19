@@ -13,7 +13,11 @@ export { render, wholeOf } from './plan.js'
 export { keysOf, recall, keep, onto, prefix, rootOf, idOf } from './checkpoint.js'
 
 import audio, { LOAD, loadOps, positional, blame, keeping } from './core.js'
-import { opMethods, widening } from './plan.js'
+import { opMethods, widening, builtin } from './plan.js'
+
+// The package's ops, registered by the modules imported below (an import runs before this line): their edits' values
+// are judged at the call (plan.js judge); an op registered later, the user's or a registry processor, is none of them
+for (let d of Object.values(audio.op())) builtin.add(d)
 
 // ── Plugin registry: name → package, loaded by dynamic import on first use (autowired:
 // a.compressor() works without audio.use; the atom loads at the first render).

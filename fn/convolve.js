@@ -60,6 +60,8 @@ audio.op('_convolve', {
 
 audio.op('convolve', {
   params: ['ir', 'mix'], prepare,
+  // the impulse response: samples, or a sound or a file, not read at the call
+  nonfinite: { ir: true },
   // its convolver: @audio/reverb, an optional package
   load: () => import('@audio/reverb/convolution').catch(e => { throw new Error(`convolve: install @audio/reverb (${e.message})`) }),
   // the convolver, the mix blended by the engine; its decay as a pad (as a plugin's tail): the edit stays one

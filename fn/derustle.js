@@ -35,6 +35,7 @@ function check(o) {
 
 audio.op('derustle', {
   params: ['reduction'],
+  nonfinite: { reduction: { Infinity: "the rustle taken whole, and the room's tone, as ambience: false" } },
   ...enhancer('derustle', check, (x, y, o, sampleRate, { mixback }) => {
     if (!(o.ambience ?? true)) return y
     if (!mixback) throw new Error('derustle: needs @audio/neural-denoise 0.5 or later (its mixback())')
