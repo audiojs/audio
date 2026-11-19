@@ -730,6 +730,52 @@ test('auto: without @audio/neural-denoise, chain\'s own denoiser: the take as ch
 	}
 })
 
+// Asking for the plan (the chain stat) loads no model and runs none: the package's load, its model run and its music
+// guard are not called, nothing is fetched, the neural stage named with a note that the render decides. Offline (the
+// neural cache an empty folder, fetch one that records each request and refuses it) the render asks for the model and,
+// refused, takes chain's own denoiser in the stage's place, its recipe's notes saying why: the take as without the
+// package, never an error, nothing written into the cache
+;(neural ? test : test.skip)('auto: the plan loads no model; offline the render takes chain\'s own denoiser, its notes saying so', NEURAL_RUN, async () => {
+	await audio.use('auto')   // the chain stat, which its module registers
+	let { render } = await import('../fn/auto.js'), { dirty } = take(5), { mkdtempSync, readdirSync, rmSync } = await import('node:fs')
+	let dir = mkdtempSync(path.join(os.tmpdir(), 'audio-neural-')), env = process.env.AUDIO_NEURAL_CACHE, fetched = globalThis.fetch, asked = [], called = []
+	process.env.AUDIO_NEURAL_CACHE = dir
+	globalThis.fetch = async url => { asked.push(String(url)); throw new TypeError('fetch failed: offline') }
+	try {
+		// chain's plan with a note of its own, which the stage's note follows
+		let own = "chain's note", noting = m => ({ ...m, plan: (...a) => { let r = m.plan(...a); return { ...r, notes: [...r.notes ?? [], own] } } })
+		await withImport((spec, orig) => spec === '@audio/neural-denoise' ? orig(spec).then(m => ({ ...m, ...Object.fromEntries(['load', 'default', 'guard', 'mixback'].map(k => [k, (...a) => (called.push(k), m[k](...a))])) }))
+			: spec === audio.plugins.auto ? orig(spec).then(noting) : orig(spec), async () => {
+			let plan = await audio.from([dirty], { sampleRate: SR }).stat('chain')
+			is(plan.stages.find(s => s.name === 'denoise')?.atom, '@audio/neural-denoise', 'the plan names the neural stage')
+			is([asked, called], [[], []], 'asking for the plan: nothing fetched, the package\'s load, run, guard and mix not called')
+			ok(plan.notes?.[0] === own && /^DeepFilterNet3 and its music guard hear the take as auto\(\) renders it/.test(plan.notes[1]) && plan.notes.length === 2, `the plan's own note, then the stage's: ${plan.notes}`)
+			let [y] = await audio.from([dirty], { sampleRate: SR }).auto().read(), r = await render([dirty], { sampleRate: SR, type: 'speech' })
+			ok(asked.length > 0 && called.includes('load'), `the render asks for the model: ${asked.length} request(s), each refused`)
+			is(r.recipe.stages.find(s => s.name === 'denoise').atom, '@audio/denoise-omlsa', "offline: chain's own denoiser in the stage's place")
+			ok(r.recipe.notes?.[0] === own && /^DeepFilterNet3 did not load \(.*\): chain's own denoiser takes the bed/.test(r.recipe.notes[1]) && r.recipe.notes.length === 2, `the plan's own note, then why: ${r.recipe.notes}`)
+			let c = await classical(() => render([dirty], { sampleRate: SR, type: 'speech' }))
+			is([maxDiff(y, c.channels[0]), maxDiff(r.channels[0], c.channels[0])], [0, 0], 'the take as without the package, sample for sample')
+		})
+		is(readdirSync(dir), [], 'nothing written into the cache')
+	} finally {
+		globalThis.fetch = fetched
+		if (env === undefined) delete process.env.AUDIO_NEURAL_CACHE; else process.env.AUDIO_NEURAL_CACHE = env
+		rmSync(dir, { recursive: true, force: true })
+	}
+})
+
+// The plan asked for first, in a process of its own (a module once loaded stays loaded): a.stat('chain') loads the
+// manifest that hosts it, as a registry stat loads inside a.stat(name)
+test('auto: a.stat(\'chain\') asked first in a process: the plan, its module loaded by the stat\'s name', async () => {
+	let { execFileSync } = await import('node:child_process')
+	let script = `import audio from './audio.js'; globalThis.fetch = async () => { throw new TypeError('offline') }
+		let p = await audio.from([Float32Array.from({ length: 48000 }, (_, i) => 0.1 * Math.sin(i / 7))], { sampleRate: 48000 }).stat('chain')
+		console.log(JSON.stringify(p.stages.map(s => s.name))); process.exit(0)`
+	let out = execFileSync(process.execPath, ['--input-type=module', '-e', script], { cwd: new URL('..', import.meta.url), encoding: 'utf8' }).trim()
+	ok(JSON.parse(out).includes('hpf'), `the plan: ${out}`)
+})
+
 // the guard hears lena (a film's voice over its score) under white noise 10 dB down as music, all of it: the model would
 // leave the take as it came (SI-SDR 10.0 dB, as in; chain's own 17.5)
 ;(HAS_DFN ? test : test.skip)('auto: a take the model passes as music keeps chain\'s own denoiser, the recipe saying so', NEURAL_RUN, async () => {

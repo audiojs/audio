@@ -184,6 +184,8 @@ const OPS = {
 
 // ── Stat plugins ({ stat, compute }, registered as a.stat(name)) ──────────
 const STATS = {
+  // auto()'s plan alone: analyze and plan, nothing rendered (the manifest that hosts auto)
+  chain: '@audio/chain/audio',
   truepeak: '@audio/loudness/truepeak/audio',
   lra: '@audio/loudness/lra/audio',
   replaygain: '@audio/loudness/replaygain/audio',

@@ -15,13 +15,14 @@
  * bed goes with the noise. Music and voice-music keep chain's own denoiser (the model takes a music bed under a voice for
  * noise), and so does a take the model passes as music in its larger part, its guard leaving it as it came (the plan
  * made again on that share, saying so): lena, a film's voice over its score, under white noise 10 dB down, all of it
- * (SI-SDR 10.0 dB, as in; OM-LSA 17.5). A model that won't load is an error, as deepfilter()'s; without the package,
- * OM-LSA. The take is rendered whole ahead of rendering (deepfilter()'s way: a live stream waits for its end), and its
- * recipe, chain's code() included, names the denoiser that ran.
+ * (SI-SDR 10.0 dB, as in; OM-LSA 17.5). A model that won't load (not in the neural cache, no network) gives way to
+ * OM-LSA, the recipe's notes saying so, as without the package: auto() renders offline. Asking for the plan alone (the
+ * chain stat) loads and runs no model. The take is rendered whole ahead of rendering (deepfilter()'s way: a live stream
+ * waits for its end), and its recipe, chain's code() included, names the denoiser that ran.
  */
 import audio, { emit } from '../core.js'
 import { prepared, playback } from '../plan.js'
-import { removal, denoiser, NEURAL } from './deepfilter.js'
+import { removal, denoiser, NEURAL, Unloaded } from './deepfilter.js'
 import { declipped } from './declip.js'
 
 export { NEURAL }
@@ -34,8 +35,10 @@ const RENDERED = Symbol('auto.rendered'), neural = () => denoiser('auto', true).
  * loads (`nn`, its exports) and the plan puts the neural stage at `at`, the take is run there by `run` (stages, channels)
  * → channels (the stages before it: their output x) and DeepFilterNet3's whole removal y of x is made (deepfilter()'s,
  * kept as it keeps it); where its guard passed most of x as music (y is x there, sample for sample) the plan is made
- * again with that share, and puts chain's own denoiser there. `chain`: its exports. `say(names)`: each part as it
- * starts, by the stages it runs ('analysis' first).
+ * again with that share, and puts chain's own denoiser there; where the model does not load (not in the neural cache,
+ * no network), chain's own denoiser is there too, the recipe's `notes` saying why. With no `run` (the plan asked for
+ * alone: the chain stat) nothing runs and no model loads: the plan names the stage, its notes what the render decides.
+ * `chain`: its exports. `say(names)`: each part as it starts, by the stages it runs ('analysis' first).
  */
 export async function planned(chain, nn, channels, fs, opts, run, say = () => {}) {
   say(['analysis'])
@@ -43,15 +46,23 @@ export async function planned(chain, nn, channels, fs, opts, run, say = () => {}
   let at = recipe.stages.findIndex(s => s.atom === NEURAL), x = null, y = null
   if (at >= 0 && nn.refused) throw nn.refused
   if (at < 0) return { analysis, recipe, at, x, y }
+  if (!run) return { analysis, recipe: noted(recipe, UNHEARD), at, x, y }
   if (at) say(names(recipe.stages.slice(0, at)))
   x = await run(recipe.stages.slice(0, at), channels)
   say(['denoise'])
-  y = await removal(nn, x, fs).catch(e => { throw new Error(`auto: ${e.message}`) })
+  y = await removal(nn, x, fs).catch(e => { if (e instanceof Unloaded) return e; throw new Error(`auto: ${e.message}`) })
+  if (y instanceof Unloaded) return { analysis, recipe: noted(chain.plan(analysis, { ...opts, neural: false }), unloaded(y)), at, x, y: null }
   let same = 0, n = 0
   for (let c = 0; c < x.length; c++) for (let i = 0; i < x[c].length; i++, n++) if (x[c][i] === y[c][i]) same++
   if (same > n / 2) recipe = chain.plan(analysis, { ...opts, neural: { music: same / n } })
   return { analysis, recipe, at, x, y }
 }
+
+// what a plan made without the model says of its neural stage, and what the render's says where the model would not load
+const UNHEARD = "DeepFilterNet3 and its music guard hear the take as auto() renders it: where the guard passes most of it as music, or the model does not load, chain's own denoiser takes the bed"
+const unloaded = e => `DeepFilterNet3 did not load (${(e.cause ?? e).message}): chain's own denoiser takes the bed, until the model is in the neural cache or a network is there to fetch it`
+// a recipe with a note of auto()'s after those its plan carries
+const noted = (recipe, note) => ({ ...recipe, notes: [...recipe.notes ?? [], note] })
 
 /** The neural denoise stage on x, the model's whole removal y of it mixed back by the package's mixback() at the stage's
  *  limit and floor. */
@@ -99,10 +110,10 @@ const prepare = specs => {
     (await render(pcm, { sampleRate, ...await opts(o) }, stages => emit(a, 'doing', { op: 'auto', stages }))).channels)
 }
 
-// the manifest's op, rendered here; its recipe stat, planned as auto() plans it (the model run where the plan puts it, the
-// stages before it too: its guard's verdict is the plan's evidence)
+// the manifest's op, rendered here; its recipe stat, planned as auto() plans it before anything runs: no model loaded, the
+// guard's verdict and the model's loading the render's to hear (its notes say so)
 audio.hosted.auto = ({ whole, ...op }) => ({ ...op, prepare: prepare(op.plugin.params), process: playback('auto', RENDERED) })
 audio.hosted.chain = stat => ({ ...stat, compute: async (channels, { sampleRate: fs, ...o }) => {
   let [chain, nn] = await Promise.all([audio.import(audio.plugins.auto), neural()])
-  return (await planned(chain, nn, channels, fs, o, (stages, c) => applied(chain, c, { stages }, fs))).recipe
+  return (await planned(chain, nn, channels, fs, o)).recipe
 } })

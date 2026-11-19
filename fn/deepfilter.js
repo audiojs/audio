@@ -130,12 +130,16 @@ export async function roomless(pcm, y, sampleRate) {
 export function removal(neural, pcm, sampleRate, { music = 'pass', weights, device } = {}) {
   return memo(`deepfilternet3:-20dBFS,voice,edge,music-${music}:${weights ?? ''}:${sampleRate}:${fingerprint(pcm)}`, async () => {
     let model = await neural.load('deepfilternet3', { weights, device }).catch(e => {
-      throw new Error(`can't load DeepFilterNet3 from ${weights ?? neural.MODEL} (${e.message}); it downloads once (8 MB) and is cached; { weights } takes another URL`)
+      throw new Unloaded(`can't load DeepFilterNet3 from ${weights ?? neural.MODEL} (${e.message}); it downloads once (8 MB) and is cached; { weights } takes another URL`, { cause: e })
     })
     try { return await neural.default(pcm, { sampleRate, model, limit: Infinity, music }) }
     finally { model.free() }
   })
 }
+
+/** DeepFilterNet3 that would not load: not in the neural cache and no network, or a URL that serves none (auto() plans
+ *  without it) */
+export class Unloaded extends Error {}
 
 
 /**
