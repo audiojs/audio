@@ -392,12 +392,12 @@ export const texts = {
     cutoff: 'Where the band stops, in Hz: above it the voice\'s harmonics and breath are rebuilt where the take lacks them. Left out, the edge is found where the spectrum falls off a cliff; a take with none gets nothing.'
   },
   deepfilter: {
-    limit: 'The most the noise is turned down, in dB. Past 18 the voice itself starts to sound filtered, like a call. 0 lifts the limit: the model\'s full cleaning, and pauses can fall to digital silence.',
+    limit: 'The most the noise is turned down, in dB. Past 18 the voice itself starts to sound filtered, like a call. At 0 nothing is taken under the voice; Infinity, written in the code, lifts the limit: the model\'s full cleaning, and pauses can fall to digital silence.',
     music: 'pass leaves music as it is, songs included, and cleans only speech and noise. enhance cleans everything, which takes music down and dulls it.',
     floor: 'Noise the limit would leave closer than this to the voice, in dB, is taken down to this far under it; quieter noise keeps the limit, so the room stays. 0 keeps the limit alone.'
   },
   rnnoise: {
-    limit: 'The most the noise is turned down, in dB. A limit keeps the model from damaging the voice. 0 lifts the limit.',
+    limit: 'The most the noise is turned down, in dB. A limit keeps the model from damaging the voice. At 0 nothing is taken.',
     music: 'pass leaves music as it is, songs included, and cleans only speech and noise. It decides as it plays: music is cleaned for its first second or so. enhance cleans everything.'
   },
   wiener: {
