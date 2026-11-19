@@ -36,13 +36,13 @@ const names = process.argv.slice(2).map(a => a.replace(/^(test\/)?(.*?)(\.js)?$/
 const queue = names.length ? names : SUITES
 const strip = s => s.replace(/\x1b\[[0-9;]*m/g, '')
 
+// test/one.js starts a file when it has registered every test, and skips an optional one whose package is missing
+const one = fileURLToPath(new URL('./one.js', import.meta.url))
+
 function exec(name) {
-  let url = new URL(`./${name}.js`, import.meta.url).href, t0 = performance.now(), out = []
-  let args = optional(name)
-    ? ['--input-type=module', '-e', `import(${JSON.stringify(url)}).catch(e => { if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; console.warn('skip ${name}: ' + (e.message.split("'")[1] || '') + ' missing') })`]
-    : [fileURLToPath(url)]
+  let t0 = performance.now(), out = []
   return new Promise(done => {
-    let p = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let p = spawn(process.execPath, [one, name, ...optional(name) ? ['--optional'] : []], { stdio: ['ignore', 'pipe', 'pipe'] })
     p.stdout.on('data', d => out.push(d)); p.stderr.on('data', d => out.push(d))
     p.on('close', (code, signal) => {
       let text = Buffer.concat(out).toString(), plain = strip(text), n = k => +(plain.match(new RegExp(`^# ${k} (\\d+)`, 'm'))?.[1] ?? 0)

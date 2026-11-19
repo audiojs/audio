@@ -154,3 +154,30 @@ test('fix package.json – a publish needs CI\'s tests passed for the commit, an
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
+// tst starts a file once its count of tests has stood for 10 ms: a top-level await after the first test loses the rest,
+// the file still passing. test/one.js starts the file when it has evaluated, so nothing may start one without it
+test('fix package.json – a test file runs every test it registers: each script starts it through test/one.js or test/run.js', async () => {
+  let { execFileSync } = await import('child_process'), dir = new URL('.', import.meta.url)
+  let out = execFileSync(process.execPath, ['test/one.js', 'late'], { cwd: new URL('..', import.meta.url), encoding: 'utf8' })
+  is(out.replace(/\x1b\[[0-9;]*m/g, '').match(/^# total (\d+)/m)?.[1], '2', 'a test registered after a 300 ms top-level await runs')
+  let code = 0
+  try { execFileSync(process.execPath, ['test/one.js', 'late'], { cwd: new URL('..', import.meta.url), stdio: 'ignore', env: { ...process.env, LATE_FAIL: '1' } }) } catch (e) { code = e.status }
+  is(code, 1, 'a file whose test fails exits 1')
+  code = 0
+  try { execFileSync(process.execPath, ['test/one.js', 'late', '--optional'], { cwd: new URL('..', import.meta.url), stdio: 'ignore', env: { ...process.env, LATE_THROW: '1' } }) } catch (e) { code = e.status }
+  ok(code !== 0, `an optional file that throws as it evaluates fails the run (exit ${code}), not skipped`)
+  code = 0
+  try { execFileSync(process.execPath, ['test/one.js', 'late'], { cwd: new URL('..', import.meta.url), stdio: 'ignore', env: { ...process.env, LATE_THROW: '1' } }) } catch (e) { code = e.status }
+  ok(code !== 0, `a file that throws as it evaluates fails the run (exit ${code})`)
+  code = 0
+  try { execFileSync(process.execPath, ['test/one.js', 'no-such-file', '--optional'], { cwd: new URL('..', import.meta.url), stdio: 'ignore' }) } catch (e) { code = e.status }
+  ok(code !== 0, `a test file that is not there fails the run, optional or not (exit ${code}), not skipped as a missing package`)
+  let tst = readdirSync(dir).filter(f => f.endsWith('.js') && f !== 'one.js' && /^import .* from 'tst'/m.test(readFileSync(new URL(f, dir), 'utf8')))
+  ok(tst.includes('cli.js') && tst.includes('late.js'), 'the files that register tests with tst are found')
+  // the scripts, CI's workflows and the browser suites' commands: node and any flags or paths before the file
+  let wf = new URL('../.github/workflows/', import.meta.url), runs = [...Object.entries(pkg.scripts),
+    ...readdirSync(wf).map(f => [f, readFileSync(new URL(f, wf), 'utf8')]), ['test/scope.js', readFileSync(new URL('scope.js', dir), 'utf8')]]
+  for (let [k, s] of runs) for (let [, f] of s.matchAll(/\bnode\b[^&|;\n]*?\btest\/([\w.-]+\.js)/g))
+    ok(!tst.includes(f), `${k} starts test/${f} with node itself`)
+  ok(/\bone\b/.test(readFileSync(new URL('run.js', dir), 'utf8').match(/spawn\(process\.execPath, \[([^\]]*)/)?.[1] ?? ''), 'test/run.js starts each file through it')
+})

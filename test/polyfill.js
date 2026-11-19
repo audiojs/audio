@@ -1,7 +1,7 @@
 // audio/polyfill against the real thing: one scenario runs on Chromium's own HTMLAudioElement (Playwright) and on the
 // polyfill in Node, and what each observes (events in order, properties, errors, promises) must be the same. Where they
 // part, the browser is right: a difference is a defect of the polyfill, or of the engine under it.
-//   node test/polyfill.js
+//   npm run test:polyfill
 import test from 'tst'
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
