@@ -193,18 +193,24 @@ test('channels asked before a registry op is loaded: the width read, from the re
   } finally { audio.import = original; delete audio.plugins.wideprobe; delete audio.fn.wideprobe }
 })
 
-// A registry op that can change the width (audio.js names them, each with the widths it keeps): until it loads, a width
-// it would change cannot be known, so asking is an error, as the length is, naming each such op and the call that makes
-// it known; a width it keeps, an op that keeps every width, one on chosen channels (in place) and a remix to a count
-// after it answer with the width they leave, and edits after it still plan
-test('channels asked before a registry op that can change the width has loaded: an error naming it and the call', async () => {
-  let names = ['surround', 'panner', 'widener', 'tremolo'], held = names.flatMap(n => [n, '_' + n]).map(n => [n, audio.op(n)])
+// A registry op that can change the width (audio.js names them, each with the width it makes of a width given): asked
+// before it has loaded, the width is the one it will make; where a layout option picks it, no width is known, so asking
+// is an error, as the length is, naming each such op and the call that makes it known. An op that keeps every width,
+// one on chosen channels (in place) and a remix to a count after it answer with the width they leave, and edits after
+// it still plan
+test('channels asked before a registry op that can change the width has loaded: the width it makes, or an error naming it and the call', async () => {
+  let names = ['surround', 'panner', 'widener', 'tremolo', 'ambisonic-panner', 'ambisonic-decoder'], held = names.flatMap(n => [n, '_' + n]).map(n => [n, audio.op(n)])
   let unload = () => { for (let [n] of held) delete audio.op()[n] }, said = a => { try { return a.channels } catch (e) { return e.message } }
   unload()
   try {
     let mono = () => audio.from([tone(440, 0.1)], { sampleRate: SR }), stereo = () => audio.from([tone(440, 0.1), tone(440, 0.1)], { sampleRate: SR })
-    is(said(mono().surround()), "surround: can change the channel count, and is not loaded until the first read (await audio.use('surround') to know it before)", 'the op named, and the call')
-    is(said(mono().widener().surround()), "widener, surround: can change the channel count, and are not loaded until the first read (await audio.use('widener', 'surround') to know it before)", 'each such op named, and the call that loads them all')
+    is(said(mono().surround()), 6, 'a count of its own: that count')
+    is(said(mono().widener()), 2, 'a stereo processor on a mono sound: two')
+    is(said(mono().widener().surround()), 6, 'one after another: the last one\'s')
+    is(said(mono().surround().widener()), 6, 'a stereo processor after six channels: six kept')
+    is(said(mono()['ambisonic-panner']()), "ambisonic-panner: can change the channel count, and is not loaded until the first read (await audio.use('ambisonic-panner') to know it before)", 'layouts of its own: the op named, and the call')
+    is(said(mono()['ambisonic-panner']()['ambisonic-decoder']()), "ambisonic-panner, ambisonic-decoder: can change the channel count, and are not loaded until the first read (await audio.use('ambisonic-panner', 'ambisonic-decoder') to know it before)", 'each such op named, and the call that loads them all')
+    is(said(mono()['ambisonic-panner']().surround()), 6, 'a count of its own after it: known again')
     is(mono().surround().sampleRate, SR, 'its rate as it was')
     is(said(mono().tremolo()), 1, 'an op that keeps the width: the width as it was')
     is(said(audio.from([1, 2, 3, 4].map(() => tone(440, 0.1)), { sampleRate: SR }).panner({ channel: [2, 3] })), 4, 'on chosen channels: in place, the width as it was')
@@ -216,9 +222,10 @@ test('channels asked before a registry op that can change the width has loaded: 
     is((await b.read()).length, 6, 'surround().gain(-3) before any read: planned, six channels read')
     is(b.channels, 6, 'and said')
     unload()
-    let c = mono().widener().surround()
-    await audio.use('widener', 'surround')
-    is(c.channels, 6, "await audio.use('widener', 'surround'): known with no read")
+    let c = mono().widener().surround(), d = mono()['ambisonic-panner']()
+    await audio.use('widener', 'surround', 'ambisonic-panner')
+    is(c.channels, 6, 'the ops loaded: the same answer')
+    is(d.channels, 4, "await audio.use('ambisonic-panner'): known with no read")
   } finally { for (let [n, d] of held) if (d) audio.op()[n] = d; else delete audio.op()[n] }
 })
 
@@ -729,15 +736,18 @@ test('buffers: a sound rendered at the op\'s rate, samples as they are, none und
   let err = null
   try { a()['buffer-probe']({ ir: [x, x, x] }) } catch (e) { err = e }
   ok(err?.message.includes('buffer-probe: buffer ir has 3 channels, it takes 1 or 2'), `at the call: ${err?.message}`)
-  // a sound whose width is not known at the call (an op of its own that can change it, still to load): counted where it
-  // renders, its edits loaded then
-  let held = ['widener', 'surround'].map(n => [n, audio.op(n)])
+  // a sound with an op of its own still to load: counted at the call where the width that op makes is known, and where
+  // it renders, its edits loaded then, where it is not (an op with layouts of its own)
+  let held = ['widener', 'surround', 'ambisonic-panner'].map(n => [n, audio.op(n)])
   for (let [n] of held) delete audio.op()[n]
   try {
     await a()['buffer-probe']({ ir: audio.from([x], { sampleRate: SR }).widener() }).read()
-    is(got.at(-1).length, 2, 'a mono sound through widener: 2 channels, known at the render')
-    err = await a()['buffer-probe']({ ir: audio.from([x, x], { sampleRate: SR }).surround() }).read().then(() => null, e => e)
-    ok(err?.message.includes('buffer-probe: buffer ir has 6 channels, it takes 1 or 2'), `through surround, at the render: ${err?.message}`)
+    is(got.at(-1).length, 2, 'a mono sound through widener: 2 channels')
+    err = null
+    try { a()['buffer-probe']({ ir: audio.from([x, x], { sampleRate: SR }).surround() }) } catch (e) { err = e }
+    ok(err?.message.includes('buffer-probe: buffer ir has 6 channels, it takes 1 or 2'), `through surround, at the call: ${err?.message}`)
+    err = await a()['buffer-probe']({ ir: audio.from([x], { sampleRate: SR })['ambisonic-panner']() }).read().then(() => null, e => e)
+    ok(err?.message.includes('buffer-probe: buffer ir has 4 channels, it takes 1 or 2'), `through an op whose width is not known before it loads, at the render: ${err?.message}`)
   } finally { for (let [n, d] of held) if (d) audio.op()[n] = d; else delete audio.op()[n] }
 })
 
@@ -1442,8 +1452,8 @@ test('the edit an error names dropped from a.edits, the rest renders', async () 
 
 // audio.js's list of the registry ops that can change the width, known before any load, against the registry's
 // manifests as installed: each op whose processor, as audio hosts it, makes another width of some input width (a count
-// on its output, layouts of its own) is in the list, and no other; each keeps the widths the list says, none where its
-// output declares layouts of its own (a `layouts` option picks them). The widths asked go to one past the widest any
+// on its output, layouts of its own) is in the list, and no other; each makes of every width the width the list says, 0
+// (not known) where its output declares layouts of its own (a `layouts` option picks them). The widths asked go to one past the widest any
 // manifest declares (a count, or a layout's channels), each hook with no options and with each value its params declare
 // (default, min, max, the values listed): a width that moves with them is one the list cannot say. A hook throws only
 // for an op with layouts of its own, for a width none of its layouts has
@@ -1460,8 +1470,7 @@ test("the registry ops that can change the width: audio.js's list, the manifests
       let each = Object.entries(d.plugin.params || {}).flatMap(([k, p]) => [p.default, p.min, p.max, ...(p.values ?? [])].filter(v => v !== undefined).map(v => ({ [k]: v })))
       let none = N.map(n => width(n, {}))
       for (let o of each) if (N.some((n, i) => width(n, o) !== none[i])) odd.push(`${name}: ${JSON.stringify(o)} moves a width`)
-      let kept = N.filter((n, i) => none[i] === n)
-      if (kept.length < N.length) found[name] = own ? [] : kept
+      if (N.some((n, i) => none[i] !== n)) found[name] = own ? N.map(() => 0) : none
     }
   } finally {
     for (let n in audio.op()) if (!ops.has(n)) delete audio.op()[n]
@@ -1469,5 +1478,5 @@ test("the registry ops that can change the width: audio.js's list, the manifests
   }
   is(odd, [], `widths 1 to ${N.length}: none moved by a declared value, none thrown for but where the layouts are its own`)
   is([...widening.keys()].sort(), Object.keys(found).sort(), `the list as the manifests make it: ${Object.keys(found).join(', ')}`)
-  for (let [name, kept] of Object.entries(found)) if (widening.has(name)) is(N.filter(widening.get(name)), kept, `${name}: the widths it keeps`)
+  for (let [name, made] of Object.entries(found)) if (widening.has(name)) { let w = widening.get(name); is(N.map(n => typeof w === 'function' ? w(n) : w), made, `${name}: the width it makes of each`) }
 })

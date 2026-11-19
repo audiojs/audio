@@ -350,9 +350,10 @@ export function popEdit(a) {
 
 // ── Virtual Length/Channels ─────────────────────────────────────
 
-/** The registry ops whose processors can change a sound's width, each with the widths it keeps (audio.js names them): a
- *  width one of them would change, asked before it has loaded, cannot be known, so the sound's `channels` is then an
- *  error, as its length is */
+/** The registry ops whose processors can change a sound's width, each with the width it makes: a function of the width
+ *  given, a count of its own, or 0 where none is known before it loads (audio.js names them). Asked before one has
+ *  loaded, the sound's `channels` is the width the op will make, and an error, as its length is, only where that is
+ *  not known */
 export const widening = new Map()
 
 /** Effective output format after all edits — the single home for folding the
@@ -363,8 +364,15 @@ function deriveFormat(a) {
   for (let [i, [type, o = {}]] of a.edits.entries()) try {
     let desc = ops[type]
     // an op not loaded yet (a registry plugin before the first read) is passed as keeping the format, the width too
-    // unless it would change this one (on chosen channels it runs in place): then each such op is named
-    if (!desc) { known = false; if (o.channel == null && widening.get(type)?.(ch) === false && !unknown.includes(type)) unknown.push(type); continue }
+    // unless it changes it (on chosen channels it runs in place): then the width it makes of this one, and where that
+    // is not known before it loads, the op named
+    if (!desc) {
+      known = false
+      let w = o.channel == null ? widening.get(type) : undefined
+      // a count of its own is the width whatever came before it
+      if (typeof w === 'function') ch = w(ch); else if (w) ch = w, unknown = []; else if (w === 0 && !unknown.includes(type)) unknown.push(type)
+      continue
+    }
     if (desc.sr) sr = desc.sr(sr, o) || sr
     if (desc.ch) { let { at, duration, channel, ...extra } = o; ch = widthOf(desc, ch, channel, extra) }
     // an edit that sets the width outright (a remix to a count or a list of channels) makes it known again

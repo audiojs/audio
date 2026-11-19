@@ -214,14 +214,15 @@ audio.atoms = audio.plugins  // deprecated ≤2.5 name — same object, mutation
 for (let name in OPS) opMethods(name)
 
 // The registry ops that can change a sound's width, as audio hosts their processors (core.js hostOp: a count on the
-// output, or layouts other than the input's), each with the widths it keeps: a stereo processor widens a mono sound and
-// keeps any other width; one that makes a count of its own keeps that count; one with layouts of its own, none known
-// before it loads (a `layouts` option picks). Asked before one of them has loaded, a width it would change is an error
-// naming it (plan.js deriveFormat). test/plugin-ops.js holds the list to the manifests installed
+// output, or layouts other than the input's), each with the width it makes: a stereo processor, of the width it is
+// given (two channels of a mono sound, any other width kept); one of a count of its own, that count; one with layouts
+// of its own, a width no one knows before it loads (a `layouts` option picks): 0. So a width asked before one of them
+// has loaded is the width it will make, and an error naming the op only where that is not known (plan.js
+// deriveFormat). test/plugin-ops.js holds the list to the manifests installed
 for (let name of ['ducker', 'debleed', 'pingpong', 'isolate', 'widener', 'haas', 'panner', 'autopan', 'midside', 'microshift',
-  'binaural']) widening.set(name, n => n > 1)
-for (let [name, k] of [['rotary', 2], ['osc', 1], ['surround', 6]]) widening.set(name, n => n === k)
-for (let name of ['ambisonic-panner', 'ambisonic-decoder']) widening.set(name, () => false)
+  'binaural']) widening.set(name, n => n > 1 ? n : 2)
+for (let [name, k] of [['rotary', 2], ['osc', 1], ['surround', 6]]) widening.set(name, k)
+for (let name of ['ambisonic-panner', 'ambisonic-decoder']) widening.set(name, 0)
 
 /** Load every registry op an instance's edits name (dynamic import), then map the
  *  positional args recorded before it loaded onto its params, and settle its options as a call to it loaded would

@@ -62,8 +62,9 @@ export interface AudioInstance {
   stats: AudioStats
   /** Sample rate in Hz */
   sampleRate: number
-  /** Effective channel count (reflects remix edits). Where a registry op still to load would change it (surround on
-   *  other than six channels, widener or panner on one), an error naming each such op (await audio.use(...names) first) */
+  /** Effective channel count (reflects remix edits). Where a registry op still to load changes it, the count that op
+   *  makes (surround: six; widener or panner on a mono sound: two); an error naming the op only where a `layouts` option
+   *  picks the count (the ambisonic ops: await audio.use(...names) first) */
   readonly channels: number
   /** Effective sample count (reflects structural edits) */
   readonly length: number
