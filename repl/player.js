@@ -212,8 +212,10 @@ export default function player({ onend = () => {} } = {}) {
       this.pause()
       await (deck ?? await load()).context().resume()
       if (mine !== auditions) return
-      const of = outs, a = (await made({ from, to, edit, ...muted && { muted } }))?.voice
-      if (mine !== auditions || of !== outs || !a) return release(a)
+      // a new output while it is made (the edit before still rendering as this one is dragged): made of that one instead
+      let of, a
+      do { release(a); of = outs; a = (await made({ from, to, edit, ...muted && { muted } }))?.voice } while (mine === auditions && of !== outs)
+      if (mine !== auditions || !a) return release(a)
       hearing = a
       a.on('ended', () => { if (hearing === a) { hearing = null; release(a) } })
       a.play()

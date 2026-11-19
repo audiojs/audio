@@ -1,7 +1,10 @@
 // The deck's worker (engine.js decks): the sounds the page holds, handed here, and what plays of them (heard.js), made
 // and rendered here as it plays into the page's deck, the engine's scripts running elsewhere, so none of them holds it
 // up. The library as playback needs it and no more: its build hands audio/worker this set, not the whole library
-// (.site-build.js), an edit heard as it is dragged (a pitch) loading its op on first use
+// (.site-build.js), an edit heard as it is dragged loading its op on first use: each the page auditions (editor.js
+// onaudition: a pitch, a voice's intonation, its formants, a gain) named here, since this set has no registry to find
+// one by (`audio.use` knows none, and a voice it cannot make is made by the engine's worker instead, behind whatever
+// script it is rendering)
 import audio from '../core.js'
 import '../plan.js'
 import '../stats.js'
@@ -13,7 +16,7 @@ import '../fn/mix.js'
 import { expose } from '../worker.js'
 import { heard } from './heard.js'
 
-const later = { pitch: () => import('../fn/pitch.js') }
+const later = { pitch: () => import('../fn/pitch.js'), intonation: () => import('../fn/intonation.js'), formant: () => import('../fn/formant.js'), gain: () => import('../fn/gain.js') }
 
 // The sounds the page handed, by key: whole, or still arriving (`count` channels, its pieces pushed as they come: what
 // plays of it plays what has come); those `keep` names stay, the rest go

@@ -1182,3 +1182,25 @@ test('editor: with tracks, a range pressed in a track\'s head plays that track a
   await page.mouse.up()
   assert.equal(await selected(), '0:02.000–0:04.000')
 })
+
+// An edit heard as it is dragged (player.js audition) while the edit before it still renders: the new output comes
+// while the audition is made of the old one, and it is made again of the new one, heard; the old one let go. Here in
+// Node, the deck's context and the engine's voices stood in for (pitch.test.js: the formants held still after their
+// drag, nothing heard while the intonation set before them still rendered)
+test('player: an audition a new output overtakes is made again of the new one, and heard', async () => {
+  globalThis.requestAnimationFrame ??= () => 0
+  const { context } = await import('../../deck.js')
+  context({ state: 'running', resume: async () => {}, audioWorklet: { addModule: async () => {} } })
+  const { default: player } = await import('../../repl/player.js')
+  const pl = player(), played = [], gone = [], pcm = () => [new Float32Array(48000)]
+  const voice = name => ({ on() {}, play() { played.push(name) }, dispose() { gone.push(name) } })
+  let answer = null
+  pl.set(pcm(), 48000, () => new Promise(r => { answer = () => r({ voice: voice('old') }) }))
+  const asked = pl.audition(0, 1, ['formant', 3])
+  while (!answer) await new Promise(r => setTimeout(r))
+  pl.set(pcm(), 48000, async () => ({ voice: voice('new') }))
+  answer()
+  await asked
+  assert.deepEqual(played, ['new'], 'heard, of the new output')
+  assert.deepEqual(gone, ['old'], 'the old one let go')
+})

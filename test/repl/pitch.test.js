@@ -226,12 +226,14 @@ test('editor: the tools set a voice\'s intonation and its formants, heard as the
   // formants: up half the plot's height, 3 semitones, as the pitch tool goes (12 (dy / lh)²)
   await page.mouse.move(...await grab([formant], 'ns-resize'))
   assert.equal(await said(), 'Formants, by cents')
+  // what the intonation's drags left in the tap let go: what is heard next is the formants'
+  await heard()
   await page.mouse.down()
   await page.mouse.move(formant[0], formant[1] - lh / 2, { steps: 6 })
   await poll(said, t => assert.match(t, /^formants \+(2st 9\dct|3st( [1-9]ct)?)$/))
-  // the formants moved are the slowest of these to make: a shared runner's two cores are not done in the 5 s the
-  // others take (CI: not heard by then)
-  await poll(heard, h => assert.ok(h.peak > .05, 'heard as it goes'), 30000)
+  // (30 s stood here, the formants taken for slow on a shared runner: they were not heard at all there, the audition
+  // made of the output before the intonation's, which came while it was made, and let go: player.js audition)
+  await poll(heard, h => assert.ok(h.peak > .05, 'heard as it goes'))
   await page.mouse.up()
   await page.waitForFunction(() => /\.formant\((2\.9\d?|3(\.0\d?)?), \{ at: 0\.5, d: 1 \}\)$/.test(scriptText()))
 })
