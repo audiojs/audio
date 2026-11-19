@@ -11,7 +11,7 @@
  * one in use.
  */
 
-import audio, { pacer } from './core.js'
+import audio, { pacer, toNumber, fromNumber } from './core.js'
 
 /** A store of sounds by key: the browser's files under `name` where there are any, else (no name, Node) memory.
  *  `audio.store({ max })`: in memory */
@@ -50,9 +50,10 @@ const bytes = v => v.pages ? v.length * v.channels * 4 : v.reduce((s, c) => s + 
 
 /** Each key a file in the folder `name`: three uint32 (its head's length, its channels' count and length), its head as
  *  JSON ({ v, sampleRate }) to a multiple of 4 bytes, each channel's samples; then its tail's length, its tail as JSON
- *  (the block stats and the meta), to 4 bytes, the bytes of the typed arrays in it. Written whole or not at all
- *  (createWritable: aside, then swapped in). `max`: bytes, or a promise of them. The storage failing, nothing is kept,
- *  nothing found. */
+ *  (the block stats and the meta), to 4 bytes, the bytes of the typed arrays in it. `v` is the tail's form: 2 writes a
+ *  number JSON cannot hold as a document does ({ $number }), 1 null in its place; a reader takes the tail of a form it
+ *  knows, the sound alone of a later one. Written whole or not at all (createWritable: aside, then swapped in). `max`:
+ *  bytes, or a promise of them. The storage failing, nothing is kept, nothing found. */
 function opfs(name, { max = Infinity } = {}) {
   let dir = navigator.storage.getDirectory().then(root => root.getDirectoryHandle(name, { create: true }))
   dir.catch(() => {})
@@ -97,7 +98,7 @@ function opfs(name, { max = Infinity } = {}) {
       try {
         let f = await (await (await dir).getFileHandle(file(key))).getFile(), h = await head(f)
         if (!h) { release(); return null }
-        let { stats = null, meta = null } = h.v === VERSION && f.size > h.end ? await tail(f, h.end) : {}
+        let { stats = null, meta = null } = h.v >= 1 && h.v <= VERSION && f.size > h.end ? await tail(f, h.end, h.v) : {}
         let PS = audio.PAGE_SIZE, { k, n, at } = h
         let pages = {
           has: async i => i * PS < n,
@@ -135,7 +136,7 @@ function opfs(name, { max = Infinity } = {}) {
   }
 }
 
-const VERSION = 1
+const VERSION = 2
 const pad = n => Math.ceil(n / 8) * 8
 const text = v => new TextEncoder().encode(JSON.stringify(v))
 
@@ -145,9 +146,9 @@ async function head(f) {
   if (!k || f.size < end) return null
   return { ...m ? JSON.parse(await f.slice(12, 12 + m).text()) : {}, k, n, at, end }
 }
-async function tail(f, end) {
+async function tail(f, end, form) {
   let [l] = new Uint32Array(await f.slice(end, end + 4).arrayBuffer())
-  return unpack(await f.slice(end + 4, end + 4 + l).text(), new Uint8Array(await f.slice(end + 4 + Math.ceil(l / 4) * 4).arrayBuffer()))
+  return unpack(await f.slice(end + 4, end + 4 + l).text(), new Uint8Array(await f.slice(end + 4 + Math.ceil(l / 4) * 4).arrayBuffer()), form)
 }
 
 /** The file written into `out`: its head, its samples where each channel's go (a page of each at a time: few writes,
@@ -188,11 +189,13 @@ async function write(out, value, meta) {
 }
 
 // A value as JSON and bytes, each typed array in it a reference to its bytes ({ $bytes: [type, length, offset] }, each
-// to a multiple of 8 bytes, from `from` on); and back
+// to a multiple of 8 bytes, from `from` on), each number JSON cannot hold { $number: '-Infinity' } (core.js toNumber); and
+// back
 const TYPED = { Float32Array, Float64Array, Int8Array, Uint8Array, Int16Array, Uint16Array, Int32Array, Uint32Array }
 function pack(value, from = 0) {
   let parts = [], size = 0
   let json = JSON.stringify(value ?? null, (k, v) => {
+    v = toNumber(v)
     if (!ArrayBuffer.isView(v) || !TYPED[v.constructor.name]) return v
     let ref = { $bytes: [v.constructor.name, v.length, from + size] }
     parts.push([size, v]); size += pad(v.byteLength)
@@ -202,8 +205,10 @@ function pack(value, from = 0) {
   for (let [o, v] of parts) data.set(new Uint8Array(v.buffer, v.byteOffset, v.byteLength), o)
   return { json, data }
 }
-function unpack(json, data) {
+// (form 1 wrote no { $number }: an object so shaped there is the meta's own)
+function unpack(json, data, form = VERSION) {
   return JSON.parse(json, (k, v) => {
+    if (form >= 2) v = fromNumber(v)
     if (!v?.$bytes) return v
     let [type, length, offset] = v.$bytes, T = TYPED[type]
     return new T(data.buffer.slice(data.byteOffset + offset, data.byteOffset + offset + length * T.BYTES_PER_ELEMENT))

@@ -437,7 +437,7 @@ test('memory: a store in the browser\'s files keeps sounds whole; two writers of
       again: whole(await again.get('sound'), n, 2, 2), keys: (await again.keys()).sort()
     }
   }, name)
-  assert.deepEqual(trip, { chs: true, shape: [3 * 1048576 + 5, 2, 48000], held: 0, read: true, stats: true, meta: ['two', [1, 2, 3], [4, 5], null], again: true, keys: ['chs', 'sound'] })
+  assert.deepEqual(trip, { chs: true, shape: [3 * 1048576 + 5, 2, 48000], held: 0, read: true, stats: true, meta: ['two', [1, 2, 3], [4, 5], -Infinity], again: true, keys: ['chs', 'sound'] })
 
   // past max: the oldest written goes, but the one a sound still reads from
   const evicted = await a.evaluate(async name => {

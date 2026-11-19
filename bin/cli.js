@@ -18,7 +18,7 @@ import { peakOf } from '../stats.js'
 import { specs } from '../fn/check.js'
 import { LOUDNESS } from '../fn/specs.js'
 import { formats as cutFormats } from '../fn/cuts.js'
-import { parseTime, TIMECODE } from '../core.js'
+import { parseTime, TIMECODE, docEdits, FORM } from '../core.js'
 import { inUnit } from '../batch.js'
 import fft from 'fourier-transform'
 
@@ -1205,8 +1205,9 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     if (opts.macro) {
       let { readFileSync } = await import('fs')
       let raw = JSON.parse(readFileSync(opts.macro, 'utf-8'))
-      let edits = Array.isArray(raw) ? raw : raw.edits || raw.ops
-      if (!Array.isArray(edits)) throw new Error('Macro file must contain an array of edits')
+      if (!Array.isArray(raw) && !Array.isArray(raw?.edits || raw?.ops)) throw new Error('Macro file must contain an array of edits')
+      // a document as toJSON writes it, or its edits (no form said: this one's): read as audio(doc) reads one (core.js docEdits)
+      let edits = docEdits(Array.isArray(raw) ? { edits: raw, schemaVersion: FORM } : { ...raw, edits: raw.edits || raw.ops })
       macroOps = edits.map(e => {
         if (!Array.isArray(e)) {
           let name = e.type || e.name || e.op

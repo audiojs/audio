@@ -222,8 +222,8 @@ export interface AudioInstance {
   flatness<C extends number | number[] = number>(opts?: { at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, number>>
   /** High-fidelity beat/tempo detection via spectral flux of the chosen channels' mean (single streaming pass). More precise than stat('bpm'). */
   detect<C extends number | number[] = number>(opts?: { at?: Time, duration?: Time, d?: Time, frameSize?: number, hopSize?: number, minBpm?: number, maxBpm?: number, delta?: number, channel?: C }): Promise<PerChannel<C, { bpm: number, confidence: number, beats: Float64Array, onsets: Float64Array }>>
-  /** Serialize to JSON */
-  toJSON(): { source: string | null, edits: EditOp[], sampleRate: number, channels: number, duration: number }
+  /** Serialize to JSON: an AudioDocument */
+  toJSON(): AudioDocument
 
   // ── Structural ops ───────────────────────────────────────────
   crop(opts?: { at?: Time, duration?: Time, d?: Time }): this
@@ -668,13 +668,18 @@ export interface OpDescriptor {
   hidden?: boolean
 }
 
-/** Serialized audio instance (from toJSON) */
+/** Serialized audio instance (from toJSON), read back by audio(doc) */
 export interface AudioDocument {
   source: string | null
+  /** As the instance holds them; a number JSON cannot hold (Infinity, -Infinity, NaN) is { $number: 'Infinity' | '-Infinity' | 'NaN' } (so an object of the user's shaped exactly so reads back as that number), a sound an edit takes the document of that sound */
   edits: EditOp[]
   sampleRate: number
-  channels: number
-  duration: number
+  /** null where it cannot be said before a read (an op still to load decides it) */
+  channels: number | null
+  /** null where it cannot be said before a read (an op still to load, an align still to find its lag) */
+  duration: number | null
+  /** The document's form: 2 writes { $number }; absent, the form audio 2.16 and earlier wrote (null for such a number). A later form than the reader's is refused at the load */
+  schemaVersion?: number
 }
 
 /** No source — returns pushable instance. Use .push() to feed PCM, .record() for mic, .stop() to finalize. */

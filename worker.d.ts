@@ -42,7 +42,8 @@ export interface WorkerFacade extends PromiseLike<WorkerFacade> {
   encode(format?: string, opts?: Record<string, unknown>): Promise<Uint8Array>
   save(target: string, opts?: Record<string, unknown>): Promise<unknown>
   detect(opts?: Record<string, unknown>): Promise<{ bpm: number, confidence: number, beats: Float64Array, onsets: Float64Array }>
-  toJSON(): Promise<{ source: string | null, edits: unknown[], sampleRate: number, channels: number, duration: number }>
+  /** The document the engine's toJSON writes, through JSON: { $number } where a number JSON cannot hold was, channels and duration null where they cannot be said before a read */
+  toJSON(): Promise<{ source: string | null, edits: unknown[], sampleRate: number, channels: number | null, duration: number | null, schemaVersion?: number }>
   undo(n?: number): Promise<unknown>
   seek(t: number): Promise<unknown>
   stop(): Promise<unknown>

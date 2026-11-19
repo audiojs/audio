@@ -3,7 +3,7 @@
  * Intercepts create/run/read/stream to track and materialize edits.
  */
 
-import audio, { readPages, copyPages, walkPages, missed, parseTime, named, fromEnd, LOAD, READ, emit, resolveChannels, pickChannels, xfade, correlation, arrived, fingerprint, hostOp, positional, blame } from './core.js'
+import audio, { readPages, copyPages, walkPages, missed, parseTime, named, fromEnd, LOAD, READ, emit, resolveChannels, pickChannels, xfade, correlation, arrived, fingerprint, hostOp, positional, blame, jsonable, FORM } from './core.js'
 import { isCurve, fixed, what } from './batch.js'
 
 let fn = audio.fn
@@ -675,7 +675,14 @@ fn.toJSON = function() {
   let left = [], edits = this.edits.filter(e => hasFunction(e[1]) ? (left.push(e[0]), false) : true)
   // a function does not serialize: the edits that hold one are left out, said once a call (a curve { t, v } is kept)
   if (left.length) console.warn(`audio: toJSON leaves out ${left.length} edit${left.length > 1 ? 's' : ''} holding a function, which does not serialize: ${[...new Set(left)].join(', ')} (automation written as a curve { t, v } is kept)`)
-  return { source: this.source, edits, sampleRate: this.sampleRate, channels: this.channels, duration: this.duration }
+  return { source: this.source, edits: jsonable(edits), sampleRate: this.sampleRate, channels: known(this, 'channels'), duration: known(this, 'duration'), schemaVersion: FORM }
+}
+
+/** What the edits make of a sound's width or length, as the document says it: null where it cannot be said before a read
+ *  (a length that a trim decides from a render through spectral, whose module loads at the first read; a width a
+ *  registry op picks; an align, whose lag is found as it prepares): the edits are the document, these its summary */
+function known(a, key) {
+  try { return a[key] } catch { return null }
 }
 
 fn.clone = function() {

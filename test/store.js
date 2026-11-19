@@ -60,6 +60,59 @@ test('store — as audio.memo: what a model makes is made once', async t => {
 })
 
 
+// A browser's file system in this process, as much of it as store.js reads and writes (a folder's files, a file's
+// slices, a writable's positioned writes, kept on close): the store's files as a page keeps them
+function files() {
+  let all = new Map(), bytes = name => all.get(name)
+  let handle = name => ({ kind: 'file',
+    async getFile() { return new File([bytes(name)], name, { lastModified: Date.now() }) },
+    async createWritable() {
+      let out = new Uint8Array(0)
+      return {
+        async write({ position, data }) {
+          let b = data instanceof Uint8Array ? data : new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+          if (position + b.length > out.length) { let o = new Uint8Array(position + b.length); o.set(out); out = o }
+          out.set(b, position)
+        },
+        async close() { all.set(name, out) }, async abort() {}
+      }
+    } })
+  let folder = { kind: 'directory',
+    async getFileHandle(name, { create } = {}) { if (!all.has(name)) { if (!create) throw new Error(`${name}: not found`); all.set(name, new Uint8Array(0)) } return handle(name) },
+    async removeEntry(name) { all.delete(name) },
+    async *[Symbol.asyncIterator]() { for (let name of [...all.keys()]) yield [name, handle(name)] } }
+  return { all, root: { getDirectoryHandle: async () => folder } }
+}
+
+// A meta's ±Infinity and NaN kept in a file as a document keeps them ({ $number }), its form said in the file's head (2):
+// a file of form 1 is read as before; one of a later form, the sound alone, its tail a form this reader does not know
+test('store – in the browser\'s files: a meta\'s ±Infinity and NaN kept; a file of a later form, or of none, its sound alone', async t => {
+  let was = Object.getOwnPropertyDescriptor(globalThis, 'navigator'), fs = files()
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { storage: { getDirectory: async () => fs.root } } })
+  try {
+    let kept = audio.store('nf'), x = [noise(3000)], meta = { peak: -Infinity, over: Infinity, gain: NaN, at: [0, -Infinity], label: 'take' }
+    await kept.set('x', x, meta)
+    let got = await kept.open('x')
+    t.ok(same(await got.sound.read(), x), 'its samples')
+    t.ok(Object.is(got.meta.peak, -Infinity) && Object.is(got.meta.over, Infinity) && Object.is(got.meta.gain, NaN) && Object.is(got.meta.at[1], -Infinity) && got.meta.label === 'take', 'its meta as kept')
+    let file = fs.all.get(encodeURIComponent('x')), head = new TextDecoder().decode(file.subarray(12, 12 + new Uint32Array(file.buffer, 0, 1)[0]))
+    t.is(JSON.parse(head).v, 2, 'the file says its form')
+    let as = v => { let f = file.slice(), h = new TextEncoder().encode(head.replace('"v":2', `"v":${v}`)); f.set(h, 12); fs.all.set(encodeURIComponent('x'), f) }
+    as(1)
+    let one = (await audio.store('nf').open('x')).meta
+    t.ok(one.label === 'take' && one.peak?.$number === '-Infinity', 'a file of form 1: its meta read, an object shaped as the tag its own')
+    as(3)
+    let later = await audio.store('nf').open('x')
+    t.ok(later.meta === null && same(await later.sound.read(), x), 'a later form: its meta not read, its sound')
+    // a head of form 0, or with none, is no form this reader knows (2.16.1 read none of them either)
+    for (let [say, to] of [['form 0', '"v":0'], ['no form', '"w":2']]) {
+      let f = file.slice(); f.set(new TextEncoder().encode(head.replace('"v":2', to)), 12); fs.all.set(encodeURIComponent('x'), f)
+      let got = await audio.store('nf').open('x')
+      t.ok(got.meta === null && same(await got.sound.read(), x), `${say}: its meta not read, its sound`)
+    }
+  } finally { was ? Object.defineProperty(globalThis, 'navigator', was) : delete globalThis.navigator }
+})
+
 // ── Checkpoints ─────────────────────────────────────────────────
 
 test('checkpoint — keys: the same settings say the same, other settings otherwise; a function or samples, nothing past them', t => {

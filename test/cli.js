@@ -1217,6 +1217,27 @@ test('CLI — macro applies edits from JSON', async t => {
   }
 })
 
+// A --macro file is a document as toJSON writes it (or its edits): read as audio(doc) reads one, -Infinity back from its
+// { $number }, a later form refused before anything is written
+test('CLI – a macro as toJSON writes it: -Infinity read back; a later form refused', { timeout: 60000 }, async t => {
+  let dir = mkdtempSync(join(tmpdir(), 'audio-macro-'))
+  try {
+    let input = join(dir, 'in.wav'), m = join(dir, 'm.json'), out = join(dir, 'out.wav')
+    writeFileSync(input, await audio.from([tone(440, 0.1, 0.5, 44100)], { sampleRate: 44100 }).encode('wav'))
+    let doc = JSON.parse(JSON.stringify((await audio(input)).gain(-Infinity)))
+    writeFileSync(m, JSON.stringify(doc))
+    await runCli([input, '--macro', m, 'save', out])
+    t.ok((await (await audio(out)).read())[0].every(v => v === 0), 'gain(-Infinity) from the document: silence')
+    writeFileSync(m, JSON.stringify(doc.edits))
+    await runCli([input, '--macro', m, 'save', out, '--force'])
+    t.ok((await (await audio(out)).read())[0].every(v => v === 0), 'its edits alone: the same')
+    rmSync(out)
+    writeFileSync(m, JSON.stringify({ ...doc, schemaVersion: 3 }))
+    await t.rejects(() => runCli([input, '--macro', m, 'save', out]), /schemaVersion 3; audio \S+ reads schemaVersion 2 and earlier/)
+    t.ok(!existsSync(out), 'nothing written')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('CLI — macro combined with inline ops', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let macroPath = join(__dirname, 'tmp-macro2.json')

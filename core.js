@@ -74,8 +74,8 @@ export default function audio(source, opts = {}) {
   // Restore from serialized document
   if (source && typeof source === 'object' && !Array.isArray(source) && source.edits) {
     if (!source.source) throw new TypeError('audio: cannot restore document without source reference')
-    let a = audio(source.source, opts)
-    if (a.run) for (let e of source.edits) a.run(e)
+    let edits = docEdits(source), a = audio(source.source, opts)
+    if (a.run) for (let e of edits) a.run(e)
     return a
   }
   // Concat from array of sources
@@ -299,6 +299,65 @@ export const blockAt = (t, sr, bs, round = Math.floor) => round(Math.round(t * s
 
 /** Full scale as PCM decodes (v/2^(bits-1)): 16-bit +32767 reads 32767/32768, so a sample this loud counts as clipped. */
 export const FULL = 32767 / 32768
+
+// ── Documents ───────────────────────────────────────────────────────────
+
+/** The form of a document (toJSON), its `schemaVersion`. JSON holds no ±Infinity or NaN: JSON.stringify writes null, read
+ *  back as no value (a saved gain(-Infinity), silence, would come back at unity gain). Form 2 writes such a number
+ *  { $number: 'Infinity' | '-Infinity' | 'NaN' }, as store.js writes a typed array { $bytes }; a document with no
+ *  schemaVersion is the form audio 2.16 and earlier wrote, null in their place. A reader refuses a later form than its
+ *  own: what it holds may mean what this reader cannot say. */
+export const FORM = 2
+
+const plain = v => v !== null && typeof v === 'object' && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null)
+const TAGS = ['Infinity', '-Infinity', 'NaN']
+
+/** A number as a document writes it, and back (a JSON replacer's step and a reviver's, store.js): ±Infinity and NaN
+ *  tagged, anything else as it is */
+export const toNumber = v => typeof v === 'number' && !Number.isFinite(v) ? { $number: String(v) } : v
+export const fromNumber = v => plain(v) && TAGS.includes(v.$number) && Object.keys(v).length === 1 ? Number(v.$number) : v
+
+/** `v` with `f` applied to each value in its arrays and plain objects, `f` first (a sound, samples, a function are
+ *  values, not walked): `v` itself where nothing changes, so nothing is made for an edit without such a value; a copy
+ *  only along what does */
+function remap(v, f) {
+  let x = f(v)
+  if (x !== v || v === null || typeof v !== 'object') return x
+  let w = null
+  // a finite number is as it is, in either direction: an array of them (a write's samples) is read, not called on
+  if (Array.isArray(v)) for (let i = 0; i < v.length; i++) {
+    let a = v[i], y = typeof a === 'number' && a - a === 0 ? a : remap(a, f)
+    if (!w && y !== a && !Object.is(y, a)) w = v.slice()
+    if (w) w[i] = y
+  }
+  else if (plain(v)) for (let k in v) {
+    let a = v[k], y = typeof a === 'number' && a - a === 0 ? a : remap(a, f)
+    if (!w && y !== a && !Object.is(y, a)) w = { ...v }
+    if (w) w[k] = y
+  }
+  return w ?? v
+}
+
+/** Edits as a document holds them: ±Infinity and NaN tagged (toJSON) */
+export const jsonable = edits => remap(edits, toNumber)
+
+/** What a document's edits run as (audio(doc), the CLI's --macro): its numbers read back (form 2: an earlier form wrote
+ *  none, so an object so shaped there is the edit's own), a sound it holds (a mix's source, written as a document of
+ *  its own, its sampleRate with it) a sound again. A later form than FORM is refused, naming both. */
+export function docEdits(doc) {
+  let n = doc.schemaVersion
+  if (n != null && !(Number.isInteger(n) && n >= 1 && n <= FORM)) throw new TypeError(`audio: the document is schemaVersion ${JSON.stringify(n)}; audio ${audio.version} reads schemaVersion ${FORM} and earlier`)
+  if (!Array.isArray(doc.edits)) return doc.edits
+  let number = n >= 2 ? fromNumber : v => v
+  return doc.edits.map(e => {
+    let name = Array.isArray(e) ? e[0] : e?.type ?? e?.name ?? e?.op
+    return remap(e, v => {
+      if (!plain(v) || !Array.isArray(v.edits) || !('source' in v) || typeof v.sampleRate !== 'number') return number(v)
+      if (!v.source) throw new TypeError(`audio: ${name}: a sound made from samples, with no source to restore it from, is not in its document (a document holds a sound by its file)`)
+      return audio(v)
+    })
+  })
+}
 
 /** Internal protocol symbols for plugin overrides. */
 export const LOAD = Symbol('load')

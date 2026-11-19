@@ -162,7 +162,7 @@ test('toJSON says which edits it leaves out, once a call, the JSON as it was', t
   try { json = JSON.parse(JSON.stringify(a)) } finally { console.warn = warn }
   t.is(said.length, 1, 'one warning for the call')
   t.ok(/3 edits/.test(said[0]) && /gain, transform/.test(said[0]), `the count and the ops: ${said[0]}`)
-  t.is(Object.keys(json), ['source', 'edits', 'sampleRate', 'channels', 'duration'], 'the same shape')
+  t.is(Object.keys(json), ['source', 'edits', 'sampleRate', 'channels', 'duration', 'schemaVersion'], 'the same shape')
   t.is(json.edits.map(e => e[0]), ['gain', 'gain'], 'the number and the curve kept')
   said = []
   console.warn = (...m) => said.push(m.join(' '))
@@ -912,4 +912,88 @@ test('whole render – on chosen channels: those alone, the others as they came'
   let [l, r] = await audio.from([x, x.slice()], { sampleRate: sr }).roomtone({ channel: 1 }).read()
   t.ok(l.every((v, i) => v === x[i]), 'channel 0 as it came, its silence kept')
   t.ok(r.every((v, i) => v === mono[i]), 'channel 1 as roomtone makes it alone')
+})
+
+// ── Documents (toJSON, audio(doc)) ───────────────────────────────────
+
+// JSON holds no ±Infinity or NaN: JSON.stringify writes null, and a saved gain(-Infinity), silence, would read back at
+// unity gain. A document writes them { $number } and says its form (schemaVersion 2); audio(doc) reads them back
+test('documents: ±Infinity and NaN written { $number }, read back by audio(doc); the form said; nothing copied without one', async t => {
+  let file = new URL('fixture.wav', import.meta.url).pathname
+  let a = (await audio(file)).gain(-Infinity), json = JSON.parse(JSON.stringify(a))
+  t.is(json.edits[0], ['gain', { value: { $number: '-Infinity' } }], 'written as { $number }')
+  t.is(json.schemaVersion, 2, 'its form')
+  let b = audio(json)
+  t.is(b.edits[0], ['gain', { value: -Infinity }], 'read back')
+  t.ok((await b.read())[0].every(v => v === 0), 'its render: silence')
+  // an op of the user's: every number of its options, at any depth, a curve's too
+  audio.op('docmine', { params: ['x'], process: (i, o) => { for (let c = 0; c < i.length; c++) o[c].set(i[c]) } })
+  try {
+    let o = { x: Infinity, y: [-Infinity, 1, NaN], z: { w: { n: NaN } }, v: { t: [0, 1], v: [0, -Infinity] } }
+    let c = (await audio(file)).run(['docmine', o]), back = audio(JSON.parse(JSON.stringify(c))).edits[0][1]
+    t.ok(Object.is(back.x, Infinity) && Object.is(back.y[0], -Infinity) && back.y[1] === 1 && Object.is(back.y[2], NaN) && Object.is(back.z.w.n, NaN) && Object.is(back.v.v[1], -Infinity), 'each as it was')
+    // in code, run() takes what it is given: an object shaped as the tag is the user's object
+    t.is((await audio(file)).run(['docmine', { x: { $number: 'Infinity' } }]).edits[0][1].x, { $number: 'Infinity' }, 'run() given the tag in code: the object itself')
+  } finally { delete audio.op().docmine; delete audio.fn.docmine }
+  let g = (await audio(file)).gain(-3).pad(0.1).gain({ value: { t: [0, 1], v: [0, -6] } })
+  t.ok(g.toJSON().edits.every((e, i) => e === g.edits[i]), 'an edit without such a value: the edit itself, nothing copied')
+  // a document of the form 2.16 and earlier wrote: no schemaVersion, null where JSON put it
+  t.is(audio({ ...json, schemaVersion: undefined, edits: [['gain', { value: null }]] }).edits[0], ['gain', { value: null }], 'the form before: null as null')
+})
+
+// A reader older than a document cannot know what its later form means: the document is refused at the load, both forms
+// named, before its source is opened
+test('documents: a form later than the reader\'s refused at the load, naming both', async t => {
+  let file = new URL('fixture.wav', import.meta.url).pathname, json = JSON.parse(JSON.stringify((await audio(file)).gain(-3)))
+  t.throws(() => audio({ ...json, schemaVersion: 3 }), /the document is schemaVersion 3; audio \S+ reads schemaVersion 2 and earlier/)
+  t.throws(() => audio({ ...json, schemaVersion: '2' }), /schemaVersion "2"/, 'a form that is not one')
+  t.is(audio({ ...json, schemaVersion: 1 }).edits, [['gain', { value: -3 }]], 'an earlier one read')
+})
+
+// The summary toJSON writes beside the edits (channels, duration) is what can be said before their ops load: a trim or
+// a normalize after spectral measures through spectral, whose module loads at the first read: the edits are written
+// whole, the length null till then (in a process of its own: an op's module, once loaded, stays loaded)
+test('documents: toJSON before an op\'s module loads: the edits whole, a length not yet known null', async t => {
+  let { execFileSync } = await import('child_process')
+  let script = `import audio from './audio.js'; let x = () => audio.from([new Float32Array(22050).fill(0.1)], { sampleRate: 44100 })
+    let a = x().spectral([200, 400], -6).normalize(-3), b = x().spectral([200, 400], -6).trim(), say = s => { let j = JSON.parse(JSON.stringify(s)); return [j.edits.map(e => e[0]), j.channels, j.duration] }
+    console.log(JSON.stringify([say(a), say(b)])); await a.read(); await b.read(); console.log(JSON.stringify([say(a), say(b)])); process.exit(0)`
+  let [before, after] = execFileSync(process.execPath, ['--input-type=module', '-e', script], { cwd: new URL('..', import.meta.url), encoding: 'utf8' }).trim().split('\n').map(l => JSON.parse(l))
+  t.is(before, [[['spectral', 'normalize'], 1, null], [['spectral', 'trim'], 1, null]], 'before the load: the edits whole, the width, the length null')
+  t.ok(after.every(([, , d]) => d > 0), `once loaded, the length: ${after.map(s => s[2])}`)
+})
+
+// A sound an edit takes (a mix's source) is written as a document of its own: read back, it is a sound again, as it
+// was; one made from samples has no source to restore it from
+test('documents: a sound in an edit read back as a sound; one made from samples refused at the load', async t => {
+  let file = new URL('fixture.wav', import.meta.url).pathname
+  let a = (await audio(file)).mix((await audio(file)).gain(-6).reverse(), 0.1), json = JSON.parse(JSON.stringify(a))
+  t.is(json.edits[0][1].source.edits, [['gain', { value: -6 }], ['reverse', {}]], 'the source written as its document')
+  let [x] = await a.read(), [y] = await audio(json).read()
+  t.ok(x.length === y.length && x.every((v, i) => v === y[i]), 'read back, the same render')
+  let p = (await audio(file)).mix(audio.from([tone(220, 0.1)], { sampleRate: 44100 }))
+  t.throws(() => audio(JSON.parse(JSON.stringify(p))), /mix: a sound made from samples/)
+})
+
+// A document of the form before wrote no tag: an object shaped as one, or with a source and edits but no sampleRate, is
+// the edit's own; in form 2, a tag with any other key beside it is an object too
+test('documents: the form before, its objects as written; a tag with another key, an object', t => {
+  let file = new URL('fixture.wav', import.meta.url).pathname
+  audio.op('docform', { params: ['x'], process: (i, o) => { for (let c = 0; c < i.length; c++) o[c].set(i[c]) } })
+  try {
+    let doc = { source: file, edits: [['docform', { x: { $number: 'NaN' }, y: { source: 'nowhere.wav', edits: [] } }]], sampleRate: 44100 }
+    t.is(audio(doc).edits[0][1], { x: { $number: 'NaN' }, y: { source: 'nowhere.wav', edits: [] } }, 'the form before: the objects as written')
+    t.ok(Number.isNaN(audio({ ...doc, schemaVersion: 2 }).edits[0][1].x), 'form 2: the tag read back')
+    t.is(audio({ ...doc, schemaVersion: 2, edits: [['docform', { x: { $number: 'NaN', other: 1 } }]] }).edits[0][1].x, { $number: 'NaN', other: 1 }, 'form 2: a tag with another key beside it, the object')
+  } finally { delete audio.op().docform; delete audio.fn.docform }
+})
+
+// The summary a document says beside its edits is what can be said before a read, whatever stops it: an align before its
+// lag is found, as spectral before its module loads; toJSON writes the edits and null there, it does not throw
+test('documents: toJSON before an align is prepared: its edits whole, its length null', async t => {
+  let x = audio.from([tone(440, 0.5)], { sampleRate: 44100 }), y = audio.from([tone(440, 0.5)], { sampleRate: 44100 })
+  let json = JSON.parse(JSON.stringify(x.align(y)))
+  t.is([json.edits[0][0], json.duration, json.channels], ['align', null, 1], 'the edit, the length null, the width')
+  await x.read()
+  t.ok(JSON.parse(JSON.stringify(x)).duration > 0, 'once read, its length')
 })
