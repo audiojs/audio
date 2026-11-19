@@ -727,11 +727,14 @@ export function hostOp(m, name) {
 
   if (!tail) return reg({ params: names, plugin: m, atom: m, latency, process, ch, chKeeps, auto: 'own' })
 
-  // Declared tail: expand into pad + hidden proc at compile time (tailed), the options the host reads handed on
-  let taken = [...new Set([...names, ...further, ...Object.keys(m.buffers || {}), 'layouts', 'notes', 'bpm', 'timeSignature', 'emitted'])]
+  // Declared tail: expand into pad + hidden proc at compile time (tailed), the options the host reads handed on, a
+  // param's former name (alias) among them
+  let aliases = names.map(n => specs[n].alias).filter(k => k != null)
+  let taken = [...new Set([...names, ...aliases, ...further, ...Object.keys(m.buffers || {}), 'layouts', 'notes', 'bpm', 'timeSignature', 'emitted'])]
   audio.op('_' + name, { params: names, hidden: true, plugin: m, atom: m, latency, process, ch, chKeeps, auto: 'own' })
+  // its latency said as the hidden op's, for what reads it off the op (the plan compensates the hidden op it renders)
   reg({
-    params: names, tail, plugin: m, atom: m, ch, chKeeps,
+    params: names, tail, plugin: m, atom: m, ch, chKeeps, latency,
     expand: (ctx) => {
       let o = {}
       for (let k of taken) if (ctx[k] !== undefined) o[k] = ctx[k]

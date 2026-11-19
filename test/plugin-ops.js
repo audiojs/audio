@@ -222,6 +222,32 @@ test('channels asked before a registry op that can change the width has loaded: 
   } finally { for (let [n, d] of held) if (d) audio.op()[n] = d; else delete audio.op()[n] }
 })
 
+// A processor that declares a tail is hosted as a pad and a hidden op that renders it (core.js hostOp): what an edit
+// gives it reaches that op, a param by its former name (its alias) too, and its op says the latency it declares, as the
+// op of one without a tail does
+test('a processor with a tail: a param by its alias reaches it, and its op says its latency', async () => {
+  let make = tail => Object.assign(() => (inputs, outputs, p) => {
+    for (let c = 0; c < outputs[0].length; c++) {
+      let inp = inputs[0][c], out = outputs[0][c], g = p.gain
+      for (let i = 0; i < out.length; i++) out[i] = inp[i] * 10 ** ((typeof g === 'number' ? g : g[g.length > 1 ? i : 0]) / 20)
+    }
+  }, { params: { gain: { type: 'number', min: -60, max: 24, default: 0, unit: 'dB', alias: 'g' } }, latency: 64, tail })
+  let names = { 'probe-tailed': 0.05, 'probe-flat': 0 }
+  for (let [n, t] of Object.entries(names)) audio.op(n, make(t))
+  try {
+    let x = tone(440, 0.1), read = async (n, o) => (await audio.from([x], { sampleRate: SR })[n](o).read())[0].subarray(0, x.length)
+    let peak = y => y.reduce((m, v) => Math.max(m, Math.abs(v)), 0)
+    for (let n in names) {
+      let byName = await read(n, { gain: -6 })
+      ok(peak(byName) < 0.6 * peak(await read(n, {})), `${n}: -6 dB taken`)
+      is(await read(n, { g: -6 }), byName, `${n}: by its alias, as by its name`)
+    }
+    is([audio.op('probe-tailed').latency, audio.op('probe-flat').latency], [64, 64], 'its latency said, with a tail as without')
+  } finally {
+    for (let n in names) { delete audio.op()[n]; delete audio.op()['_' + n]; delete audio.fn[n]; delete audio.fn[n.replace(/-(.)/g, (_, c) => c.toUpperCase())] }
+  }
+})
+
 // ── Wave B: dynamics-gate + denoise-dehum ─────────────────────────────
 
 import { gate } from '@audio/dynamics-gate/audio'
