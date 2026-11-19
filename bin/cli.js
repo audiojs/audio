@@ -28,6 +28,11 @@ import fft from 'fourier-transform'
 
 // Strict numeric literal: digits, or digits.digits, or .digits — never "1.2.3" (rejects extra dots).
 const NUM = '(?:\\d+(?:\\.\\d+)?|\\.\\d+)'
+// Infinity as a value: inf, -inf, Infinity, -Infinity, in any case (a stem muted, no limit); a word that only starts so
+// (info, infinite) stays a word
+const INF = /^-?inf(inity)?$/i
+// the params a sound is given in (mix's, insert's source, convolve's ir, a sidechain's key)
+const SOUNDS = new Set(['source', 'ir', 'key'])
 
 // A time token: bare number, number with time units (1.5s, 500ms, 1m30s), or timecode
 const TIME_TOK = new RegExp(`^-?${NUM}(ms|[smhdwy])?(${NUM}(ms|[smhdwy]))*$|^\\d+:\\d{1,2}(:\\d{1,2})?(\\.\\d+)?$`, 'i')
@@ -73,6 +78,8 @@ const QUANTITY = new RegExp(`^-?${NUM}[a-z]+(${NUM}[a-z]+)*$`, 'i')
  *  and is a value of no kind the processor takes); to any other parameter, and to every built-in, as parseValue reads
  *  it: a time in s, a frequency in Hz, a level in dB. */
 function paramValue(name, p, tok) {
+  // where a sound goes, a file: one named inf is that file (no op takes Infinity for a sound)
+  if (SOUNDS.has(p) && INF.test(tok)) return tok
   let specs = audio.op(name)?.plugin?.params, s = p == null ? null : specs?.[p] ?? Object.values(specs ?? {}).find(s => s.alias === p)
   if (s?.type === 'bool' && (tok === 'true' || tok === 'false')) return tok === 'true'
   return s?.unit && s.type === 'number' && QUANTITY.test(tok) ? inUnit(s, tok, name, p) : parseValue(tok)
@@ -91,6 +98,7 @@ function parseValue(str) {
   if (m) return Number(m[1])
   // bare number
   if (new RegExp(`^-?${NUM}$`).test(str)) return Number(str)
+  if (INF.test(str)) return str[0] === '-' ? -Infinity : Infinity
   // comma-separated channel map: 0,1 or 1,0,null
   if (/^[\d,_]+$/.test(str) && str.includes(',')) {
     return str.split(',').map(s => s === '_' ? null : Number(s))
@@ -140,6 +148,7 @@ function isFlag(s) {
   if (s === '-') return false  // stdin/stdout marker
   if (s.startsWith('--')) return true
   if (!s.startsWith('-')) return false
+  if (INF.test(s)) return false  // -inf: a value
   // negative number/duration, optionally a range: -3db, -1s, -1s.., -5s..-1s
   let match = s.match(/^-[\d.]+(db|hz|khz|s|ms)?(\.\.(-?[\d.]+(db|hz|khz|s|ms)?)?)?$/i)
   return !match
@@ -276,6 +285,18 @@ function enumParam(name, word) {
   for (let k in values) if (values[k].includes(word)) return k
 }
 
+/** What ±Infinity means to op `desc`'s options, where it means something (its `nonfinite`, plan.js): one line each, as
+ *  written on the command line (rebalance vocals:-inf  muted); none where it means nothing, refused at the call */
+function infinities(desc) {
+  let nf = desc?.nonfinite, names = [...new Set([...desc?.params ?? [], ...typeof nf === 'object' && nf ? Object.keys(nf) : nf?.options ?? []])]
+  let lines = []
+  for (let k of names.map(p => p.replace(/^\.\.\./, ''))) {
+    let ok = typeof nf === 'function' ? nf(k, {}) : nf?.[k]
+    if (ok && ok !== true) for (let [v, m] of Object.entries(ok)) lines.push(`    ${k}:${v === 'Infinity' ? 'inf' : '-inf'}  ${m}`)
+  }
+  return lines.join('\n')
+}
+
 /** Word-wrap names into indented help lines. */
 function wrapWords(words, width = 78) {
   let lines = [], line = '  '
@@ -293,6 +314,8 @@ function showOpHelp(name) {
   console.log(`\n  ${h.usage}\n\n  ${h.desc}\n`)
   let params = typeof h.params === 'function' ? h.params() : h.params
   if (params) console.log('  Params:\n' + params + '\n')
+  let inf = infinities(desc)
+  if (inf) console.log('  Infinity:\n' + inf + '\n')
   if (h.examples.length) console.log('  Examples:')
   let sinkless = ex => !/(^|\s)(save|play|stat|check|compare)(\s|$)/.test(ex)
   for (let ex of h.examples) console.log(`    ${h.kind === 'source' ? `audio ${ex}` : h.kind === 'sink' ? `audio in.wav ${ex}` : `audio in.wav ${ex}${sinkless(ex) ? ' save out.wav' : ''}`}`)
@@ -369,7 +392,8 @@ function parseArgs(args) {
         // encoder shorthands after the path: 192k = bitrate (kbps), 24bit = sample depth
         else if (name === 'save' && sinkArgs.length && (m = a.match(/^(\d+)k(?:bps)?$/i))) sinkOpts.bitrate = +m[1]
         else if (name === 'save' && sinkArgs.length && (m = a.match(/^(\d+)-?bits?$/i))) sinkOpts.bitDepth = +m[1]
-        else sinkArgs.push(parseValue(a))
+        // a sink takes a path or a name, never Infinity: a file or a stat called inf stays one
+        else sinkArgs.push(INF.test(a) ? a : parseValue(a))
       }
       if (sinkArgs.length === 0 && i < args.length && (args[i] === '--help' || args[i] === '-h')) {
         helpOp = name; i++; continue
@@ -1400,6 +1424,7 @@ Units:
   Seconds: 1.5s, 500ms, 1.5, 1:30 (default seconds)
   dB: -3db, 0, 6db
   Hz: 440hz, 2khz, band 1khz..4khz
+  Infinity: inf, -inf, Infinity, -Infinity, any case (rebalance -inf mutes the vocals; OP --help says where one means something); a file so named: ./inf
   save: 192k (bitrate kbps), 24bit (sample depth)
 
 Named options (after an op or sink): name:value
@@ -1461,7 +1486,8 @@ async function applyTransforms(a, transforms) {
     await resolveSourceArgs(op)
     let args = opCallArgs(op)
     if (op.name === 'clip') a = a.clip(...args)
-    else { try { a[op.name](...args) } catch (e) { throw new Error(`${op.name}: ${formatError(e)}`) } }
+    // the op named once: a message that names it already (a value refused at the call) is passed as it is
+    else { try { a[op.name](...args) } catch (e) { let m = formatError(e); throw new Error(m.startsWith(`${op.name}: `) ? m : `${op.name}: ${m}`) } }
   }
   return [a]
 }

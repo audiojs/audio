@@ -280,6 +280,77 @@ test('parseValue — timecode with fractional seconds', t => {
   t.is(parseValue('1:30.5'), 90.5, '1:30.5 = 90.5s')
 })
 
+// rebalance and scene mute a stem at −Infinity, normalize's ceiling is none at Infinity: digits alone cannot say it
+test('parseValue: inf, -inf, Infinity, -Infinity in any case are numbers; a word that starts so stays a word', t => {
+  for (let s of ['inf', 'Infinity', 'INF', 'iNfInItY']) {
+    t.is(parseValue(s), Infinity, s)
+    t.is(parseValue('-' + s), -Infinity, '-' + s)
+  }
+  for (let s of ['info', 'infinite', 'infs', '-info', 'inf.wav']) t.is(parseValue(s), s, `${s}: a word`)
+  // a plus sign is no spelling here, as +3 is none: +inf a word the op reads (gain refuses it as it renders, as before);
+  // +Infinity text JavaScript reads as Infinity, refused at the call
+  for (let s of ['+inf', '+Infinity', '+3']) t.is(parseValue(s), s, `${s}: a word`)
+  t.throws(() => audio.from([new Float32Array(441)], { sampleRate: 44100 }).pad(parseValue('+Infinity')), /^RangeError: pad: before is a finite number, not '\+Infinity'$|pad: before is a finite number, not '\+Infinity'/, '+Infinity to pad: refused, the text quoted')
+})
+
+test('parseArgs: rebalance -inf mutes the vocals, a value by place and by name, not a flag; a sink\'s inf a word', t => {
+  let op = a => parseArgs(['in.wav', ...a, 'save', 'o.wav']).transforms[0]
+  t.is(op(['rebalance', '-inf']).args, [-Infinity], 'rebalance -inf: the vocals at −Infinity')
+  t.is(op(['rebalance', '0', '-Infinity', '-inf', '-INF']).args, [0, -Infinity, -Infinity, -Infinity], 'the vocals alone')
+  t.is(op(['scene', '-inf']).args, [-Infinity], 'scene -inf: the dialogue')
+  t.is(op(['rebalance', '-6', 'residual:-inf']).opts, { residual: -Infinity }, 'by name')
+  t.is(op(['normalize', '-3', 'ceiling:inf']).opts, { ceiling: Infinity }, 'normalize ceiling:inf')
+  // the edit the CLI makes is the one test/rx.js renders with the vocals gone
+  let a = audio.from([new Float32Array(441)], { sampleRate: 44100 }).rebalance(...op(['rebalance', '-inf']).args)
+  t.is(a.edits[0], ['rebalance', { vocals: -Infinity }], 'the edit: the vocals at −Infinity')
+  t.throws(() => parseArgs(['in.wav', 'gain', '-3', '-info']), /Unknown flag: -info/, '-info: still a flag')
+  t.is(parseArgs(['in.wav', 'save', 'inf']).sink.args, ['inf'], 'save inf: a file named inf')
+  t.is(parseArgs(['in.wav', 'stat', 'inf']).sink.args, ['inf'], 'stat inf: a stat named inf')
+  t.is(parseArgs(['in.wav', 'mix', 'inf', '0', '-inf', 'save', 'o.wav']).transforms[0].args, ['inf', 0, -Infinity], 'mix inf 0 -inf: the file named inf, its gain -Infinity')
+  t.is(parseArgs(['in.wav', 'convolve', 'Infinity', 'save', 'o.wav']).transforms[0].args, ['Infinity'], 'convolve Infinity: a file')
+  t.is(parseArgs(['in.wav', 'ducker', 'key:inf', 'save', 'o.wav']).transforms[0].opts, { key: 'inf' }, 'key:inf: a file')
+})
+
+// OP --help says what ±Infinity means where it means something, as the command line writes it
+test('CLI: OP --help says a declared meaning of Infinity, as written there', async t => {
+  let help = async name => { let lines = [], log = console.log; console.log = (...m) => lines.push(m.join(' ')); try { showOpHelp(name) } finally { console.log = log } return lines.join('\n') }
+  t.ok((await help('gain')).includes('Infinity:\n    value:-inf  silence'), 'gain: value:-inf, silence')
+  t.ok((await help('normalize')).includes('ceiling:inf  none, as false'), 'normalize: ceiling:inf')
+  t.ok((await help('rebalance')).includes('residual:-inf  muted'), 'rebalance: its residual too')
+  t.ok((await help('plugin')).includes('tail:inf'), 'plugin: its tail, an option of its own')
+  t.ok((await help('pan')).includes('value:inf  hard right, as 1') && (await help('pan')).includes('value:-inf  hard left, as -1'), 'pan: both')
+  t.ok((await help('declick')).includes('longest:inf  no limit'), 'declick: its longest')
+  t.ok((await help('spectral')).includes('band:inf  to the top of the spectrum'), "spectral: a band's edge")
+  t.ok(!(await help('pad')).includes('Infinity:'), 'pad: none')
+})
+
+// inf is a number wherever the CLI reads one, so a file of that name is reached by a path: ./inf, as the help says.
+// A number no op can render is refused before anything is written, the op named once; -inf where it means something
+// renders it
+test('CLI: a file named inf by ./inf; pad, repeat, gain inf refused, nothing written, the op named once; gain -inf silence', { timeout: 60000 }, async t => {
+  let dir = mkdtempSync(join(tmpdir(), 'audio-inf-')), cli = (...args) => new Promise(r => {
+    let p = spawn(process.execPath, [binPath, ...args], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }), err = ''
+    p.stderr.on('data', d => err += d); p.stdout.resume(); p.on('close', code => r({ code, err }))
+  })
+  try {
+    t.is(parseArgs(['in.wav', 'mix', './inf']).transforms[0].args, ['./inf'], './inf: the path')
+    writeFileSync(join(dir, 'in.wav'), await audio.from([new Float32Array(4410)], { sampleRate: 44100 }).encode('wav'))
+    writeFileSync(join(dir, 'inf'), await audio.from([tone(440, 0.1, 0.5, 44100)], { sampleRate: 44100 }).encode('wav'))
+    let r = await cli('in.wav', 'mix', './inf', 'save', 'mixed.wav')
+    t.is(r.code, 0, r.err)
+    t.ok((await (await audio(join(dir, 'mixed.wav'))).read())[0].some(v => Math.abs(v) > 0.1), 'mix ./inf: the file named inf mixed in')
+    for (let op of [['pad', 'inf'], ['repeat', 'inf'], ['gain', 'inf'], ['pad', '1e300'], ['speed', '1e-300']]) {
+      r = await cli('in.wav', ...op, 'save', 'out.wav')
+      let said = r.err.trim().split('\n').pop()
+      // a length is refused where it is first known: at the save, before it writes
+      t.ok(r.code !== 0 && new RegExp(`^audio: (save out\\.wav: )?${op[0]}: `).test(said) && !said.includes(`${op[0]}: ${op[0]}: `) && / is a (finite number|value that keeps)/.test(said) && !existsSync(join(dir, 'out.wav')), `${op.join(' ')}: refused, the op named once, nothing written (${said})`)
+    }
+    r = await cli('inf', 'gain', '-inf', 'save', 'muted.wav')
+    t.is(r.code, 0, r.err)
+    t.ok((await (await audio(join(dir, 'muted.wav'))).read())[0].every(v => v === 0), 'gain -inf: silence')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('parseRange — timecode in range', t => {
   let range = parseRange('0..15:30')
   t.is(range.offset, 0)

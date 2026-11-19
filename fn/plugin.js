@@ -103,7 +103,7 @@ audio.op('_plugin', {
 audio.op('plugin', {
   params: ['ref'], auto: 'sample', ch: width, chKeeps: true,
   // a tail of Infinity s: endless, audio.TAIL seconds rendered; the plugin's parameters are its own, in its own units
-  nonfinite: k => k === 'tail' ? ENDLESS : k === 'params' || !OPTIONS.has(k) || undefined,
+  nonfinite: Object.assign(k => k === 'tail' ? ENDLESS : k === 'params' || !OPTIONS.has(k) || undefined, { options: ['tail'] }),
   // native plugins need @audio/host (Node); a WAM, Web Audio: either may be all there is
   load: () => audio.import('@audio/host').catch(() => null),
   prepare: (a, index) => { let o = a.edits[index][1]; if (isWam(o.ref, o.format)) return prepareWam(a, index, paramsOf(o)) },
