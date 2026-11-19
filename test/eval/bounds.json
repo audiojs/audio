@@ -180,13 +180,14 @@
    }
   },
   "cut loud: pitch hybrid/level": {
-   "value": 0.0731,
+   "value": 0.0906,
    "scatter": 0,
    "read": "2026-11-19",
    "with": {
-    "@audio/shift-hybrid": "1.1.0",
-    "audio": "2.16.1"
-   }
+    "@audio/shift-hybrid": "1.2.0",
+    "audio": "2.17.0"
+   },
+   "accepted": "shift-hybrid 1.2.0 measures its lag and trust short of the take's last 3840 frames, so a hit in a take's last 480 frames moves no blend before it; this take is cut loud inside a word, and its level reads 0.0906 dB where 1.1.0 read 0.0731"
   },
   "cut loud: pitch lpc/length": {
    "value": 0,
@@ -579,14 +580,15 @@
    "known": "read 2026-11-19: no harm fails with these packages"
   },
   "pure tone: pitch lpc/tone": {
-   "value": 41.3441,
+   "value": 49.8393,
    "scatter": 0,
    "read": "2026-11-19",
    "with": {
-    "@audio/shift-lpc": "1.1.0",
-    "audio": "2.16.1"
+    "@audio/shift-lpc": "1.2.0",
+    "audio": "2.17.0"
    },
-   "known": "read 2026-11-19: no harm fails with these packages"
+   "known": "read 2026-11-19: no harm fails with these packages",
+   "accepted": "shift-lpc 1.2.0 loses this 3 kHz tone shifted down 5 semitones as 1.1.0 did (41.34 dB), by 49.84 dB; over 640 pure tones (110 Hz to 8 kHz, 1 to 12 semitones either way, 44.1 and 48 kHz, 0.25 and 1 s, from the first sample and after silence) 1.2.0 keeps 190 within 3 dB where 1.1.0 kept 67 and loses none that 1.1.0 kept"
   },
   "pure tone: pitch ola/length": {
    "value": 0,
@@ -607,14 +609,15 @@
    }
   },
   "pure tone: pitch ola/tone": {
-   "value": 22.1048,
+   "value": 22.1235,
    "scatter": 0,
    "read": "2026-11-19",
    "with": {
-    "@audio/shift-ola": "1.1.0",
-    "audio": "2.16.1"
+    "@audio/shift-ola": "1.2.0",
+    "audio": "2.17.0"
    },
-   "known": "read 2026-11-19: no harm fails with these packages"
+   "known": "read 2026-11-19: no harm fails with these packages",
+   "accepted": "shift-ola 1.2.0 resamples the take's stretch by the take's own step, not the call's, so a host's padding moves no take (1.1.0 read this tone 22.1048 dB alone and 22.1402 dB followed by 4096 frames of silence); the tone, which OLA's grains already put 22 dB off, reads 0.0187 dB further"
   },
   "pure tone: pitch paulstretch/length": {
    "value": 0,
