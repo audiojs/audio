@@ -181,3 +181,27 @@ test('fix package.json – a test file runs every test it registers: each script
     ok(!tst.includes(f), `${k} starts test/${f} with node itself`)
   ok(/\bone\b/.test(readFileSync(new URL('run.js', dir), 'utf8').match(/spawn\(process\.execPath, \[([^\]]*)/)?.[1] ?? ''), 'test/run.js starts each file through it')
 })
+
+// An op a module of fn/ reads (audio.op('x')) or names in an edit it plans (['x', { … }]) is another module's: it imports
+// that module, as cut.js imports copy.js and remove.js. audio.js imports every module, so a miss shows only in a set
+// built from core.js, plan.js and stats.js with the modules one names: there the op is undefined at its first render.
+// Each such module is loaded alone on that base, in a process of its own.
+test('fix imports — a module of fn/ imports the modules whose ops it reads or plans', async () => {
+  let { execFileSync } = await import('child_process'), dir = new URL('../fn/', import.meta.url)
+  let href = f => JSON.stringify(new URL(f, import.meta.url).href)
+  let bare = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  let src = Object.fromEntries(readdirSync(dir).filter(f => f.endsWith('.js')).map(f => [f, bare(readFileSync(new URL(f, dir), 'utf8'))]))
+  let ops = new Set(Object.values(src).flatMap(s => [...s.matchAll(/audio\.op\(\s*'([\w-]+)'\s*,/g)].map(m => m[1])))
+  let checked = 0, missing = []
+  for (let [f, s] of Object.entries(src)) {
+    let names = [...new Set([...s.matchAll(/audio\.op\(\s*'([\w-]+)'\s*\)|\[\s*'([\w-]+)'\s*,\s*\{/g)].map(m => m[1] ?? m[2]))].filter(n => ops.has(n))
+    if (!names.length) continue
+    checked++
+    let code = `import audio from ${href('../core.js')}; await import(${href('../plan.js')}); await import(${href('../stats.js')}); await import(${href('../fn/' + f)})
+      console.log(JSON.stringify(${JSON.stringify(names)}.filter(n => !audio.op(n))))`
+    let none = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8' }).trim().split('\n').pop())
+    if (none.length) missing.push(`fn/${f}: ${none.join(', ')}`)
+  }
+  ok(checked >= 20, `modules that read or plan another's op are found (${checked})`)
+  is(missing, [], 'each has its ops defined, loaded alone on core, plan and stats')
+})

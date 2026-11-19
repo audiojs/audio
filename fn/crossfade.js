@@ -2,6 +2,7 @@ import { opRange, refLen, renderAt } from '../plan.js'
 import audio from '../core.js'
 import { CROSSFADES as CURVES } from './curves.js'
 import './pad.js'
+import './remove.js'
 
 // Curve semantics over fade progress x ∈ [0,1]:
 //   'cos'/'linear'/... (CURVES) — complementary-amplitude weights: g_out + g_in = 1.

@@ -1,4 +1,6 @@
 import audio, { blockAt } from '../core.js'
+import './crop.js'
+import './remove.js'
 import { resolveThreshold, isLoud } from '../stats.js'
 
 const shrink = (input, output, ctx) => {

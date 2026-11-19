@@ -28,6 +28,11 @@
  * waits for its end.
  */
 import audio, { arrived, fingerprint } from '../core.js'
+import './crop.js'
+import './pad.js'
+import './resample.js'
+import './speed.js'
+import './stretch.js'
 import { downmix, pow2, hann } from './dsp.js'
 import { stampOf, inputOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'

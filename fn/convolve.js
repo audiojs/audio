@@ -14,6 +14,7 @@
  */
 
 import audio, { arrived, tailed } from '../core.js'
+import './resample.js'
 import { inputOf } from '../plan.js'
 
 const IR = Symbol('convolve.ir'), RUN = Symbol('convolve.run')

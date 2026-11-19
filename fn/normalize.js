@@ -1,6 +1,7 @@
 import { dcOffsets, peakDb, rmsDb, lufsDb, lufsFromStats, printed } from './loudness.js'
 import { i0, sinc } from './dsp.js'
 import audio, { resolveChannels, blockAt } from '../core.js'
+import './gain.js'
 import { buildPlan, render, rangeOf } from '../plan.js'
 import { LOUDNESS, specOf } from './specs.js'
 

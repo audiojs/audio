@@ -8,6 +8,7 @@
  * Each span between neighbouring markers stretches by Δto / Δfrom with `stretch`'s phase-locked vocoder.
  */
 import audio from '../core.js'
+import './stretch.js'
 
 audio.op('warp', {
   params: ['markers'],

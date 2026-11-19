@@ -23,6 +23,7 @@
  * and a second either side) is encoded once, before rendering.
  */
 import audio, { arrived, parseTime } from '../core.js'
+import './resample.js'
 import { stampOf, inputOf } from '../plan.js'
 import { cfft, cifft } from 'fourier-transform'
 

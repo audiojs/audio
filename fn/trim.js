@@ -1,4 +1,5 @@
 import audio from '../core.js'
+import './crop.js'
 import { resolveThreshold, isLoud } from '../stats.js'
 
 const trim = (input, output, ctx) => {

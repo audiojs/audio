@@ -34,6 +34,7 @@
  * whole first.
  */
 import audio, { resolveChannels } from '../core.js'
+import './pitch.js'
 import { render, spanOf } from '../plan.js'
 import { contour } from './pitch-detect.js'
 import { notes as noted } from '@audio/pitch/pyin'
