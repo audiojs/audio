@@ -80,12 +80,30 @@
     "audio": "2.16.1"
    }
   },
+  "cut loud: pitch auto/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift": "1.2.0",
+    "audio": "2.16.1"
+   }
+  },
   "cut loud: pitch auto/level": {
    "value": 0.1211,
    "scatter": 0,
    "read": "2026-11-19",
    "with": {
     "@audio/shift": "1.2.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch delay/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-delay": "1.1.0",
     "audio": "2.16.1"
    }
   },
@@ -98,12 +116,30 @@
     "audio": "2.16.1"
    }
   },
+  "cut loud: pitch formant/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-formant": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
   "cut loud: pitch formant/level": {
    "value": 0.1321,
    "scatter": 0,
    "read": "2026-11-19",
    "with": {
     "@audio/shift-formant": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch granular/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-granular": "1.1.0",
     "audio": "2.16.1"
    }
   },
@@ -116,6 +152,15 @@
     "audio": "2.16.1"
    }
   },
+  "cut loud: pitch hpss/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hpss": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "cut loud: pitch hpss/level": {
    "value": 1.6465,
    "scatter": 0,
@@ -125,12 +170,30 @@
     "audio": "2.16.1"
    }
   },
+  "cut loud: pitch hybrid/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hybrid": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "cut loud: pitch hybrid/level": {
    "value": 0.0731,
    "scatter": 0,
    "read": "2026-11-19",
    "with": {
     "@audio/shift-hybrid": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch lpc/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-lpc": "1.1.0",
     "audio": "2.16.1"
    }
   },
@@ -144,6 +207,15 @@
    },
    "known": "read 2026-11-19: no harm fails with these packages"
   },
+  "cut loud: pitch ola/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-ola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "cut loud: pitch ola/level": {
    "value": 6.674,
    "scatter": 0,
@@ -154,6 +226,15 @@
    },
    "known": "read 2026-11-19: no harm fails with these packages"
   },
+  "cut loud: pitch paulstretch/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-paulstretch": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
   "cut loud: pitch paulstretch/level": {
    "value": 1.0343,
    "scatter": 0,
@@ -163,11 +244,28 @@
     "audio": "2.16.1"
    }
   },
+  "cut loud: pitch phase-lock/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "audio": "2.16.1"
+   }
+  },
   "cut loud: pitch phase-lock/level": {
    "value": 0.0731,
    "scatter": 0,
    "read": "2026-11-19",
    "with": {
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch psola/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-psola": "1.1.0",
     "audio": "2.16.1"
    }
   },
@@ -180,12 +278,30 @@
     "audio": "2.16.1"
    }
   },
+  "cut loud: pitch sample/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sample": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "cut loud: pitch sample/level": {
    "value": 0.4964,
    "scatter": 0,
    "read": "2026-11-19",
    "with": {
     "@audio/shift-sample": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch sms/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sms": "1.1.0",
     "audio": "2.16.1"
    }
   },
@@ -198,6 +314,15 @@
     "audio": "2.16.1"
    }
   },
+  "cut loud: pitch transient/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-transient": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "cut loud: pitch transient/level": {
    "value": 0.1211,
    "scatter": 0,
@@ -207,12 +332,30 @@
     "audio": "2.16.1"
    }
   },
+  "cut loud: pitch vocoder/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-pvoc": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
   "cut loud: pitch vocoder/level": {
    "value": 1.0783,
    "scatter": 0,
    "read": "2026-11-19",
    "with": {
     "@audio/shift-pvoc": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch wsola/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-wsola": "1.1.0",
     "audio": "2.16.1"
    }
   },
@@ -252,6 +395,15 @@
     "audio": "2.16.1"
    }
   },
+  "pure tone: pitch auto/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift": "1.2.0",
+    "audio": "2.16.1"
+   }
+  },
   "pure tone: pitch auto/onset": {
    "value": 0.1107,
    "scatter": 0,
@@ -270,6 +422,15 @@
     "audio": "2.16.1"
    }
   },
+  "pure tone: pitch delay/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-delay": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "pure tone: pitch delay/onset": {
    "value": 0.0832,
    "scatter": 0,
@@ -285,6 +446,15 @@
    "read": "2026-11-19",
    "with": {
     "@audio/shift-delay": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch formant/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-formant": "1.1.5",
     "audio": "2.16.1"
    }
   },
@@ -307,6 +477,15 @@
     "audio": "2.16.1"
    }
   },
+  "pure tone: pitch granular/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-granular": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "pure tone: pitch granular/onset": {
    "value": 0.0832,
    "scatter": 0,
@@ -326,6 +505,15 @@
    },
    "known": "read 2026-11-19: no harm fails with these packages"
   },
+  "pure tone: pitch hpss/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hpss": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "pure tone: pitch hpss/onset": {
    "value": 0.8056,
    "scatter": 0,
@@ -344,6 +532,15 @@
     "audio": "2.16.1"
    }
   },
+  "pure tone: pitch hybrid/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hybrid": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "pure tone: pitch hybrid/onset": {
    "value": 0.1107,
    "scatter": 0,
@@ -359,6 +556,15 @@
    "read": "2026-11-19",
    "with": {
     "@audio/shift-hybrid": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch lpc/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-lpc": "1.1.0",
     "audio": "2.16.1"
    }
   },
@@ -382,6 +588,15 @@
    },
    "known": "read 2026-11-19: no harm fails with these packages"
   },
+  "pure tone: pitch ola/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-ola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "pure tone: pitch ola/onset": {
    "value": 0.0832,
    "scatter": 0,
@@ -401,6 +616,15 @@
    },
    "known": "read 2026-11-19: no harm fails with these packages"
   },
+  "pure tone: pitch paulstretch/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-paulstretch": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
   "pure tone: pitch paulstretch/onset": {
    "value": -0.1727,
    "scatter": 0,
@@ -419,6 +643,14 @@
     "audio": "2.16.1"
    }
   },
+  "pure tone: pitch phase-lock/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "audio": "2.16.1"
+   }
+  },
   "pure tone: pitch phase-lock/onset": {
    "value": 0.6223,
    "scatter": 0,
@@ -432,6 +664,15 @@
    "scatter": 0,
    "read": "2026-11-19",
    "with": {
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch psola/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-psola": "1.1.0",
     "audio": "2.16.1"
    }
   },
@@ -453,6 +694,15 @@
     "audio": "2.16.1"
    }
   },
+  "pure tone: pitch sample/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sample": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "pure tone: pitch sample/onset": {
    "value": 0.0832,
    "scatter": 0,
@@ -468,6 +718,15 @@
    "read": "2026-11-19",
    "with": {
     "@audio/shift-sample": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch sms/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sms": "1.1.0",
     "audio": "2.16.1"
    }
   },
@@ -489,6 +748,15 @@
     "audio": "2.16.1"
    }
   },
+  "pure tone: pitch transient/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-transient": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
   "pure tone: pitch transient/onset": {
    "value": 0.1107,
    "scatter": 0,
@@ -507,6 +775,15 @@
     "audio": "2.16.1"
    }
   },
+  "pure tone: pitch vocoder/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-pvoc": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
   "pure tone: pitch vocoder/onset": {
    "value": 0.1672,
    "scatter": 0,
@@ -522,6 +799,15 @@
    "read": "2026-11-19",
    "with": {
     "@audio/shift-pvoc": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch wsola/length": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-wsola": "1.1.0",
     "audio": "2.16.1"
    }
   },

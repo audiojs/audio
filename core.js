@@ -429,7 +429,7 @@ audio.use = function(...plugins) {
       let spec = audio.plugins?.[p] ?? audio.atoms?.[p]  // .atoms — deprecated ≤2.5 name
       if (!spec) throw new Error(`audio.use: unknown plugin '${p}' — not in audio.plugins registry`)
       ;(loads ??= []).push(audio.import(spec).then(ns => {
-        for (let k of Object.keys(ns)) { if (isOp(ns[k])) useOp(ns[k]); else if (isStat(ns[k])) useStat(ns[k]); else if (isCodec(ns[k])) useCodec(ns[k]) }
+        for (let k of Object.keys(ns)) { if (isOp(ns[k])) useOp(ns[k], keeping.has(spec)); else if (isStat(ns[k])) useStat(ns[k]); else if (isCodec(ns[k])) useCodec(ns[k]) }
       }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/').slice(0, 2).join('/')} — ${e.message}`) }))
     }
     else if (isOp(p)) useOp(p)
@@ -457,6 +457,19 @@ export function correlation(p, q, n) {
 
 /** A decay in seconds as a render takes it: an endless one audio.TAIL, none or a negative one 0 */
 const decay = t => t === Infinity ? audio.TAIL : t > 0 ? t : 0
+
+/** The registry's modules (audio.plugins specs) whose processors keep a take's length: a package whose keywords say
+ *  `restoration` or `pitch-shift`, the finer category the contract has a host read there. What rings past the end of a
+ *  take a repair or a pitch shift renders is its own processing spread there (an STFT frame's gain over its samples, a
+ *  grain's window), not sound the take had, and a take that comes back longer no longer lines up with what it was cut
+ *  from, nor loops. audio.js names them; test/plugin-ops.js holds the list to the packages installed */
+export const keeping = new Set()
+
+/** The seconds of a processor's declared decay `t` an edit renders past its input, as its `tail` option says (`said`):
+ *  true, all of it; false, none; a number, that many seconds. Unsaid: none for a processor that keeps a take's length
+ *  (`keeps`), the whole decay for any other */
+const ring = (t, said, keeps) => said === true ? decay(t) : said === false ? 0 : typeof said === 'number' ? decay(said)
+  : keeps ? 0 : decay(t)
 
 /** An op's expand into the hidden op `name` that renders it, `o` its options, and its decay, `t` s, as a pad after it:
  *  the user's edit stays one (undo, serialize whole), the decay renders into the pad (a contract plugin's tail, convolve,
@@ -525,18 +538,19 @@ function useStat(m) {
   }
 }
 
-/** Register a contract plugin (an audio.js manifest's factory) as the op its id names (hostOp). One op to a name: the
+/** Register a contract plugin (an audio.js manifest's factory) as the op its id names (hostOp), `keeps` where the
+ *  registry loaded it from a package that keeps a take's length (keeping). One op to a name: the
  *  same processor again is there already; a processor registered before under that id gives way to this one (a script
  *  run again in the editor defines its processor again); a built-in op's name is not its to take, and
  *  audio.op(name, processor) registers it under another. */
-function useOp(m) {
+function useOp(m, keeps) {
   if (!audio.op) throw new Error('audio.use(module): op registry required — import "audio", not "audio/core.js"')
   // its op's name: its id, else its function's name; one with neither would take a name no call can mean
   if (!m.id && !m.name) throw new Error('audio.use: a processor needs an id or a function name to register as an op (fn.id = \'my-op\')')
   let id = idOf(m), had = audio.op(id)
   if (had?.plugin === m) return
   if (had && !had.plugin) throw new Error(`audio.use: '${id}' is a built-in op; register this processor under another name: audio.op('my-${id}', processor)`)
-  hostOp(m, id)
+  hostOp(m, id, keeps)
 }
 
 /** The options a processor's further input buses are fed by (contract § Channels): each bus's `name`, `key` where it has
@@ -557,8 +571,8 @@ export function positional(d, a) {
  *  where one jumps, at most 32 frames while one moves (batch.js eachCall, as toBatch and toStream do). Notes, the
  *  transport (`bpm`, `timeSignature`), buffers and further input buses come from the edit's options, emissions go to
  *  its `emitted(name, value, time)`. audio.use registers a processor under its id, audio.op(name, processor) under the
- *  caller's name. */
-export function hostOp(m, name) {
+ *  caller's name; `keeps`, one the registry loaded from a package that keeps a take's length (keeping). */
+export function hostOp(m, name, keeps = false) {
   // its op's method is how a call names it: an instance's own method under that name (read, save, clone) would answer;
   // an op's method (another op's camelCase, plan.js opMethods) gives way to it
   let method = audio.fn[name]
@@ -589,7 +603,7 @@ export function hostOp(m, name) {
     chosen(o)
     return o
   }
-  let reg = d => (d.settle = settle, audio.op(name, audio.hosted[name]?.(d) ?? d))
+  let reg = d => (d.settle = settle, keeps && (d.keeps = true), audio.op(name, audio.hosted[name]?.(d) ?? d))
 
   // a param's `alias` is its former name: hosts still accept it (contract §Parameter metadata)
   let given = (get, name) => get(name) ?? (specs[name].alias != null ? get(specs[name].alias) : undefined)
@@ -611,8 +625,11 @@ export function hostOp(m, name) {
   // Declared latency → plan-level plugin delay compensation (fn form: once per instance)
   let latency = typeof m.latency === 'function' ? (o, sr) => m.latency(setting(o, sr)) | 0 : m.latency | 0
   // tail: seconds, or a function of the values in force (mirrors latency's fn form): a feedback delay's decay depends on
-  // its feedback setting, not the declared maximum. An endless one (Infinity) renders audio.TAIL seconds (decay)
-  let tail = m.tail || 0
+  // its feedback setting, not the declared maximum. An endless one (Infinity) renders audio.TAIL seconds (decay). What
+  // of it an edit renders (ring, `t` its decay) its `tail` option says, unless a param of the processor's takes that
+  // name, as an op's own `mix` param takes the engine's mix
+  let tail = m.tail || 0, own = names.some(k => k === 'tail' || specs[k].alias === 'tail')
+  let rung = (o, t) => ring(t, own ? undefined : o?.tail, keeps)
 
   // An instance, built where its block loop starts (frame f) or for the one call of a whole render: its values from
   // the edit, its widest bus from those it reads and writes, declared layouts resolved against the input width (a
@@ -701,10 +718,9 @@ export function hostOp(m, name) {
     // Declared tail on a whole-render plugin → plan pads the materialized input with
     // that many seconds of silence so the decay renders instead of truncating (the
     // plugin still sees equal frames in/out — both sides extended).
-    // A tail function is handed the transport where the input ends, its `n` frames (plan.js tailN)
-    // (an endless one is read at the render too: audio.TAIL then)
-    let wholeTail = typeof m.tail === 'function' || m.tail === Infinity
-      ? (o, sr, n) => decay(typeof m.tail === 'function' ? m.tail(setting(o, sr, 0, n)) : m.tail) : decay(m.tail)
+    // A tail function is handed the transport where the input ends, its `n` frames (plan.js tailN); what of it the
+    // edit renders is read at the render (rung: an endless one audio.TAIL then)
+    let wholeTail = tail ? (o, sr, n) => rung(o, typeof tail === 'function' ? tail(setting(o, sr, 0, n)) : tail) : 0
     // Declared frames hook → structural output length (time-stretch class): the plan
     // sizes the output buffers by it and continues from the result's actual length.
     let frames = m.frames ? (n, o, sr) => m.frames(n, setting(o, sr)) : undefined
@@ -736,9 +752,9 @@ export function hostOp(m, name) {
   reg({
     params: names, tail, plugin: m, atom: m, ch, chKeeps, latency,
     expand: (ctx) => {
-      let o = {}
+      let o = {}, sr = ctx.sampleRate
       for (let k of taken) if (ctx[k] !== undefined) o[k] = ctx[k]
-      return tailed('_' + name, o, typeof tail === 'function' ? tail(setting(o, ctx.sampleRate, Math.round(ctx.totalDuration * ctx.sampleRate))) : tail)
+      return tailed('_' + name, o, rung(ctx, typeof tail === 'function' ? tail(setting(o, sr, Math.round(ctx.totalDuration * sr))) : tail))
     }
   })
 }

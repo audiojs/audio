@@ -258,7 +258,9 @@ function pluginHelp(name, desc) {
   }).join('\n')
   // a second input bus reads its signal from key:FILE (sidechain)
   if (Array.isArray(m.channels?.inputs) && m.channels.inputs.length > 1) params += `\n    key  FILE, sidechain input (${name} key:voice.wav)`
-  return { usage: `${name} [${args}]`, desc: `Plugin${typeof desc.tail === 'number' && desc.tail ? ` (tail ${desc.tail}s)` : desc.tail ? ' (tail: param-dependent)' : ''}`, examples: [], params }
+  // the tail it declares; a repair's or a pitch shift's (keeps) renders only with tail:true
+  let t = m.tail, tail = typeof t === 'number' && t ? `tail ${t}s` : t ? 'tail: param-dependent' : ''
+  return { usage: `${name} [${args}]`, desc: `Plugin${tail ? ` (${tail}${desc.keeps ? ', rendered with tail:true' : ''})` : ''}`, examples: [], params }
 }
 
 /** Op `name`'s enumerated params, { param: values } (vocals: mode isolate|remove): a plugin's from its manifest, a

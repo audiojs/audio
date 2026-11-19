@@ -18,6 +18,7 @@
 // - SI-SDR and the bed, 0.5 dB; voice under or silenced, 2.5 %: a word in 12 s of speech (fn/compare.js: 0.3 s of a
 //   12 s take is 2.5 to 2.8 % of its voiced frames)
 // - denoisers planned on a take that holds no noise: none
+// - a pitch shift's length: not a frame more or less than its input's
 const SHIFTERS = ['phase-lock', 'vocoder', 'formant', 'paulstretch', 'auto', 'ola', 'transient', 'psola', 'wsola', 'granular', 'sms', 'hpss', 'sample', 'hybrid', 'delay', 'lpc']
 const DFN = { call: '@audio/neural-denoise', opts: { model: 'deepfilternet3' } }
 const ND = ['@audio/neural-denoise']
@@ -62,11 +63,12 @@ export default [
   // declip comes back no further from the original than the clipped take was
   ...['voice', 'chord', 'uniform'].map(kind => ({ id: `clipped ${kind}: declip`, sound: ['clipped', { kind }], do: ['declip'], hold: { sisdr: { harm: 0, back: true } } })),
 
-  // each pitch shifter, 5 semitones up (the tone 5 down): level kept, the tone where it was asked, balance kept
+  // each pitch shifter, 5 semitones up (the tone 5 down): level kept, the length kept either way, the tone where it was
+  // asked, balance kept
   ...SHIFTERS.flatMap(method => [
-    { id: `cut loud: pitch ${method}`, sound: ['cut', {}], do: ['pitch', 5, { method }], hold: { level: { harm: 3, back: true } } },
+    { id: `cut loud: pitch ${method}`, sound: ['cut', {}], do: ['pitch', 5, { method }], hold: { level: { harm: 3, back: true }, length: { harm: 0, back: true } } },
     { id: `two phrases 12 dB apart: pitch ${method}`, sound: ['phrases', {}], do: ['pitch', 5, { method }], hold: { level: { harm: 3, back: true } } },
-    { id: `pure tone: pitch ${method}`, sound: ['tone', { shift: -5 }], do: ['pitch', -5, { method }], hold: { onset: { harm: 6, back: true }, tone: { harm: 3, back: true } } },
+    { id: `pure tone: pitch ${method}`, sound: ['tone', { shift: -5 }], do: ['pitch', -5, { method }], hold: { onset: { harm: 6, back: true }, tone: { harm: 3, back: true }, length: { harm: 0, back: true } } },
     { id: `two channels: pitch ${method}`, sound: ['pair', {}], do: ['pitch', 5, { method }], hold: { balance: { harm: 1, back: true } } },
   ]),
 ].map(c => ({ ...c, pkgs: pkgs(c.do) }))

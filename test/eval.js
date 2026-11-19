@@ -66,10 +66,10 @@ const installed = name => !!map[name] || !!versionAt(name, subjectDir, root)
 const version = name => map[name] ? pkg(map[name]).version : name === 'audio' ? pkg(subjectDir).version : versionAt(name, subjectDir, root)?.version ?? null
 
 const bounds = existsSync(boundsFile) ? JSON.parse(readFileSync(boundsFile)) : { figures: {} }
-// a reading's step, under which no two readings are told apart: dB to 0.01, shares to 0.1 %, counts whole
-const STEP = { dB: 0.01, '%': 0.1, '': 0 }
+// a reading's step, under which no two readings are told apart: dB to 0.01, shares to 0.1 %, counts and frames whole
+const STEP = { dB: 0.01, '%': 0.1, '': 0, frames: 0 }
 const worse = (m, a, b) => MEASURES[m].better === 'up' ? b - a : a - b   // how much a is worse than b (positive: worse)
-const fmt = (m, v) => v == null ? 'none' : `${v.toFixed(MEASURES[m].unit === '' ? 0 : 2)}${MEASURES[m].unit ? ' ' + MEASURES[m].unit : ''}`
+const fmt = (m, v) => v == null ? 'none' : `${v.toFixed(STEP[MEASURES[m].unit] ? 2 : 0)}${MEASURES[m].unit ? ' ' + MEASURES[m].unit : ''}`
 
 const only = flag('only'), cases = CASES.filter(c => !only || c.id.includes(only))
 const made = new Map(), readings = {}, out = { pass: 0, fail: 0, known: 0, skip: 0 }, lines = []
@@ -95,6 +95,8 @@ for (let c of cases) {
   let snd = await made.get(key), x = snd.x, fs = snd.fs, y, t0 = process.cpuUsage()
   try { y = await run(c, x, fs) }
   catch (e) { out.fail++; say('not ok', `${c.id}: ${e.message.split('\n')[0]}`); continue }
+  // the take as the op gave it, for a measure of its length (`whole`); every other reads it cut to the input's length
+  let take = y
   let ctx = { ...snd, x: c.do.stat ? x : x.length === 1 ? x[0] : x, fs }, dt = process.cpuUsage(t0), took = +((dt.user + dt.system) / 1e6).toFixed(2)
   // where a measure reads the take sample by sample against what the case knows, at the lag compare() reads
   if (!c.do.stat && Object.keys(c.hold).some(m => ['sisdr', 'lost', 'bed'].includes(m))) {
@@ -105,7 +107,7 @@ for (let c of cases) {
     if (d) y = y.map(ch => { let z = new Float32Array(x[0].length); for (let i = 0; i < z.length; i++) z[i] = ch[i + d] ?? 0; return z })
   }
   for (let [m, rule] of Object.entries(c.hold)) {
-    let id = `${c.id}/${m}`, v = await read(m, c.do.stat ? y : y.map(ch => ch.subarray(0, x[0].length)), ctx), b = bounds.figures[id]
+    let id = `${c.id}/${m}`, v = await read(m, c.do.stat ? y : MEASURES[m].whole ? take : y.map(ch => ch.subarray(0, x[0].length)), ctx), b = bounds.figures[id]
     readings[id] = { value: v, cpu: took, with: Object.fromEntries([...(c.pkgs ?? []), 'audio'].map(n => [n, version(n)])) }
     if (v == null) { out.fail++; say('not ok', `${id}: no reading`); continue }
     let fails = [], notes = []

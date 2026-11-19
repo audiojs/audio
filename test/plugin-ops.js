@@ -255,6 +255,110 @@ test('a processor with a tail: a param by its alias reaches it, and its op says 
   }
 })
 
+import { keeping } from '../core.js'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+
+// A repair or a pitch shift keeps its take's length (core.js keeping, ring): a processor the registry loads from a
+// package in audio.js's list renders none of the tail it declares; any other renders its tail, however short, and an
+// endless one audio.TAIL seconds. An edit's `tail` says otherwise: true, the ring; false, none; a number, that many
+// seconds of one that declares a tail. The processors here ring as a one-pole echo of their input, streaming or whole
+// (streaming: false), loaded as the registry loads its own (audio.import): over the take their samples are the same
+// either way, the tail cut and nothing else moved, and the ring asked for is the one they make
+test("a repair's or a pitch shift's tail is cut to the take unless an edit asks; any other's, rendered unless it says false", async () => {
+  let ringing = (id, tail, whole, params = {}) => Object.assign(ctx => {
+    let y = new Float64Array(ctx.maxChannels)
+    return (inputs, outputs) => {
+      for (let c = 0; c < outputs[0].length; c++) for (let i = 0, inp = inputs[0][c], out = outputs[0][c]; i < out.length; i++) out[i] = y[c] = inp[i] + 0.995 * y[c]
+    }
+  }, { id, params, channels: 'any', tail, ...whole && { streaming: false } })
+  let load = audio.import, mods = {}, made = [], held = ['pitch-delay', audio.plugins['pitch-delay'], audio.op('pitch-delay')], T = audio.TAIL
+  let entry = (name, tail, whole, keeps, params) => {
+    let spec = `@probe/${name}/audio`
+    mods[spec] = { [name]: ringing(name, tail, whole, params) }; audio.plugins[name] = spec; made.push(name)
+    if (keeps) keeping.add(spec)
+  }
+  audio.import = spec => mods[spec] ? Promise.resolve(mods[spec]) : load(spec)
+  try {
+    audio.TAIL = 0.05
+    for (let w of [false, true]) {
+      let s = w ? '-whole' : ''
+      entry('probe-repair' + s, 0.1, w, true); entry('probe-echo' + s, 0.1, w, false)
+      entry('probe-short' + s, 31 / SR, w, false)
+      entry('probe-endless' + s, Infinity, w, false); entry('probe-repair-endless' + s, Infinity, w, true)
+    }
+    // a param of the processor's own named tail is its own, as a `mix` param is
+    entry('probe-own-tail', 0.1, false, false, { tail: { type: 'number', min: 0, max: 1, default: 0 } })
+    // pitch({ method }) reaches its shifter through the registry, the rule with it
+    entry('pitch-delay', 0.1, true, true, { semitones: { type: 'number', min: -24, max: 24, default: 0 } })
+    delete audio.op()['pitch-delay']
+    for (let n of made.filter(n => n !== 'pitch-delay')) await audio.use(n)
+
+    let x = tone(440, 0.2), n = x.length, sound = () => audio.from([x.slice()], { sampleRate: SR })
+    let render = async (name, o) => (await sound()[name](o).read())[0]
+    let same = (p, q, k = q.length) => p.length >= k && q.length >= k && p.subarray(0, k).every((v, i) => v === q[i])
+    for (let w of [false, true]) {
+      let s = w ? '-whole' : '', kind = w ? 'whole' : 'streaming', ring = Math.round(0.1 * SR), endless = Math.round(0.05 * SR)
+      let full = await render('probe-echo' + s), kept = await render('probe-repair' + s), asked = await render('probe-repair' + s, { tail: true })
+      is([kept.length - n, asked.length - n, full.length - n], [0, ring, ring], `${kind}: a repair's 0.1 s cut, rendered on tail: true; another's rendered`)
+      ok(same(asked, full) && same(kept, full, n), `${kind}: the take the same samples either way; tail: true the very ring`)
+      ok(full.subarray(n).some(v => Math.abs(v) > 1e-3), `${kind}: there is a ring to cut`)
+      let part = await render('probe-repair' + s, { tail: 0.05 }), none = await render('probe-echo' + s, { tail: false })
+      is([part.length - n, none.length - n], [Math.round(0.05 * SR), 0], `${kind}: tail: 0.05, 0.05 s of it; another's, tail: false, none`)
+      ok(same(part, full, part.length) && same(none, full, n), `${kind}: what is kept is the ring as rendered whole`)
+      let grown = async (name, o) => (await render(name + s, o)).length - n
+      is([await grown('probe-short'), await grown('probe-short', { tail: false })], [31, 0], `${kind}: a short ring (31 frames) of a processor not in the list rendered as declared; tail: false none`)
+      is([await grown('probe-endless'), await grown('probe-repair-endless'), await grown('probe-repair-endless', { tail: true })], [endless, 0, endless], `${kind}: an endless tail audio.TAIL seconds; a repair's none, unless asked`)
+    }
+    is([audio.op('probe-repair').keeps, audio.op('probe-repair-whole').keeps, audio.op('probe-echo').keeps], [true, true, undefined], 'the op says it keeps the length')
+    is((await render('probe-own-tail', { tail: 0 })).length - n, Math.round(0.1 * SR), 'a param named tail is the processor\'s: its tail rendered')
+
+    // a processor of the user's own renders its tail, though it takes the name of a registry op that keeps the length
+    audio.op('probe-repair', ringing('probe-repair', 0.1, false))
+    audio.use(ringing('probe-user', 0.1, true))
+    is([(await render('probe-repair')).length - n, (await render('probe-user')).length - n], [Math.round(0.1 * SR), Math.round(0.1 * SR)], 'the user\'s own processor renders its tail')
+
+    let shifted = (await sound().pitch(5, { method: 'delay' }).read())[0], rung = (await sound().pitch(5, { method: 'delay', tail: true }).read())[0]
+    is([shifted.length - n, rung.length - n], [0, Math.round(0.1 * SR)], 'pitch({ method }): the shifter\'s tail cut, rendered on tail: true')
+    ok(same(shifted, rung, n), 'pitch({ method }): the take the same samples either way')
+  } finally {
+    audio.import = load; audio.TAIL = T
+    for (let n of [...made, 'probe-user']) {
+      keeping.delete(audio.plugins[n])
+      for (let k of [n, '_' + n]) delete audio.op()[k]
+      // the registry's own op keeps its method
+      if (n === held[0]) continue
+      delete audio.plugins[n]; delete audio.fn[n]; delete audio.fn[n.replace(/-(.)/g, (_, c) => c.toUpperCase())]
+    }
+    let [name, spec, d] = held
+    audio.plugins[name] = spec
+    if (d) audio.op()[name] = d
+  }
+})
+
+// audio.js's list of the registry ops that keep a take's length (core.js keeping), against the packages installed: an
+// op is in it if and only if the package that defines its processor says `restoration` or `pitch-shift` in its keywords,
+// an umbrella's member (a module that re-exports one other) followed to the package it re-exports. So a package that
+// gains or loses either keyword fails here, by its op's name and the package's version. An op whose package is not
+// installed is named and left out
+test("the registry ops that keep a take's length: audio.js's list, the packages' keywords", () => {
+  let req = createRequire(import.meta.url), say = {}, neither = {}, absent = []
+  let pkgOf = file => { for (let d = dirname(file); ; d = dirname(d)) { let f = join(d, 'package.json'); if (existsSync(f)) { let p = JSON.parse(readFileSync(f, 'utf8')); if (p.name) return p } } }
+  let defining = spec => { let file = req.resolve(spec), m = readFileSync(file, 'utf8').match(/^\s*export \* from '([^']+)'\s*$/); return m ? defining(m[1]) : pkgOf(file) }
+  for (let name of Object.keys(audio.plugins).filter(n => audio.fn[n]?.op === n)) {
+    let p
+    try { p = defining(audio.plugins[name]) } catch { absent.push(name); continue }
+    let kw = (p.keywords || []).filter(k => k === 'restoration' || k === 'pitch-shift')
+    if (kw.length) say[name] = `${p.name}@${p.version} says ${kw.join(' and ')}`
+    else neither[name] = `${p.name}@${p.version} says neither`
+  }
+  let listed = Object.keys(audio.plugins).filter(n => keeping.has(audio.plugins[n]))
+  is(Object.keys(say).filter(n => !listed.includes(n)).map(n => `${n}: ${say[n]}`), [], 'every op whose package says it keeps the length is in the list')
+  is(listed.filter(n => !say[n]).map(n => `${n}: ${neither[n] ?? 'not installed'}`), [], 'every op in the list is one whose package says so')
+  ok(listed.length > 20, `${listed.length} ops in the list${absent.length ? `; not installed: ${absent.join(', ')}` : ''}`)
+})
+
 // ── Wave B: dynamics-gate + denoise-dehum ─────────────────────────────
 
 import { gate } from '@audio/dynamics-gate/audio'

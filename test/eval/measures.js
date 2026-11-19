@@ -56,6 +56,10 @@ export const MEASURES = {
   } },
   // two channels' balance: |the right's level change − the left's|, each over its own input, whole, dB
   balance: { better: 'down', unit: 'dB', channels: true, of: ([l, r], { x: [xl, xr] }) => Math.abs((db(power(r)) - db(power(xr))) - (db(power(l)) - db(power(xl)))) },
+  // the take's length against the input's, its size: |frames out − frames in|, read on the take as the op gave it (the
+  // others read it cut to the input's length). A pitch shift keeps the length: one that comes back longer no longer
+  // lines up with what it was cut from, nor loops
+  length: { better: 'down', unit: 'frames', channels: true, whole: true, of: (y, { x }) => Math.abs(y[0].length - (Array.isArray(x) ? x[0] : x).length) },
   // denoisers a plan puts on a take that holds no noise: the stages of the chain's plan (the `chain` stat) whose name
   // is denoise
   denoisers: { better: 'down', unit: '', plan: true, of: recipe => recipe.stages.filter(s => s.name === 'denoise').length },

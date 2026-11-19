@@ -175,7 +175,8 @@ Changing `BLOCK_SIZE` cannot retroactively refine existing stats. For finer reso
 
 `audio.use(atom)` hosts [contract](https://github.com/audiojs/compile/blob/main/CONTRACT.md) audio.js factories natively:
 params map to op params (engine automation/curves/ramps apply), declared `tail` composes
-a trailing pad, declared `latency` gets plan-level delay compensation, `streaming: false`
+a trailing pad (none for a repair's or a pitch shift's from the registry, unless an edit says
+`tail: true`: core.js `ring`), declared `latency` gets plan-level delay compensation, `streaming: false`
 atoms run as whole-render ops (materialize → one call → continue from the result), and
 multi-bus atoms read their sidechain from the `key` option. `audio.plugins` maps names
 to published packages, installed with `audio` and autowired: registry ops are methods
