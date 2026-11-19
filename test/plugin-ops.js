@@ -337,6 +337,24 @@ test("a repair's or a pitch shift's tail is cut to the take unless an edit asks;
   }
 })
 
+// A param given null is one left out by its place: its default, as the processor is built (ctx.params) as at each block
+// after. A processor that reads its gain once, as it is built, loaded as the registry loads its own (audio.import): given
+// { gain: null } it renders what it renders at its default, from the first sample
+test('a param given null: its default as the processor is built, as at each block', async () => {
+  let gained = Object.assign(ctx => {
+    let g = ctx.params.gain[0]
+    return (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) for (let i = 0; i < outputs[0][c].length; i++) outputs[0][c][i] = inputs[0][c][i] * g }
+  }, { id: 'probe-built', params: { gain: { type: 'number', min: 0, max: 2, default: 0.5 } }, channels: 'any' })
+  let load = audio.import, spec = '@probe/probe-built/audio'
+  audio.plugins['probe-built'] = spec; audio.import = s => s === spec ? Promise.resolve({ gained }) : load(s)
+  try {
+    await audio.use('probe-built')
+    let x = tone(440, 0.2), render = async o => (await audio.from([x.slice()], { sampleRate: SR })['probe-built'](o).read())[0]
+    let [none, given, half] = [await render(), await render({ gain: null }), await render({ gain: 0.5 })]
+    ok(none.every((v, i) => v === x[i] * 0.5) && given.every((v, i) => v === none[i]) && half.every((v, i) => v === none[i]), 'null: the default, 0.5, from the first sample')
+  } finally { audio.import = load; delete audio.plugins['probe-built']; for (let k of ['probe-built', '_probe-built']) delete audio.op()[k]; delete audio.fn['probe-built']; delete audio.fn.probeBuilt }
+})
+
 // audio.js's list of the registry ops that keep a take's length (core.js keeping), against the packages installed: an
 // op is in it if and only if the package that defines its processor says `restoration` or `pitch-shift` in its keywords,
 // an umbrella's member (a module that re-exports one other) followed to the package it re-exports. So a package that
@@ -1327,7 +1345,8 @@ test('a value of another kind than its param\'s: refused at the call, naming the
     [a => a.ducker(one, -30, 8), 'ducker: threshold takes dB, not a Float32Array'],
     [a => a.ducker([], -30, 8), 'ducker: threshold takes dB, not an array'],
     [a => a.ducker(true), 'ducker: threshold takes dB, not true'],
-    [a => a.compressor(audio.from([one], { sampleRate: SR })), 'compressor: threshold takes dB, not an audio instance'],
+    // by name: by place a sound is the compressor's key, its further input bus
+    [a => a.compressor({ threshold: audio.from([one], { sampleRate: SR }) }), 'compressor: threshold takes dB, not an audio instance'],
     [a => a.compressor({ ratio: [8] }), 'compressor: ratio takes a number, not an array'],
     [a => a.compressor({ threshold: { v: -30 } }), 'compressor: threshold takes dB, not an object'],
     [a => a.expander(-30), "expander: mode takes 'downward' or 'upward', not -30"],

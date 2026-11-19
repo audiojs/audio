@@ -9,7 +9,7 @@
  * speech and on singing, rooms, noise, microphones, codecs and band limits made on the fly) reads the STFT of the take
  * heard at −20 dBFS and writes the studio take's: a change of each bin's level, unbounded, so a band can come back from
  * nothing, and a turn of its phase. 17.9M parameters, 35 MB, one pass in runs of 10 s. On 24 degraded VoiceBank takes
- * (the package README's table): log-spectral distance 0.79 against deepfilter(0)'s 2.71, SI-SDR +6.0 dB against −2.1,
+ * (the package README's table): log-spectral distance 0.79 against deepfilter(Infinity)'s 2.71, SI-SDR +6.0 dB against −2.1,
  * PESQ 2.40 against 2.07, DNSMOS OVRL 2.89 against 2.63 (the clean take's 2.95), the band to 24 kHz where deepfilter
  * leaves 16. Each channel apart, the edit's whole input once ahead of rendering, kept while that input stays the same.
  *

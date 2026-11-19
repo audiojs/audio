@@ -1,10 +1,13 @@
 /**
  * Deepfilter — speech enhancement by DeepFilterNet3 (Schröter et al., Interspeech 2023).
  *
- * a.deepfilter()                 → quiet noise 18 dB down, room tone kept; noise near the voice down to 40 dB under it
+ * a.deepfilter()                 → quiet noise 18 dB down, room tone kept; in the voice's pauses noise near it down to
+ *                                  40 dB under it; the voice the model takes for noise back 18 dB down at most
  * a.deepfilter(12)               → gentler: quiet noise 12 dB down
  * a.deepfilter({ floor: 0 })     → every noise 18 dB down and no further, as before neural-denoise 0.5
- * a.deepfilter(0)                → no limit: the model's whole removal, pauses can fall to digital silence
+ * a.deepfilter({ everywhere: true }) → the floor under the voice too: the voice the model took goes with the noise
+ * a.deepfilter(Infinity)         → no limit: the model's whole removal, pauses can fall to digital silence
+ * a.deepfilter(0)                → nothing taken under the voice, the floor in its pauses; with { floor: 0 }, the take
  * a.deepfilter({ music: 'enhance' }) → music too (by default it passes through untouched)
  * a.deepfilter({ weights, device })
  *
@@ -16,15 +19,27 @@
  * resampled in and out), the model's 30 ms delay removed.
  *
  * The input x is mixed back into the model's unlimited output y by the package's mixback(): y + a·(x − y), the noise
- * the model took back at gain a. a = 10^(−limit/20): the noise drops by `limit` dB, 18 by default, the most before the
- * voice itself suffers (on VoiceBank+DEMAND DNSMOS SIG holds from 12 to 18 dB and falls past it), room tone kept: on
- * ten home narrations it stays at −93 to −59 dBFS. Where the noise stands closer to the voice than `floor` dB, 40 by
- * default, a falls until it lies there, frame by frame (the noise's power over 0.5 s against the voice's level).
+ * the model took back at gain a. a = 10^(−limit/20), 1 at 0 (nothing taken) and 0 at Infinity (no limit): the noise
+ * drops by `limit` dB, 18 by default, the most before the voice itself suffers (on VoiceBank+DEMAND DNSMOS SIG holds
+ * from 12 to 18 dB and falls past it), room tone kept: on ten home narrations it stays at −93 to −59 dBFS. In the
+ * voice's pauses, where the noise stands closer to the voice than `floor` dB, 40 by default, a falls until it lies
+ * there, frame by frame (the noise's power over 0.5 s against the voice's level); under the voice a stays at the limit,
+ * since what the model removed there holds the voice it took for noise too (neural-denoise 0.5 to 0.7 took that to the
+ * floor with the noise, and `limit` then changed nothing: a radio voice under noise 10 dB down (test/eval.js's radio
+ * channel, 300 to 3400 Hz, its four voices, through this op) lost 10 dB or more in 9.6 % of its voiced frames, 6.1 %
+ * now). A pause is where y stays more than 30 dB under its voice, 0.3 s from it: residue the model leaves in a pause of
+ * real noise reads as voice there, so much of such a pause keeps the limit.
+ * `everywhere` takes the floor under the voice too, what the model took back at one gain: the cleaner pauses, and the
+ * voice the model took goes with the noise. Each keeps what the other gives up: on test/eval.js's four voices under
+ * pink noise as loud as them, through this op, the noise 0.3 s or more from the voice ends 19.4 dB under it at the
+ * default and 32.9 with `everywhere`, and 11.4 % of the voiced frames lose 10 dB or more of their voice against 18.7 %.
+ * VoiceBank+DEMAND's 824 test files, wide-band PESQ: 2.90 at the default, 3.04 with `everywhere`, 3.15 at Infinity
+ * (noisy 1.97, RX 12 Dialogue Isolate 2.72).
  * Before neural-denoise 0.5 every noise went `limit` dB down and no further, so noise as loud as the voice stayed
  * 18 dB under it, where iZotope RX 12 Dialogue Isolate takes it all: in noise at −5, 0 and 5 dB SNR (bench/rx/
- * isolate.mjs, test split) PESQ 1.73, 2.07, 2.44 against RX's 2.00, 2.28, 2.56; with the floor 2.11, 2.43, 2.70, DNSMOS
- * SIG 3.21 to 3.39 against RX's 3.07 to 3.33. VoiceBank+DEMAND PESQ 3.05 (2.90 before, RX 2.72); the narrations'
- * DNSMOS the same to 0.001 (package README, Measured). The package hears the input with its speech at −20 dBFS (the
+ * isolate.mjs, test split) PESQ 1.73, 2.07, 2.44 against RX's 2.00, 2.28, 2.56; with the floor everywhere (`everywhere`)
+ * 2.11, 2.43, 2.70, DNSMOS SIG 3.21 to 3.39 against RX's 3.07 to 3.33, the narrations' DNSMOS the same to 0.001
+ * (package README, Measured). The package hears the input with its speech at −20 dBFS (the
  * model is not level-free: quiet takes kept their noise, after a stretch of digital silence most), keeps the
  * sustained voicing the model takes for noise (VocalSet's held notes come out 1.9 dB down instead of 39; in noise at
  * 15 dB SNR, 3.4), and from 0.3 has the model hear the bands a band-limited input left empty (a 16 kHz file, a
@@ -54,8 +69,38 @@
 
 import audio, { memo, fingerprint } from '../core.js'
 import { prepared, playback } from '../plan.js'
+import { inUnit, what } from '../batch.js'
 
 const LIMIT = 18
+
+export const NEURAL = '@audio/neural-denoise', NEEDS = '0.8.1'
+const older = (v, w) => { let a = v.split(/[.+-]/).map(Number), b = w.split('.').map(Number); for (let i = 0; i < 3; i++) if ((a[i] || 0) !== b[i]) return (a[i] || 0) < b[i]; return false }
+
+/**
+ * @audio/neural-denoise as these ops call it (deepfilter, derustle, auto's neural stage), or null where it is not
+ * installed and `optional`. They need 0.8.1 or later, whose mixback() reads a limit of 0 as nothing taken and Infinity
+ * as none, and takes `everywhere`: before 0.8 a limit of 0 was none (deepfilter(0) would render the model's whole
+ * removal) and the floor acted under the voice too, and 0.8.0 has no `everywhere` (derustle would mix as the default
+ * does). An earlier one is refused, by the version its package.json says; where a bundle cannot reach that file, by what
+ * its mixback() does with a limit of 0 and with `everywhere` (a bundle's loader may throw as it is asked for a file it
+ * lacks: audio.import = spec => loaders[spec]()).
+ */
+export async function denoiser(name, optional = false) {
+  let nd
+  try { nd = await audio.import(NEURAL) }
+  catch (e) { if (optional) return null; throw new Error(`${name}: install @audio/neural-denoise (${e.message})`) }
+  let v = await Promise.resolve().then(() => audio.import(`${NEURAL}/package.json`)).then(m => (m.default ?? m).version, () => null)
+  if (typeof v === 'string' ? older(v, NEEDS) : !fits(nd)) throw new Error(`${name}: @audio/neural-denoise ${typeof v === 'string' ? v : 'of a version before ' + NEEDS} is installed, and audio ${audio.version} needs ${NEEDS} or later (npm i @audio/neural-denoise@^${NEEDS})`)
+  return nd
+}
+// 0.1 s of a voice held level at −20 dBFS, what the model took of it as loud: a limit of 0 gives the input back, and
+// `everywhere` takes it to the 40 dB floor, 0.01 of itself, where the limit alone leaves 0.126
+function fits({ mixback }) {
+  if (typeof mixback !== 'function') return false
+  let y = new Float32Array(4800).fill(0.1), x = y.map((v, i) => v + (i & 1 ? 0.1 : -0.1))
+  let kept = mixback(x, y, { limit: 0, floor: 0, sampleRate: 48000 }), floored = mixback(x, y, { limit: 18, floor: 40, everywhere: true, sampleRate: 48000 })
+  return kept[100] === x[100] && Math.abs(floored[2400] - y[2400]) < 0.005
+}
 
 // What the model hears again where its voice y still carries a room: the take with the room's prediction off (dereverb's
 // WPE alone) in each channel where dereverb would take a room off y and off the take (null: nowhere, y stands). Asked
@@ -87,10 +132,11 @@ export function removal(neural, pcm, sampleRate, { music = 'pass', weights, devi
     let model = await neural.load('deepfilternet3', { weights, device }).catch(e => {
       throw new Error(`can't load DeepFilterNet3 from ${weights ?? neural.MODEL} (${e.message}); it downloads once (8 MB) and is cached; { weights } takes another URL`)
     })
-    try { return await neural.default(pcm, { sampleRate, model, limit: 0, music }) }
+    try { return await neural.default(pcm, { sampleRate, model, limit: Infinity, music }) }
     finally { model.free() }
   })
 }
+
 
 /**
  * An op of the edit's input x and DeepFilterNet3's whole removal y (unlimited), made once ahead of rendering: per
@@ -101,7 +147,7 @@ export function removal(neural, pcm, sampleRate, { music = 'pass', weights, devi
  */
 export function enhancer(name, id, finish, again) {
   const ENHANCED = Symbol(name + '.enhanced')
-  const loadNeural = () => audio.import('@audio/neural-denoise').catch(e => { throw new Error(`${name}: install @audio/neural-denoise (${e.message})`) })
+  const loadNeural = () => denoiser(name)
 
   /** Enhance the edit's input (the audio as the edits before it leave it), ahead of rendering. */
   const prepare = prepared(ENHANCED, async o => {
@@ -120,18 +166,22 @@ export function enhancer(name, id, finish, again) {
   return { prepare, process: playback(name, ENHANCED) }
 }
 
+// A limit is dB, read as a registry op reads a param in dB ('16', '16db': 16), and refused at the call where it is no
+// such number: one under 0, a word (null is the default, as a value left out by its place)
+const DB = { type: 'number', unit: 'dB' }
+
 audio.op('deepfilter', {
   params: ['limit'],
-  nonfinite: { limit: { Infinity: 'none, as 0' } },
+  nonfinite: { limit: { Infinity: 'none' } },
+  settle: o => {
+    let v = o.limit
+    if (typeof v === 'string') v = o.limit = inUnit(DB, v, 'deepfilter', 'limit')
+    if (v != null && !(typeof v === 'number' && v >= 0)) throw new TypeError(`deepfilter: limit is dB, 0 (nothing taken under the voice) or more (Infinity: no limit), not ${what(v)}`)
+  },
   ...enhancer('deepfilter', o => {
-    let limit = o.limit ?? LIMIT, floor = o.floor
-    if (typeof limit !== 'number' || !(limit >= 0)) throw new TypeError(`deepfilter: limit is dB, 0 or more (0: none), not ${limit}`)
-    if (floor != null && (typeof floor !== 'number' || !(floor >= 0))) throw new TypeError(`deepfilter: floor is dB under the voice, 0 or more (0: none), not ${floor}`)
-    return `${limit}:${floor ?? ''}`
-  }, (x, y, o, sampleRate, { mixback }) => {
-    let limit = o.limit ?? LIMIT
-    if (!limit) return y
-    if (!mixback) throw new Error('deepfilter: needs @audio/neural-denoise 0.5 or later (its mixback())')
-    return mixback(x, y, { limit, floor: o.floor, sampleRate })
-  }, roomless),
+    let floor = o.floor, everywhere = o.everywhere ?? false
+    if (floor !== undefined && (typeof floor !== 'number' || !(floor >= 0))) throw new TypeError(`deepfilter: floor is dB under the voice, 0 or more (0: none), not ${floor}`)
+    if (typeof everywhere !== 'boolean') throw new TypeError(`deepfilter: everywhere is true or false, not ${everywhere}`)
+    return `${o.limit ?? LIMIT}:${floor ?? ''}:${everywhere}`
+  }, (x, y, o, sampleRate, { mixback }) => mixback(x, y, { limit: o.limit ?? LIMIT, floor: o.floor, everywhere: o.everywhere ?? false, sampleRate }), roomless),
 })

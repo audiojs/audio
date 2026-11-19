@@ -367,28 +367,34 @@ export interface AudioInstance {
   denoise(reduction: number, threshold: number, opts: DenoiseOpts): this
   denoise(reduction: number, opts: DenoiseOpts): this
   denoise(opts: DenoiseOpts & { reduction?: number, threshold?: number }): this
-  /** Speech enhancement by DeepFilterNet3 through @audio/neural-denoise (optional package; its 8 MB model downloads once,
-   *  cached): the whole input, once, before rendering; a live stream waits for its end. `limit`: the most the noise
-   *  drops, dB (default 18: room tone stays, the voice keeps its sound; 0: no limit). Held sung notes, which the model
-   *  alone takes for noise, are kept. `weights`: URL of an upstream ONNX export */
+  /** Speech enhancement by DeepFilterNet3 through @audio/neural-denoise 0.8.1 or later (optional package; its 8 MB model
+   *  downloads once, cached): the whole input, once, before rendering; a live stream waits for its end. `limit`: dB, how
+   *  far what the model took comes back down (default 18: room tone stays, a voice the model takes for noise loses no
+   *  more; 0: nothing taken under the voice; Infinity: no limit), a number or text in dB ('16db'). `floor`: dB under the
+   *  voice to which noise nearer it drops in the voice's pauses, where the model's output there stays 30 dB under it
+   *  (default 40; 0: none). `everywhere`: the floor under the voice too, what the model took back at one gain (cleaner
+   *  pauses; the voice it took goes with the noise). Held sung notes, which the model alone takes for noise, are kept.
+   *  `weights`: URL of an upstream ONNX export */
   /** A voice's band lost above `cutoff` Hz (found where the spectrum falls off a cliff, if not given) rebuilt from its own harmonics and breath. */
   recover(cutoff?: number): this
   recover(opts: { cutoff?: number }): this
-  deepfilter(limit?: number, opts?: { weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
-  deepfilter(opts: { limit?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  deepfilter(limit?: number | string, opts?: { floor?: number, everywhere?: boolean, music?: 'pass' | 'enhance', weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  deepfilter(opts: { limit?: number | string, floor?: number, everywhere?: boolean, music?: 'pass' | 'enhance', weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   /** The room off a voice: a trained model (optional @audio/neural-separate; @audio/neural-denoise to pass music), the room `reduction` dB down (60); method 'wpe': no model, @audio/denoise-dereverb's kernel */
   dereverb(reduction?: number, opts?: { music?: 'pass' | 'enhance', method?: 'roformer' | 'wpe', strength?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   dereverb(opts: { reduction?: number, music?: 'pass' | 'enhance', method?: 'roformer' | 'wpe', strength?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   /** A voice made again by Vocos, a neural vocoder (optional @audio/neural-vocode): another vocoder's artifacts (a TTS's frames ringing on) give way to Vocos's own; Vocos makes nothing above 12 kHz, so the input is kept above `crossover` Hz (11000; 0: Vocos's alone) */
-  /** A clip-on mic's clothing rustle off the voice, down to `reduction` dB under it (45), the room's tone 12 dB down (`ambience: false` takes it all); deepfilter()'s model */
+  /** A clip-on mic's clothing rustle off the voice, down to `reduction` dB under it (45) under the voice as in its pauses, the room's tone 12 dB down (`ambience: false` takes it all); deepfilter()'s model, mixed back as deepfilter({ everywhere: true }) mixes it */
   derustle(reduction?: number, opts?: { ambience?: boolean, music?: 'pass' | 'enhance', weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   vocos(opts?: { crossover?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   restore(strength?: number, opts?: { weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   restore(opts: { strength?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   /** RNNoise speech denoising, streaming, through @audio/neural-denoise (optional package, weights inside): 1439
-   *  samples of latency at 48 kHz, compensated; other rates resampled in and out. `limit`: dB (default 20; 0: none) */
-  rnnoise(limit?: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
-  rnnoise(opts: { limit?: number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+   *  samples of latency at 48 kHz, compensated; other rates resampled in and out. `limit`: dB, 0 to 100 (default 16;
+   *  0: nothing taken off; 100, or more: all the model takes but 100 dB of it). The take keeps its length: `tail: true`
+   *  renders the ring it declares past the end (77.3 ms at the default limit) */
+  rnnoise(limit?: number | string, opts?: { tail?: boolean | number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  rnnoise(opts: { limit?: number | string, tail?: boolean | number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
   resample(targetRate: number, opts?: { type?: 'linear' | 'sinc' }): this
 
   // ── Smart ops ───────────────────────────────────────────────
@@ -680,7 +686,7 @@ export interface AudioDocument {
   channels: number | null
   /** null where it cannot be said before a read (an op still to load, an align still to find its lag) */
   duration: number | null
-  /** The document's form: 2 writes { $number }; absent, the form audio 2.16 and earlier wrote (null for such a number). A later form than the reader's is refused at the load */
+  /** The document's form: 3 holds deepfilter's and rnnoise's limit as @audio/neural-denoise 0.8 reads it (0 nothing taken, Infinity none), where in 2 and earlier a limit of 0 was none, and is read back as Infinity; 2 writes { $number }; absent, the form audio 2.16 and earlier wrote (null for such a number). A later form than the reader's is refused at the load */
   schemaVersion?: number
 }
 

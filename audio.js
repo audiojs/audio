@@ -223,7 +223,7 @@ for (let name in OPS) opMethods(name)
 // of its own, a width no one knows before it loads (a `layouts` option picks): 0. So a width asked before one of them
 // has loaded is the width it will make, and an error naming the op only where that is not known (plan.js
 // deriveFormat). test/plugin-ops.js holds the list to the manifests installed
-for (let name of ['ducker', 'debleed', 'pingpong', 'isolate', 'widener', 'haas', 'panner', 'autopan', 'midside', 'microshift',
+for (let name of ['debleed', 'pingpong', 'isolate', 'widener', 'haas', 'panner', 'autopan', 'midside', 'microshift',
   'binaural']) widening.set(name, n => n > 1 ? n : 2)
 for (let [name, k] of [['rotary', 2], ['osc', 1], ['surround', 6]]) widening.set(name, k)
 for (let name of ['ambisonic-panner', 'ambisonic-decoder']) widening.set(name, 0)
@@ -232,7 +232,7 @@ for (let name of ['ambisonic-panner', 'ambisonic-decoder']) widening.set(name, 0
 // (pitch-shift). The ring they declare past the take's end renders only where an edit asks for it (`tail: true`:
 // core.js keeping). test/plugin-ops.js holds the list to the packages installed
 for (let name of ['dehum', 'specsub', 'wiener', 'omlsa', 'deplosive', 'dewind', 'dewow', 'debleed', 'declip', 'decrackle',
-  'debreath', 'desqueak', 'vocoder', 'formant-shift', 'paulstretch', 'pitch-shift', 'pitch-ola', 'pitch-transient',
+  'debreath', 'desqueak', 'rnnoise', 'deesser', 'vocoder', 'formant-shift', 'paulstretch', 'pitch-shift', 'pitch-ola', 'pitch-transient',
   'pitch-psola', 'pitch-wsola', 'pitch-granular', 'pitch-sms', 'pitch-hpss', 'pitch-sample', 'pitch-hybrid', 'pitch-delay',
   'pitch-lpc']) keeping.add(OPS[name])
 

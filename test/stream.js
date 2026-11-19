@@ -4,7 +4,12 @@
 // counted from the end, a pause still open), or it is listed in WHOLE with why. WHOLE may only
 // shrink: an entry that starts streaming fails here until it is removed.
 import test from 'tst'
+import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import os from 'node:os'
+import path from 'node:path'
 import audio from '../audio.js'
+import { SOUNDS } from './eval/sounds.js'
 
 const SR = 8000, CHUNK = 800
 // silence, tone, a 1.5 s pause, tone, trailing silence: something for trim and shrink to do
@@ -13,7 +18,7 @@ const B = () => audio.from(t => 0.2, { duration: 0.5, sampleRate: SR })
 const pause = () => new Promise(r => setTimeout(r, 1))
 // registry plugins load before the clock starts: input goes in at 100 times real time (0.1 s a millisecond), so a
 // plugin's first import would count as seconds of latency; what is measured is the stream's own
-await audio.use('limiter', 'compressor', 'freeverb')
+await audio.use('limiter', 'compressor', 'freeverb', 'softclip', 'multiband')
 
 /** Push X in chunks into a live source with `chain` applied, reading its stream concurrently.
  *  `first`: seconds of input pushed when the first output arrived. Each chunk goes in once the stream has done what it
@@ -69,6 +74,7 @@ const EXACT = {
   'declick(20 ms at 1 s)': [a => a.declick({ at: 1, duration: 0.02 }), 1.6],
   'denoise(noise 0.5 s at 1 s): learned once the range has arrived': [a => a.denoise({ noise: { at: 1, duration: 0.5 } }), 1.7],
   'plugins: limiter, compressor, freeverb': [a => a.limiter().compressor().freeverb(), 0.5],
+  'plugins: softclip, multiband': [a => a.softclip().multiband(), 0.5],
 }
 
 for (let [name, [chain, bound]] of Object.entries(EXACT)) test(`stream: ${name}`, async t => {
@@ -256,12 +262,25 @@ const WHOLE = {
   'auto()': [a => a.auto(), 'inherent: the take measured whole, rendered ahead (fn/auto.js)'],
   // registry atoms declared streaming: false, for their batch kernels (whole-signal oversampling,
   // state built per call, one-call synthesis); each moves out as its atom gains a streaming form
-  ...Object.fromEntries(['softclip', 'leveler', 'declip', 'decrackle', 'debreath', 'tapestop', 'tube', 'fm', 'modal', 'surround', 'paulstretch', 'pitch-shift', 'tune', 'plate', 'fdn', 'spring', 'shimmer', 'multiband', 'dyneq', 'tape', 'transistor', 'waveshaper', 'multisat', 'amp', 'cabinet', 'noise', 'chirp', 'pluck', 'risset', 'rhythm', 'sfx', 'kick', 'cymbal', 'snare', 'adsr', 'voice', 'poly', 'stretch-pvoc-lock', 'stretch-pvoc', 'stretch-pghi', 'stretch-wsola', 'stretch-psola', 'stretch-sms', 'stretch-transient', 'stretch-hybrid', 'stretch-paul'].map(n => [`${n}()`, [a => a[n](), 'atom declared streaming: false']])),
+  ...Object.fromEntries(['leveler', 'declip', 'decrackle', 'debreath', 'tapestop', 'tube', 'fm', 'modal', 'surround', 'paulstretch', 'pitch-shift', 'tune', 'plate', 'fdn', 'spring', 'shimmer', 'dyneq', 'tape', 'transistor', 'waveshaper', 'multisat', 'amp', 'cabinet', 'noise', 'chirp', 'pluck', 'risset', 'rhythm', 'sfx', 'kick', 'cymbal', 'snare', 'adsr', 'voice', 'poly', 'stretch-pvoc-lock', 'stretch-pvoc', 'stretch-pghi', 'stretch-wsola', 'stretch-psola', 'stretch-sms', 'stretch-transient', 'stretch-hybrid', 'stretch-paul'].map(n => [`${n}()`, [a => a[n](), 'atom declared streaming: false']])),
 }
 
 for (let [call, [chain, why]] of Object.entries(WHOLE)) test(`stream: waits for the whole input: ${call} (${why})`, async t => {
   let { first } = await live(chain, X.subarray(0, SR * 3), 2)
   t.ok(first >= 3, first >= 3 ? 'still waits' : `streams now (first output after ${first.toFixed(1)} s): remove it from WHOLE`)
+})
+
+// auto() where its plan puts DeepFilterNet3 (a voice under noise; the model in the neural cache): it waits for the whole
+// input, as on X, whose tones its plan holds no denoiser for, then renders what the whole take renders
+const neural = await import('@audio/neural-denoise').catch(() => null)
+const HAS_DFN = !!neural && existsSync(path.join(process.env.AUDIO_NEURAL_CACHE || path.join(os.homedir(), '.cache', 'audiojs', 'neural'), createHash('sha256').update(neural.MODEL).digest('hex')))
+;(HAS_DFN ? test : test.skip)('stream: auto() of a voice under noise, DeepFilterNet3 its denoiser: waits for the whole input, then the whole render', { timeout: 180000 }, async t => {
+  await audio.use('auto')   // the chain stat, which its module registers
+  let { x: [v], fs } = await SOUNDS.voices({ noise: 'pink', snr: 5 }), [x] = await audio.from([v], { sampleRate: fs }).resample(SR).read({ duration: 6 })
+  t.is((await audio.from([x], { sampleRate: SR }).stat('chain')).stages.find(s => s.name === 'denoise')?.atom, '@audio/neural-denoise', 'its plan: the neural stage')
+  let { out, first } = await live(a => a.auto(), x), [whole] = await audio.from([x], { sampleRate: SR }).auto().read()
+  t.ok(first >= x.length / SR, `first output once the input has ended (${first.toFixed(1)} s of ${(x.length / SR).toFixed(1)})`)
+  t.ok(same(out, whole), 'the whole take\'s render, sample for sample')
 })
 
 test.todo('stream: a day-long stream runs in bounded memory (pages consumed, stats kept as running aggregates)')

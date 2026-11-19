@@ -129,17 +129,18 @@ export function sourceAt (v, f, sr, bp) {
 export function paramState (specs, given = {}, op) {
 	let state = {}
 	for (let name in specs) {
-		let s = specs[name], v = given[name] !== undefined ? given[name] : s.alias != null ? given[s.alias] : undefined
+		let s = specs[name], v = given[name] ?? (s.alias != null ? given[s.alias] : undefined)
 		state[name] = { spec: s, op, name, src: undefined, bp: null, cur: 0, init: true, set: false, off: 0, at: 0, len: 0, buf: s.type === 'number' ? new Float32Array(1) : null }
-		setParam(state[name], v === undefined ? s.default : v, op, name)
+		setParam(state[name], v, op, name)
 	}
 	return state
 }
 
 // A new source for a param: a value, a function of seconds or a curve, as `accept` takes it, set anew (a jump from the
-// frame it is next read at) unless it is the one in place
+// frame it is next read at) unless it is the one in place. A value not given, undefined or null (left out by its place:
+// a.ducker(null, -30)), is the param's default, as the processor is built as at each block after
 export function setParam (p, v, op, name) {
-	v = accept(p.spec, v, op, name)
+	v = accept(p.spec, v ?? p.spec.default, op, name)
 	if (v === p.src) return
 	p.src = v
 	p.bp = null

@@ -305,9 +305,10 @@ export const FULL = 32767 / 32768
 /** The form of a document (toJSON), its `schemaVersion`. JSON holds no ±Infinity or NaN: JSON.stringify writes null, read
  *  back as no value (a saved gain(-Infinity), silence, would come back at unity gain). Form 2 writes such a number
  *  { $number: 'Infinity' | '-Infinity' | 'NaN' }, as store.js writes a typed array { $bytes }; a document with no
- *  schemaVersion is the form audio 2.16 and earlier wrote, null in their place. A reader refuses a later form than its
- *  own: what it holds may mean what this reader cannot say. */
-export const FORM = 2
+ *  schemaVersion is the form audio 2.16 and earlier wrote, null in their place. Form 3's deepfilter and rnnoise take a
+ *  limit of 0 as nothing taken and Infinity as none, where an earlier form's 0 was none (unlimited). A reader refuses a
+ *  later form than its own: what it holds may mean what this reader cannot say. */
+export const FORM = 3
 
 const plain = v => v !== null && typeof v === 'object' && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null)
 const TAGS = ['Infinity', '-Infinity', 'NaN']
@@ -343,7 +344,8 @@ export const jsonable = edits => remap(edits, toNumber)
 
 /** What a document's edits run as (audio(doc), the CLI's --macro): its numbers read back (form 2: an earlier form wrote
  *  none, so an object so shaped there is the edit's own), a sound it holds (a mix's source, written as a document of
- *  its own, its sampleRate with it) a sound again. A later form than FORM is refused, naming both. */
+ *  its own, its sampleRate with it) a sound again, an earlier form's limit of none as form 3 says it (unlimited). A
+ *  later form than FORM is refused, naming both. */
 export function docEdits(doc) {
   let n = doc.schemaVersion
   if (n != null && !(Number.isInteger(n) && n >= 1 && n <= FORM)) throw new TypeError(`audio: the document is schemaVersion ${JSON.stringify(n)}; audio ${audio.version} reads schemaVersion ${FORM} and earlier`)
@@ -351,12 +353,30 @@ export function docEdits(doc) {
   let number = n >= 2 ? fromNumber : v => v
   return doc.edits.map(e => {
     let name = Array.isArray(e) ? e[0] : e?.type ?? e?.name ?? e?.op
-    return remap(e, v => {
+    e = remap(e, v => {
       if (!plain(v) || !Array.isArray(v.edits) || !('source' in v) || typeof v.sampleRate !== 'number') return number(v)
       if (!v.source) throw new TypeError(`audio: ${name}: a sound made from samples, with no source to restore it from, is not in its document (a document holds a sound by its file)`)
       return audio(v)
     })
+    return n == null || n < 3 ? unlimited(e) : e
   })
+}
+
+/** A limit an earlier form than 3 holds that meant none, as @audio/neural-denoise before 0.8 read it: deepfilter's 0,
+ *  and rnnoise's 0 or under (its host clamped one under 0 to 0), by the number or as text in dB */
+const NONE = {
+  deepfilter: v => v === 0,
+  rnnoise: v => { let d = typeof v === 'string' && v.trim() !== '' ? Number(v.replace(/\s*db$/i, '')) : v; return typeof d === 'number' && d <= 0 }
+}
+/** The edit `e` of an earlier form, its limit of none Infinity, which says none in form 3 (a value by place too, as an
+ *  edit of an op not yet loaded holds it: { args }); an edit as [name, options] or, as the CLI's --macro reads one too,
+ *  { type | name | op, ...options } */
+function unlimited(e) {
+  let pair = Array.isArray(e), o = pair ? e[1] : e, name = pair ? e[0] : plain(e) ? e.type ?? e.name ?? e.op : null
+  let none = typeof name === 'string' && Object.hasOwn(NONE, name) && NONE[name], as = v => pair ? [e[0], v] : v
+  if (!none || !plain(o)) return e
+  if (o.limit !== undefined) return none(o.limit) ? as({ ...o, limit: Infinity }) : e
+  return Array.isArray(o.args) && none(o.args[0]) ? as({ ...o, args: [Infinity, ...o.args.slice(1)] }) : e
 }
 
 /** Internal protocol symbols for plugin overrides. */
@@ -561,9 +581,10 @@ export function ranged(input, output, ctx) {
  *  of time, its denoise stage neural where @audio/neural-denoise is installed. */
 audio.hosted = {}
 
-/** How a registry plugin's module loads. A bundled page whose bundler cannot see `import(spec)` (a worker has no
- *  import map) supplies literal imports: audio.import = spec => loaders[spec]() */
-audio.import = spec => import(spec)
+/** How a registry plugin's module loads, and a package's package.json (JSON, imported as JSON: an op that needs a version
+ *  of its package reads it so). A bundled page whose bundler cannot see `import(spec)` (a worker has no import map)
+ *  supplies literal imports: audio.import = spec => loaders[spec]() */
+audio.import = spec => spec.endsWith('.json') ? import(spec, { with: { type: 'json' } }) : import(spec)
 
 /** Register a codec plugin: { codec: fmt, test?(bytes) → bool, decode?(bytes) →
  *  { channelData, sampleRate } | Promise, encode?(opts) → enc } (enc(chunk) →

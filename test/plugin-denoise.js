@@ -52,12 +52,10 @@ function convolve(x, h) {
 // it) — see each package's audio.js header for why. The streaming ones declare a fixed latency (STFT analysis/synthesis buffering); .read()
 // applies plugin-delay-compensation transparently, so output compares directly against
 // the un-shifted reference at the same sample index (verified: cross-correlation of
-// output against the dry reference peaks at zero shift, not at the raw kernel latency).
+// output against the dry reference peaks at zero shift, not at the raw kernel latency). Loaded as the registry loads them,
+// repairs that keep a take's length: the ring each declares past its frames is not rendered (audio.js keeping)
 
-import { specsub } from '@audio/denoise-spectral/audio'
-import { wiener } from '@audio/denoise-wiener/audio'
-import { omlsa } from '@audio/denoise-omlsa/audio'
-audio.use(specsub, wiener, omlsa)
+await audio.use('specsub', 'wiener', 'omlsa')
 
 test('specsub: raises segSNR of noisy speech, latency-compensated by the engine', async () => {
 	let speech = lena.subarray(0, SR * 4)
@@ -146,9 +144,9 @@ test('dereverb wpe: reduces late-tail energy, never boosts it', async () => {
 // hosted with its function-form `latency` (lookahead ms → samples) compensated.
 
 import { gate } from '@audio/dynamics-gate/audio'
-import { deplosive } from '@audio/denoise-deplosive/audio'
-import { dewind } from '@audio/denoise-dewind/audio'
-audio.use(gate, deplosive, dewind)
+audio.use(gate)
+// the repairs as the registry loads them: what rings past their frames is not rendered (audio.js keeping)
+await audio.use('deplosive', 'dewind')
 
 test('gate: passes signal, silences the floor (look-ahead hysteresis)', async () => {
 	let n = SR, ch = new Float32Array(n)
@@ -413,14 +411,18 @@ const withImport = async (stub, fn) => { let orig = audio.import; audio.import =
 // a declaration, hoisted: tests above it run while the module still evaluates its top-level awaits
 function maxDiff(a, b) { let m = 0; for (let i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i] - b[i])); return m }
 
-// speech, a second's pause, speech; white noise throughout, `snr` dB under the speech
-function take(snr = 15) {
-	let clean = new Float32Array(5 * SR)
-	clean.set(lena.subarray(0, 2 * SR)); clean.set(lena.subarray(2 * SR, 4 * SR), 3 * SR)
+// speech, a pause of `gap` s, speech; white noise throughout, `snr` dB under the speech
+function take(snr = 15, gap = 1) {
+	let clean = new Float32Array((4 + gap) * SR)
+	clean.set(lena.subarray(0, 2 * SR)); clean.set(lena.subarray(2 * SR, 4 * SR), (2 + gap) * SR)
 	let n = noise(clean.length, 1, 7), k = rms(clean) / 10 ** (snr / 20) / rms(n)
 	return { clean, dirty: clean.map((v, i) => v + n[i] * k) }
 }
-const floorDb = d => 20 * Math.log10(rms(d, Math.round(2.25 * SR), Math.round(2.75 * SR)))
+// the level of the middle 500 ms of the pause, and of [a, b) s after the voice ends
+const floorDb = (d, gap = 1) => 20 * Math.log10(rms(d, Math.round((1.75 + gap / 2) * SR), Math.round((2.25 + gap / 2) * SR)))
+const afterDb = (d, a, b) => 20 * Math.log10(rms(d, Math.round((2 + a) * SR), Math.round((2 + b) * SR)))
+// the take without its pause
+const spoken = (d, gap) => { let o = new Float32Array(d.length - gap * SR); o.set(d.subarray(0, 2 * SR)); o.set(d.subarray((2 + gap) * SR), 2 * SR); return o }
 function speechDb(d) {
 	let F = Math.round(0.05 * SR), p = []
 	for (let i = 0; i + F <= d.length; i += F) p.push(rms(d, i, i + F) ** 2)
@@ -443,11 +445,36 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 	} finally { if (loaded) audio.op('rnnoise', loaded) }
 })
 
+;(neural ? test : test.skip)('deepfilter, derustle, auto: a @audio/neural-denoise older than 0.8.1 refused, naming its version and the one needed', async () => {
+	let { denoiser } = await import('../fn/deepfilter.js'), { dirty } = take(5), sine = Float32Array.from({ length: SR }, (_, i) => 0.3 * Math.sin(2 * Math.PI * 440 * i / SR))
+	let says = (op, v) => `${op}: @audio/neural-denoise ${v} is installed, and audio ${audio.version} needs 0.8.1 or later (npm i @audio/neural-denoise@^0.8.1)`
+	// the package as installed, its package.json saying `version` (null: a file a bundle cannot reach), its exports as `as` makes them
+	let stub = (version, as = m => m) => (spec, orig) => spec === '@audio/neural-denoise/package.json' ? (version == null ? Promise.reject(new Error('not in this bundle')) : Promise.resolve({ default: { version } }))
+		: spec === '@audio/neural-denoise' ? orig(spec).then(as) : orig(spec)
+	for (let v of ['0.5.0', '0.7.0', '0.8.0']) await withImport(stub(v), async () => {
+		for (let [op, f] of [['deepfilter', a => a.deepfilter()], ['derustle', a => a.derustle()], ['auto', a => a.auto()]])
+			is(await f(audio.from([dirty], { sampleRate: SR })).read().then(() => null, e => e.message), says(op, v), `${v}: ${op}, at its first read`)
+		ok((await audio.from([sine], { sampleRate: SR }).auto().read())[0].length === SR, `${v}: auto() of a take whose plan holds no denoiser renders`)
+	})
+	for (let v of ['0.8.1', '0.8.2', '0.9.0', '1.0.0']) await withImport(stub(v), async () => ok(await denoiser('deepfilter'), `${v}: taken`))
+	// no package.json to read: its mixback() asked. 0.7.0's reads a limit of 0 as none; 0.8.0's has no `everywhere`
+	let as07 = m => ({ ...m, mixback: (x, y, { limit = 18 } = {}) => { let a = limit ? 10 ** (-Math.abs(limit) / 20) : 0; return y.map((v, i) => v + a * (x[i] - v)) } })
+	let as08 = m => ({ ...m, mixback: (x, y, o) => m.mixback(x, y, { ...o, everywhere: false }) })
+	for (let [as, was] of [[as07, '0.7.0'], [as08, '0.8.0']]) await withImport(stub(null, as), async () =>
+		is(await denoiser('deepfilter').then(() => null, e => e.message), says('deepfilter', 'of a version before 0.8.1'), `its version unread, a mixback() as ${was}'s`))
+	await withImport(stub(null), async () => ok(await denoiser('deepfilter'), "its version unread, its own mixback(): taken"))
+	// a bundle's literal loaders (audio.import = spec => loaders[spec]()) throw as they are asked for a file they lack
+	await withImport((spec, orig) => { if (spec === '@audio/neural-denoise/package.json') throw new TypeError('loaders[spec] is not a function'); return orig(spec) }, async () =>
+		ok(await denoiser('deepfilter'), 'a loader that throws for its package.json: its mixback() asked, taken'))
+})
+
 ;(neural ? test : test.skip)('rnnoise: the noise floor drops by the limit and no further, speech keeps its level', NEURAL_RUN, async () => {
 	let { clean, dirty } = take(), D = (await import('@audio/neural-denoise/audio')).rnnoise.params.limit.default
 	// the package's default (16 dB from 0.3, 20 before): unlimited, the model gates clean speech and removes the voice on
 	// some noisy VoiceBank files (package README)
-	for (let [limit, lo, hi] of [[null, D - 2, D + .5], [10, 8, 10.5], [0, 40, Infinity]]) {
+	// Infinity: its top, 100 dB, all the model takes; 0: nothing taken, the take as the two resamplers carry it to 48 kHz
+	// and back (the noise's top band at their edge)
+	for (let [limit, lo, hi] of [[null, D - 2, D + .5], [10, 8, 10.5], [Infinity, 40, Infinity], [0, -.5, .5]]) {
 		let a = audio.from([dirty], { sampleRate: SR }), [y] = await (limit == null ? a.rnnoise() : a.rnnoise(limit)).read()
 		is(y.length, dirty.length, 'length kept')
 		let drop = floorDb(dirty) - floorDb(y), speech = speechDb(y) - speechDb(clean)
@@ -461,6 +488,20 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 	let [y] = await audio.from([x], { sampleRate: 48000 }).rnnoise().read()
 	is(audio.op('rnnoise').latency({}, 48000), 1439, '960 (RNNoise) + 479 (the frame queue)')
 	is(maxDiff(y, await neural.default(x, { sampleRate: 48000 })), 0, 'equal to the package offline, at its default limit')
+	is(maxDiff((await audio.from([x], { sampleRate: 48000 }).rnnoise(0).read())[0], x), 0, 'limit 0: nothing taken, the input sample for sample')
+	// null: a value left out by its place, the default limit from the first sample (RNNoise sounds at the limit it is built with)
+	is(maxDiff((await audio.from([x], { sampleRate: 48000 }).rnnoise(null).read())[0], y), 0, "null: the default's samples")
+})
+
+// a repair keeps the take's length (audio.js keeping: its package says restoration): the ring it declares past the take
+// (RNNoise's DC-blocking high-pass, 77.3 ms at the default limit) renders where an edit asks, tail: true, the take's
+// own samples the same either way
+;(neural ? test : test.skip)("rnnoise: the take's length kept; tail: true renders the ring it declares, the take as without", NEURAL_RUN, async () => {
+	let x = take().dirty.subarray(0, SR), { rnnoise } = await import('@audio/neural-denoise/audio'), t = rnnoise.tail({ params: { limit: Float32Array.of(rnnoise.params.limit.default) } })
+	let [y] = await audio.from([x], { sampleRate: SR }).rnnoise().read(), [z] = await audio.from([x], { sampleRate: SR }).rnnoise({ tail: true }).read()
+	is([y.length, z.length], [x.length, x.length + Math.round(t * SR)], `the take's length; tail: true, its ring of ${(t * 1000).toFixed(1)} ms too`)
+	is(maxDiff(z.subarray(0, x.length), y), 0, "the take's samples as without it")
+	ok(maxDiff(z.subarray(x.length), new Float32Array(z.length - x.length)) > 1e-4, 'a ring in it')
 })
 
 ;(neural && sinc ? test : test.skip)('rnnoise: at 44.1 kHz, resample-sinc in and out as denoise() does, streamed; channels apart', NEURAL_RUN, async () => {
@@ -480,14 +521,21 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 	ok(maxDiff(r, y) > 0.01, 'the other one too')
 })
 
-;(neural ? test : test.skip)('deepfilter: a model it cannot load names where it looked; limit is dB', async () => {
-	let a = () => audio.from([lena.slice(0, SR)], { sampleRate: SR })
+// a limit is dB as a registry op reads one (text in its unit), refused at the call where it is none; the floor, null among
+// what it refuses (the mix would read it as no floor), and `everywhere`, at the read, before any model loads
+;(neural ? test : test.skip)('deepfilter: a model it cannot load names where it looked; limit is dB, refused at the call where it is none', async () => {
+	let a = () => audio.from([lena.slice(0, SR)], { sampleRate: SR }), at = f => { try { f(); return null } catch (e) { return e.message } }
 	let err = await a().deepfilter({ weights: 'file:///nonexistent/DeepFilterNet3_onnx.tar.gz' }).read().catch(e => e)
 	ok(/^deepfilter: can't load DeepFilterNet3 from file:\/\/\/nonexistent\//.test(err?.message), err?.message)
-	err = await a().deepfilter(-3).read().catch(e => e)
-	ok(/^deepfilter: limit is dB/.test(err?.message), err?.message)
-	err = await a().deepfilter({ floor: -40 }).read().catch(e => e)
-	ok(/^deepfilter: floor is dB/.test(err?.message), err?.message)
+	is(at(() => a().deepfilter(-3)), 'deepfilter: limit is dB, 0 (nothing taken under the voice) or more (Infinity: no limit), not -3', 'under 0: at the call')
+	is(at(() => a().deepfilter('abc')), "deepfilter: limit takes dB, not 'abc'", 'a word: at the call')
+	for (let [v, want] of [['16', 16], ['16db', 16], [' 12 dB ', 12], ['1e1', 10], [null, null]]) is(a().deepfilter(v).edits[0][1].limit, want, `${JSON.stringify(v)}: read as ${want}`)
+	// text as rnnoise's host reads it: a number with its unit, not a word (Infinity is the number, not its name)
+	for (let v of ['Infinity', '0x10']) is(at(() => a().deepfilter(v)), `deepfilter: limit takes dB, not '${v}'`, `'${v}': at the call`)
+	for (let [o, says] of [[{ floor: -40 }, /^deepfilter: floor is dB under the voice, 0 or more \(0: none\), not -40$/], [{ floor: null }, /^deepfilter: floor is dB under the voice, 0 or more \(0: none\), not null$/], [{ everywhere: 'yes' }, /^deepfilter: everywhere is true or false, not yes$/]]) {
+		err = await a().deepfilter(o).read().catch(e => e)
+		ok(says.test(err?.message), err?.message)
+	}
 })
 
 ;(HAS_DFN ? test : test.skip)('deepfilter: the package on the op input, unlimited, the input mixed back by its mixback(); its channel only, once', NEURAL_RUN, async () => {
@@ -495,7 +543,7 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 	await withImport((spec, orig) => spec === '@audio/neural-denoise' ? orig(spec).then(m => ({ ...m, default: (...a) => (calls++, m.default(...a)) })) : orig(spec), async () => {
 		let [input] = await audio.from([dirty], { sampleRate: SR }).gain(-6).read(), [ref] = await audio.from([clean], { sampleRate: SR }).gain(-6).read()
 		// the model run again on the take with the room's prediction off where its voice carries a room (roomless())
-		let run = x => neural.default(x, { sampleRate: SR, model: 'deepfilternet3', limit: 0, music: 'enhance' })
+		let run = x => neural.default(x, { sampleRate: SR, model: 'deepfilternet3', limit: Infinity, music: 'enhance' })
 		let y0 = await run([input]), heard = await roomless([input], y0, SR), [y] = heard ? await run(heard) : y0
 		calls = 0
 		let a = audio.from([dirty, dirty], { sampleRate: SR }).gain(-6).deepfilter({ channel: 1, music: 'enhance' })
@@ -507,10 +555,11 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 		is(calls, runs, 'enhanced once: re-reads and later edits reuse it')
 		let speech = speechDb(r) - speechDb(ref)
 		ok(Math.abs(speech) < 1.5, `speech ${speech.toFixed(2)} dB from the clean take`)
-		let [none] = await audio.from([input], { sampleRate: SR }).deepfilter({ limit: 0, music: 'enhance' }).read()
-		is(maxDiff(none, y), 0, 'limit 0: the package unlimited')
-		let [inf] = await audio.from([input], { sampleRate: SR }).deepfilter({ limit: Infinity, music: 'enhance' }).read()
-		is(maxDiff(inf, y), 0, 'limit Infinity: the same, no limit')
+		let one = o => audio.from([input], { sampleRate: SR }).deepfilter({ ...o, music: 'enhance' }).read().then(([v]) => v)
+		is(maxDiff(await one({ limit: Infinity }), y), 0, 'limit Infinity: the package unlimited')
+		is(maxDiff(await one({ limit: 0, floor: 0 }), input), 0, 'limit 0, floor 0: nothing taken, the take as it went in')
+		is(maxDiff(await one({ limit: 0 }), neural.mixback(input, y, { limit: 0, sampleRate: SR })), 0, 'limit 0: nothing taken under the voice, the floor in its pauses')
+		is(maxDiff(await one({ everywhere: true }), neural.mixback(input, y, { everywhere: true, sampleRate: SR })), 0, 'everywhere: the floor under the voice too')
 		// kept by the model and its input in a host's store (core.js memo), never by the limit: another instance at another
 		// limit reads the run back, the limit applied after it
 		let kept = new Map()
@@ -525,24 +574,52 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 	})
 })
 
-// limit: how far quiet noise drops, room tone kept; floor: how far under the voice loud noise ends (neural-denoise 0.5's
-// mixback(); 0.4 took every noise down by the limit, 18 dB, and left noise 15 dB under the voice 33 under it). Held notes,
-// which the model takes for noise, keep their level: VocalSet (Wilkins et al., ISMIR 2018, CC BY 4.0) singer F2's straight
-// long tones on /a/, once in the data cache (@audio/neural-denoise README, Accuracy: Singing); before the voice guard they
-// lost 17.5 dB, the limit's whole 18.
+// limit: how far what the model took comes back down, room tone kept; floor: how far under the voice loud noise ends in
+// the voice's pauses (neural-denoise's mixback(), which reads a pause off the model's output: frames 30 dB under its
+// voice, 0.3 s or more from it). White noise the model takes whole: in the middle of a 2 s pause, 0.75 s from the voice,
+// the floor; within 0.25 s of the voice, the limit, where `everywhere`, the floor under the voice too, takes the floor.
+// Held notes, which the model takes for noise, keep their level: VocalSet (Wilkins et al., ISMIR 2018, CC BY 4.0) singer
+// F2's straight long tones on /a/, once in the data cache (@audio/neural-denoise README, Accuracy: Singing); before the
+// voice guard they lost 17.5 dB, the limit's whole 18.
 const HELD = path.join(os.homedir(), '.cache', 'audiojs', 'data', 'vocalset', 'FULL', 'female2', 'long_tones', 'straight', 'f2_long_straight_a.wav')
-;(HAS_DFN ? test : test.skip)('deepfilter: noise loud against the voice ends 40 dB under it, quiet noise drops by the limit; held notes keep their level', NEURAL_RUN, async () => {
-	let { clean, dirty } = take(15), quiet = take(45).dirty
-	for (let [o, x, want] of [[{}, dirty, 'floor'], [{ floor: 45 }, dirty, 'floor'], [{ floor: 0 }, dirty, 18], [{ limit: 6, floor: 0 }, dirty, 6], [{}, quiet, 18]]) {
+;(HAS_DFN ? test : test.skip)('deepfilter: in the voice\'s pauses loud noise ends 40 dB under it, near the voice what the model took comes back by the limit, quiet noise drops by the limit; held notes keep their level', NEURAL_RUN, async () => {
+	let { clean, dirty } = take(15, 2), quiet = take(45, 2).dirty
+	for (let [o, x, want, near] of [[{}, dirty, 'floor', 18], [{ everywhere: true }, dirty, 'floor', 'floor'], [{ floor: 45 }, dirty, 'floor'], [{ limit: 0 }, dirty, 'floor'],
+		[{ floor: 0 }, dirty, 18, 18], [{ limit: 6, floor: 0 }, dirty, 6, 6], [{}, quiet, 18]]) {
 		let [y] = await audio.from([x], { sampleRate: SR }).deepfilter({ ...o, music: 'enhance' }).read()
-		let under = speechDb(y) - floorDb(y), drop = floorDb(x) - floorDb(y), at = o.floor ?? 40
-		if (want === 'floor') ok(Math.abs(under - at) < 1.5, `${JSON.stringify(o)}: the pause ${under.toFixed(1)} dB under the voice (${drop.toFixed(1)} down)`)
-		else ok(drop > want - 3 && drop < want + .2, `${JSON.stringify(o)}${x === quiet ? ', noise 45 dB under' : ''}: the pause ${drop.toFixed(1)} dB down`)
-		ok(Math.abs(speechDb(y) - speechDb(clean)) < 1.5, `speech ${(speechDb(y) - speechDb(clean)).toFixed(2)} dB from the clean take`)
+		let under = speechDb(y) - floorDb(y, 2), drop = floorDb(x, 2) - floorDb(y, 2), at = o.floor ?? 40, name = `${JSON.stringify(o)}${x === quiet ? ', noise 45 dB under' : ''}`
+		if (want === 'floor') ok(Math.abs(under - at) < 1.5, `${name}: the pause ${under.toFixed(1)} dB under the voice (${drop.toFixed(1)} down)`)
+		else ok(drop > want - 3 && drop < want + .2, `${name}: the pause ${drop.toFixed(1)} dB down`)
+		let by = afterDb(x, .05, .25) - afterDb(y, .05, .25), nearer = speechDb(y) - afterDb(y, .05, .25)
+		if (near === 'floor') ok(Math.abs(nearer - at) < 1.5, `${name}: 0.05 to 0.25 s after the voice ${nearer.toFixed(1)} dB under it (${by.toFixed(1)} down)`)
+		else if (near) ok(by > near - 3 && by < near + .2, `${name}: 0.05 to 0.25 s after the voice ${by.toFixed(1)} dB down`)
+		// the speech's level over its own frames: the pause left out, whose length would change which frames count
+		let speech = speechDb(spoken(y, 2)) - speechDb(spoken(clean, 2))
+		ok(Math.abs(speech) < 1.5, `speech ${speech.toFixed(2)} dB from the clean take`)
 	}
+	let [same] = await audio.from([dirty], { sampleRate: SR }).deepfilter({ limit: 0, floor: 0, music: 'enhance' }).read()
+	is(maxDiff(same, dirty), 0, 'limit 0, floor 0: the take as it went in, sample for sample')
 	if (!existsSync(HELD)) return console.log('  (no VocalSet in the data cache: held notes not checked)')
 	let [x] = await audio(HELD).read(), [y] = await audio(HELD).deepfilter().read()
 	ok(speechDb(y) - speechDb(x) > -3, `held notes: ${(speechDb(y) - speechDb(x)).toFixed(1)} dB`)
+})
+
+// On noise the model leaves some of (the eval's four VoiceBank voices under pink and moving noise as loud as them,
+// test/eval/sounds.js, read by its measures), what the two mixes give each other up: the default's gain is at least
+// `everywhere`'s in every frame, so it keeps more of the voice the model took (fewer voiced frames lost, the eval's
+// `lost`), and `everywhere`'s pauses are cleaner (the noise 0.3 s or more from the voice further under it, its `bed`).
+// Of a model that took nothing (its unlimited run given a limit of 0) both would read the same
+;(HAS_DFN ? test : test.skip)('deepfilter: on noise the model leaves, the default keeps more of the voice, `everywhere` the cleaner pauses', NEURAL_RUN, async () => {
+	let { SOUNDS } = await import('./eval/sounds.js'), { read } = await import('./eval/measures.js')
+	for (let noise of ['pink', 'moving']) {
+		let snd = await SOUNDS.voices({ noise, snr: 0 }), ctx = { ...snd, x: snd.x[0] }, m = {}
+		for (let [k, o] of [['default', {}], ['everywhere', { everywhere: true }]]) {
+			let y = await audio.from(snd.x, { sampleRate: snd.fs }).deepfilter(o).read()
+			m[k] = { lost: await read('lost', y, ctx), bed: await read('bed', y, ctx) }
+		}
+		ok(m.default.lost < m.everywhere.lost, `${noise} noise: voiced frames lost ${m.default.lost.toFixed(1)} %, everywhere ${m.everywhere.lost.toFixed(1)} %`)
+		ok(m.everywhere.bed > m.default.bed, `${noise} noise: the pauses ${m.default.bed.toFixed(1)} dB under the voice, everywhere ${m.everywhere.bed.toFixed(1)}`)
+	}
 })
 
 // music passes through both ops untouched (neural-denoise 0.4): a synthetic band, chords of plucked harmonic tones every
@@ -616,7 +693,7 @@ test('auto: without @audio/neural-denoise, chain\'s own denoiser: the take as ch
 	})
 })
 
-;(HAS_DFN && existsSync(VB) ? test : test.skip)('auto: a bed under a voice goes to DeepFilterNet3: the bed in its pauses 10 dB further down than chain\'s own leaves it, SI-SDR 1 dB higher; the recipe and its code() say so', NEURAL_RUN, async () => {
+;(HAS_DFN && existsSync(VB) ? test : test.skip)('auto: a bed under a voice goes to DeepFilterNet3: near the voice what the model took comes back by the stage\'s limit, SI-SDR 1 dB over chain\'s own; the recipe and its code() say so', NEURAL_RUN, async () => {
 	let { render } = await import('../fn/auto.js'), { code } = await import('@audio/chain')
 	let [ref] = await audio(VB).read(), x = noisy(ref, 5), fs = 48000
 	let [y] = await audio.from([x], { sampleRate: fs }).auto().read(), { channels, recipe } = await render([x], { sampleRate: fs, type: 'speech' })
@@ -625,17 +702,32 @@ test('auto: without @audio/neural-denoise, chain\'s own denoiser: the take as ch
 	is(d.atom, '@audio/neural-denoise', `the denoiser that ran: ${JSON.stringify(d.params)}`)
 	ok(code(recipe).includes(`import denoise from '@audio/neural-denoise'`) && !code(recipe).includes('omlsa'), 'code() imports it, and no other')
 	is((await audio.from([x], { sampleRate: fs }).chain()).stages.find(s => s.name === 'denoise').atom, '@audio/neural-denoise', 'the chain stat\'s recipe')
-	// the bed in the voice's pauses (its quietest tenth of 50 ms frames), dB under the voice: in 8.5, OM-LSA 26.7,
-	// DeepFilterNet3 45.4; SI-SDR in 5.0 dB, OM-LSA 14.2, DeepFilterNet3 16.1. PESQ, on the test takes of
-	// bench/rx/assistant.mjs whose plan puts the stage: 1.94 → 2.50 (RX 12 Repair Assistant tuned 2.28)
+	// the bed between its words (its quietest tenth of 50 ms frames, within 0.3 s of the voice), dB under the voice: the
+	// stage mixes what the model took back by its limit there (@audio/chain's 18 dB), the floor reaching pauses 0.3 s
+	// from the voice alone: in 8.4, OM-LSA 26.7, DeepFilterNet3 30.2; SI-SDR in 5.0 dB, OM-LSA 14.2, DeepFilterNet3 15.6
 	let F = 2400, frames = []
 	for (let i = 0; i + F <= ref.length; i += F) frames.push([rms(ref, i, i + F), i])
 	let quiet = frames.sort((a, b) => a[0] - b[0]).slice(0, Math.ceil(frames.length / 10)).map(f => f[1])
 	let under = v => speechDb(v) - 10 * Math.log10(quiet.reduce((s, i) => s + rms(v, i, i + F) ** 2, 0) / quiet.length)
 	let c = await classical(() => render([x], { sampleRate: fs, type: 'speech' }))
-	ok(under(y) > 40 && under(y) > under(c.channels[0]) + 10, `the bed in the pauses: ${under(x).toFixed(1)} dB under the voice in, chain's own ${under(c.channels[0]).toFixed(1)}, DeepFilterNet3 ${under(y).toFixed(1)}`)
+	let { limit } = recipe.stages.find(s => s.name === 'denoise').params
+	ok(under(y) - under(x) > limit - 3 && under(y) > under(c.channels[0]), `the bed between the words: ${under(x).toFixed(1)} dB under the voice in, chain's own ${under(c.channels[0]).toFixed(1)}, DeepFilterNet3 ${under(y).toFixed(1)} (its limit ${limit} dB)`)
 	let got = sisdr(await toned(ref, recipe, fs), y), was = sisdr(await toned(ref, c.recipe, fs), c.channels[0])
 	ok(got > 15.5 && got > was + 1, `SI-SDR ${sisdr(ref, x).toFixed(1)} dB in, chain's own ${was.toFixed(1)}, DeepFilterNet3 ${got.toFixed(1)}`)
+})
+
+// In the voice's pauses, 0.3 s and more from it, the stage takes the noise to its floor where the model leaves it none
+// and to its limit where it does: on the eval's voices under pink and under moving noise 5 dB down (test/eval/sounds.js,
+// its measures), the noise there 10 dB further under the voice than chain's own leaves it, and SI-SDR 1 dB higher
+;(HAS_DFN ? test : test.skip)('auto: on the eval\'s voices under noise, DeepFilterNet3\'s pauses 10 dB further down than chain\'s own, SI-SDR 1 dB higher', NEURAL_RUN, async () => {
+	let { SOUNDS } = await import('./eval/sounds.js'), { read } = await import('./eval/measures.js')
+	for (let noise of ['pink', 'moving']) {
+		let snd = await SOUNDS.voices({ noise, snr: 5 }), ctx = { ...snd, x: snd.x[0] }
+		let y = await audio.from(snd.x, { sampleRate: snd.fs }).auto().read(), c = await classical(() => audio.from(snd.x, { sampleRate: snd.fs }).auto().read())
+		let [bed, was, got, had] = [await read('bed', y, ctx), await read('bed', c, ctx), await read('sisdr', y, ctx), await read('sisdr', c, ctx)]
+		ok(bed > was + 10, `${noise} noise: the pauses ${bed.toFixed(1)} dB under the voice, chain's own ${was.toFixed(1)}`)
+		ok(got > had + 1, `${noise} noise: SI-SDR ${got.toFixed(2)} dB, chain's own ${had.toFixed(2)}`)
+	}
 })
 
 // the guard hears lena (a film's voice over its score) under white noise 10 dB down as music, all of it: the model would

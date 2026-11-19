@@ -1303,8 +1303,8 @@ test('CLI – a macro as toJSON writes it: -Infinity read back; a later form ref
     await runCli([input, '--macro', m, 'save', out, '--force'])
     t.ok((await (await audio(out)).read())[0].every(v => v === 0), 'its edits alone: the same')
     rmSync(out)
-    writeFileSync(m, JSON.stringify({ ...doc, schemaVersion: 3 }))
-    await t.rejects(() => runCli([input, '--macro', m, 'save', out]), /schemaVersion 3; audio \S+ reads schemaVersion 2 and earlier/)
+    writeFileSync(m, JSON.stringify({ ...doc, schemaVersion: 4 }))
+    await t.rejects(() => runCli([input, '--macro', m, 'save', out]), /schemaVersion 4; audio \S+ reads schemaVersion 3 and earlier/)
     t.ok(!existsSync(out), 'nothing written')
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })

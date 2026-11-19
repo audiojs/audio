@@ -66,3 +66,12 @@ test('compressor: upward half lifts quiet passages (OTT up)', async () => {
 	ok(lift > 1.4, `quiet tone lifted ${(20 * Math.log10(lift)).toFixed(1)} dB by upward half`)
 	ok(up.every(isFinite), 'finite')
 })
+
+// deesser keeps a take's length (its package says restoration), loaded as the registry loads it: the 1.5 ms ring it
+// declares renders where an edit asks, tail: true, the take's samples the same either way
+test("deesser: the take's length kept; tail: true renders its ring, the take as without", async () => {
+	await audio.use('deesser')
+	let x = tone(6000, 0.2), [kept] = await audio.from([x], { sampleRate: SR }).deesser().read(), [rung] = await audio.from([x], { sampleRate: SR }).deesser({ tail: true }).read()
+	is([kept.length, rung.length], [x.length, x.length + Math.round(0.0015 * SR)], "the take's length; tail: true, its 1.5 ms ring")
+	ok(kept.every((v, i) => v === rung[i]), "the take's samples as without it")
+})

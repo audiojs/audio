@@ -64,10 +64,10 @@ const AB = d => ['highpass(80)', d, 'compressor({ threshold: -24, ratio: 2.5 })'
 const PE = d => ['highpass(80)', d, 'deesser()', 'compressor({ threshold: -24, ratio: 2.5 })', "normalize('podcast')"]
 export const EXTRA = {
   // neural denoisers at their attenuation limits (deepfilter's default 18)
-  'dfn-0': ['deepfilter(0)'], 'dfn-12': ['deepfilter(12)'], 'dfn-18': ['deepfilter()'], 'dfn-24': ['deepfilter(24)'],
+  'dfn-0': ['deepfilter(Infinity)'], 'dfn-12': ['deepfilter(12)'], 'dfn-18': ['deepfilter()'], 'dfn-24': ['deepfilter(24)'],
   // the residual floor, dB under the voice (neural-denoise 0.5; 0: none, 0.4's fixed limit)
   'dfn-f0': ['deepfilter({ floor: 0 })'], 'dfn-f35': ['deepfilter({ floor: 35 })'], 'dfn-f45': ['deepfilter({ floor: 45 })'],
-  'rnn-0': ['rnnoise(0)'], 'rnn-20': ['rnnoise(20)'],
+  'rnn-0': ['rnnoise(Infinity)'], 'rnn-20': ['rnnoise(20)'],
   'ab-dfn12': AB('deepfilter(12)'), 'ab-dfn18': AB('deepfilter()'), 'ab-rnn20': AB('rnnoise(20)'),
   'pe-dfn12': PE('deepfilter(12)'), 'pe-dfn18': PE('deepfilter()'),
 }
@@ -169,9 +169,9 @@ async function neural(x, model, o) {
     models[model] = await nd.load(model === 'deepfilter' ? 'deepfilternet3' : 'rnnoise', { sessionOptions: { intraOpNumThreads: 1, interOpNumThreads: 1 } })
   }
   if (model === 'rnnoise') return { ch: await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: o.limit ?? 20 }), sr: x.sr }
-  let run = ch => denoise(ch, { sampleRate: x.sr, model: models[model], limit: 0 }), y = await run(x.ch), heard = await roomless(x.ch, y, x.sr), limit = o.limit ?? 18
+  let run = ch => denoise(ch, { sampleRate: x.sr, model: models[model], limit: Infinity }), y = await run(x.ch), heard = await roomless(x.ch, y, x.sr), limit = o.limit ?? 18
   if (heard) y = await run(heard)
-  return { ch: limit ? y.map((v, c) => mixback(x.ch[c], v, { limit, floor: o.floor, sampleRate: x.sr })) : y, sr: x.sr }
+  return { ch: y.map((v, c) => mixback(x.ch[c], v, { limit, floor: o.floor, everywhere: o.everywhere, sampleRate: x.sr })), sr: x.sr }
 }
 
 async function stage(x, s) {

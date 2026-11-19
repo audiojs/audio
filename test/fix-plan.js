@@ -917,12 +917,12 @@ test('whole render – on chosen channels: those alone, the others as they came'
 // ── Documents (toJSON, audio(doc)) ───────────────────────────────────
 
 // JSON holds no ±Infinity or NaN: JSON.stringify writes null, and a saved gain(-Infinity), silence, would read back at
-// unity gain. A document writes them { $number } and says its form (schemaVersion 2); audio(doc) reads them back
+// unity gain. A document writes them { $number } and says its form (schemaVersion 3); audio(doc) reads them back
 test('documents: ±Infinity and NaN written { $number }, read back by audio(doc); the form said; nothing copied without one', async t => {
   let file = new URL('fixture.wav', import.meta.url).pathname
   let a = (await audio(file)).gain(-Infinity), json = JSON.parse(JSON.stringify(a))
   t.is(json.edits[0], ['gain', { value: { $number: '-Infinity' } }], 'written as { $number }')
-  t.is(json.schemaVersion, 2, 'its form')
+  t.is(json.schemaVersion, 3, 'its form')
   let b = audio(json)
   t.is(b.edits[0], ['gain', { value: -Infinity }], 'read back')
   t.ok((await b.read())[0].every(v => v === 0), 'its render: silence')
@@ -945,9 +945,32 @@ test('documents: ±Infinity and NaN written { $number }, read back by audio(doc)
 // named, before its source is opened
 test('documents: a form later than the reader\'s refused at the load, naming both', async t => {
   let file = new URL('fixture.wav', import.meta.url).pathname, json = JSON.parse(JSON.stringify((await audio(file)).gain(-3)))
-  t.throws(() => audio({ ...json, schemaVersion: 3 }), /the document is schemaVersion 3; audio \S+ reads schemaVersion 2 and earlier/)
+  t.throws(() => audio({ ...json, schemaVersion: 4 }), /the document is schemaVersion 4; audio \S+ reads schemaVersion 3 and earlier/)
   t.throws(() => audio({ ...json, schemaVersion: '2' }), /schemaVersion "2"/, 'a form that is not one')
   t.is(audio({ ...json, schemaVersion: 1 }).edits, [['gain', { value: -3 }]], 'an earlier one read')
+})
+
+// Form 3's deepfilter and rnnoise read a limit of 0 as nothing taken and Infinity as none (@audio/neural-denoise 0.8); an
+// earlier form's 0 was none, and reads back as Infinity: what the document said, said as form 3 says it. deepfilter's
+// 0, and rnnoise's 0 or under (its host clamped one under 0 to 0), by name or by place (an op not loaded holds its
+// values so); any other value, any other op, and a form 3 document as written
+test('documents: an earlier form\'s deepfilter(0), rnnoise(0), its limit of none, read back as Infinity; form 3\'s 0 as 0', async t => {
+  let file = new URL('fixture.wav', import.meta.url).pathname
+  let edits = [['deepfilter', { limit: 0 }], ['deepfilter', { args: [0] }], ['rnnoise', { args: [0] }], ['rnnoise', { limit: -3 }], ['rnnoise', { limit: '0db' }],
+    ['deepfilter', { limit: 12, floor: 0 }], ['rnnoise', { args: [16] }], ['gain', { value: 0 }], ['deepfilter', {}]]
+  let none = [['deepfilter', { limit: Infinity }], ['deepfilter', { args: [Infinity] }], ['rnnoise', { args: [Infinity] }], ['rnnoise', { limit: Infinity }], ['rnnoise', { limit: Infinity }],
+    ['deepfilter', { limit: 12, floor: 0 }], ['rnnoise', { args: [16] }], ['gain', { value: 0 }], ['deepfilter', {}]]
+  let doc = { source: file, edits, sampleRate: 44100 }, { docEdits } = await import('../core.js')
+  for (let form of [undefined, 1, 2]) t.is(docEdits({ ...doc, schemaVersion: form }), none, `form ${form ?? 'none (2.16 and earlier)'}: a limit of none Infinity`)
+  t.is(docEdits({ ...doc, schemaVersion: 3 }), edits, 'form 3: as written')
+  // an edit as the CLI's --macro also reads one, an object naming its op
+  let objects = [{ type: 'deepfilter', limit: 0 }, { op: 'rnnoise', args: [0] }, { name: 'deepfilter', limit: 12 }, { type: 'gain', value: 0 }]
+  t.is(docEdits({ edits: objects, schemaVersion: 2 }), [{ type: 'deepfilter', limit: Infinity }, { op: 'rnnoise', args: [Infinity] }, objects[2], objects[3]], 'an edit as an object, form 2: a limit of none Infinity')
+  t.is(docEdits({ edits: objects, schemaVersion: 3 }), objects, 'an edit as an object, form 3: as written')
+  let saved = JSON.parse(JSON.stringify((await audio(file)).deepfilter(0).deepfilter(Infinity)))
+  t.is([saved.schemaVersion, saved.edits], [3, [['deepfilter', { limit: 0 }], ['deepfilter', { limit: { $number: 'Infinity' } }]]], 'written: form 3, 0 and Infinity as they are')
+  t.is(audio(saved).edits, [['deepfilter', { limit: 0 }], ['deepfilter', { limit: Infinity }]], 'read back as written')
+  t.is(audio({ ...saved, schemaVersion: 2 }).edits, [['deepfilter', { limit: Infinity }], ['deepfilter', { limit: Infinity }]], 'the same, said to be form 2: both none')
 })
 
 // The summary toJSON writes beside the edits (channels, duration) is what can be said before their ops load: a trim or

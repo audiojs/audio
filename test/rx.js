@@ -3,6 +3,7 @@
 // exactly by FFT, a disc's wow written into the phase, events planted at known times in a voice (audio-lena).
 import test, { ok, is, throws } from 'tst'
 import { readdirSync, existsSync } from 'fs'
+import { createHash } from 'crypto'
 import { homedir } from 'os'
 import { fileURLToPath } from 'url'
 import { cfft, cifft, fft } from 'fourier-transform'
@@ -438,8 +439,11 @@ const MRX = `${process.env.AUDIO_NEURAL_CACHE || homedir() + '/.cache/audiojs/ne
 
 // ── De-rustle ────────────────────────────────────────────────────
 
-// DeepFilterNet3 mocked: its voice half the input. derustle mixes the rest back as deepfilter does (neural-denoise's
-// mixback()), its rustle `reduction` dB under the voice, the room 12 dB down; the model's run is deepfilter's
+// DeepFilterNet3 mocked: its voice half the input. derustle mixes the rest back by neural-denoise's mixback() with the
+// floor everywhere (`everywhere`: rustle comes while the voice speaks), its rustle `reduction` dB under the voice, the
+// room 12 dB down: the samples audio 2.17.0 renders with neural-denoise 0.7.0, whose mixback() floored everywhere (their
+// SHA-256, from that release); the model's run is deepfilter's
+const RUSTLED = { '': '68579f601474c90788d0a64929ee64a681d9638f9c2ebe3179b21b9e009c4e8f', 30: '22e150943b637a3142c4aeb0ad26c55088f9253b682e95450ce03f29071186d7' }
 test('derustle: the model\'s voice and its rest mixed back, rustle to `reduction` dB under the voice, the room 12 dB down; one run shared with deepfilter', async () => {
   let x = song(48000), orig = audio.import, calls = 0, store = new Map()
   audio.import = spec => spec === '@audio/neural-denoise' ? Promise.reject(new Error(`Cannot find package '${spec}'`)) : orig(spec)
@@ -457,9 +461,13 @@ test('derustle: the model\'s voice and its rest mixed back, rustle to `reduction
   audio.memo = { get: k => store.get(k) ?? null, set: (k, v) => store.set(k, v) }
   try {
     let half = x.map(c => c.map(v => v / 2))
-    for (let [args, want] of [[[], c => mixback(x[c], half[c], { limit: 12, floor: 45, sampleRate: 48000 })], [[30], c => mixback(x[c], half[c], { limit: 12, floor: 30, sampleRate: 48000 })], [[{ ambience: false }], c => half[c]], [[Infinity], c => half[c]]]) {
+    for (let [args, want] of [[[], c => mixback(x[c], half[c], { limit: 12, floor: 45, everywhere: true, sampleRate: 48000 })], [[30], c => mixback(x[c], half[c], { limit: 12, floor: 30, everywhere: true, sampleRate: 48000 })], [[{ ambience: false }], c => half[c]], [[Infinity], c => half[c]]]) {
       let y = await audio.from(x, { sampleRate: 48000 }).derustle(...args).read()
       y.forEach((ch, c) => { let w = want(c); ok(ch.every((v, i) => v === w[i]), `(${args.map(a => JSON.stringify(a)).join(', ')}) channel ${c}`) })
+      if (args.join() in RUSTLED) {
+        let h = createHash('sha256'); for (let c of y) h.update(new Uint8Array(c.buffer, c.byteOffset, c.byteLength))
+        is(h.digest('hex'), RUSTLED[args.join()], `(${args.join(', ')}): audio 2.17.0's samples`)
+      }
     }
     await audio.from(x, { sampleRate: 48000 }).deepfilter().read()
     is(calls, 1, 'one model run: derustle\'s settings and deepfilter read it back')
@@ -468,7 +476,8 @@ test('derustle: the model\'s voice and its rest mixed back, rustle to `reduction
 
 // Three VoiceBank test takes (p232, CC BY 4.0) 0.5 s apart under a Freesound clothing recording of the de-rustle
 // bench's test split (188222, "fabric movement suit", CC0) as loud as them, through DeepFilterNet3 once it is cached:
-// SI-SDR against the takes as measured (deepfilter() 13.32, unlimited 13.28), and the takes alone barely touched
+// SI-SDR against the takes as measured (derustle() 13.31; deepfilter() 12.32, with everywhere 13.32, unlimited 13.28),
+// and the takes alone barely touched
 const VB = `${homedir()}/.cache/audiojs/data/vbdemand/clean_testset_wav`, RUSTLE = `${homedir()}/.cache/audiojs/data/rustle/test/188222.f32`
 const DFN = await import('@audio/neural-denoise').then(async m => existsSync(`${process.env.AUDIO_NEURAL_CACHE || homedir() + '/.cache/audiojs/neural'}/${(await import('crypto')).createHash('sha256').update(m.MODEL).digest('hex')}`), () => false)
 ;(DFN && existsSync(VB) && existsSync(RUSTLE) ? test : test.skip)('derustle: clothing rustle as loud as the voice off three VoiceBank takes, as measured', { timeout: 300000 }, async () => {

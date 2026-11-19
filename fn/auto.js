@@ -7,9 +7,11 @@
  *
  * Where @audio/neural-denoise is installed, a bed under speech goes to DeepFilterNet3 (deepfilter()'s model), not OM-LSA:
  * the plan names it (its `neural` option), the stages before it run, the model's whole removal of what they leave is
- * made (kept as deepfilter() keeps it: core.js memo) and mixed back by the package's mixback(), the noise 60 dB ×
- * intensity down, then the stages after it. On the tuning takes of bench/rx/assistant.mjs that carry a bed, repairs
- * alone: PESQ 1.99 → 2.74, DNSMOS OVRL 2.87 → 3.20 (chain.js NEURAL). Under 'speech' the voice is what is kept: a music
+ * made (kept as deepfilter() keeps it: core.js memo) and mixed back by the package's mixback() at the stage's limit and
+ * floor (@audio/chain 0.6: 60 dB × intensity down everywhere; after it, what the model took of the voice back 18 dB down
+ * at most, the noise in its pauses 60 dB × intensity under it), then the stages after it. On the tuning takes of
+ * bench/rx/assistant.mjs that carry a bed, repairs alone, at chain 0.6's: PESQ 1.99 → 2.74, DNSMOS OVRL 2.87 → 3.20
+ * (chain.js NEURAL). Under 'speech' the voice is what is kept: a music
  * bed goes with the noise. Music and voice-music keep chain's own denoiser (the model takes a music bed under a voice for
  * noise), and so does a take the model passes as music in its larger part, its guard leaving it as it came (the plan
  * made again on that share, saying so): lena, a film's voice over its score, under white noise 10 dB down, all of it
@@ -19,11 +21,13 @@
  */
 import audio, { emit } from '../core.js'
 import { prepared, playback } from '../plan.js'
-import { removal } from './deepfilter.js'
+import { removal, denoiser, NEURAL } from './deepfilter.js'
 import { declipped } from './declip.js'
 
-export const NEURAL = '@audio/neural-denoise'
-const RENDERED = Symbol('auto.rendered'), neural = () => audio.import(NEURAL).catch(() => null)
+export { NEURAL }
+// the package where it is installed, null where not; one older than the stage needs, its refusal (deepfilter.js
+// denoiser), thrown where the plan puts the stage: a take that needs no denoiser renders as without it
+const RENDERED = Symbol('auto.rendered'), neural = () => denoiser('auto', true).catch(refused => ({ refused }))
 
 /**
  * @audio/chain's recipe for the take as auto() plans it → { analysis, recipe, at, x, y }. Where @audio/neural-denoise
@@ -37,6 +41,7 @@ export async function planned(chain, nn, channels, fs, opts, run, say = () => {}
   say(['analysis'])
   let analysis = chain.analyze(channels, { fs, type: opts.type }), recipe = chain.plan(analysis, { ...opts, neural: !!nn })
   let at = recipe.stages.findIndex(s => s.atom === NEURAL), x = null, y = null
+  if (at >= 0 && nn.refused) throw nn.refused
   if (at < 0) return { analysis, recipe, at, x, y }
   if (at) say(names(recipe.stages.slice(0, at)))
   x = await run(recipe.stages.slice(0, at), channels)

@@ -83,7 +83,7 @@ function system(spec) {
     let o = JSON.parse(arg)
     let stems = once(async x => {
       separate ??= (await import('@audio/neural-separate')).default
-      let dialogue = (await op("deepfilter({ limit: 0, music: 'enhance' })")(x)).ch, rest = x.ch.map((c, k) => c.map((v, i) => v - dialogue[k][i]))
+      let dialogue = (await op("deepfilter({ limit: Infinity, music: 'enhance' })")(x)).ch, rest = x.ch.map((c, k) => c.map((v, i) => v - dialogue[k][i]))
       // the speech model alone: the dialogue, and the rest unsplit
       if (!o.model) return { dialogue }
       let s = (await separate(rest, { sampleRate: x.sr, model: o.model })).stems, K = rest.length

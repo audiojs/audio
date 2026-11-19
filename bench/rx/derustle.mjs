@@ -39,7 +39,7 @@ import { CONDITIONS, SYSTEMS as ISOLATE, f32, at, add, under, cut, demand, rende
 // DeepFilterNet3 forward and on the reversed input, averaged: fn/derustle.js)
 export const SYSTEMS = Object.assign(ISOLATE, {
   deepfilter: 'op:deepfilter()',
-  'deepfilter-0': 'op:deepfilter(0)',
+  'deepfilter-0': 'op:deepfilter(Infinity)',
   derustle: 'op:derustle()',
 })
 
