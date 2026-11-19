@@ -2,9 +2,13 @@
  * Playback: a voice renders the instance's timeline into a deck (deck.js), which plays it. The page's one
  * AudioContext in a browser, @audio/speaker in Node. The voice is shared with the worker, which runs it by its engine.
  */
-import audio, { emit, pacer, fromEnd, named } from '../core.js'
+import audio, { emit, pacer, fromEnd, named, LOAD } from '../core.js'
 import { emitMeter } from './meter.js'
 import { timeline, context, playback, TAKE } from '../deck.js'
+
+// The sound as far as playing it needs: its rate and channels known, its edits' ops loaded (a registry op can change the
+// width it opens the deck with)
+const loaded = a => a.edits.length ? a[LOAD]() : a._.ready
 
 const AHEAD = 2      // seconds rendered ahead of what plays, when the audio is there: a busy thread does not starve it
 const SEAM = 0.01    // a loop's seam: its last 10 ms crossfade (equal power) into the 10 ms before its start
@@ -95,7 +99,7 @@ export function voice(a, port, { at = 0, duration, loop = false, from, splice = 
     let rid = live = ++id, t0 = now()
     wake?.()   // a run waiting on the deck gives way
     try {
-      if (a._.ready) await a._.ready
+      await loaded(a)
       if (s < 0) { s = await fromEnd(a, s); e = dur != null ? s + dur : null; if (v < 0) v = v0 = s }
       if (rid !== live) return
       let sr = a.sampleRate, ch = a.channels || 1, pos = v, opened = false, pace = pacer()
@@ -179,7 +183,7 @@ const side = a => ({
   get s() { return a._.play }, set s(s) { a._.play = s },
   get ct() { return a._.ct }, set ct(t) { a._.ct = t },
   emit: (type, ...args) => emit(a, type, ...args),
-  ready: () => a._.ready,
+  ready: () => loaded(a),
   voice: (tp, o, s) => voice(a, tp.port(), {
     ...o,
     // the block heard: kept (a copy: the block itself goes to the deck) and measured when it plays

@@ -644,8 +644,10 @@ function handoff(h, from, o) {
     if (o.preservesPitch == null && t.keep != null) x.preservesPitch = t.keep
     x.muted = t.muted
   }
-  // the deck carries on when it has the channels; else a new one starts where the other stopped, over the same span
-  if (!t?.tp || t.head == null || Math.max(2, x.channels | 0) > t.tp.ch) {
+  // the deck carries on when it has the channels; else a new one starts where the other stopped, over the same span, as
+  // where the width is not known yet (a registry op that can change it, still to load: the new deck opens once it has)
+  let wide = () => { try { return Math.max(2, x.channels | 0) } catch { return Infinity } }
+  if (!t?.tp || t.head == null || wide() > t.tp.ch) {
     t?.tp?.stop()
     return begin(h, { at: span[0], duration: span[1], paused: o.paused ?? t?.paused, time: t?.time, from: t?.time })
   }

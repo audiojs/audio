@@ -62,7 +62,8 @@ export interface AudioInstance {
   stats: AudioStats
   /** Sample rate in Hz */
   sampleRate: number
-  /** Effective channel count (reflects remix edits) */
+  /** Effective channel count (reflects remix edits). Where a registry op still to load would change it (surround on
+   *  other than six channels, widener or panner on one), an error naming each such op (await audio.use(...names) first) */
   readonly channels: number
   /** Effective sample count (reflects structural edits) */
   readonly length: number

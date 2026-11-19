@@ -142,6 +142,8 @@ audio.stat('loudness', {
  *  -Infinity under one window. */
 function maxWindow(steps) {
   return async function(opts) {
+    // the edits' ops loaded first: the channels weighted are the ones they make
+    await this[LOAD]()
     let sr = this.sampleRate, nch = this.channels, W = steps * stepOf(sr), G = channelWeights(nch)
     let { chs, perCh } = resolveChannels(opts?.channel, nch), sets = perCh ? chs.map(c => [c]) : [chs]
     let [shelf, rlb] = kWeighting.coefs(sr), st = Array.from({ length: nch }, () => [state(), state()])

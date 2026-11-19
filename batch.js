@@ -251,6 +251,10 @@ export const settingAt = (specs, get, buffers, tempo, f, sr) => ({ sampleRate: s
  *  Float32Array[]'s, one for a Float32Array */
 export const channelsOf = b => ArrayBuffer.isView(b) ? 1 : b.pages ? b.channels : b.numberOfChannels ?? b.length
 
+// A buffer's channel count; null for a sound whose width is not known yet (an edit of its own that can change it, still
+// to load), which is counted where it renders, its edits loaded by then
+const countOf = b => { if (!b.pages) return channelsOf(b); try { return b.channels } catch { return null } }
+
 /** The buffers a processor declares (CONTRACT.md § Buffers), each as `given` holds it (`read(b, name)` turns one that
  *  has a rate, an audio instance or an AudioBuffer, into channels at the host's): a Float32Array[] as it is, a
  *  Float32Array as one channel, none as undefined. A channel count its declaration does not take is an error naming
@@ -260,8 +264,8 @@ export function buffersOf (factory, given = {}, read) {
 	for (let name in factory.buffers || {}) {
 		let b = given?.[name], ok = factory.buffers[name]?.channels
 		if (b == null) { out[name] = undefined; continue }
-		let n = channelsOf(b)
-		if (ok != null && ok !== 'any' && ![].concat(ok).includes(n)) throw new RangeError(`${idOf(factory)}: buffer ${name} has ${n} channel${n === 1 ? '' : 's'}, it takes ${[].concat(ok).join(' or ')}`)
+		let n = countOf(b)
+		if (n != null && ok != null && ok !== 'any' && ![].concat(ok).includes(n)) throw new RangeError(`${idOf(factory)}: buffer ${name} has ${n} channel${n === 1 ? '' : 's'}, it takes ${[].concat(ok).join(' or ')}`)
 		out[name] = ArrayBuffer.isView(b) ? [b] : b.pages || b.getChannelData ? read?.(b, name) : b
 	}
 	return out

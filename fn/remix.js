@@ -78,4 +78,5 @@ const remixCh = (curCh, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('remix', { params: ['layout'], process: remix, ch: remixCh })
+// a count or a list of channels: the width set outright, known whatever came before
+audio.op('remix', { params: ['layout'], process: remix, ch: remixCh, sets: o => o.layout != null })

@@ -13,7 +13,7 @@ export { render, wholeOf } from './plan.js'
 export { keysOf, recall, keep, onto, prefix, rootOf, idOf } from './checkpoint.js'
 
 import audio, { LOAD, loadOps, positional, blame } from './core.js'
-import { opMethods } from './plan.js'
+import { opMethods, widening } from './plan.js'
 
 // ── Plugin registry: name → package, loaded by dynamic import on first use (autowired:
 // a.compressor() works without audio.use; the atom loads at the first render).
@@ -212,6 +212,16 @@ audio.atoms = audio.plugins  // deprecated ≤2.5 name — same object, mutation
 // Registry ops are methods from the start (a dashed name under its camelCase too); positional args wait as `args`
 // until the op loads
 for (let name in OPS) opMethods(name)
+
+// The registry ops that can change a sound's width, as audio hosts their processors (core.js hostOp: a count on the
+// output, or layouts other than the input's), each with the widths it keeps: a stereo processor widens a mono sound and
+// keeps any other width; one that makes a count of its own keeps that count; one with layouts of its own, none known
+// before it loads (a `layouts` option picks). Asked before one of them has loaded, a width it would change is an error
+// naming it (plan.js deriveFormat). test/plugin-ops.js holds the list to the manifests installed
+for (let name of ['ducker', 'debleed', 'pingpong', 'isolate', 'widener', 'haas', 'panner', 'autopan', 'midside', 'microshift',
+  'binaural']) widening.set(name, n => n > 1)
+for (let [name, k] of [['rotary', 2], ['osc', 1], ['surround', 6]]) widening.set(name, n => n === k)
+for (let name of ['ambisonic-panner', 'ambisonic-decoder']) widening.set(name, () => false)
 
 /** Load every registry op an instance's edits name (dynamic import), then map the
  *  positional args recorded before it loaded onto its params, and settle its options as a call to it loaded would

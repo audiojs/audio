@@ -350,20 +350,28 @@ export function popEdit(a) {
 
 // ── Virtual Length/Channels ─────────────────────────────────────
 
+/** The registry ops whose processors can change a sound's width, each with the widths it keeps (audio.js names them): a
+ *  width one of them would change, asked before it has loaded, cannot be known, so the sound's `channels` is then an
+ *  error, as its length is */
+export const widening = new Map()
+
 /** Effective output format after all edits — the single home for folding the
  *  edit list through op `.sr`/`.ch` hooks (lightweight: no segments, no resolve). */
 function deriveFormat(a) {
   if (a._.fmtV === a.version) return a._.fmt
-  let sr = a._.sr, ch = a._.ch, known = true
+  let sr = a._.sr, ch = a._.ch, known = true, unknown = []
   for (let [i, [type, o = {}]] of a.edits.entries()) try {
     let desc = ops[type]
-    if (!desc) { known = false; continue }
+    // an op not loaded yet (a registry plugin before the first read) is passed as keeping the format, the width too
+    // unless it would change this one (on chosen channels it runs in place): then each such op is named
+    if (!desc) { known = false; if (o.channel == null && widening.get(type)?.(ch) === false && !unknown.includes(type)) unknown.push(type); continue }
     if (desc.sr) sr = desc.sr(sr, o) || sr
     if (desc.ch) { let { at, duration, channel, ...extra } = o; ch = widthOf(desc, ch, channel, extra) }
+    // an edit that sets the width outright (a remix to a count or a list of channels) makes it known again
+    if (desc.sets?.(o)) unknown = []
   } catch (e) { throw blame(e, a, i) }
-  // an op not loaded yet (a registry plugin before the first read) is passed as keeping the format; loading it changes
-  // no version, so that answer is not kept
-  a._.fmt = { sr, ch }; a._.fmtV = known ? a.version : -1
+  // loading changes no version, so an answer before it is not kept
+  a._.fmt = { sr, ch, unknown }; a._.fmtV = known ? a.version : -1
   return a._.fmt
 }
 
@@ -382,7 +390,12 @@ Object.defineProperties(fn, {
     return len
   }, configurable: true },
   channels: {
-    get() { return this.edits?.length ? deriveFormat(this).ch : this._.ch },
+    get() {
+      if (!this.edits?.length) return this._.ch
+      let { ch, unknown } = deriveFormat(this)
+      if (unknown.length) throw new Error(`${unknown.join(', ')}: can change the channel count, and ${unknown.length > 1 ? 'are' : 'is'} not loaded until the first read (await audio.use(${unknown.map(n => `'${n}'`).join(', ')}) to know it before)`)
+      return ch
+    },
     configurable: true
   },
 })
