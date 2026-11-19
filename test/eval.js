@@ -168,7 +168,8 @@ if (has('tighten') || has('accept')) {
     if (has('accept') && flag('accept') === id) fig[id] = { ...entry, accepted: flag('why') }
     // a figure held by no harm alone keeps a bound only while it is a known failure
     else if (!rule.back && !harmed) delete fig[id]
-    else if (!b || worse(m, b.value, value) > 0) fig[id] = entry
+    // a bound is written to four places: a reading the same there is the bound, not better than it (its reason kept)
+    else if (!b || worse(m, b.value, entry.value) > 0) fig[id] = entry
     else {
       let keep = { ...b, ...others.length && scatter > (b.scatter ?? 0) && { scatter: sig(scatter) } }
       if (keep.known && !harmed) delete keep.known
