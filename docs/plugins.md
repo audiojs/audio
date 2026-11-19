@@ -533,3 +533,51 @@ Stat plugins (land on `a.stat(name)`):
 **mir** structure · tempogram · melody · downbeat · fingerprint · drums · multif0 · transcribe · similarity · coversong · chroma · tonnetz
 
 Beyond the registry — kernels whose inputs aren't scalar params ship as plain packages for direct import: `@audio/reverb-convolution` (impulse response), `@audio/eq-fir` (response curve), `@audio/eq-crossover` (SOS designer), `@audio/tune-midi` (guide notes), `@audio/denoise-repair` (regions), `@audio/synth-dtmf` (digit string), `@audio/synth-wavetable` (tables), per-band forms of multiband/dyneq/multisat, and the `@audio/measure`, `@audio/sinusoidal`, `@audio/voice` tool/substrate families.
+
+## The eval
+
+`npm run eval` (test/eval.js) puts sounds through the library as installed and reads what comes back: it fails when
+a release makes a sound worse. Each case (test/eval/cases.js) is a sound, what is done to it (an op, `auto()`, the
+chain's plan, or a package's own call as its users make it) and what must hold after it:
+
+- **no harm**: the take is not worse than its input on the measure by more than a margin: a part's level 3 dB, two
+  channels' balance 1 dB, a tone's onset 6 dB, SI-SDR and the noise in a voice's pauses 0.5 dB, a voice's frames under
+  or silenced 2.5 %, no denoiser planned on a take that holds no noise;
+- **no step back**: the take is not worse than its bound in test/eval/bounds.json, read with the packages it names on
+  the date it names, by more than the scatter read across machines.
+
+The sounds: four VoiceBank+DEMAND voices and a VocalSet phrase (test/eval/voices, CC BY 4.0, their sources and cuts in
+its LICENSE.md, 750 kB), every other one made from a seed: voices under noise that stands still and that moves at 0, 5
+and 15 dB, noise alone, a radio channel (300 to 3400 Hz), a short word, tones, a chord and a sung phrase over digital
+silence, clipped takes beside their originals, and through each of `pitch()`'s methods a take cut loud, two phrases
+12 dB apart, a pure tone and two channels holding different sounds. Read by the measures in test/eval/measures.js:
+SI-SDR, the noise in the pauses against the voice, the voice's frames lost against the clean voice, what is left of
+noise alone, `compare()`'s voice against the input, a part's level, a tone's onset and its power at the frequency asked of the shift, the balance, the plan's denoisers.
+
+A harm today's packages do is a known failure, held at its reading: the run passes while it stays there, fails the day
+it gets worse, and says when it is gone. The bounds move only by a command: `npm run eval -- --tighten` makes a better
+reading the bound (never a worse one; `--tighten=a.json,b.json` takes the readings of other machines, written by
+`--readings=file`, the worst of them the bound and their spread its scatter); `--accept=case/measure --why=text` takes
+a step back, with its reason.
+
+Before a family package is published, the eval runs with it in place of the installed copy, its dependencies from its
+own folder where it holds them, else from audio's install (a range the install does not meet is named, and the run
+stops):
+
+```sh
+node test/eval.js @audio/denoise-declip=../denoise/packages/denoise-declip
+node test/eval.js @audio/shift-lpc=../shift/packages/shift-lpc @audio/shift-delay=../shift/packages/shift-delay
+node test/eval.js --audio=/tmp/fresh/node_modules/audio     # another install's audio, whole
+```
+
+DeepFilterNet3 (8 MB) downloads on the first run into ~/.cache/audiojs/neural; `--offline` skips the cases that need it
+where it is not cached, saying each; `--strict` (CI) fails a run that skipped any.
+
+What it cannot see, measured on its own takes: a gain on everything (SI-SDR is scale-free; it also reads a tone filter
+as error, a 300 Hz high-pass on a clean voice as -8.5 dB); noise left within 0.3 s of a phrase (the bed is read
+past that); noise under the voice itself (at 0 dB it moves the voice lost by 2.8 %); a voice turned down alike
+everywhere, or changed outside 300 to 3400 Hz (`compare()`'s voice band: a low-pass at 3 kHz reads none of it); the
+shape of noise left at the same power; what happens inside a part at its power; a click after a tone's first 4096
+frames; channels mixed into each other at their levels; a stage other than a denoiser that a plan puts on a tone (a
+1 kHz tone over silence is planned a dehum); and every sound it holds no case of: music beyond a chord and a sung
+phrase, rooms, codecs, rates other than 8, 16, 44.1 and 48 kHz.

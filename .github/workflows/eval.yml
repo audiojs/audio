@@ -1,0 +1,33 @@
+name: eval
+# test/eval.js: cases that fail when a release makes a sound worse (docs/plugins.md, The eval). On a push, against the
+# lockfile; each day, against what a new user installs today (every range at its latest), which is how a family
+# package's release reaches users
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      # DeepFilterNet3's export (8 MB, fetched once from its pinned commit into the neural cache)
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/audiojs/neural
+          key: neural-deepfilternet3-d375b2d
+      - if: github.event_name != 'schedule'
+        run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+      - if: github.event_name == 'schedule'
+        run: npm install --no-package-lock --no-audit --no-fund
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+      # every case runs: a skip fails the job
+      - run: npm run eval -- --strict

@@ -84,7 +84,8 @@
     "demo": "vhs docs/player.tape",
     "bench": "node bench/bench.js",
     "test:stream": "node test/one.js stream",
-    "test:live": "node test/live.js"
+    "test:live": "node test/live.js",
+    "eval": "node test/eval.js"
   },
   "dependencies": {
     "@audio/biquad": "^1.2.1",

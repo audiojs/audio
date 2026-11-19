@@ -1,0 +1,1179 @@
+{
+ "figures": {
+  "clean voice: auto/lost": {
+   "value": 2.1327,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "clean voice: auto/silenced": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "clean voice: auto/under": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "clean voice: deepfilter/lost": {
+   "value": 0.4739,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "clean voice: deepfilter/sisdr": {
+   "value": 36.2638,
+   "scatter": 7.3e-7,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "clipped chord: declip/sisdr": {
+   "value": 36.3592,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/denoise-declip": "0.5.1",
+    "audio": "2.16.1"
+   }
+  },
+  "clipped uniform: declip/sisdr": {
+   "value": 12.4283,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/denoise-declip": "0.5.2",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages",
+   "accepted": "declip 0.5.2 starts a white block's iteration at 0.3 of its lines: the harm is 0.5.1's and 0.5.0's (clipped uniform noise comes back about 4 dB further from its original than it went in), read 0.05 dB apart"
+  },
+  "clipped voice: declip/sisdr": {
+   "value": 22.8374,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/denoise-declip": "0.5.1",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch auto/level": {
+   "value": 0.1211,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift": "1.2.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch delay/level": {
+   "value": 1.4913,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-delay": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch formant/level": {
+   "value": 0.1321,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-formant": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch granular/level": {
+   "value": 1.4878,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-granular": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch hpss/level": {
+   "value": 1.6465,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hpss": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch hybrid/level": {
+   "value": 0.0731,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hybrid": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch lpc/level": {
+   "value": 15.4799,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-lpc": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "cut loud: pitch ola/level": {
+   "value": 6.674,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-ola": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "cut loud: pitch paulstretch/level": {
+   "value": 1.0343,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-paulstretch": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch phase-lock/level": {
+   "value": 0.0731,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch psola/level": {
+   "value": 0.0109,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-psola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch sample/level": {
+   "value": 0.4964,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sample": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch sms/level": {
+   "value": 1.764,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sms": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch transient/level": {
+   "value": 0.1211,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-transient": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch vocoder/level": {
+   "value": 1.0783,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-pvoc": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "cut loud: pitch wsola/level": {
+   "value": 0.0864,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-wsola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "moving noise alone: neural-denoise/left": {
+   "value": -30.3326,
+   "scatter": 0.0000043,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pink noise alone: deepfilter/left": {
+   "value": -28.654,
+   "scatter": 0.0000075,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pink noise alone: neural-denoise/left": {
+   "value": -28.654,
+   "scatter": 0.0000075,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch auto/onset": {
+   "value": 0.1107,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift": "1.2.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch auto/tone": {
+   "value": 0.0257,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift": "1.2.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch delay/onset": {
+   "value": 0.0832,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-delay": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch delay/tone": {
+   "value": 0.0098,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-delay": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch formant/onset": {
+   "value": 8.0017,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-formant": "1.1.5",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "pure tone: pitch formant/tone": {
+   "value": 0.0257,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-formant": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch granular/onset": {
+   "value": 0.0832,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-granular": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch granular/tone": {
+   "value": 22.0873,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-granular": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "pure tone: pitch hpss/onset": {
+   "value": 0.8056,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hpss": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch hpss/tone": {
+   "value": 0.0016,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hpss": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch hybrid/onset": {
+   "value": 0.1107,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hybrid": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch hybrid/tone": {
+   "value": 0.0257,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hybrid": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch lpc/onset": {
+   "value": 49.0539,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-lpc": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "pure tone: pitch lpc/tone": {
+   "value": 41.3441,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-lpc": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "pure tone: pitch ola/onset": {
+   "value": 0.0832,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-ola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch ola/tone": {
+   "value": 22.1048,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-ola": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "pure tone: pitch paulstretch/onset": {
+   "value": -0.1727,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-paulstretch": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch paulstretch/tone": {
+   "value": 2.1877,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-paulstretch": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch phase-lock/onset": {
+   "value": 0.6223,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch phase-lock/tone": {
+   "value": 0.0015,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch psola/onset": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-psola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch psola/tone": {
+   "value": 0.0055,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-psola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch sample/onset": {
+   "value": 0.0832,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sample": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch sample/tone": {
+   "value": 0.0027,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sample": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch sms/onset": {
+   "value": 0.816,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sms": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch sms/tone": {
+   "value": 0.0648,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sms": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch transient/onset": {
+   "value": 0.1107,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-transient": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch transient/tone": {
+   "value": 0.0257,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-transient": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch vocoder/onset": {
+   "value": 0.1672,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-pvoc": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch vocoder/tone": {
+   "value": 0.0016,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-pvoc": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch wsola/onset": {
+   "value": 0.0832,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-wsola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "pure tone: pitch wsola/tone": {
+   "value": 0.0027,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-wsola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "radio 5 dB: auto/lost": {
+   "value": 13.6232,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "radio 5 dB: auto/silenced": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "radio 5 dB: auto/under": {
+   "value": 2.2814,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "sung voice: auto/silenced": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "sung voice: auto/under": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "sung voice: deepfilter/lost": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch auto/balance": {
+   "value": 0.1613,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift": "1.2.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch delay/balance": {
+   "value": 0.1804,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-delay": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch formant/balance": {
+   "value": 0.2332,
+   "scatter": 3.4e-10,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-formant": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch granular/balance": {
+   "value": 0.0116,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-granular": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch hpss/balance": {
+   "value": 0.3712,
+   "scatter": 2.6e-11,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hpss": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch hybrid/balance": {
+   "value": 0.0547,
+   "scatter": 5e-11,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hybrid": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch lpc/balance": {
+   "value": 41.3312,
+   "scatter": 0.000049,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-lpc": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "two channels: pitch ola/balance": {
+   "value": 1.5187,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-ola": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "two channels: pitch paulstretch/balance": {
+   "value": 2.0216,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-paulstretch": "1.1.5",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "two channels: pitch phase-lock/balance": {
+   "value": 0.4747,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch psola/balance": {
+   "value": 0.2168,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-psola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch sample/balance": {
+   "value": 0.1462,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sample": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch sms/balance": {
+   "value": 1.1314,
+   "scatter": 2.4e-10,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sms": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "two channels: pitch transient/balance": {
+   "value": 0.1613,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-transient": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch vocoder/balance": {
+   "value": 0.4928,
+   "scatter": 1.2e-10,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-pvoc": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "two channels: pitch wsola/balance": {
+   "value": 0.3068,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-wsola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch auto/level": {
+   "value": 0.131,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift": "1.2.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch delay/level": {
+   "value": 0.8353,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-delay": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch formant/level": {
+   "value": 0.1643,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-formant": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch granular/level": {
+   "value": 1.431,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-granular": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch hpss/level": {
+   "value": 1.6733,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hpss": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch hybrid/level": {
+   "value": 0.1438,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-hybrid": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch lpc/level": {
+   "value": 5.9602,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-lpc": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "two phrases 12 dB apart: pitch ola/level": {
+   "value": 5.0999,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-ola": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "two phrases 12 dB apart: pitch paulstretch/level": {
+   "value": 2.7206,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-paulstretch": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch phase-lock/level": {
+   "value": 0.0932,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch psola/level": {
+   "value": 0.0034,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-psola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch sample/level": {
+   "value": 9.4243,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sample": "1.1.0",
+    "audio": "2.16.1"
+   },
+   "known": "read 2026-11-19: no harm fails with these packages"
+  },
+  "two phrases 12 dB apart: pitch sms/level": {
+   "value": 1.3645,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-sms": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch transient/level": {
+   "value": 0.131,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-transient": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch vocoder/level": {
+   "value": 0.5555,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-pvoc": "1.1.5",
+    "audio": "2.16.1"
+   }
+  },
+  "two phrases 12 dB apart: pitch wsola/level": {
+   "value": 0.0721,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/shift-wsola": "1.1.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 0 dB: neural-denoise/bed": {
+   "value": 29.5123,
+   "scatter": 0.0000078,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 0 dB: neural-denoise/lost": {
+   "value": 25.5924,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 0 dB: neural-denoise/sisdr": {
+   "value": 8.7639,
+   "scatter": 3.5e-7,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 15 dB: neural-denoise/bed": {
+   "value": 26.2962,
+   "scatter": 6.9e-7,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 15 dB: neural-denoise/lost": {
+   "value": 4.2654,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 15 dB: neural-denoise/sisdr": {
+   "value": 18.2386,
+   "scatter": 9.6e-8,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 5 dB: auto/bed": {
+   "value": 33.0537,
+   "scatter": 0.0000039,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 5 dB: auto/lost": {
+   "value": 15.8768,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 5 dB: auto/sisdr": {
+   "value": 9.0039,
+   "scatter": 4.4e-8,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 5 dB: neural-denoise/bed": {
+   "value": 30.2129,
+   "scatter": 5.4e-7,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 5 dB: neural-denoise/lost": {
+   "value": 13.7441,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in moving noise 5 dB: neural-denoise/sisdr": {
+   "value": 12.4467,
+   "scatter": 2.4e-7,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 0 dB: neural-denoise/bed": {
+   "value": 32.8749,
+   "scatter": 0.0000035,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 0 dB: neural-denoise/lost": {
+   "value": 18.7204,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 0 dB: neural-denoise/sisdr": {
+   "value": 9.8269,
+   "scatter": 1.9e-7,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 15 dB: neural-denoise/bed": {
+   "value": 33.5067,
+   "scatter": 2.2e-8,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 15 dB: neural-denoise/lost": {
+   "value": 2.8436,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 15 dB: neural-denoise/sisdr": {
+   "value": 18.3568,
+   "scatter": 2.6e-8,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 5 dB: auto/bed": {
+   "value": 35.9356,
+   "scatter": 8.6e-7,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 5 dB: auto/lost": {
+   "value": 14.6919,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 5 dB: auto/sisdr": {
+   "value": 9.1556,
+   "scatter": 3.9e-8,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 5 dB: deepfilter/bed": {
+   "value": 31.367,
+   "scatter": 0.0000021,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 5 dB: deepfilter/lost": {
+   "value": 10.9005,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 5 dB: deepfilter/sisdr": {
+   "value": 12.7316,
+   "scatter": 9.7e-8,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 5 dB: neural-denoise/bed": {
+   "value": 31.367,
+   "scatter": 0.0000021,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 5 dB: neural-denoise/lost": {
+   "value": 10.9005,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "voice in pink noise 5 dB: neural-denoise/sisdr": {
+   "value": 12.7316,
+   "scatter": 9.7e-8,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "word: auto/lost": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/chain": "0.6.0",
+    "@audio/denoise-detect": "0.7.1",
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  },
+  "word: deepfilter/lost": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-19",
+   "with": {
+    "@audio/neural-denoise": "0.7.0",
+    "audio": "2.16.1"
+   }
+  }
+ }
+}
