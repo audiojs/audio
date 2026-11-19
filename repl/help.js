@@ -6,10 +6,10 @@
 // The settings a card shows, in order, and after `|` those it folds under Advanced: the engine's own, and those few touch. An
 // op not listed shows them all.
 export const layouts = {
-  compressor: 'threshold ratio attack release knee makeup | upThreshold upRatio upKnee upRange',
-  gate: 'threshold range release | closeThreshold hold attack lookahead',
+  compressor: 'threshold ratio attack release knee makeup | link upThreshold upRatio upKnee upRange',
+  gate: 'threshold range release | closeThreshold hold attack lookahead link',
   deesser: 'mode threshold range | split fc Q ratio knee attack release lookahead',
-  expander: 'threshold ratio range | mode knee attack release',
+  expander: 'threshold ratio range | mode knee attack release link',
   leveler: 'target maxGain | frame smooth gate',
   unlimit: 'amount | drive adaptive crestTarget ceiling fastAttack fastRelease slowAttack slowRelease',
   ducker: 'threshold range attack release | ratio knee',
@@ -48,6 +48,7 @@ export const texts = {
     mix: 'How much of the effect is blended in: 0 is the original sound only, 1 is the effect only.',
     amp: 'How loud it plays, from silent (0) to full scale (1).',
     seed: 'The starting point of its random choices: the same number always gives the same result, another gives another take.',
+    link: 'How far the channels are turned down together. At 0 each follows its own level; at 1 all follow the loudest, so the stereo image stays where it is.',
     factor: 'Length. 2 makes it twice as long and 0.5 half as long; the pitch stays.'
   },
   // Edit
@@ -392,7 +393,7 @@ export const texts = {
     cutoff: 'Where the band stops, in Hz: above it the voice\'s harmonics and breath are rebuilt where the take lacks them. Left out, the edge is found where the spectrum falls off a cliff; a take with none gets nothing.'
   },
   deepfilter: {
-    limit: 'The most the noise is turned down, in dB. Past 18 the voice itself starts to sound filtered, like a call. At 0 nothing is taken under the voice; Infinity, written in the code, lifts the limit: the model\'s full cleaning, and pauses can fall to digital silence.',
+    limit: 'The most the noise is turned down, in dB. Past 18 the voice itself starts to sound filtered, like a call. At 0 nothing is taken under the voice. Infinity, in the code, lifts the limit: pauses can fall to digital silence.',
     music: 'pass leaves music as it is, songs included, and cleans only speech and noise. enhance cleans everything, which takes music down and dulls it.',
     floor: 'Noise the limit would leave closer than this to the voice, in dB, is taken down to this far under it; quieter noise keeps the limit, so the room stays. 0 keeps the limit alone.'
   },
