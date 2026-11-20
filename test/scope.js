@@ -18,7 +18,7 @@ const FEATURES = {
   run: ['repl/editor/run.js', 'repl/view/data.js', 'repl/sw.js'],
   look: ['repl/theme.js', 'repl/tint.js', 'repl/themes/', 'repl/themes.html', 'repl/skin.css', 'repl/scale.js'],
   menus: ['repl/hint.js', 'desktop/app.js'],
-  edits: ['repl/editor/edits.js', 'repl/recipes.js', 'repl/settings.js'],
+  edits: ['repl/editor/edits.js', 'repl/recipes.js', 'repl/settings.js', 'repl/help.js'],
   writers: ['repl/editor/writers.js', 'repl/view/gestures.js'],
   pitch: ['repl/view/notes.js', 'repl/editor/writers.js'],
   markers: ['repl/view/strips.js', 'repl/editor/writers.js'],
