@@ -13,7 +13,7 @@ import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
 import { resolveBuses, snap, hostCtx, fixed, idOf, paramState, setParam, valueAt, valuesAt, sourceAt, eachCall, noteEvents, notesIn, moveTransport, settingAt, buffersOf, channelsOf, widest, sideBuses, busIn, layoutChannels, what, accept } from './batch.js'
 
-audio.version = '2.18.0'
+audio.version = '2.18.1'
 
 /** Options as written short or long, the long kept: FFmpeg's `d` for duration (afade, acrossfade, atrim), and its
  *  crossfade filter's name, `xfade`, for crossfade. */
