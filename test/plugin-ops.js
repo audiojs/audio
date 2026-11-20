@@ -261,8 +261,9 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 
 // A repair or a pitch shift keeps its take's length (core.js keeping, ring): a processor the registry loads from a
-// package in audio.js's list renders none of the tail it declares; any other renders its tail, however short, and an
-// endless one audio.TAIL seconds. An edit's `tail` says otherwise: true, the ring; false, none; a number, that many
+// package in audio.js's list renders none of the tail it declares, and so does one handed in under such an op's name
+// (audio.use(manifest), audio.op(name, manifest): the rule is the op's); any other renders its tail, however short, and
+// an endless one audio.TAIL seconds. An edit's `tail` says otherwise: true, the ring; false, none; a number, that many
 // seconds of one that declares a tail. The processors here ring as a one-pole echo of their input, streaming or whole
 // (streaming: false), loaded as the registry loads its own (audio.import): over the take their samples are the same
 // either way, the tail cut and nothing else moved, and the ring asked for is the one they make
@@ -314,17 +315,25 @@ test("a repair's or a pitch shift's tail is cut to the take unless an edit asks;
     is([audio.op('probe-repair').keeps, audio.op('probe-repair-whole').keeps, audio.op('probe-echo').keeps], [true, true, undefined], 'the op says it keeps the length')
     is((await render('probe-own-tail', { tail: 0 })).length - n, Math.round(0.1 * SR), 'a param named tail is the processor\'s: its tail rendered')
 
-    // a processor of the user's own renders its tail, though it takes the name of a registry op that keeps the length
+    // the rule is the op's, by its name: a manifest handed in is hosted as the registry hosts it (import { vocoder }
+    // from '@audio/shift-pvoc/audio'; audio.use(vocoder) is a.vocoder(), a pitch shift), by audio.use under its id or
+    // by audio.op under the name given; under any other name it is the caller's own op, its tail rendered
+    let ring = Math.round(0.1 * SR)
     audio.op('probe-repair', ringing('probe-repair', 0.1, false))
+    audio.use(ringing('probe-repair-whole', 0.1, true))
+    is([(await render('probe-repair')).length - n, (await render('probe-repair-whole')).length - n], [0, 0], 'a manifest handed in under a repair\'s name keeps the length: audio.op(name, manifest), audio.use(manifest)')
+    is([(await render('probe-repair', { tail: true })).length - n, (await render('probe-repair-whole', { tail: true })).length - n], [ring, ring], 'its ring on tail: true, as the registry\'s own')
+    is([audio.op('probe-repair').keeps, audio.op('probe-repair-whole').keeps], [true, true], 'the op says it keeps the length, handed in too')
     audio.use(ringing('probe-user', 0.1, true))
-    is([(await render('probe-repair')).length - n, (await render('probe-user')).length - n], [Math.round(0.1 * SR), Math.round(0.1 * SR)], 'the user\'s own processor renders its tail')
+    audio.op('probe-mine', ringing('probe-repair', 0.1, false))
+    is([(await render('probe-user')).length - n, (await render('probe-mine')).length - n, audio.op('probe-mine').keeps], [ring, ring, undefined], 'under a name the registry does not keep, the caller\'s own op: its tail rendered, a repair\'s processor too')
 
     let shifted = (await sound().pitch(5, { method: 'delay' }).read())[0], rung = (await sound().pitch(5, { method: 'delay', tail: true }).read())[0]
     is([shifted.length - n, rung.length - n], [0, Math.round(0.1 * SR)], 'pitch({ method }): the shifter\'s tail cut, rendered on tail: true')
     ok(same(shifted, rung, n), 'pitch({ method }): the take the same samples either way')
   } finally {
     audio.import = load; audio.TAIL = T
-    for (let n of [...made, 'probe-user']) {
+    for (let n of [...made, 'probe-user', 'probe-mine']) {
       keeping.delete(audio.plugins[n])
       for (let k of [n, '_' + n]) delete audio.op()[k]
       // the registry's own op keeps its method

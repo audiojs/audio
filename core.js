@@ -541,7 +541,9 @@ const decay = t => t === Infinity ? audio.TAIL : t > 0 ? t : 0
  *  `restoration` or `pitch-shift`, the finer category the contract has a host read there. What rings past the end of a
  *  take a repair or a pitch shift renders is its own processing spread there (an STFT frame's gain over its samples, a
  *  grain's window), not sound the take had, and a take that comes back longer no longer lines up with what it was cut
- *  from, nor loops. audio.js names them; test/plugin-ops.js holds the list to the packages installed */
+ *  from, nor loops. audio.js names them; test/plugin-ops.js holds the list to the packages installed. The rule is the
+ *  op's, by its name: the processor keeps the length whether the registry loads it or its manifest is handed in
+ *  (audio.use(manifest), audio.op(name, manifest): hostOp) */
 export const keeping = new Set()
 
 /** The seconds of a processor's declared decay `t` an edit renders past its input, as its `tail` option says (`said`):
@@ -619,7 +621,8 @@ function useStat(m) {
 }
 
 /** Register a contract plugin (an audio.js manifest's factory) as the op its id names (hostOp), `keeps` where the
- *  registry loaded it from a package that keeps a take's length (keeping). One op to a name: the
+ *  registry loaded it from a package that keeps a take's length (keeping; hostOp reads the same of its name, so the
+ *  manifest handed in by the caller is hosted as the registry would host it). One op to a name: the
  *  same processor again is there already; a processor registered before under that id gives way to this one (a script
  *  run again in the editor defines its processor again); a built-in op's name is not its to take, and
  *  audio.op(name, processor) registers it under another. */
@@ -651,8 +654,10 @@ export function positional(d, a) {
  *  where one jumps, at most 32 frames while one moves (batch.js eachCall, as toBatch and toStream do). Notes, the
  *  transport (`bpm`, `timeSignature`), buffers and further input buses come from the edit's options, emissions go to
  *  its `emitted(name, value, time)`. audio.use registers a processor under its id, audio.op(name, processor) under the
- *  caller's name; `keeps`, one the registry loaded from a package that keeps a take's length (keeping). */
+ *  caller's name; `keeps`, one the registry loaded from a package that keeps a take's length (keeping), or hosted under
+ *  the name of a registry op that does: a.vocoder() is one op, a pitch shift, however its processor came. */
 export function hostOp(m, name, keeps = false) {
+  keeps ||= keeping.has(audio.plugins?.[name])
   // its op's method is how a call names it: an instance's own method under that name (read, save, clone) would answer;
   // an op's method (another op's camelCase, plan.js opMethods) gives way to it
   let method = audio.fn[name]
