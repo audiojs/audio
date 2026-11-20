@@ -99,7 +99,7 @@ for (let c of cases) {
   let take = y
   let ctx = { ...snd, x: c.do.stat ? x : x.length === 1 ? x[0] : x, fs }, dt = process.cpuUsage(t0), took = +((dt.user + dt.system) / 1e6).toFixed(2)
   // where a measure reads the take sample by sample against what the case knows, at the lag compare() reads
-  if (!c.do.stat && Object.keys(c.hold).some(m => ['sisdr', 'lost', 'bed'].includes(m))) {
+  if (!c.do.stat && Object.keys(c.hold).some(m => ['sisdr', 'lost', 'shown', 'bed'].includes(m))) {
     // under 2 s compare() reads no lag: read at 0 there (a lag the op left would read worse, never better)
     let cmp = await instrument.from(y, { sampleRate: fs }).compare(instrument.from(x, { sampleRate: fs })), d = cmp.lag == null ? cmp.why === 'short' ? 0 : null : Math.round(cmp.lag * fs)
     if (d == null) { out.fail++; say('not ok', `${c.id}: no lag between the take and the input (${cmp.why}): its measures are not read`); continue }

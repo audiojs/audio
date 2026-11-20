@@ -11,6 +11,17 @@
     "audio": "2.16.1"
    }
   },
+  "clean voice: auto/shown": {
+   "value": 2.1327,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/chain": "0.7.1",
+    "@audio/denoise-detect": "0.8.1",
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
+   }
+  },
   "clean voice: auto/silenced": {
    "value": 0,
    "scatter": 0,
@@ -40,6 +51,15 @@
    "with": {
     "@audio/neural-denoise": "0.7.0",
     "audio": "2.16.1"
+   }
+  },
+  "clean voice: deepfilter/shown": {
+   "value": 0.4739,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
    }
   },
   "clean voice: deepfilter/sisdr": {
@@ -845,6 +865,17 @@
     "audio": "2.17.0"
    }
   },
+  "radio 5 dB: auto/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/chain": "0.7.1",
+    "@audio/denoise-detect": "0.8.1",
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
+   }
+  },
   "radio 5 dB: auto/silenced": {
    "value": 0,
    "scatter": 0,
@@ -865,6 +896,17 @@
     "@audio/denoise-detect": "0.8.1",
     "@audio/neural-denoise": "0.8.1",
     "audio": "2.17.0"
+   }
+  },
+  "sung voice: auto/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/chain": "0.7.1",
+    "@audio/denoise-detect": "0.8.1",
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
    }
   },
   "sung voice: auto/silenced": {
@@ -896,6 +938,15 @@
    "with": {
     "@audio/neural-denoise": "0.7.0",
     "audio": "2.16.1"
+   }
+  },
+  "sung voice: deepfilter/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
    }
   },
   "two channels: pitch auto/balance": {
@@ -1208,6 +1259,15 @@
     "audio": "2.17.0"
    }
   },
+  "voice in moving noise 0 dB: neural-denoise/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
+   }
+  },
   "voice in moving noise 0 dB: neural-denoise/sisdr": {
    "value": 7.8432,
    "scatter": 3.5e-7,
@@ -1235,6 +1295,15 @@
    "with": {
     "@audio/neural-denoise": "0.8.1",
     "audio": "2.17.0"
+   }
+  },
+  "voice in moving noise 15 dB: neural-denoise/shown": {
+   "value": 0.2653,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
    }
   },
   "voice in moving noise 15 dB: neural-denoise/sisdr": {
@@ -1270,6 +1339,17 @@
     "audio": "2.17.0"
    }
   },
+  "voice in moving noise 5 dB: auto/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/chain": "0.7.1",
+    "@audio/denoise-detect": "0.8.1",
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
+   }
+  },
   "voice in moving noise 5 dB: auto/sisdr": {
    "value": 8.701,
    "scatter": 4.4e-8,
@@ -1301,6 +1381,15 @@
     "audio": "2.17.0"
    }
   },
+  "voice in moving noise 5 dB: neural-denoise/shown": {
+   "value": 0.3984,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
+   }
+  },
   "voice in moving noise 5 dB: neural-denoise/sisdr": {
    "value": 11.8959,
    "scatter": 2.4e-7,
@@ -1330,6 +1419,15 @@
     "audio": "2.17.0"
    }
   },
+  "voice in pink noise 0 dB: neural-denoise/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
+   }
+  },
   "voice in pink noise 0 dB: neural-denoise/sisdr": {
    "value": 8.4479,
    "scatter": 1.9e-7,
@@ -1357,6 +1455,15 @@
    "with": {
     "@audio/neural-denoise": "0.8.1",
     "audio": "2.17.0"
+   }
+  },
+  "voice in pink noise 15 dB: neural-denoise/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
    }
   },
   "voice in pink noise 15 dB: neural-denoise/sisdr": {
@@ -1392,6 +1499,17 @@
     "audio": "2.17.0"
    }
   },
+  "voice in pink noise 5 dB: auto/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/chain": "0.7.1",
+    "@audio/denoise-detect": "0.8.1",
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
+   }
+  },
   "voice in pink noise 5 dB: auto/sisdr": {
    "value": 8.7804,
    "scatter": 3.9e-8,
@@ -1423,6 +1541,15 @@
     "audio": "2.17.0"
    }
   },
+  "voice in pink noise 5 dB: deepfilter/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
+   }
+  },
   "voice in pink noise 5 dB: deepfilter/sisdr": {
    "value": 11.9059,
    "scatter": 9.7e-8,
@@ -1452,6 +1579,15 @@
     "audio": "2.17.0"
    }
   },
+  "voice in pink noise 5 dB: neural-denoise/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
+   }
+  },
   "voice in pink noise 5 dB: neural-denoise/sisdr": {
    "value": 11.9059,
    "scatter": 9.7e-8,
@@ -1473,6 +1609,17 @@
     "audio": "2.16.1"
    }
   },
+  "word: auto/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/chain": "0.7.1",
+    "@audio/denoise-detect": "0.8.1",
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
+   }
+  },
   "word: deepfilter/lost": {
    "value": 0,
    "scatter": 0,
@@ -1480,6 +1627,15 @@
    "with": {
     "@audio/neural-denoise": "0.7.0",
     "audio": "2.16.1"
+   }
+  },
+  "word: deepfilter/shown": {
+   "value": 0,
+   "scatter": 0,
+   "read": "2026-11-20",
+   "with": {
+    "@audio/neural-denoise": "0.8.1",
+    "audio": "2.18.1"
    }
   }
  }

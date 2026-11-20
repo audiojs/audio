@@ -7,6 +7,17 @@ import { power, active } from './sounds.js'
 
 const db = p => 10 * Math.log10(p)
 const dot = (a, b, i0 = 0, i1 = a.length) => { let s = 0; for (let i = i0; i < i1; i++) s += a[i] * b[i]; return s }
+// the energy of a − b over [i0, i1)
+const apart = (a, b, i0, i1) => { let s = 0; for (let i = i0; i < i1; i++) s += (a[i] - b[i]) ** 2; return s }
+// `lost`'s count: of the clean voice's 20 ms frames within 30 dB of its loudest that `kept(i, j)` keeps, the share whose
+// projection on the take holds 10 dB less of the frame than the whole take's projection holds of the whole, %
+function voiceLost(y, s, fs, kept = () => true) {
+  let F = Math.round(0.02 * fs), G = dot(y, s) / dot(s, s), e = [], n = 0, out = 0
+  for (let i = 0; i + F <= s.length; i += F) e.push(power(s, i, i + F))
+  let top = Math.max(...e)
+  for (let k = 0; k < e.length; k++) if (e[k] >= top * 1e-3 && kept(k * F, k * F + F)) { let i = k * F, g = dot(y, s, i, i + F) / dot(s, s, i, i + F); n++; if (g * g < 0.1 * G * G) out++ }
+  return 100 * out / n
+}
 // the power of y's line at f Hz over [i, j): its projection on a sine and a cosine there
 const line = (y, f, fs, i, j) => { let c = 0, s = 0, w = 2 * Math.PI * f / fs; for (let k = i; k < j; k++) { c += y[k] * Math.cos(w * k); s += y[k] * Math.sin(w * k) } return 2 * (c * c + s * s) / (j - i) ** 2 }
 
@@ -25,13 +36,16 @@ export const MEASURES = {
   // the voice lost: the share of the clean voice's 20 ms frames (those within 30 dB of its loudest, as active() takes
   // them) whose projection on the take holds 10 dB less of the clean frame than the whole take's projection holds of
   // the whole (a frame heard half as loud: S. S. Stevens, JASA 27, 1955, as compare() takes its 10 dB), %
-  lost: { better: 'down', unit: '%', of: (y, { s, fs }) => {
-    let F = Math.round(0.02 * fs), G = dot(y, s) / dot(s, s), e = [], n = 0, out = 0
-    for (let i = 0; i + F <= s.length; i += F) e.push(power(s, i, i + F))
-    let top = Math.max(...e)
-    for (let k = 0; k < e.length; k++) if (e[k] >= top * 1e-3) { let i = k * F, g = dot(y, s, i, i + F) / dot(s, s, i, i + F); n++; if (g * g < 0.1 * G * G) out++ }
-    return 100 * out / n
-  } },
+  lost: { better: 'down', unit: '%', of: (y, { s, fs }) => voiceLost(y, s, fs) },
+  // the voice lost where the input shows it: of the frames `lost` counts, those whose clean voice holds at least as
+  // much power as the input's noise (x − s) there, the share lost as `lost` reads it, %. A listener reliably detects a
+  // voice only in the time-frequency regions where it "contains at least as much energy as the masker" (Brungart,
+  // Chang, Simpson, Wang, JASA 120, 2006, p. 4007; the ideal binary mask's 0 dB local criterion, Wang 2005; read here
+  // per 20 ms frame across the band, which leaves out frames whose voice shows in some bands only), so the input is a
+  // fair reference there: `lost` counts the voice under the noise too, which no reading of the input can tell from
+  // noise (a denoiser that keeps the voice wherever it stands at or over the noise reads 0 here, whatever it takes
+  // under it)
+  shown: { better: 'down', unit: '%', of: (y, { s, x, fs }) => voiceLost(y, s, fs, (i, j) => dot(s, s, i, j) >= apart(x, s, i, j)) },
   // noise alone: what is left of it, the take's power over the input's, dB
   left: { better: 'down', unit: 'dB', of: (y, { x }) => db(power(y)) - db(power(x)) },
   // compare()'s voice (fn/compare.js): of the input's voiced frames, the share whose level now stands 10 dB or more
