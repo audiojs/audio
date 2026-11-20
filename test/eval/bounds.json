@@ -199,14 +199,13 @@
    }
   },
   "cut loud: pitch lpc/level": {
-   "value": 15.4799,
+   "value": 0.0682,
    "scatter": 0,
-   "read": "2026-11-19",
+   "read": "2026-11-20",
    "with": {
-    "@audio/shift-lpc": "1.1.0",
-    "audio": "2.16.1"
-   },
-   "known": "read 2026-11-19: no harm fails with these packages"
+    "@audio/shift-lpc": "1.2.0",
+    "audio": "2.18.0"
+   }
   },
   "cut loud: pitch ola/length": {
    "value": 0,
@@ -573,14 +572,14 @@
    }
   },
   "pure tone: pitch lpc/onset": {
-   "value": 49.0539,
+   "value": 14.7958,
    "scatter": 0,
-   "read": "2026-11-19",
+   "read": "2026-11-20",
    "with": {
-    "@audio/shift-lpc": "1.1.0",
-    "audio": "2.16.1"
+    "@audio/shift-lpc": "1.2.0",
+    "audio": "2.18.0"
    },
-   "known": "read 2026-11-19: no harm fails with these packages"
+   "known": "read 2026-11-20: no harm fails with these packages"
   },
   "pure tone: pitch lpc/tone": {
    "value": 49.8393,
@@ -936,12 +935,12 @@
    }
   },
   "two channels: pitch hpss/balance": {
-   "value": 0.3712,
+   "value": 0.371,
    "scatter": 2.6e-11,
-   "read": "2026-11-19",
+   "read": "2026-11-20",
    "with": {
-    "@audio/shift-hpss": "1.1.0",
-    "audio": "2.16.1"
+    "@audio/shift-hpss": "1.2.0",
+    "audio": "2.18.0"
    }
   },
   "two channels: pitch hybrid/balance": {
@@ -954,24 +953,23 @@
    }
   },
   "two channels: pitch lpc/balance": {
-   "value": 41.3312,
+   "value": 0,
    "scatter": 0.000049,
-   "read": "2026-11-19",
+   "read": "2026-11-20",
    "with": {
-    "@audio/shift-lpc": "1.1.0",
-    "audio": "2.16.1"
-   },
-   "known": "read 2026-11-19: no harm fails with these packages"
+    "@audio/shift-lpc": "1.2.0",
+    "audio": "2.18.0"
+   }
   },
   "two channels: pitch ola/balance": {
-   "value": 1.5187,
+   "value": 1.5101,
    "scatter": 0,
-   "read": "2026-11-19",
+   "read": "2026-11-20",
    "with": {
-    "@audio/shift-ola": "1.1.0",
-    "audio": "2.16.1"
+    "@audio/shift-ola": "1.2.0",
+    "audio": "2.18.0"
    },
-   "known": "read 2026-11-19: no harm fails with these packages"
+   "known": "read 2026-11-20: no harm fails with these packages"
   },
   "two channels: pitch paulstretch/balance": {
    "value": 2.0216,
@@ -992,12 +990,12 @@
    }
   },
   "two channels: pitch psola/balance": {
-   "value": 0.2168,
+   "value": 0.2167,
    "scatter": 0,
-   "read": "2026-11-19",
+   "read": "2026-11-20",
    "with": {
-    "@audio/shift-psola": "1.1.0",
-    "audio": "2.16.1"
+    "@audio/shift-psola": "1.2.0",
+    "audio": "2.18.0"
    }
   },
   "two channels: pitch sample/balance": {
@@ -1083,12 +1081,12 @@
    }
   },
   "two phrases 12 dB apart: pitch hpss/level": {
-   "value": 1.6733,
+   "value": 1.6732,
    "scatter": 0,
-   "read": "2026-11-19",
+   "read": "2026-11-20",
    "with": {
-    "@audio/shift-hpss": "1.1.0",
-    "audio": "2.16.1"
+    "@audio/shift-hpss": "1.2.0",
+    "audio": "2.18.0"
    }
   },
   "two phrases 12 dB apart: pitch hybrid/level": {
@@ -1101,24 +1099,23 @@
    }
   },
   "two phrases 12 dB apart: pitch lpc/level": {
-   "value": 5.9602,
+   "value": 1.9974,
    "scatter": 0,
-   "read": "2026-11-19",
+   "read": "2026-11-20",
    "with": {
-    "@audio/shift-lpc": "1.1.0",
-    "audio": "2.16.1"
-   },
-   "known": "read 2026-11-19: no harm fails with these packages"
+    "@audio/shift-lpc": "1.2.0",
+    "audio": "2.18.0"
+   }
   },
   "two phrases 12 dB apart: pitch ola/level": {
-   "value": 5.0999,
+   "value": 5.0996,
    "scatter": 0,
-   "read": "2026-11-19",
+   "read": "2026-11-20",
    "with": {
-    "@audio/shift-ola": "1.1.0",
-    "audio": "2.16.1"
+    "@audio/shift-ola": "1.2.0",
+    "audio": "2.18.0"
    },
-   "known": "read 2026-11-19: no harm fails with these packages"
+   "known": "read 2026-11-20: no harm fails with these packages"
   },
   "two phrases 12 dB apart: pitch paulstretch/level": {
    "value": 2.7206,
