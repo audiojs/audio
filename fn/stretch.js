@@ -22,9 +22,9 @@
 import { seg, subSeg, spliceSegs, planOffset, isCurve, curveFn, rangeOf } from '../plan.js'
 import { i0, sinc } from './dsp.js'
 import audio, { xfade } from '../core.js'
-import pvocLock from '@audio/stretch/pvoc-lock'
-import * as wsola from '@audio/stretch/wsola'
-import * as pvsola from '@audio/stretch/pvsola'
+import pvocLock from '@audio/stretch-pvoc-lock'
+import * as wsola from '@audio/stretch-wsola'
+import * as pvsola from '@audio/stretch-pvsola'
 
 // pvocLock stretches time and keeps pitch, with a phase-locked vocoder (Laroche & Dolson 1999,
 // @audio/stretch-pvoc-lock); a fractional cursor reads that stream at the rate it was stretched by, which shifts the

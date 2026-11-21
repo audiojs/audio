@@ -6,7 +6,7 @@ import test, { ok, almost, is } from 'tst'
 import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
 import { widening } from '../plan.js'
-import { layoutChannels } from '../batch.js'
+import { layoutChannels, idOf } from '../batch.js'
 import { compressor } from '@audio/dynamics-compressor/audio'
 import { freeverb } from '@audio/reverb-freeverb/audio'
 
@@ -283,7 +283,7 @@ test("a repair's or a pitch shift's tail is cut to the take unless an edit asks;
   let entry = (name, tail, whole, keeps, params) => {
     let spec = `@probe/${name}/audio`
     mods[spec] = { [name]: ringing(name, tail, whole, params) }; audio.plugins[name] = spec; made.push(name)
-    if (keeps) keeping.add(spec)
+    if (keeps) keeping.add(name)
   }
   audio.import = spec => mods[spec] ? Promise.resolve(mods[spec]) : load(spec)
   try {
@@ -339,7 +339,8 @@ test("a repair's or a pitch shift's tail is cut to the take unless an edit asks;
   } finally {
     audio.import = load; audio.TAIL = T
     for (let n of [...made, 'probe-user', 'probe-mine']) {
-      keeping.delete(audio.plugins[n])
+      // the registry's own op keeps its place in the list
+      if (n !== held[0]) keeping.delete(n)
       for (let k of [n, '_' + n]) delete audio.op()[k]
       // the registry's own op keeps its method
       if (n === held[0]) continue
@@ -372,24 +373,79 @@ test('a param given null: its default as the processor is built, as at each bloc
 // audio.js's list of the registry ops that keep a take's length (core.js keeping), against the packages installed: an
 // op is in it if and only if the package that defines its processor says `restoration`, `pitch-shift` or `time-stretch`
 // (a stretch's length is its factor's) in its keywords,
-// an umbrella's member (a module that re-exports one other) followed to the package it re-exports. So a package that
-// gains or loses either keyword fails here, by its op's name and the package's version. An op whose package is not
-// installed is named and left out
-test("the registry ops that keep a take's length: audio.js's list, the packages' keywords", () => {
+// a family's entry (a line `export * from` each member's manifest) followed to the member whose manifest is the op's. So
+// a package that gains or loses one of the keywords fails here, by its op's name and the package's version. An op whose
+// package is not installed is named and left out
+test("the registry ops that keep a take's length: audio.js's list, the packages' keywords", async () => {
   let req = createRequire(import.meta.url), say = {}, neither = {}, absent = []
   let pkgOf = file => { for (let d = dirname(file); ; d = dirname(d)) { let f = join(d, 'package.json'); if (existsSync(f)) { let p = JSON.parse(readFileSync(f, 'utf8')); if (p.name) return p } } }
-  let defining = spec => { let file = req.resolve(spec), m = readFileSync(file, 'utf8').match(/^\s*export \* from '([^']+)'\s*$/); return m ? defining(m[1]) : pkgOf(file) }
+  let defining = async (spec, name) => {
+    let file = req.resolve(spec), from = [...readFileSync(file, 'utf8').matchAll(/^\s*export \* from '([^']+)'\s*$/gm)].map(m => m[1])
+    for (let f of from) if (Object.values(await import(f)).some(m => typeof m === 'function' && m.params && idOf(m) === name)) return defining(f, name)
+    return pkgOf(file)
+  }
   for (let name of Object.keys(audio.plugins).filter(n => audio.fn[n]?.op === n)) {
     let p
-    try { p = defining(audio.plugins[name]) } catch { absent.push(name); continue }
+    try { p = await defining(audio.plugins[name], name) } catch { absent.push(name); continue }
     let kw = (p.keywords || []).filter(k => k === 'restoration' || k === 'pitch-shift' || k === 'time-stretch')
     if (kw.length) say[name] = `${p.name}@${p.version} says ${kw.join(' and ')}`
     else neither[name] = `${p.name}@${p.version} says neither`
   }
-  let listed = Object.keys(audio.plugins).filter(n => keeping.has(audio.plugins[n]))
+  let listed = Object.keys(audio.plugins).filter(n => keeping.has(n))
   is(Object.keys(say).filter(n => !listed.includes(n)).map(n => `${n}: ${say[n]}`), [], 'every op whose package says it keeps the length is in the list')
   is(listed.filter(n => !say[n]).map(n => `${n}: ${neither[n] ?? 'not installed'}`), [], 'every op in the list is one whose package says so')
   ok(listed.length > 20, `${listed.length} ops in the list${absent.length ? `; not installed: ${absent.join(', ')}` : ''}`)
+})
+
+// Each registry name loads by its family's entry (@audio/<family>/audio: the family's manifests together; or a package
+// of its own, chain, vocals, neural-denoise), never a member's path, and the entry holds a manifest whose op, stat or
+// codec is that name: the one audio.use(name) registers. A package not installed is named and left out
+test('every registry name is a manifest of its entry, by that name', async () => {
+  let off = [], absent = [], member = Object.entries(audio.plugins).filter(([, s]) => /^@audio\/[^/]+\/[^/]+\/audio$/.test(s))
+  let idsOf = ns => Object.values(ns).map(m => typeof m === 'function' && m.params && typeof m.params === 'object' ? idOf(m) : m?.stat ?? m?.codec)
+  for (let [name, spec] of Object.entries(audio.plugins)) {
+    let ns
+    try { ns = await audio.import(spec) } catch { absent.push(name); continue }
+    if (!idsOf(ns).includes(name)) off.push(`${name}: ${spec} exports ${idsOf(ns).filter(Boolean).join(', ')}`)
+  }
+  is(member.map(([n, s]) => `${n}: ${s}`), [], 'no name by a member\'s path')
+  is(off, [], 'each name a manifest of its entry')
+  ok(Object.keys(audio.plugins).length - absent.length > 150, `${Object.keys(audio.plugins).length - absent.length} names over ${new Set(Object.values(audio.plugins)).size} entries${absent.length ? `; not installed: ${absent.join(', ')}` : ''}`)
+})
+
+// A family's entry loads whole, and audio.use(name) registers from it the manifest that name asks for, replacing a
+// processor registered under that name before, as a package of one manifest did; the family's others with it, where
+// nothing holds their names yet (fm's bell and epiano, which the registry names nothing of their own): a caller's op
+// under a sibling's name, or a built-in op's, stays. A family loaded as the registry loads one (audio.import)
+test('a family\'s entry registers the name asked, and no sibling over a caller\'s own', async () => {
+  let made = id => Object.assign(ctx => (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][c]) }, { id, params: {}, channels: 'any' })
+  let load = audio.import, spec = '@probe/family/audio', fam = { probeA: made('probe-a'), probeB: made('probe-b'), probeC: made('probe-c'), probeBell: made('probe-bell') }
+  let mine = made('probe-b'), ours = made('probe-c'), names = ['probe-a', 'probe-b', 'probe-c', 'probe-bell']
+  for (let n of ['probe-a', 'probe-b', 'probe-c']) audio.plugins[n] = spec
+  audio.import = s => s === spec ? Promise.resolve(fam) : load(s)
+  try {
+    audio.op('probe-b', mine); audio.use(ours)
+    await audio.use('probe-a')
+    is([audio.op('probe-a')?.plugin, audio.op('probe-b')?.plugin, audio.op('probe-c')?.plugin, audio.op('probe-bell')?.plugin], [fam.probeA, mine, ours, fam.probeBell],
+      'probe-a and the unnamed probe-bell from the family; probe-b and probe-c stay the caller\'s, by audio.op and audio.use')
+    await audio.use('probe-b')
+    is(audio.op('probe-b')?.plugin, fam.probeB, 'the name asked replaces the caller\'s, as before')
+    let bell = made('probe-bell')
+    for (let n of ['probe-c', 'probe-bell']) for (let k of [n, '_' + n]) delete audio.op()[k]
+    delete audio.fn['probe-bell']; delete audio.fn.probeBell
+    audio.op('probe-bell', bell)
+    await audio.use('probe-a')
+    is([audio.op('probe-c')?.plugin, audio.op('probe-bell')?.plugin], [fam.probeC, bell], 'a sibling free again registers with the family\'s next load; one a caller holds stays the caller\'s')
+  } finally {
+    audio.import = load
+    for (let n of names) { delete audio.plugins[n]; for (let k of [n, '_' + n]) delete audio.op()[k]; delete audio.fn[n]; delete audio.fn[n.replace(/-(.)/g, (_, c) => c.toUpperCase())] }
+  }
+  // the registry's own: fm's entry is the synth family's, and its second and third processors come with it
+  try { await audio.use('fm') } catch (e) { return console.log(`  fm: not installed (${e.message.slice(0, 80)})`) }
+  is(['fm', 'bell', 'epiano'].map(n => typeof audio.op(n)?.plugin), ['function', 'function', 'function'], 'fm, and bell and epiano, which the registry names nothing of their own')
+  // the filter family's biquads are manifests under built-in ops' names (lowpass, highpass): they stay the built-ins
+  await audio.use('moog')
+  is(['moog', 'lowpass', 'highpass'].map(n => !!audio.op(n)?.plugin), [true, false, false], 'moog from its family; lowpass and highpass the built-in ops')
 })
 
 // ── Wave B: dynamics-gate + denoise-dehum ─────────────────────────────
@@ -883,6 +939,8 @@ test('buffers: a sound rendered at the op\'s rate, samples as they are, none und
     err = null
     try { a()['buffer-probe']({ ir: audio.from([x, x], { sampleRate: SR }).surround() }) } catch (e) { err = e }
     ok(err?.message.includes('buffer-probe: buffer ir has 6 channels, it takes 1 or 2'), `through surround, at the call: ${err?.message}`)
+    // (widener's load registered its family, ambisonic-panner with it: unloaded again)
+    delete audio.op()['ambisonic-panner']
     err = await a()['buffer-probe']({ ir: audio.from([x], { sampleRate: SR })['ambisonic-panner']() }).read().then(() => null, e => e)
     ok(err?.message.includes('buffer-probe: buffer ir has 4 channels, it takes 1 or 2'), `through an op whose width is not known before it loads, at the render: ${err?.message}`)
   } finally { for (let [n, d] of held) if (d) audio.op()[n] = d; else delete audio.op()[n] }
@@ -1297,7 +1355,7 @@ test('registry: ambisonic, stretch-pvsola, tonewheel and the weightings load by 
   let x = tone(440, 0.25, 0.5), notes = [{ time: 0.01, midi: 60, duration: 0.2 }]
   let batch = (name, chs, params) => toBatch(audio.op(name).plugin, { sampleRate: SR })(chs, { params, notes })
   let kernel = w => async (name, chs) => {
-    let { default: k } = await audio.import(`@audio/weighting/${w}`), t = audio.op(name).plugin.tail
+    let { default: k } = await audio.import(`@audio/weighting-${w}`), t = audio.op(name).plugin.tail
     let ring = Math.round((typeof t === 'function' ? t({ sampleRate: SR, params: {} }) : t || 0) * SR)
     return chs.map(c => { let z = new Float32Array(c.length + ring); z.set(c); return k(z, { fs: SR }) })
   }

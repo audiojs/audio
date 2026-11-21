@@ -159,6 +159,6 @@ audio.op('repair', {
   ranged: true,
   latency,
   warmup,
-  load: () => import('@audio/denoise/repair'),
+  load: () => import('@audio/denoise-repair'),
   process: repair,
 })

@@ -13,8 +13,8 @@
  * Inside a thread, serve(load): `load(mod)` gives the module (an import() in Node; a page's entry, which has no import
  * maps, gives its own static imports):
  *   import { serve } from 'audio/parallel'
- *   import * as declip from '@audio/denoise/declip'
- *   serve(mod => ({ '@audio/denoise/declip': declip })[mod])
+ *   import * as declip from '@audio/denoise-declip'
+ *   serve(mod => ({ '@audio/denoise-declip': declip })[mod])
  */
 
 const node = typeof process !== 'undefined' && !!process.versions?.node

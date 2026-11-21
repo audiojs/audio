@@ -141,7 +141,7 @@ audio.op('pitch', {
     }
     return [['pitch', { semitones: { t, v }, voice: ctx.voice }]]
   },
-  load: () => import('@audio/tune/curve').catch(() => null),
+  load: () => import('@audio/tune-curve').catch(() => null),
   process: pitchProc,
   latency: pitchLatency
 })

@@ -584,12 +584,14 @@ test('restart: a param read once, as the processor is built, takes one value for
 	let over = toStream(amLimiter, { params: { lookahead: 25 } })   // past its max, 20 ms: held there
 	assert.doesNotThrow(() => { over.write(x, { lookahead: 25 }); over.write(x, { lookahead: 25 }) }, 'toStream, the same value again, held: no change')
 	assert.ok(toBatch(amLimiter)(x, { params: { lookahead: 2, ceiling: t => -t } }), 'a live param still automates')
-	// audio: an op that loads at the first render says so there; one loaded, at the call
-	let a = audio.from([x], { sampleRate: SR }).limiter({ lookahead: moving })
-	await assert.rejects(a.read(), /limiter: lookahead is fixed for a render/, 'audio, loaded at the first render')
-	await audio.use('limiter')
-	assert.throws(() => audio.from([x], { sampleRate: SR }).limiter({ lookahead: moving }), /limiter: lookahead is fixed for a render/, 'audio, at the call')
-	assert.throws(() => audio.from([x], { sampleRate: SR }).limiter({ lookahead: { t: [0, 0.5], v: [2, 8] } }), /limiter: lookahead is fixed for a render/, 'a curve too')
+	// audio: an op that loads at the first render says so there; one loaded, at the call. The tape stop's time, of a
+	// family this file has not loaded (the limiter's came whole with the compressor above: a family's entry holds every member)
+	let a = audio.from([x], { sampleRate: SR }).tapestop({ time: moving })
+	await assert.rejects(a.read(), /tapestop: time is fixed for a render/, 'audio, loaded at the first render')
+	await audio.use('tapestop')
+	assert.throws(() => audio.from([x], { sampleRate: SR }).tapestop({ time: moving }), /tapestop: time is fixed for a render/, 'audio, at the call')
+	assert.throws(() => audio.from([x], { sampleRate: SR }).tapestop({ time: { t: [0, 0.5], v: [2, 8] } }), /tapestop: time is fixed for a render/, 'a curve too')
+	assert.throws(() => audio.from([x], { sampleRate: SR }).limiter({ lookahead: moving }), /limiter: lookahead is fixed for a render/, 'a member that came with its family, at the call')
 })
 
 test('toStream end() renders a tail declared as a function of ctx, as latency\'s function form is read', () => {

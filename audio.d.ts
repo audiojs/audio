@@ -783,7 +783,9 @@ declare namespace audio {
   function stat(): Record<string, StatDescriptor>
   function stat(name: string): StatDescriptor | undefined
   function stat(name: string, descriptor: StatDescriptor | ((chs: Float32Array[], ctx: { sampleRate: number, [k: string]: unknown }) => number | number[])): void
-  /** Plugin registry — name → package specifier (e.g. 'freeverb' → '@audio/reverb-freeverb/audio'), resolved by use(name) via dynamic import */
+  /** Plugin registry — name → package specifier, a family's processors by its umbrella's entry (e.g. 'freeverb' → '@audio/reverb/audio',
+   *  the reverb family's manifests), resolved by use(name) via dynamic import: the manifest the name asks for registers, the family's
+   *  others with it where their names are free */
   const plugins: Record<string, string>
   /** @deprecated ≤2.5 name — alias of `plugins` (same object) */
   const atoms: Record<string, string>

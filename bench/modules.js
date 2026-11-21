@@ -99,8 +99,8 @@ function graph(spec) {
 // imported once the hook is in place, so it sees them
 const { default: decodeWav } = await import('@audio/decode-wav'), { default: decodeMp3 } = await import('@audio/decode-mp3')
 const { lufs, truepeak } = await import('@audio/loudness'), { default: polyphase } = await import('@audio/resample-polyphase')
-const { default: pvocLock } = await import('@audio/stretch/pvoc-lock'), { default: pitchShift } = await import('@audio/shift')
-const { fft } = await import('fourier-transform'), { default: mfcc } = await import('@audio/spectral/mfcc')
+const { default: pvocLock } = await import('@audio/stretch-pvoc-lock'), { default: pitchShift } = await import('@audio/shift')
+const { fft } = await import('fourier-transform'), { default: mfcc } = await import('@audio/spectral-mfcc')
 const { beatTrack } = await import('@audio/beat')
 
 // ── the sound ───────────────────────────────────────────────────────────────
@@ -149,7 +149,7 @@ const MODULES = [
 	}), keep: first(48000 * 10) },
 	// 0.8 times the tempo: 750 s out, as librosa's rate=0.8, SoX's tempo 0.8 and FFmpeg's atempo=0.8 (the factor is the
 	// length's here)
-	{ op: 'stretch', name: '@audio/stretch (pvoc-lock)', mod: '@audio/stretch/pvoc-lock', run: () => {
+	{ op: 'stretch', name: '@audio/stretch (pvoc-lock)', mod: '@audio/stretch-pvoc-lock', run: () => {
 		let write = pvocLock({ factor: 1.25, channels: 2 }), a = write([L, R]), b = write()
 		return a.map((x, c) => { let y = new Float32Array(x.length + b[c].length); y.set(x); y.set(b[c], x.length); return y })
 	}, keep: first(0) },
@@ -162,7 +162,7 @@ const MODULES = [
 		return { re, im, F, half }
 	}, keep: ({ re, im, F, half }) => ({ F, half, mag: Float64Array.from({ length: 3 * half }, (_, i) => Math.hypot(re[1000 * half + i], im[1000 * half + i])) }) },
 	// librosa.feature.mfcc(n_mfcc=13)'s frame grid: 2048-point Hann frames every 512 samples of the mean
-	{ op: 'mfcc', name: '@audio/spectral (mfcc)', mod: '@audio/spectral/mfcc', run: () => {
+	{ op: 'mfcc', name: '@audio/spectral (mfcc)', mod: '@audio/spectral-mfcc', run: () => {
 		let out = []
 		frames(mono, 2048, 512, fr => out.push(mfcc(fr, { fs: SR, bins: 13 })))
 		return out

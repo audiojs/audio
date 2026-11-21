@@ -14,14 +14,14 @@ const zcHz = (d, sr = SR) => {
 	return zc / 2 / ((to - from) / sr)
 }
 
-// stretch({ method }): each algorithm in the vocoder's place, the edit its op's; its module the only one loaded. First
-// in the file, before the tests below load every one
-test('stretch({ method }) — the method\'s op does it, loaded alone', async () => {
+// stretch({ method }): each algorithm in the vocoder's place, the edit its op's; loaded by the family's entry, which
+// registers the other algorithms with it (core.js use). First in the file, before the tests below load every one
+test('stretch({ method }) — the method\'s op does it, its family loaded with it', async () => {
 	let a = audio.from([tone(440, 1)], { sampleRate: SR }).stretch(2, { method: 'wsola' })
 	is(a.edits[0][0], 'stretch-wsola', 'the edit is the method\'s')
 	let pcm = await a.read()
 	is(pcm[0].length, SR * 2, 'twice as long')
-	ok(audio.op('stretch-wsola') && !audio.op('stretch-pghi') && !audio.op('stretch-sms'), 'its module loaded, no other')
+	ok(audio.op('stretch-wsola') && audio.op('stretch-pghi') && audio.op('stretch-sms'), 'its family\'s entry loaded, the other algorithms registered with it')
 	is(audio.from([tone(440, 1)], { sampleRate: SR }).stretch(2, { method: 'phase-lock' }).edits[0][0], 'stretch', 'phase-lock: the vocoder\'s own')
 })
 

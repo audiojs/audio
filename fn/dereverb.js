@@ -67,7 +67,7 @@ function id(o) {
 
 async function dereverbed(pcm, fs, o) {
   if (o.method === 'wpe') {
-    let { default: wpe } = await import('@audio/denoise/dereverb').catch(e => { throw new Error(`dereverb: install @audio/denoise (${e.message})`) })
+    let { default: wpe } = await import('@audio/denoise-dereverb').catch(e => { throw new Error(`dereverb: install @audio/denoise-dereverb (${e.message})`) })
     return pcm.map(x => wpe(x, { fs, strength: o.strength, music: o.music }))
   }
   let a = 10 ** (-(o.reduction ?? REDUCTION) / 20), g = null

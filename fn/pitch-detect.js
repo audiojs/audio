@@ -32,7 +32,7 @@
  * key's 'pcp' needs only the MIT @audio/mir-chroma and @audio/mir-key, installed with audio.
  */
 
-import { notes as noteTracker, track } from '@audio/pitch/pyin'
+import { notes as noteTracker, track } from '@audio/pitch-pyin'
 import hann from 'window-function/hann'
 import audio, { mono, pickChannels, perChannel } from '../core.js'
 
@@ -41,8 +41,8 @@ const loadNote = () => need('notes', '@audio/note', import('@audio/note')).then(
 const loadChords = () => need('chords', '@audio/mir-nnls-chroma @audio/mir-chordino (GPL-2.0-or-later)',
   Promise.all([import('@audio/mir-nnls-chroma'), import('@audio/mir-chordino')]))
 const loadKey = pcp => pcp
-  ? need('key', '@audio/mir', Promise.all([import('@audio/mir/chroma'), import('@audio/mir/key')]))
-  : need('key', '@audio/mir-nnls-chroma (GPL-2.0-or-later) @audio/mir', Promise.all([import('@audio/mir-nnls-chroma'), import('@audio/mir/key')]))
+  ? need('key', '@audio/mir-chroma @audio/mir-key', Promise.all([import('@audio/mir-chroma'), import('@audio/mir-key')]))
+  : need('key', '@audio/mir-nnls-chroma (GPL-2.0-or-later) @audio/mir-key', Promise.all([import('@audio/mir-nnls-chroma'), import('@audio/mir-key')]))
 
 let neural
 const loadNeural = () => neural ??= import('@audio/neural-transcribe').then(m => m.default,

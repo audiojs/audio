@@ -37,7 +37,7 @@ import audio, { resolveChannels } from '../core.js'
 import './pitch.js'
 import { render, spanOf } from '../plan.js'
 import { contour } from './pitch-detect.js'
-import { notes as noted } from '@audio/pitch/pyin'
+import { notes as noted } from '@audio/pitch-pyin'
 
 // frames of the pitch, s; what is read either side of the range (the notes across its edges whole, and pitch()'s
 // context), s
@@ -202,7 +202,7 @@ function reshape(name) {
 }
 
 // pitch({ voice: true })'s engine, which they run
-const curve = () => import('@audio/tune/curve').catch(() => null)
+const curve = () => import('@audio/tune-curve').catch(() => null)
 for (let name of ['intonation', 'modulation', 'drift', 'center']) audio.op(name, {
   params: ['factor'],
   load: name === 'center' ? () => import('@audio/note').then(m => { SCALES = m.SCALES }, () => {}).then(curve) : curve,

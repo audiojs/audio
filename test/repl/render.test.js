@@ -258,7 +258,7 @@ test('editor: the lanes fade out at an edge the sound runs on past', async () =>
 // package's own response (@audio/weighting-a, the filter the worker runs); K-weighted, 100 Hz at the package's −1.1 dB
 // (@audio/weighting-k, ITU-R BS.1770-4's two stages). Zoomed in on the 100 Hz one, the sine itself, 0.8
 test('editor: the waveform weighted zoomed out, as heard, and as it is zoomed in', async () => {
-  const { default: a } = await import('@audio/weighting/a'), { default: k } = await import('@audio/weighting/k')
+  const { default: a } = await import('@audio/weighting-a'), { default: k } = await import('@audio/weighting-k')
   const dB = v => 20 * Math.log10(v)
   // the package's response against IEC 61672-1's table, to its tenth of a dB
   assert.ok(Math.abs(dB(a.response(100, 44100)) + 19.1) < .1 && Math.abs(dB(a.response(1000, 44100))) < .05, 'A as IEC 61672-1 has it at 100 Hz and 1 kHz')

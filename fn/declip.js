@@ -9,11 +9,11 @@ import audio, { ranged } from '../core.js'
 import { prepared } from '../plan.js'
 import parallel from '../parallel.js'
 
-const MOD = '@audio/denoise/declip', MADE = Symbol('declip.made')
+const MOD = '@audio/denoise-declip', MADE = Symbol('declip.made')
 
 /** Each channel of `pcm` declipped by `opts` (the kernel's: fs, clipLevel, order), the jobs on threads. */
 export async function declipped(pcm, opts) {
-  const { declipAsync, solve } = await import('@audio/denoise/declip')
+  const { declipAsync, solve } = await import('@audio/denoise-declip')
   const map = (shared, jobs) => parallel(MOD, shared, jobs, solve)
   return Promise.all(pcm.map(x => declipAsync(x, opts, map)))
 }

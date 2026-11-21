@@ -111,7 +111,7 @@ const changed = (a, b) => a.some((v, i) => v !== b[i])
 export async function roomless(pcm, y, sampleRate) {
   let key = `${sampleRate}:${fingerprint(pcm)}:${fingerprint(y)}`
   if (last?.key === key) return last.heard
-  let { default: dereverb } = await import('@audio/denoise/dereverb').catch(e => { throw new Error(`deepfilter: install @audio/denoise (${e.message})`) })
+  let { default: dereverb } = await import('@audio/denoise-dereverb').catch(e => { throw new Error(`deepfilter: install @audio/denoise-dereverb (${e.message})`) })
   let heard = pcm.map((x, c) => {
     if (!changed(dereverb(y[c], { fs: sampleRate, strength: 0 }), y[c])) return x
     return dereverb(x, { fs: sampleRate, strength: 0 })

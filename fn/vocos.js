@@ -20,7 +20,7 @@
 
 import audio, { memo, fingerprint } from '../core.js'
 import { prepared, playback } from '../plan.js'
-import { highpass, lowpass } from '@audio/filter/biquad'
+import { highpass, lowpass } from '@audio/filter-biquad'
 
 const CROSSOVER = 11000, TOP = 12000
 const MADE = Symbol('vocos.made')

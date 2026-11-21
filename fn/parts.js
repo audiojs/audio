@@ -166,7 +166,7 @@ function bytesOf(path, from, to) {
 /** A part decoded by a fresh decoder of `format`: its page's channels, then the tail's, each its own array; null where
  *  the decoder made other than the samples of the frames it was given (a frame it could not decode) */
 export async function solve({ path, format }, { from, to, drop, keep, tail, count }) {
-  let { decoder } = await (decoders[format] ??= import(`@audio/decode/${format}`))
+  let { decoder } = await (decoders[format] ??= import(`@audio/decode-${format}`))
   let dec = await decoder()
   try {
     let r = dec.decode(bytesOf(path, from, to)), n = r.samplesDecoded ?? r.channelData[0]?.length ?? 0

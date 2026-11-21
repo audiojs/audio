@@ -13,7 +13,7 @@ import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
 import { resolveBuses, snap, hostCtx, fixed, idOf, paramState, setParam, valueAt, valuesAt, sourceAt, eachCall, noteEvents, notesIn, moveTransport, settingAt, buffersOf, channelsOf, widest, sideBuses, busIn, layoutChannels, what, accept } from './batch.js'
 
-audio.version = '2.18.2'
+audio.version = '2.19.0'
 
 /** Options as written short or long, the long kept: FFmpeg's `d` for duration (afade, acrossfade, atrim), and its
  *  crossfade filter's name, `xfade`, for crossfade. */
@@ -492,6 +492,9 @@ const isSound = v => v != null && (!!v.pages || !!v.getChannelData || Array.isAr
 const EDIT_KEYS = ['at', 'duration', 'channel']
 const isStat = p => p != null && typeof p === 'object' && typeof p.stat === 'string' && typeof p.compute === 'function'
 const isCodec = p => p != null && typeof p === 'object' && typeof p.codec === 'string' && (typeof p.decode === 'function' || typeof p.encode === 'function')
+/** Whether a name is taken: an op's, a stat's or a codec's, or an instance method's (an op's own method, which a
+ *  registry op has before it loads, is not one: plan.js opMethods) */
+const held = id => !!(audio.op?.(id) || audio.stat?.(id) || audio.codecs?.[id] || typeof audio.fn[id] === 'function' && audio.fn[id].op == null)
 
 /** Register plugins. Each receives audio. A contract plugin (a factory function
  *  with an own `params` object — see audiojs/compile CONTRACT.md) is hosted natively as
@@ -499,8 +502,9 @@ const isCodec = p => p != null && typeof p === 'object' && typeof p.codec === 's
  *  A stat plugin ({ stat: name, compute(channels, opts) }) registers as a.stat(name).
  *  A codec plugin ({ codec: fmt, test?, decode?, encode? }) extends what audio() can
  *  open and what save()/encode() can write. A string resolves through the
- *  audio.plugins registry (dynamic import — returns a promise); every atom-, stat- or
- *  codec-shaped export of the target registers. */
+ *  audio.plugins registry (dynamic import — returns a promise) to its family's entry:
+ *  the export that string names registers, and the family's others where nothing holds
+ *  their names yet. */
 audio.use = function(...plugins) {
   let loads = null
   for (let p of plugins) {
@@ -508,7 +512,15 @@ audio.use = function(...plugins) {
       let spec = audio.plugins?.[p] ?? audio.atoms?.[p]  // .atoms — deprecated ≤2.5 name
       if (!spec) throw new Error(`audio.use: unknown plugin '${p}' — not in audio.plugins registry`)
       ;(loads ??= []).push(audio.import(spec).then(ns => {
-        for (let k of Object.keys(ns)) { if (isOp(ns[k])) useOp(ns[k], keeping.has(spec)); else if (isStat(ns[k])) useStat(ns[k]); else if (isCodec(ns[k])) useCodec(ns[k]) }
+        // a family's entry (@audio/<family>/audio) holds its members' manifests together: the one asked for registers,
+        // replacing what was under its name, as a module of one manifest did; a sibling only where nothing holds its
+        // name yet (an op, a stat, a codec, an instance method: a built-in's, or what a caller registered), so another
+        // member's load replaces nothing
+        for (let m of Object.values(ns)) {
+          let id = isOp(m) ? idOf(m) : isStat(m) ? m.stat : isCodec(m) ? m.codec : null
+          if (id == null || id !== p && held(id)) continue
+          if (isOp(m)) useOp(m); else if (isStat(m)) useStat(m); else useCodec(m)
+        }
       }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/').slice(0, 2).join('/')} — ${e.message}`) }))
     }
     else if (isOp(p)) useOp(p)
@@ -537,7 +549,7 @@ export function correlation(p, q, n) {
 /** A decay in seconds as a render takes it: an endless one audio.TAIL, none or a negative one 0 */
 const decay = t => t === Infinity ? audio.TAIL : t > 0 ? t : 0
 
-/** The registry's modules (audio.plugins specs) whose processors keep a take's length: a package whose keywords say
+/** The registry's names whose processors keep a take's length: a package whose keywords say
  *  `restoration` or `pitch-shift`, the finer category the contract has a host read there. What rings past the end of a
  *  take a repair or a pitch shift renders is its own processing spread there (an STFT frame's gain over its samples, a
  *  grain's window), not sound the take had, and a take that comes back longer no longer lines up with what it was cut
@@ -620,20 +632,19 @@ function useStat(m) {
   }
 }
 
-/** Register a contract plugin (an audio.js manifest's factory) as the op its id names (hostOp), `keeps` where the
- *  registry loaded it from a package that keeps a take's length (keeping; hostOp reads the same of its name, so the
- *  manifest handed in by the caller is hosted as the registry would host it). One op to a name: the
+/** Register a contract plugin (an audio.js manifest's factory) as the op its id names (hostOp: one that keeps a take's
+ *  length by that name, keeping, as the registry would host it, however it came). One op to a name: the
  *  same processor again is there already; a processor registered before under that id gives way to this one (a script
  *  run again in the editor defines its processor again); a built-in op's name is not its to take, and
  *  audio.op(name, processor) registers it under another. */
-function useOp(m, keeps) {
+function useOp(m) {
   if (!audio.op) throw new Error('audio.use(module): op registry required — import "audio", not "audio/core.js"')
   // its op's name: its id, else its function's name; one with neither would take a name no call can mean
   if (!m.id && !m.name) throw new Error('audio.use: a processor needs an id or a function name to register as an op (fn.id = \'my-op\')')
   let id = idOf(m), had = audio.op(id)
   if (had?.plugin === m) return
   if (had && !had.plugin) throw new Error(`audio.use: '${id}' is a built-in op; register this processor under another name: audio.op('my-${id}', processor)`)
-  hostOp(m, id, keeps)
+  hostOp(m, id)
 }
 
 /** The options a processor's further input buses are fed by (contract § Channels): each bus's `name`, `key` where it has
@@ -654,10 +665,10 @@ export function positional(d, a) {
  *  where one jumps, at most 32 frames while one moves (batch.js eachCall, as toBatch and toStream do). Notes, the
  *  transport (`bpm`, `timeSignature`), buffers and further input buses come from the edit's options, emissions go to
  *  its `emitted(name, value, time)`. audio.use registers a processor under its id, audio.op(name, processor) under the
- *  caller's name; `keeps`, one the registry loaded from a package that keeps a take's length (keeping), or hosted under
- *  the name of a registry op that does: a.vocoder() is one op, a pitch shift, however its processor came. */
-export function hostOp(m, name, keeps = false) {
-  keeps ||= keeping.has(audio.plugins?.[name])
+ *  caller's name; one hosted under the name of a registry op that keeps a take's length (keeping) keeps it: a.vocoder()
+ *  is one op, a pitch shift, however its processor came. */
+export function hostOp(m, name) {
+  let keeps = keeping.has(name)
   // its op's method is how a call names it: an instance's own method under that name (read, save, clone) would answer;
   // an op's method (another op's camelCase, plan.js opMethods) gives way to it
   let method = audio.fn[name]

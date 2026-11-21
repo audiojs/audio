@@ -27,14 +27,14 @@ function goertzel(buf, f, sr = SR, from = 0, to = buf.length) {
 }
 const MID = [Math.round(0.25 * SR), Math.round(0.75 * SR)]
 
-// pitch({ method }): each of @audio/shift's methods in the vocoder's place, the edit its op's; its module the only one
-// loaded. First in the file, before the tests below load every one
-test('pitch({ method }) — the method\'s op does it, loaded alone', async () => {
+// pitch({ method }): each of @audio/shift's methods in the vocoder's place, the edit its op's; loaded by the family's
+// entry, which registers the other methods with it (core.js use). First in the file, before the tests below load every one
+test('pitch({ method }) — the method\'s op does it, its family loaded with it', async () => {
 	let a = audio.from([tone(440, 1)], { sampleRate: SR }).pitch(5, { method: 'psola' })
 	is(a.edits[0][0], 'pitch-psola', 'the edit is the method\'s')
 	let pcm = await a.read()
 	is(pcm[0].length, SR, 'the length kept')
-	ok(audio.op('pitch-psola') && !audio.op('pitch-sms') && !audio.op('pitch-hpss'), 'its module loaded, no other method\'s')
+	ok(audio.op('pitch-psola') && audio.op('pitch-sms') && audio.op('pitch-hpss'), 'its family\'s entry loaded, the other methods registered with it')
 	is(audio.from([tone(440, 1)], { sampleRate: SR }).pitch(5, { method: 'phase-lock' }).edits[0][0], 'pitch', 'phase-lock: the vocoder\'s own')
 })
 

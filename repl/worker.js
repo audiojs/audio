@@ -10,13 +10,13 @@ import plugins from 'editor:plugins'
 import { attacks, rises, plainness } from '../fn/hits.js'
 import { steadyTempo } from '../fn/beat.js'
 import { contour, harmony } from '../fn/pitch-detect.js'
-import { notes as noted } from '@audio/pitch/pyin'
+import { notes as noted } from '@audio/pitch-pyin'
 import { heard } from './heard.js'
 import { kindOf, spans } from './kind.js'
 import { resolveThreshold } from '../stats.js'
 import { fft } from 'fourier-transform'
-import aWeighting from '@audio/weighting/a'
-import kWeighting from '@audio/weighting/k'
+import aWeighting from '@audio/weighting-a'
+import kWeighting from '@audio/weighting-k'
 // What plays from here (audio/worker's host, which speaks to the page once it adopts a voice), loaded with the first
 // voice asked of this worker, not with it
 const host = () => import('../worker.js')

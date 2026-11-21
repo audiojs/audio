@@ -9,7 +9,7 @@
  * shadow.
  */
 import audio, { FULL } from '../core.js'
-import kWeighting from '@audio/weighting/k'
+import kWeighting from '@audio/weighting-k'
 
 const FULL2 = FULL * FULL
 

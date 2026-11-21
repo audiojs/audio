@@ -19,7 +19,7 @@
 import audio from '../core.js'
 import { downmix } from './dsp.js'
 import { fft } from 'fourier-transform'
-import kWeighting from '@audio/weighting/k'
+import kWeighting from '@audio/weighting-k'
 import { peaking, lowshelf, highshelf, process as biquad, state } from '@audio/biquad'
 import { refLen } from '../plan.js'
 
@@ -148,7 +148,7 @@ audio.op('match', {
   // its reference a sound, not read at the call
   nonfinite: { source: true },
   latency: (o, sr) => Math.max(FRAME, Math.round((o.lookahead ?? 10) * sr)),
-  load: () => import('@audio/eq/fit'),
+  load: () => import('@audio/eq-fit'),
   process: match,
 })
 

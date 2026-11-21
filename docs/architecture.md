@@ -179,9 +179,11 @@ a trailing pad (none for the registry's repairs and pitch shifts, by the op's na
 processor is registered, unless an edit says `tail: true`: core.js `ring`), declared `latency` gets plan-level delay compensation, `streaming: false`
 atoms run as whole-render ops (materialize → one call → continue from the result), and
 multi-bus atoms read their sidechain from the `key` option. `audio.plugins` maps names
-to published packages, installed with `audio` and autowired: registry ops are methods
-from the start and their package loads by dynamic import at LOAD, the async gate every
-render passes; ops with a `load` hook resolve their module the same way (`audio.atoms`
+to published packages, installed with `audio` and autowired: a family's processors to its
+umbrella's entry (`@audio/<family>/audio`, its members' manifests), registry ops methods
+from the start; the entry loads by dynamic import at LOAD, the async gate every render
+passes, and registers the op the name asks for (its siblings where their names are
+free); ops with a `load` hook resolve their module the same way (`audio.atoms`
 remains as a deprecated alias).
 
 ## Storage

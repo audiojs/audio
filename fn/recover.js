@@ -26,7 +26,7 @@ import audio, { arrived, fingerprint } from '../core.js'
 import { downmix, pow2, hann } from './dsp.js'
 import { stampOf, inputOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
-import { track } from '@audio/pitch/pyin'
+import { track } from '@audio/pitch-pyin'
 
 const RECOVERED = Symbol('recover.made')
 const db = p => 10 * Math.log10(p + 1e-30)
