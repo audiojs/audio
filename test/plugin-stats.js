@@ -192,3 +192,41 @@ test('zcr: sine rate = 2f/sr, noise ≈ 0.5 (librosa zero_crossing_rate)', async
 	let z = await audio.from([tone(440, 1, 0.5)], { sampleRate: SR }).stat('zcr')
 	almost(z, 2 * 440 / SR, 0.001, `440 Hz → ${z.toFixed(4)} (2f/sr = ${(880 / SR).toFixed(4)})`)
 })
+
+// ── dnsmos: speech quality with no reference, the optional @audio/neural-quality by the registry ──
+// Its model (1.1 MB) is fetched on first use, so the scoring runs where the neural cache holds it: the suite never
+// downloads. Held to the package's own function on the same samples, which its tests hold to Microsoft's script
+// (its README, Verification)
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
+const quality = await import('@audio/neural-quality').catch(() => null)
+const HAS_DNSMOS = !!quality && existsSync(join(process.env.AUDIO_NEURAL_CACHE || join(homedir(), '.cache', 'audiojs', 'neural'), 'dnsmos', 'sig_bak_ovr.onnx'))
+
+test('dnsmos: without @audio/neural-quality the stat names the package', async () => {
+	let orig = audio.import
+	audio.import = spec => spec.startsWith('@audio/neural-quality') ? Promise.reject(new Error(`Cannot find package '${spec}'`)) : orig(spec)
+	try {
+		let err = await audio.from([tone(440, 1)], { sampleRate: SR }).stat('dnsmos').catch(e => e)
+		ok(/^audio\.use\('dnsmos'\): install @audio\/neural-quality/.test(err?.message), err?.message)
+	} finally { audio.import = orig }
+})
+
+;(HAS_DNSMOS ? test : test.skip)('dnsmos: { sig, bak, ovrl, segments } of the whole take, as the package scores the same samples', { timeout: 180000 }, async () => {
+	// 18 s of a voiced-like tone (harmonics of 140 Hz, syllables at 4 Hz) in noise: what it scores is not the point
+	let n = 18 * SR, seed = 1, rnd = () => (seed = seed * 1664525 + 1013904223 >>> 0) / 2 ** 32 - 0.5
+	let l = Float32Array.from({ length: n }, (_, i) => { let t = i / SR, v = 0; for (let h = 1; h <= 8; h++) v += Math.sin(2 * Math.PI * 140 * h * t) / h; return 0.15 * v * (0.5 + 0.5 * Math.sin(2 * Math.PI * 4 * t)) + 0.02 * rnd() })
+	let r = l.map(v => v * 0.5 + 0.01 * rnd())
+	let three = q => [q.sig, q.bak, q.ovrl]
+	let got = await audio.from([l], { sampleRate: SR }).stat('dnsmos'), want = await quality.default([l], { sampleRate: SR, windows: 'all' })
+	is(three(got), three(want), 'mono: the package\'s numbers')
+	ok(three(got).every(v => v >= 1 && v <= 5), `on the 1 to 5 scale (${three(got).map(v => v.toFixed(2))})`)
+	is(got.segments.length, want.segments.length, 'every window')
+	let script = await quality.default([l], { sampleRate: SR })
+	ok(got.segments.length > script.segments.length, `the whole take: ${got.segments.length} windows where the reference script reads ${script.segments.length} of a clip of 17 s or more`)
+	let both = await audio.from([l, r], { sampleRate: SR }).stat('dnsmos')
+	is(three(both), three(await quality.default([l, r], { sampleRate: SR, windows: 'all' })), 'stereo: the channels\' mean')
+	let part = await audio.from([l], { sampleRate: SR }).stat('dnsmos', { at: 1, duration: 10 })
+	is(three(part), three(await quality.default([l.subarray(SR, 11 * SR)], { sampleRate: SR, windows: 'all' })), 'a range: its samples alone')
+})

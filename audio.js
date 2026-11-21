@@ -212,6 +212,9 @@ const STATS = {
   coversong: '@audio/mir/audio',
   chroma: '@audio/mir/audio',
   tonnetz: '@audio/mir/audio',
+  // speech quality with no reference: DNSMOS P.835 { sig, bak, ovrl, segments }, each 1 to 5, over the whole range. The
+  // optional @audio/neural-quality: its model (1.1 MB) is fetched on first use, onnxruntime installed beside it
+  dnsmos: '@audio/neural-quality/audio',
 }
 audio.plugins = { ...OPS, ...STATS }
 audio.atoms = audio.plugins  // deprecated ≤2.5 name — same object, mutations visible through both

@@ -123,6 +123,7 @@
     "@audio/mir-nnls-chroma": "^1.0.0",
     "@audio/neural-denoise": "^0.8.1",
     "@audio/neural-pitch": "^0.1.0",
+    "@audio/neural-quality": "^0.1.0",
     "@audio/neural-separate": "^0.7.0",
     "@audio/neural-tag": "^0.1.0",
     "@audio/neural-transcribe": "^0.1.1",
@@ -190,6 +191,7 @@
     "@audio/mir-nnls-chroma": "^1.0.0",
     "@audio/neural-denoise": "^0.8.1",
     "@audio/neural-pitch": "^0.1.0",
+    "@audio/neural-quality": "^0.1.0",
     "@audio/neural-restore": "^0.1.0",
     "@audio/neural-separate": "^0.4.0 || ^0.5.0 || ^0.6.0 || ^0.7.0",
     "@audio/neural-tag": "^0.1.0",
@@ -211,6 +213,9 @@
       "optional": true
     },
     "@audio/neural-pitch": {
+      "optional": true
+    },
+    "@audio/neural-quality": {
       "optional": true
     },
     "@audio/neural-restore": {

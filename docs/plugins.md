@@ -530,7 +530,8 @@ Stat plugins (land on `a.stat(name)`):
 
 **loudness** truepeak · lra · replaygain · dr · speech-contrast · sounds —
 **spectral** rolloff · spread · slope · flux · contrast · ltas · zcr —
-**mir** structure · tempogram · melody · downbeat · fingerprint · drums · multif0 · transcribe · similarity · coversong · chroma · tonnetz
+**mir** structure · tempogram · melody · downbeat · fingerprint · drums · multif0 · transcribe · similarity · coversong · chroma · tonnetz —
+**quality** dnsmos (the optional `@audio/neural-quality`)
 
 Beyond the registry — kernels whose inputs aren't scalar params ship as plain packages for direct import: `@audio/reverb-convolution` (impulse response), `@audio/eq-fir` (response curve), `@audio/eq-crossover` (SOS designer), `@audio/tune-midi` (guide notes), `@audio/denoise-repair` (regions), `@audio/synth-dtmf` (digit string), `@audio/synth-wavetable` (tables), per-band forms of multiband/dyneq/multisat, and the `@audio/measure`, `@audio/sinusoidal`, `@audio/voice` tool/substrate families.
 
