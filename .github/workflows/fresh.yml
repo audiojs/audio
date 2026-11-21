@@ -1,0 +1,21 @@
+name: fresh
+# The node suites on what a new user installs today: no lockfile, every range at its latest. The other workflows test
+# what the lockfile holds, which is how about 90 family packages went out on 17 to 19 November 2026 with 23 of these
+# tests failing on them and no run saying so. The eval reads the same install each day (eval.yml)
+on:
+  schedule:
+    - cron: '41 5 * * *'
+  workflow_dispatch:
+jobs:
+  fresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm install --no-package-lock --no-audit --no-fund
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+      - run: npm run build
+      - run: npm run test:node
