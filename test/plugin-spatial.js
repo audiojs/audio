@@ -55,7 +55,9 @@ test('haas: delays the selected channel by `time`, leaves the other untouched', 
 	let L = new Float32Array(n), R = new Float32Array(n)
 	L[1000] = 1; R[1000] = 1
 	let a = audio.from([L, R], { sampleRate: SR }).haas({ time: 20 })
-	almost(a.duration, 0.3 + 0.02, 0.005, `tail pad extends duration (${a.duration.toFixed(3)}s)`)
+	// the tail is the delay's longest, time.max (35 ms, in whole frames), since spatial-haas 1.2.0 made `time` live: as
+	// the input stops the read may still be on its way from a longer time (the time set, 20 ms, before)
+	almost(a.duration, 0.3 + haas.tail({ sampleRate: SR }), 0.5 / SR, `tail pad extends duration by the delay's longest (${a.duration.toFixed(3)}s)`)
 	let [l, r] = await a.read()
 	let argmax = d => { let m = 0, mi = 0; for (let i = 0; i < d.length; i++) if (Math.abs(d[i]) > m) { m = Math.abs(d[i]); mi = i } return mi }
 	is(argmax(l), 1000, 'left impulse stays put')
@@ -129,7 +131,10 @@ test('surround: stereo → 5.1, center carries the mid, LFE is lowpassed', async
 	let chs = await a.read()
 	is(chs.length, 6, 'six channels rendered')
 	let [l, r, c, lfe, ls, rs] = chs
-	is(l.length, n, 'length preserved')
+	// the take and the tail it declares since spatial-surround 1.2.0 (it streams): the longer of the Ls/Rs delay's
+	// longest read (50 ms) and the LFE low-pass's 60 dB decay; 1.1.3 declared none and cut the surrounds' delayed end
+	let tail = Math.round(surround.tail({ sampleRate: SR, params: { delay: [12], lfeCut: [120] } }) * SR)
+	is(l.length, n + tail, `the take and its declared tail (${tail} frames)`)
 	ok(rms(c) > 0.25, 'center carries the mid (0.7071 × mid rms 0.4 ≈ 0.283)')
 	let from = Math.round(0.1 * SR), to = Math.round(0.9 * SR)
 	ok(goertzel(lfe, 60, SR, from, to) > goertzel(lfe, 3000, SR, from, to) * 5, 'LFE keeps lows, sheds highs')

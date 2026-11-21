@@ -26,7 +26,7 @@ export const layouts = {
   decrackle: 'threshold | order',
   declip: 'clipLevel | order',
   debreath: 'range room | attack release',
-  phaser: 'rate depth feedback | stages fc',
+  phaser: 'rate depth feedback | stages fc phase',
   autowah: 'sens base range Q | attack release',
   graindelay: 'time pitch feedback mix | grain spray jitter',
   rotary: 'hornSpeed drumSpeed depth mix | crossover hornInertia drumInertia micSpread',
@@ -552,11 +552,13 @@ export const texts = {
   // Effect
   delay: {
     time: 'The gap between the sound and its echo, in seconds.',
-    feedback: 'How much of each echo feeds the next. 0 gives a single echo; higher gives a longer trail that fades slowly.'
+    feedback: 'How much of each echo feeds the next. 0 gives a single echo; higher gives a longer trail that fades slowly.',
+    sync: 'Ties the gap to the tempo: a note value (1/4, 1/8, 1/8d, 1/8t and so on) in place of the time. off leaves the time.'
   },
   pingpong: {
     time: 'The gap between echoes, in seconds. Each echo lands on the other side.',
-    feedback: 'How much of each echo feeds the next, which bounces to the other side. Higher gives more bounces.'
+    feedback: 'How much of each echo feeds the next, which bounces to the other side. Higher gives more bounces.',
+    sync: 'Ties the gap to the tempo: a note value in place of the time, 2 seconds at the most. off leaves the time.'
   },
   multitap: {
     feedback: 'How much of the echoes feeds back to make more. 0 gives the two set echoes only (at 0.25 s and 0.5 s); higher adds a repeating trail.'
@@ -565,28 +567,33 @@ export const texts = {
     rate: 'How fast the copies drift in timing, in cycles per second. Slow is lush; fast is wobbly.',
     depth: 'How far the copies drift in timing, 0 to 1. More detunes them further; 0 gives no thickening.',
     delay: 'How far behind the copies run on average, in seconds. 10 to 30 ms is the classic chorus; shorter sounds metallic, longer like a double.',
-    voices: 'How many detuned copies are blended in. More sounds thicker, like a bigger ensemble.'
+    voices: 'How many detuned copies are blended in. More sounds thicker, like a bigger ensemble.',
+    phase: 'How far each channel\'s copies run from the channel before\'s, in degrees: 90 spreads them wide; 0 moves the channels together.'
   },
   flanger: {
     rate: 'How fast the sweep goes up and down, in cycles per second. Slow is a long whoosh; fast is a warble.',
     depth: 'How far the sweep reaches, 0 to 1. More is a wider, more obvious whoosh.',
     delay: 'Centre delay of the sweep, in seconds. A few ms or less gives the jet sound; longer is closer to a chorus.',
-    feedback: 'How much of the effect feeds back into itself. Higher makes the whoosh more intense, with a ringing metallic edge.'
+    feedback: 'How much of the effect feeds back into itself. Higher makes the whoosh more intense, with a ringing metallic edge.',
+    phase: 'How far each channel\'s sweep runs ahead of the one before, in degrees: 90 spreads it wide; 0 moves the channels together.'
   },
   phaser: {
     rate: 'How fast the sweep goes up and down, in cycles per second. Slow is a long whoosh; fast is a warble.',
     depth: 'How far the sweep reaches around the centre frequency, 0 to 1.',
     stages: 'How many filter stages swirl the sound. More gives more notches and a deeper, more complex swirl.',
     feedback: 'How much of the effect feeds back into itself. Higher makes the swirl more pronounced and resonant.',
-    fc: 'Centre of the sweep, in Hz: the swirl moves around this pitch region.'
+    fc: 'Centre of the sweep, in Hz: the swirl moves around this pitch region.',
+    phase: 'How far each channel\'s sweep runs ahead of the one before, in degrees: 90 spreads it wide; 0 moves the channels together.'
   },
   tremolo: {
     rate: 'How many pulses of volume per second.',
-    depth: 'How far the volume dips on each pulse: 0 is none, 1 dips to silence.'
+    depth: 'How far the volume dips on each pulse: 0 is none, 1 dips to silence.',
+    phase: 'How far each channel\'s pulse runs ahead of the one before, in degrees: 0 keeps them together; 180 is an auto-pan.'
   },
   vibrato: {
     rate: 'How fast the pitch wobbles, in cycles per second.',
-    depth: 'How wide the pitch wobbles: 0 is none, 1 the widest. A faster rate widens it further.'
+    depth: 'How wide the pitch wobbles: 0 is none, 1 the widest. A faster rate widens it further.',
+    phase: 'How far each channel\'s wobble runs ahead of the one before, in degrees: 0 keeps them together; 180 swings their pitches opposite ways.'
   },
   autowah: {
     base: 'Lowest position of the filter, in Hz: where it rests when the sound is quiet.',
@@ -601,7 +608,8 @@ export const texts = {
     depth: 'How far the sweep reaches each way around the centre, in octaves. Auto mode only.',
     fc: 'Centre of the sweep, in Hz. In manual mode, where the filter is held still.',
     Q: 'Sharpness of the filter. Higher is a narrower, more vocal wah.',
-    mode: 'auto sweeps by itself at the rate; manual holds the filter still at the centre, like a pedal left in one place.'
+    mode: 'auto sweeps by itself at the rate; manual holds the filter still at the centre, like a pedal left in one place.',
+    phase: 'In auto mode, how far each channel\'s sweep runs ahead of the one before, in degrees: 0 keeps them together; 180 sweeps them opposite ways.'
   },
   rotary: {
     hornSpeed: 'How fast the treble horn spins, in turns per second. 0.8 is the slow setting, 6.7 the fast one.',

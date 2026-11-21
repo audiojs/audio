@@ -12,6 +12,7 @@ import { toBatch, toStream, inUnit } from '../batch.js'
 import { compressor as amCompressor } from '@audio/dynamics-compressor/audio'
 import nativeCompressor from '@audio/dynamics-compressor'
 import { delay as amDelay } from '@audio/effect-delay/audio'
+import { limiter as amLimiter } from '@audio/dynamics-limiter/audio'
 import nativeDelay from '@audio/effect-delay'
 import { highpass as amHighpass } from '@audio/filter-biquad/audio'
 import nativeHighpass from '@audio/filter-biquad/highpass'
@@ -124,12 +125,16 @@ test('pitch am — analyzer: no audio out, emits pitch per frame', () => {
 	assert.ok(events.some(e => e.name === 'clarity'))
 })
 
-test('tube am — streaming:false runs whole-signal, matches native; toStream refuses', () => {
-	let x = sine(440, SR, 0.7)
+// saturate-tube streams since 1.1.0 (streaming: false before), through @audio/resample-sinc's 4x oversampler, its
+// latency frames late: toBatch's output, which it does not compensate, read that much later is the kernel's whole call
+// bit for bit away from the signal's ends, where the oversampler's kernel reaches past them; toStream takes it
+test('tube am: streams; its output, its latency later, is the native whole call away from the ends; toStream takes it', () => {
+	let x = sine(440, SR, 0.7), L = amTube.latency, edge = 64
 	let am = toBatch(amTube)(x, { params: { drive: 3, bias: 0.25, mix: 1 } })
 	let native = nativeTube(Float32Array.from(x), { drive: 3, bias: 0.25, mix: 1, fs: SR, oversample: 4 })
-	assert.ok(maxDiff(am, native) < 1e-6)
-	assert.throws(() => toStream(amTube), /streaming/)
+	assert.ok(Number.isInteger(L) && L > 0, `a latency in frames (${L})`)
+	assert.equal(maxDiff(am.subarray(L), native, edge, x.length - L - edge), 0)
+	assert.doesNotThrow(() => toStream(amTube).write(x))
 })
 
 // CONTRACT.md § Parameters: `smoothing` reaches a jump of the value (a new setting, a step in a curve) by a linear ramp of
@@ -568,21 +573,23 @@ test('units: a value written with a unit reaches its param in the unit the param
 
 test('restart: a param read once, as the processor is built, takes one value for a render, in every host', async () => {
 	const { default: audio } = await import('../audio.js')
-	let x = new Float32Array(SR / 2), moving = t => t < 0.25 ? 0.1 : 0.3   // the delay's time is flags: ['restart']
-	assert.throws(() => toBatch(amDelay)(x, { params: { time: moving } }), /delay: time is fixed for a render .* not automation/, 'toBatch')
-	assert.throws(() => toStream(amDelay, { params: { time: moving } }), /delay: time is fixed for a render/, 'toStream')
-	let s = toStream(amDelay, { params: { time: 0.1 } })
-	s.write(x, { time: 0.1, feedback: 0.6 })
-	assert.throws(() => s.write(x, { time: 0.3 }), /delay: time is fixed for a render .* not a change between chunks/, 'toStream, a change between chunks')
-	let over = toStream(amDelay, { params: { time: 5 } })   // past its max, 4 s: held there
-	assert.doesNotThrow(() => { over.write(x, { time: 5 }); over.write(x, { time: 5 }) }, 'toStream, the same value again, held: no change')
-	assert.ok(toBatch(amDelay)(x, { params: { time: 0.1, mix: t => t } }), 'a live param still automates')
+	// the limiter's lookahead is `restart: true`: it sets the latency, which a host takes once (CONTRACT.md, Latency). The
+	// delay's time stood here until effect-delay 1.1.0 made it live (flags: ['restart'] before)
+	let x = new Float32Array(SR / 2), moving = t => t < 0.25 ? 2 : 8
+	assert.throws(() => toBatch(amLimiter)(x, { params: { lookahead: moving } }), /limiter: lookahead is fixed for a render .* not automation/, 'toBatch')
+	assert.throws(() => toStream(amLimiter, { params: { lookahead: moving } }), /limiter: lookahead is fixed for a render/, 'toStream')
+	let s = toStream(amLimiter, { params: { lookahead: 2 } })
+	s.write(x, { lookahead: 2, release: 100 })
+	assert.throws(() => s.write(x, { lookahead: 8 }), /limiter: lookahead is fixed for a render .* not a change between chunks/, 'toStream, a change between chunks')
+	let over = toStream(amLimiter, { params: { lookahead: 25 } })   // past its max, 20 ms: held there
+	assert.doesNotThrow(() => { over.write(x, { lookahead: 25 }); over.write(x, { lookahead: 25 }) }, 'toStream, the same value again, held: no change')
+	assert.ok(toBatch(amLimiter)(x, { params: { lookahead: 2, ceiling: t => -t } }), 'a live param still automates')
 	// audio: an op that loads at the first render says so there; one loaded, at the call
-	let a = audio.from([x], { sampleRate: SR }).delay({ time: moving })
-	await assert.rejects(a.read(), /delay: time is fixed for a render/, 'audio, loaded at the first render')
-	await audio.use('delay')
-	assert.throws(() => audio.from([x], { sampleRate: SR }).delay({ time: moving }), /delay: time is fixed for a render/, 'audio, at the call')
-	assert.throws(() => audio.from([x], { sampleRate: SR }).delay({ time: { t: [0, 0.5], v: [0.1, 0.3] } }), /delay: time is fixed for a render/, 'a curve too')
+	let a = audio.from([x], { sampleRate: SR }).limiter({ lookahead: moving })
+	await assert.rejects(a.read(), /limiter: lookahead is fixed for a render/, 'audio, loaded at the first render')
+	await audio.use('limiter')
+	assert.throws(() => audio.from([x], { sampleRate: SR }).limiter({ lookahead: moving }), /limiter: lookahead is fixed for a render/, 'audio, at the call')
+	assert.throws(() => audio.from([x], { sampleRate: SR }).limiter({ lookahead: { t: [0, 0.5], v: [2, 8] } }), /limiter: lookahead is fixed for a render/, 'a curve too')
 })
 
 test('toStream end() renders a tail declared as a function of ctx, as latency\'s function form is read', () => {

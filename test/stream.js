@@ -19,6 +19,11 @@ const pause = () => new Promise(r => setTimeout(r, 1))
 // registry plugins load before the clock starts: input goes in at 100 times real time (0.1 s a millisecond), so a
 // plugin's first import would count as seconds of latency; what is measured is the stream's own
 await audio.use('limiter', 'compressor', 'freeverb', 'softclip', 'multiband')
+// registry atoms that waited for the whole input (WHOLE) until their members gained a streaming form: effect-tapestop
+// 0.2.0; saturate-tube 1.1.0, saturate-tape, -transistor, -waveshaper, -multiband 1.2.0; spatial-surround 1.2.0;
+// reverb-dattorro (plate), -fdn, -spring, -shimmer 1.2.0; eq-dynamic 1.3.0; amp-tube, amp-cabinet 1.3.0
+const STREAMING = ['tapestop', 'tube', 'surround', 'plate', 'fdn', 'spring', 'shimmer', 'dyneq', 'tape', 'transistor', 'waveshaper', 'multisat', 'amp', 'cabinet']
+await audio.use(...STREAMING)
 
 /** Push X in chunks into a live source with `chain` applied, reading its stream concurrently.
  *  `first`: seconds of input pushed when the first output arrived. Each chunk goes in once the stream has done what it
@@ -75,6 +80,7 @@ const EXACT = {
   'denoise(noise 0.5 s at 1 s): learned once the range has arrived': [a => a.denoise({ noise: { at: 1, duration: 0.5 } }), 1.7],
   'plugins: limiter, compressor, freeverb': [a => a.limiter().compressor().freeverb(), 0.5],
   'plugins: softclip, multiband': [a => a.softclip().multiband(), 0.5],
+  ...Object.fromEntries(STREAMING.map(n => [`${n}(): streams since its member did`, [a => a[n](), 0.5]])),
 }
 
 for (let [name, [chain, bound]] of Object.entries(EXACT)) test(`stream: ${name}`, async t => {
@@ -262,7 +268,7 @@ const WHOLE = {
   'auto()': [a => a.auto(), 'inherent: the take measured whole, rendered ahead (fn/auto.js)'],
   // registry atoms declared streaming: false, for their batch kernels (whole-signal oversampling,
   // state built per call, one-call synthesis); each moves out as its atom gains a streaming form
-  ...Object.fromEntries(['leveler', 'declip', 'decrackle', 'debreath', 'tapestop', 'tube', 'fm', 'modal', 'surround', 'paulstretch', 'pitch-shift', 'tune', 'plate', 'fdn', 'spring', 'shimmer', 'dyneq', 'tape', 'transistor', 'waveshaper', 'multisat', 'amp', 'cabinet', 'noise', 'chirp', 'pluck', 'risset', 'rhythm', 'sfx', 'kick', 'cymbal', 'snare', 'adsr', 'voice', 'poly', 'stretch-pvoc-lock', 'stretch-pvoc', 'stretch-pghi', 'stretch-wsola', 'stretch-psola', 'stretch-sms', 'stretch-transient', 'stretch-hybrid', 'stretch-paul'].map(n => [`${n}()`, [a => a[n](), 'atom declared streaming: false']])),
+  ...Object.fromEntries(['leveler', 'declip', 'decrackle', 'debreath', 'fm', 'modal', 'paulstretch', 'pitch-shift', 'tune', 'noise', 'chirp', 'pluck', 'risset', 'rhythm', 'sfx', 'kick', 'cymbal', 'snare', 'adsr', 'voice', 'poly', 'stretch-pvoc-lock', 'stretch-pvoc', 'stretch-pghi', 'stretch-wsola', 'stretch-psola', 'stretch-sms', 'stretch-transient', 'stretch-hybrid', 'stretch-paul'].map(n => [`${n}()`, [a => a[n](), 'atom declared streaming: false']])),
 }
 
 for (let [call, [chain, why]] of Object.entries(WHOLE)) test(`stream: waits for the whole input: ${call} (${why})`, async t => {

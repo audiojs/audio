@@ -46,10 +46,15 @@ test('declared tail composes a trailing pad — freeverb decay is not truncated'
   let a = audio.from([tone(440, 0.5)], { sampleRate: SR })
   let dur0 = a.duration
   a.freeverb({ room: 0.8, mix: 1 })
-  almost(a.duration, dur0 + 6, 0.05, `duration extended by tail (${a.duration.toFixed(2)}s)`)
+  // the tail declared at the room and damp in force since reverb-freeverb 1.1.0 (the longest comb's decay, then the
+  // allpasses' ring: 4.84 s at room 0.8, damp 0.5), where 1.0.5 declared a fixed 6 s
+  let declared = freeverb.tail({ sampleRate: SR, params: { room: [0.8], damp: [0.5], mix: [1] } })
+  almost(a.duration, dur0 + declared, 0.5 / SR, `duration extended by tail (${a.duration.toFixed(2)}s)`)
   let out = (await a.read())[0]
   let tailRms = rms(out, Math.round(0.7 * SR), Math.round(1.5 * SR))
   ok(tailRms > 1e-4, `reverb rings past the source (${tailRms.toExponential(1)})`)
+  let end = rms(out, out.length - SR / 100), src = rms(tone(440, 0.5))
+  ok(end < src * 1e-3, `decayed 60 dB under the source by the tail's end: not cut short (${(20 * Math.log10(end / src)).toFixed(0)} dB)`)
   ok(out.every(isFinite))
 })
 
@@ -1284,11 +1289,17 @@ test('an op of a dashed name is also a method under its camelCase: the same edit
 
 // Processors from packages audio depends on, at versions that hold their manifests (@audio/spatial 1.1.0, @audio/stretch
 // 2.4.0, @audio/synth 1.5.0, @audio/weighting 1.3.0), in the registry since 2026-11-17: each loads by its name and renders
-// as its package's own kernel does, or else as toBatch, another host of it, does
+// as its package's own kernel does, or else as toBatch, another host of it, does. A weighting declares the ring of its
+// sections as its tail (weighting-a, -c, -itu468, -k 1.3.0, -b, -riaa 1.2.0, -d 1.1.0: none before), which audio renders
+// past the take: its kernel, run on the take and that many frames of silence after it
 test('registry: ambisonic, stretch-pvsola, tonewheel and the weightings load by their names and render', async () => {
   let x = tone(440, 0.25, 0.5), notes = [{ time: 0.01, midi: 60, duration: 0.2 }]
   let batch = (name, chs, params) => toBatch(audio.op(name).plugin, { sampleRate: SR })(chs, { params, notes })
-  let kernel = w => async (name, chs) => { let { default: k } = await audio.import(`@audio/weighting/${w}`); return chs.map(c => k(c.slice(), { fs: SR })) }
+  let kernel = w => async (name, chs) => {
+    let { default: k } = await audio.import(`@audio/weighting/${w}`), t = audio.op(name).plugin.tail
+    let ring = Math.round((typeof t === 'function' ? t({ sampleRate: SR, params: {} }) : t || 0) * SR)
+    return chs.map(c => { let z = new Float32Array(c.length + ring); z.set(c); return k(z, { fs: SR }) })
+  }
   for (let [name, chs, params, want] of [
     ['ambisonic-panner', [x], { az: 30 }, batch],
     ['ambisonic-decoder', [x, x, x, x], {}, batch],
@@ -1597,7 +1608,8 @@ test("the registry ops that can change the width: audio.js's list, the manifests
       .map(c => typeof c === 'string' && c !== 'any' ? layoutChannels(c) : c).filter(Number.isInteger)
     N = Array.from({ length: Math.max(8, ...counts) + 1 }, (_, i) => i + 1)
     for (let [name, d] of hosted) {
-      let out = d.plugin.channels?.outputs, own = Array.isArray(out) && typeof out[0] === 'string'
+      // layouts of its own: a list of tags (manifests before contract 1.0), or a bus `{ layouts }` (spatial-ambisonic 0.2.0's)
+      let out = d.plugin.channels?.outputs, own = Array.isArray(out) && (typeof out[0] === 'string' || !!out[0]?.layouts)
       let width = (n, o) => { try { return d.ch?.(n, o) || n } catch { if (!own) odd.push(`${name}: throws for ${n}`); return n } }
       let each = Object.entries(d.plugin.params || {}).flatMap(([k, p]) => [p.default, p.min, p.max, ...(p.values ?? [])].filter(v => v !== undefined).map(v => ({ [k]: v })))
       let none = N.map(n => width(n, {}))
