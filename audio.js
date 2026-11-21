@@ -231,12 +231,14 @@ for (let [name, k] of [['rotary', 2], ['osc', 1], ['surround', 6]]) widening.set
 for (let name of ['ambisonic-panner', 'ambisonic-decoder']) widening.set(name, 0)
 
 // The registry ops whose package's keywords say they keep a take's length: a repair (restoration), a pitch shift
-// (pitch-shift). The ring they declare past the take's end renders only where an edit asks for it (`tail: true`:
-// core.js keeping). test/plugin-ops.js holds the list to the packages installed
+// (pitch-shift); and a time stretch (time-stretch), whose length is the factor's, round(n · factor). The ring they declare
+// past that end renders only where an edit asks for it (`tail: true`: core.js keeping). test/plugin-ops.js holds the
+// list to the packages installed
 for (let name of ['dehum', 'specsub', 'wiener', 'omlsa', 'deplosive', 'dewind', 'dewow', 'debleed', 'declip', 'decrackle',
   'debreath', 'desqueak', 'rnnoise', 'deesser', 'vocoder', 'formant-shift', 'paulstretch', 'pitch-shift', 'pitch-ola', 'pitch-transient',
   'pitch-psola', 'pitch-wsola', 'pitch-granular', 'pitch-sms', 'pitch-hpss', 'pitch-sample', 'pitch-hybrid', 'pitch-delay',
-  'pitch-lpc']) keeping.add(OPS[name])
+  'pitch-lpc', 'stretch-pvoc-lock', 'stretch-pvoc', 'stretch-pvsola', 'stretch-pghi', 'stretch-wsola', 'stretch-psola',
+  'stretch-sms', 'stretch-transient', 'stretch-hybrid', 'stretch-paul']) keeping.add(OPS[name])
 
 /** Load every registry op an instance's edits name (dynamic import), then map the
  *  positional args recorded before it loaded onto its params, and settle its options as a call to it loaded would

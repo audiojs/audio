@@ -249,7 +249,7 @@ export interface AudioInstance {
   pad(before: number, after?: number): this
   speed(rate: number, opts?: { type?: 'linear' | 'sinc' }): this
   /** Time-stretch preserving pitch. Factor may be a fn or curve of source-time seconds — sliding stretch (continuous tempo envelope), duration = ∫factor dt. `voice`: for one voice, its pulse shape kept: WSOLA shortening, the vocoder reset to the waveform (PVSOLA) slowing. `method`: another algorithm (@audio/stretch-*, loaded only then), whole-render, a constant factor; 'phase-lock' is the default */
-  stretch(factor: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, voice?: boolean, method?: 'phase-lock' | 'vocoder' | 'pghi' | 'wsola' | 'psola' | 'sms' | 'transient' | 'hybrid' | 'paulstretch', frame?: number }): this
+  stretch(factor: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, voice?: boolean, method?: 'phase-lock' | 'vocoder' | 'pghi' | 'wsola' | 'psola' | 'sms' | 'transient' | 'hybrid' | 'paulstretch', frame?: number, tail?: boolean | number }): this
   /** Move moments in time: [from, to] pairs in seconds. Between neighbouring markers the audio stretches to fit, pitch kept; start and end stay (a marker at the end moves it). */
   warp(markers: [number, number][]): this
   /** Shift pitch, keep duration. Semitones: a number, a curve { t, v } (seconds → semitones, straight between points,

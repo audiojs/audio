@@ -370,7 +370,8 @@ test('a param given null: its default as the processor is built, as at each bloc
 })
 
 // audio.js's list of the registry ops that keep a take's length (core.js keeping), against the packages installed: an
-// op is in it if and only if the package that defines its processor says `restoration` or `pitch-shift` in its keywords,
+// op is in it if and only if the package that defines its processor says `restoration`, `pitch-shift` or `time-stretch`
+// (a stretch's length is its factor's) in its keywords,
 // an umbrella's member (a module that re-exports one other) followed to the package it re-exports. So a package that
 // gains or loses either keyword fails here, by its op's name and the package's version. An op whose package is not
 // installed is named and left out
@@ -381,7 +382,7 @@ test("the registry ops that keep a take's length: audio.js's list, the packages'
   for (let name of Object.keys(audio.plugins).filter(n => audio.fn[n]?.op === n)) {
     let p
     try { p = defining(audio.plugins[name]) } catch { absent.push(name); continue }
-    let kw = (p.keywords || []).filter(k => k === 'restoration' || k === 'pitch-shift')
+    let kw = (p.keywords || []).filter(k => k === 'restoration' || k === 'pitch-shift' || k === 'time-stretch')
     if (kw.length) say[name] = `${p.name}@${p.version} says ${kw.join(' and ')}`
     else neither[name] = `${p.name}@${p.version} says neither`
   }

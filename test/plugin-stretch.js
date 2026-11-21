@@ -83,6 +83,23 @@ test('stretch plugins — compress + chain + serialize', async () => {
 	ok(JSON.stringify(a.edits).includes('stretch-wsola'), 'edit serializes as one entry')
 })
 
+// @audio/stretch-paulstretch declares a tail since 1.2.3 (the input padding that renders its whole smear, hop·(1 +
+// 1/factor) s of input), which audio rendered by default: stretch(2) of 1 s came out 2.557 s (README: round(n · factor)).
+// A time stretch keeps the length its factor says (audio.js keeping: its package says time-stretch); `tail: true`
+// renders the smear, the input padded by the tail and stretched with it
+test('stretch({ method: \'paulstretch\' }): round(n · factor) frames; tail: true renders the smear its package declares', async () => {
+	await audio.use('stretch-paul')
+	let t = audio.op('stretch-paul').plugin.tail
+	for (let f of [2, 4]) {
+		let [y] = await audio.from([tone(440, 1)], { sampleRate: SR }).stretch(f, { method: 'paulstretch' }).read()
+		is(y.length, Math.round(SR * f), `${f}×: round(n · factor) frames`)
+		let pad = typeof t === 'function' ? Math.round(t({ sampleRate: SR, params: { factor: [f], frame: [0.37] } }) * SR) : 0
+		let [z] = await audio.from([tone(440, 1)], { sampleRate: SR }).stretch(f, { method: 'paulstretch', tail: true }).read()
+		is(z.length, Math.round((SR + pad) * f), `${f}×, tail: true: the input and its ${pad} frames of tail, stretched`)
+		ok(z.subarray(Math.round(SR * f)).some(v => v !== 0), `${f}×, tail: true: the smear past the stretched end sounds`)
+	}
+})
+
 test('stretch plugins — paulstretch smear at high factor', async () => {
 	let a = audio.from([tone(440, 1)], { sampleRate: SR })
 	a['stretch-paul']({ factor: 4 })
