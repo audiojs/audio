@@ -557,7 +557,9 @@ test('editor: a card dragged takes its step along the chain; one bypassed stays 
   assert.ok(await card('Gain').evaluate(el => el.classList.contains('open') && el.classList.contains('chosen') && el.classList.contains('off')), 'open, chosen, off')
   assert.deepEqual(await card('Gain').boundingBox(), box, 'where it was, as tall')
   await page.locator('.viewing').waitFor({ state: 'detached' })
-  // set while bypassed: into its comment, nothing run
+  // set while bypassed: into its comment, nothing run (counted once the bypass's own run has gone: it waits its turn
+  // behind the one before, and goes again to a new worker where that one's output held the worker, engine.js HELD)
+  await settled()
   const ran = await page.evaluate(() => runs), slider = card('Gain').locator('input[type=range]').first()
   await slider.evaluate(el => { el.value = 700; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })) })
   await page.waitForFunction(() => /^  \/\/ \.gain\(-?[\d.]+\)$/m.test(scriptText()) && !scriptText().includes('.gain(-3)'))

@@ -452,15 +452,17 @@ test('editor: the ticks between the labels half as tall, every one drawn, at eve
   await lengthIs('0:08.000')
   // a tick's length on either axis (view/model.js TICK)
   const box = await page.locator('.plot').boundingBox(), TICK = 12
+  // the row as last laid: each frame laid whole on a canvas cleared for it, and only one that differs (kept.js), so a
+  // zoom's laid before a read is the row as it is, though a pointer on the head lays nothing new
   await page.evaluate(() => {
     window.__row = []
-    const proto = CanvasRenderingContext2D.prototype, rect = proto.fillRect, text = proto.fillText
+    const proto = CanvasRenderingContext2D.prototype, rect = proto.fillRect, text = proto.fillText, width = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'width')
+    Object.defineProperty(HTMLCanvasElement.prototype, 'width', { ...width, set(v) { if (this.matches('.row')) window.__row = []; width.set.call(this, v) } })
     proto.fillRect = function (x, y, w, h) { if (this.canvas.matches('.row') && w === 1) window.__row.push({ x, h }); return rect.call(this, x, y, w, h) }
     proto.fillText = function (s, x, y) { if (this.canvas.matches('.row')) window.__row.push({ s, x, w: this.measureText(s).width }); return text.call(this, s, x, y) }
   })
   // the row as it is drawn, the pointer on the band's head (no time of its own on the row): labels, full ticks, half ones
   const read = async () => {
-    await page.evaluate(() => window.__row = [])
     await page.mouse.move(box.x + 3, box.y + 4)
     await page.mouse.move(box.x + 4, box.y + 4)
     await frames()

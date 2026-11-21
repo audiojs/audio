@@ -218,8 +218,9 @@ test('editor: every setting comes back as it was kept; one the page no longer ha
   const kept = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')))
   const now = await kept()
   for (const [key, value] of Object.entries(all)) assert.deepEqual(now[key], value, key)
-  // written from another page of the site, so the editor's own store as it closes doesn't write over it
-  const seed = async value => { await page.goto(origin + '/blank.html'); await page.evaluate(v => localStorage.setItem('audio-repl', v), value); await page.goto(origin + '/repl/') }
+  // written from another page of the site, so the editor's own store as it closes doesn't write over it, once the
+  // editor has let go of its lock (keep.js own): a page leaves as the next one loads, a busy one after it
+  const seed = async value => { await page.goto(origin + '/blank.html'); await page.evaluate(v => navigator.locks.request('audio-repl', () => localStorage.setItem('audio-repl', v)), value); await page.goto(origin + '/repl/') }
   await seed(JSON.stringify({ scroll: 'bogus', format: 'wma', look: { map: 'nope', gamma: 2 }, spec: 'radio', docs: [{ code: 5 }, { code: "audio('chime.wav')" }] }))
   await wholeLevels().waitFor()
   const fixed = await kept()

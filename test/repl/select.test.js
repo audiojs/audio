@@ -585,9 +585,13 @@ test('editor: on strikes with no pause between them, a double-click takes one st
 // A dragged edge, or the caret, goes onto a cue it comes within 3 px of, as Figma's objects snap; one short of it, or 5 px
 // past it, stays
 test('editor: a selection\'s dragged edge, or the caret, snaps to a cue near it', async () => {
+  // the length of the sound the cues the view takes are of (__cuedFor)
+  await page.route('**/repl/view.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('    set cues(list) {\n', '    set cues(list) {\n      if (list) globalThis.__cuedFor = duration\n') }) })
   await open()
   await write(hits)
   await lengthIs('0:02.000')
+  // its cues come: the caret steps by its pauses till then
+  await page.waitForFunction(() => globalThis.__cuedFor === 2)
   const { box, x } = await axis(2), y = box.y + TOP + TRACK * .3
   const cues = await poll(handles, cues => assert.ok(cues.length >= 3, `its cues found: ${cues}`), 8000)
   const at = cues.find(h => Math.abs(h - (x(1) - box.x)) < 20)

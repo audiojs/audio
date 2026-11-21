@@ -114,12 +114,13 @@ test('editor: a copy puts the range on the system clipboard, as code and as a WA
   await page.waitForFunction(async () => { try { const t = (await navigator.clipboard.read())[0]?.types ?? []; return t.includes('web audio/wav') && t.includes('text/plain') } catch { return false } })
   // headless Chromium on Linux names a type among the item's and may hold no data for it (getType: "The type was not
   // found"): the web WAV never; the text for a moment, while the page writes it again alone, the write with the WAV
-  // refused. The text is read until it is there, the WAV where the clipboard keeps it
+  // refused. The text is read until it is there, the WAV where the clipboard keeps it; a reading that write overtook
+  // (getType: "Clipboard data has changed"), as none
   const got = await poll(() => page.evaluate(async () => {
     const [item] = await navigator.clipboard.read(), of = type => item.getType(type).catch(e => e.name === 'NotFoundError' ? null : Promise.reject(e))
     const text = await of('text/plain'), wav = await of('web audio/wav')
     return { text: text && await text.text(), wav: wav && [...new Uint8Array(await wav.arrayBuffer())] }
-  }), g => assert.ok(g.text != null, 'the code on the clipboard'))
+  }).catch(e => { if (/Clipboard data has changed/.test(e.message)) return { text: null }; throw e }), g => assert.ok(g.text != null, 'the code on the clipboard'))
   assert.equal(got.text, `audio('chime.wav').gain(-3).crop({ at: ${at}, d: ${d} })`)
   if (!got.wav) return assert.equal(process.platform, 'linux', 'the web format without its data: headless Linux alone')
   const a = await audio(new Uint8Array(got.wav)), [y0] = await a.read()

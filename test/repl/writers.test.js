@@ -106,10 +106,13 @@ test('editor: a dragged cue moves alone; the sound stretched around it makes no 
 // grow cues in the spans it stretched. Carried from before warp(), every other cue stays on its pixel.
 test('editor: a cue dragged over a sustained sound leaves every other cue where it was', async () => {
   // the cues each output brings, counted as the view takes them (__cued)
-  await page.route('**/repl/view.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('    set cues(list) {\n', '    set cues(list) {\n      if (list) globalThis.__cued = (globalThis.__cued ?? 0) + 1\n') }) })
+  // and the length of the sound the last are of (__cuedFor)
+  await page.route('**/repl/view.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('    set cues(list) {\n', '    set cues(list) {\n      if (list) globalThis.__cued = (globalThis.__cued ?? 0) + 1, globalThis.__cuedFor = duration\n') }) })
   await open()
   await write(`audio('rhodes.wav')`)
   await lengthIs('0:09.000')
+  // its own cues come: the caret steps by its pauses till then
+  await page.waitForFunction(() => Math.abs(globalThis.__cuedFor - 9) < 1e-3)
   const { box, x } = await axis(9), y = box.y + TOP + 20
   const before = await poll(handles, before => assert.ok(before.length, 'its cues'), 8000)
   // the chord struck at 4.85 s, moved half a second earlier
