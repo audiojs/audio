@@ -26,12 +26,12 @@ const ownDeck = {
   }
 }
 
-// compare's module stays beside dist/, fetched on first use (audio.js imports it then): a page that never compares
-// never loads it
-const ownCompare = {
-  name: 'own-compare',
+// compare's module, and deslop's, stay beside dist/, fetched on first use (audio.js imports each then): a page that
+// never compares, or never deslops, never loads it
+const ownLazy = {
+  name: 'own-lazy',
   setup(build) {
-    build.onResolve({ filter: /^\.\/fn\/compare\.js$/ }, args => args.kind === 'dynamic-import' ? { path: '../fn/compare.js', external: true } : undefined)
+    build.onResolve({ filter: /^\.\/fn\/(compare|deslop)\.js$/ }, args => args.kind === 'dynamic-import' ? { path: `../fn/${args.path.slice(5)}`, external: true } : undefined)
   }
 }
 
@@ -40,7 +40,7 @@ const base = {
   bundle: true,
   format: 'esm',
   platform: 'browser',
-  plugins: [lazyAtoms, ownDeck, ownCompare],
+  plugins: [lazyAtoms, ownDeck, ownLazy],
 }
 
 // dist/audio.js — core + dispatch, codecs load on demand via import()

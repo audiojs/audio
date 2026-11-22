@@ -5,6 +5,7 @@
  * a.deconstruct(0, 0, -6)             → the transients (clicks, attacks, consonants) 6 dB down
  * a.deconstruct(-Infinity, 0, 0)      → the tones gone: hum, a held note, feedback; what is not a tone stays
  * a.deconstruct(0, -Infinity, -Infinity, { separation: 3 }) → the tones alone, more strictly told apart
+ * a.deconstruct(0, -6, 0, { band: [4000, 20000] }) → the noise 6 dB down over 4 kHz alone: under it the sound as it came
  *
  * Each STFT frame (the power of two nearest 46 ms, a quarter-frame hop, periodic Hann) is read by two median filters
  * (Fitzgerald, "Harmonic/percussive separation using median filtering", DAFx 2010): over time, each frequency's median
@@ -17,7 +18,10 @@
  * and gains of 0 dB leave it as it came, sample for sample. The channels share the masks (their mean magnitude), so a
  * stereo image stays where it was. Streams 0.15 s behind (the time median's 0.1 s ahead, and a frame); with a range,
  * only frames centred in it change, those across its edges blending in and out, and past their reach the input stays
- * sample for sample.
+ * sample for sample. With a `band` [lo, hi] Hz the gains hold inside it and fade to 0 dB over a third of an octave
+ * either side of each edge (a raised cosine in log frequency, half way at the edge itself; no fade at an edge at 0 or
+ * at the Nyquist frequency and past it): outside, each frequency goes back as it came, so a part can be moved in the
+ * top of a mix and its body left alone.
  */
 import audio from '../core.js'
 import { rangeOf } from '../plan.js'
@@ -32,6 +36,20 @@ const geom = sr => {
   return { N, H, M: Math.max(1, Math.round(SPAN * sr / H)), Q: Math.max(1, Math.round(BAND * N / sr)) }
 }
 const lin = db => db == null ? 1 : db === -Infinity ? 0 : 10 ** (db / 20)
+// how far the gains hold at each of K frequencies of a frame of N: 1 in the band, 0 past a third of an octave from it
+const THIRD = 2 ** (1 / 3)
+function weights(band, K, N, sr) {
+  let w = new Float64Array(K).fill(1)
+  if (!band) return w
+  let [lo, hi] = band
+  // 0 under e / THIRD, 1 over e · THIRD, a raised cosine in log frequency between
+  const rise = (f, e) => f <= e / THIRD ? 0 : f >= e * THIRD ? 1 : 0.5 - 0.5 * Math.cos(Math.PI * Math.log(f * THIRD / e) / Math.log(THIRD * THIRD))
+  for (let b = 0; b < K; b++) {
+    let f = b * sr / N
+    w[b] = (lo > 0 ? rise(f, lo) : 1) * (hi < sr / 2 ? 1 - rise(f, hi) : 1)
+  }
+  return w
+}
 const flat = o => lin(o.tonal) === 1 && lin(o.noise) === 1 && lin(o.transient) === 1
 // output sample s is whole once the last frame over it is made, M frames after it is read: M hops and a frame
 const latency = (o, sr) => { if (flat(o)) return 0; let { N, H, M } = geom(sr); return M * H + N - 1 }
@@ -39,6 +57,8 @@ const latency = (o, sr) => { if (flat(o)) return 0; let { N, H, M } = geom(sr); 
 function check(o) {
   for (let k of ['tonal', 'noise', 'transient']) if (o[k] != null && !(typeof o[k] === 'number' && o[k] === o[k] && o[k] < Infinity)) throw new TypeError(`deconstruct: ${k} is dB (−Infinity removes it), not ${o[k]}`)
   if (o.separation != null && !(o.separation >= 1)) throw new RangeError(`deconstruct: separation is 1 or more, not ${o.separation}`)
+  let b = o.band
+  if (b != null && !(Array.isArray(b) && b.length === 2 && b[0] >= 0 && b[1] > b[0] && b[1] < Infinity)) throw new RangeError(`deconstruct: band is [lo, hi] Hz, 0 ≤ lo < hi, not ${JSON.stringify(b)}`)
 }
 
 /** Replace `old` by `v` in the sorted run s[o..o + n), keeping it sorted: a sliding median's step. */
@@ -56,7 +76,7 @@ function init(ctx, nch) {
   let L = M * H + N - 1, R = 2 ** Math.ceil(Math.log2(L + 2 * N))
   return {
     N, H, M, Q, K, F, L, R,
-    g: [lin(ctx.tonal), lin(ctx.noise), lin(ctx.transient)], beta: ctx.separation ?? 2,
+    g: [lin(ctx.tonal), lin(ctx.noise), lin(ctx.transient)], beta: ctx.separation ?? 2, w: weights(ctx.band, K, N, sr),
     win: hann(N),
     p: Math.round((ctx.blockOffset || 0) * sr),
     in: Array.from({ length: nch }, () => new Float64Array(N)), dry: Array.from({ length: nch }, () => new Float32Array(R)),
@@ -89,7 +109,7 @@ function step(st, k, a0, a1) {
   let j = k - M, js = ((j % F) + F) % F, centre = j * H + N / 2
   if (st.count <= M) return
   // gains only in frames centred in the range: elsewhere the frame goes back as it came
-  let G = st.G, [gt, gn, gp] = st.g, beta = st.beta, Q = st.Q, W = 2 * Q + 1, mj = st.mag[js], ps = st.ps
+  let G = st.G, [gt, gn, gp] = st.g, beta = st.beta, Q = st.Q, W = 2 * Q + 1, mj = st.mag[js], ps = st.ps, w = st.w
   if (centre >= a0 && centre < a1) {
     // the frequency median slides along the frame, the frame reflected at its ends (as librosa's hpss filters)
     const at = b => mj[b < 0 ? -b : b > K - 1 ? 2 * (K - 1) - b : b]
@@ -101,7 +121,8 @@ function step(st, k, a0, a1) {
       let r = h > 0 ? beta * p / h : Infinity, u = p > 0 ? beta * h / p : Infinity
       r *= r; u *= u
       let mt = 1 / (1 + r * r), mp = 1 / (1 + u * u)
-      G[b] = gt * mt + gp * mp + gn * (1 - mt - mp)
+      // (the masks sum to 1: at weight 0 the gain is 1, the frequency as it came)
+      G[b] = 1 + w[b] * (gt * mt + gp * mp + gn * (1 - mt - mp) - 1)
       if (b < K - 1) swap(ps, 0, W, at(b - Q), at(b + Q + 1))
     }
   } else G.fill(1)

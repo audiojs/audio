@@ -18,6 +18,7 @@ const SUITES = [
   'hits',           // cues: where each attack starts, where each sound stops (fn/hits.js, the editor's)
   'store',          // sounds kept by a key, and the checkpoints of what edits make (store.js, checkpoint.js)
   'rx',             // RX 12's modules we lacked: wow & flutter, azimuth, phase, codec preview, deconstruct, find similar
+  'deslop',         // a generated track remastered by what it carries: each stage by its evidence, the op its plan's chain
   'vocos',          // a voice made again by Vocos (optional @audio/neural-vocode), the input kept above the crossover
   'restore',        // a voice back to a studio take (optional @audio/neural-restore), the input mixed back by 1 − strength
   'pedalboard',     // Pedalboard's built-ins we lacked: convolution, MP3 VBR, GSM

@@ -303,6 +303,19 @@ import './fn/cuts.js'
 // plugins do, out of a page's bundle (.esbuild.js leaves it beside dist/); it reads the sounds through their methods
 audio.fn.compare = async function(ref) { return (await import('./fn/compare.js')).default.call(this, ref) }
 
+// deslop (a generated track remastered by what it carries) and its plan, stat('slop'): one module, loaded on the first
+// use of either, as compare's is; the op renders ahead (its prepare), so the module is there before a block is played
+let slop = null
+const deslop = async () => slop ??= await import('./fn/deslop.js')
+audio.op('deslop', {
+  params: ['intensity'],
+  prepare: async (a, index) => (await deslop()).prepare(a, index),
+  process: (input, output, ctx) => { if (!slop) throw new Error('deslop: runs ahead of rendering, through read(), stream() or save()'); slop.process(input, output, ctx) },
+})
+builtin.add(audio.op('deslop'))  // one of the package's own, registered here past the line that gathers them
+audio.stat('slop', {})
+audio.fn.slop = async function(opts) { return (await deslop()).plan.call(this, opts) }
+
 // ── Ops ─────────────────────────────────────────────────────────────────
 
 import './fn/crop.js'

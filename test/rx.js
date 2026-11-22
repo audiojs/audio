@@ -244,6 +244,38 @@ test('deconstruct: a range changes there alone; a render from anywhere is the wh
   ok(residual(x, whole) > -30 && lag(x, whole) ** 2 < 1e-4, `in line with its input (lag ${lag(x, whole).toFixed(4)})`)
 })
 
+// White noise is flat per Hz, so a band's change is read off its power: with a band, the noise part 12 dB down inside it
+// as without one, nothing moved an octave outside, each edge half way (a raised cosine over a third of an octave either
+// side of it, in log frequency).
+test('deconstruct: a band holds the gains inside it; outside, the sound as it came', async () => {
+  const sr = 48000, n = sr * 4
+  let seed = 7, rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647
+  let x = Float32Array.from({ length: n }, () => 0.3 * (rnd() * 2 - 1))
+  const made = async (...a) => (await audio.from([x], { sampleRate: sr }).deconstruct(...a).read())[0]
+  // the power of v in lo..hi Hz, dB: a Hann frame's bins, averaged
+  const power = (v, lo, hi) => {
+    let N = 8192, w = Float64Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N)), buf = new Float64Array(N), s = 0
+    for (let at = sr / 2; at + N <= n - sr / 2; at += N / 2) {
+      for (let i = 0; i < N; i++) buf[i] = v[at + i] * w[i]
+      let [re, im] = fft(buf)
+      for (let k = Math.ceil(lo * N / sr); k <= Math.floor(hi * N / sr); k++) s += re[k] * re[k] + im[k] * im[k]
+    }
+    return 10 * Math.log10(s)
+  }
+  let whole = await made(0, -12, 0), top = await made(0, -12, 0, { band: [4000, 24000] }), mid = await made(0, -12, 0, { band: [2000, 6000] })
+  const moved = (y, lo, hi) => power(y, lo, hi) - power(x, lo, hi)
+  ok(Math.abs(moved(top, 100, 2000)) < 0.01 && Math.abs(moved(top, 2000, 3000)) < 0.01, `over 4 kHz: under 3 kHz moved ${moved(top, 100, 3000).toFixed(3)} dB`)
+  ok(Math.abs(moved(top, 6000, 20000) - moved(whole, 6000, 20000)) < 0.05, `6 to 20 kHz as without a band: ${moved(top, 6000, 20000).toFixed(2)} dB, ${moved(whole, 6000, 20000).toFixed(2)}`)
+  ok(Math.abs(moved(top, 20000, 24000) - moved(whole, 20000, 24000)) < 0.05, 'an edge at the Nyquist frequency: no fade under it')
+  let edge = moved(top, 3900, 4100), full = moved(whole, 3900, 4100)
+  ok(edge < -0.5 && edge > full + 0.5, `at the edge itself, between: ${edge.toFixed(2)} dB of ${full.toFixed(2)}`)
+  ok(Math.abs(moved(mid, 100, 1500)) < 0.01 && Math.abs(moved(mid, 8000, 24000)) < 0.01, '2 to 6 kHz: an octave either side as it came')
+  ok(Math.abs(moved(mid, 2700, 4500) - moved(whole, 2700, 4500)) < 0.05, 'and inside as without a band')
+  ok((await made(0, 0, 0, { band: [4000, 24000] })).every((v, i) => v === x[i]), '0 dB each: sample for sample, band or not')
+  let said = await made(0, -6, 0, { band: [5000, 4000] }).then(() => null, e => e.message)
+  ok(/band is \[lo, hi\] Hz/.test(said), `a band turned round is refused: ${said}`)
+})
+
 // ── Music Rebalance ──────────────────────────────────────────────
 
 // The separation stubbed (audio.import): each stem a fixed share of its channel, 5 % in none, so what the op makes of
