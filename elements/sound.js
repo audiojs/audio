@@ -24,6 +24,9 @@
 //   sound.files           the names the page gives it and the engine holds
 //   sound.opens, .saves   the files its script opens and saves, by name
 //   sound.duration        its length, s; 0 till it has run
+//   sound.output          what it came to, for a picture of it (picture.js): { sampleRate, length, channels }, its
+//                         samples, or, longer than the page holds, { summary }: its pieces, each { at, peaks, spectra },
+//                         a channel each, as gl-waveform and gl-spectrogram take them; null till it has run
 //   sound.time            where it is, s (set: goes there)
 //   sound.playing, .working, .status (what it does, in a word and a figure), .error (a message, or '')
 //   run()  play()  pause()  toggle()  save()  open(file)
@@ -102,6 +105,7 @@ class AudioSound extends HTMLElement {
   get opens() { return named(this.code).opens.map(f => f.name) }
   get saves() { return named(this.code).saves.map(f => f.name) }
   get duration() { return this.#out?.duration ?? 0 }
+  get output() { const o = this.#out; return o && { sampleRate: o.sampleRate, length: o.length, channels: o.channels, summary: o.summary } }
   get time() { return Math.min(this.#player?.playing ? this.#at = this.#player.time : this.#at, this.duration) }
   set time(t) { this.#at = Math.max(0, Math.min(+t || 0, this.duration)); this.#player?.seek(this.#at); this.#say('timeupdate') }
   get playing() { return this.#state.playing }
@@ -177,14 +181,14 @@ class AudioSound extends HTMLElement {
       const eng = await engineOf(), script = prepare(code)
       this.#progress = { decoding: true }
       await this.#bring(eng, script.names)
-      const parts = [], progress = this.#progress = {}
+      const parts = [], summary = [], progress = this.#progress = {}
       let reply
       const ended = new Promise(resolve => {
         const on = {
           loading: m => { progress.decoding = true; progress.share = m.estimate && m.channels ? Math.min(1, (m.at + m.channels[0].length) / (m.estimate * m.sampleRate)) : null },
           arrived: () => { progress.decoding = false; progress.share = null },
           doing: m => { progress.decoding = false; if (m.steps) progress.steps = m.steps; if ('step' in m) progress.step = m.step },
-          chunk: m => { progress.decoding = false; if (m.channels) parts.push(m); if (m.total && !progress.step) progress.share = (m.at + (m.channels?.[0].length ?? 0)) / m.total },
+          chunk: m => { progress.decoding = false; if (m.channels) parts.push(m); else if (m.peaks) summary.push({ at: m.at, peaks: m.peaks, spectra: m.spectra }); if (m.total && !progress.step) progress.share = (m.at + (m.channels?.[0].length ?? 0)) / m.total },
           done: resolve, error: m => resolve({ error: m.error }), skip: () => resolve({ skipped: true })
         }
         // (the engine's tab is the page's: named as the run is asked, nothing between)
@@ -206,7 +210,7 @@ class AudioSound extends HTMLElement {
         for (const p of parts) x.set(p.channels[c].subarray(0, Math.max(0, length - p.at)), p.at)
         return x
       })
-      this.#out = { id: r.id, code, channels, length, sampleRate: last.sampleRate, duration: last.duration, saves: r.saves ?? [], stats: last.stats ?? null }
+      this.#out = { id: r.id, code, channels, summary: channels ? null : summary, length, sampleRate: last.sampleRate, duration: last.duration, saves: r.saves ?? [], stats: last.stats ?? null }
       this.#hear()
       this.#say('run', this.#out)
       return this.#out

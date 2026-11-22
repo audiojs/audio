@@ -16,6 +16,8 @@
   p { margin: 0 0 12px; max-width: 60ch; }
   @media (scripting: enabled) { audio-code:not(:defined) > pre { visibility: hidden; } }
   pre { margin: 0; padding: 14px 16px; overflow-x: auto; background: #181818; color: #ebebeb; border-radius: 4px; font: 11px/1.75 ui-monospace, monospace; }
+  audio-wave, audio-spectrogram { height: 96px; margin-bottom: 8px; color: #141414; }
+  audio-spectrogram { background: #181818; color: #ebebeb; border-radius: 4px; overflow: hidden; }
   .bar { display: flex; align-items: center; gap: 16px; margin-top: 8px; font-size: 13px; }
   .bar audio-status { flex: 1; color: #555; }
   .bar audio-status[data-error] { color: #b3261e; }
@@ -39,6 +41,20 @@ audio('voice.mp3')
   <div class="bar"><audio-status></audio-status></div>
 </audio-sound>
 
+<h2>With its picture</h2>
+<p>The waveform and the spectrogram of what the script comes to, the place it plays on each; a press goes there. In sight, they have the script run.</p>
+<audio-sound id="pictured">
+  <audio src="/samples/music/classical/prelude-in-c.mp3" data-name="song.mp3" preload="none"></audio>
+  <audio-wave></audio-wave>
+  <audio-spectrogram></audio-spectrogram>
+<audio-code>
+<pre><code>// Kimiko Ishizaka, public domain, an excerpt
+audio('song.mp3')
+  .fade(1, 2)</code></pre>
+</audio-code>
+  <div class="bar"><audio-play></audio-play><audio-time></audio-time><audio-status></audio-status></div>
+</audio-sound>
+
 <h2>Its parts elsewhere</h2>
 <p>A part outside its sound names it, as a label names its control.</p>
 <div class="bar"><audio-play for="apart"></audio-play><audio-time for="apart"></audio-time><audio-status for="apart"></audio-status><audio-save for="apart" name="chime.flac"></audio-save></div>
@@ -54,4 +70,5 @@ audio('voice.mp3')
 <audio-sound id="file" src="/samples/music/classical/prelude-in-c.mp3">
   <div class="bar"><audio-play></audio-play><audio-seek></audio-seek><audio-time></audio-time></div>
 </audio-sound>
+
 </html>

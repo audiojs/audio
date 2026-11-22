@@ -12,8 +12,11 @@
 // data-working, data-error). Its look is next to nothing: the page's font and ink, no ground, in a cascade layer
 // (`audio`) under every rule of the page's.
 
-// the sound a part is of: the one its `for` names, else the nearest it is in; null where there is none
+// the sound a part is of: the one its `for` names, else the nearest it is in; null where there is none. A sound is
+// what answers as <audio-sound> does (sound.js): that element, or another named that keeps its interface (toggle(),
+// playing and the rest: an embedded editor's element, for the sound in its frame)
 export const soundOf = el => el.hasAttribute('for') ? el.ownerDocument.getElementById(el.getAttribute('for')) : el.closest('audio-sound')
+const sounds = el => typeof el?.toggle === 'function' && 'playing' in el
 
 // Rules into the page, each set once (by its id), in the skin's own layer
 export function styles(id, css) {
@@ -64,10 +67,11 @@ export class Part extends HTMLElement {
     if (!this.#made) { this.#made = true; this.make() }
     this.show(null)
     // (the sound's element may be defined after its parts: found once it is)
-    customElements.whenDefined('audio-sound').then(() => {
+    const named = soundOf(this)
+    customElements.whenDefined(named?.localName.includes('-') ? named.localName : 'audio-sound').then(() => {
       if (!this.isConnected || this.#sound) return
       const sound = soundOf(this)
-      if (!(sound instanceof customElements.get('audio-sound'))) return
+      if (!sounds(sound)) return
       this.#sound = sound
       this.#heard = () => this.show(sound)
       for (const type of this.constructor.hears) sound.addEventListener(type, this.#heard)

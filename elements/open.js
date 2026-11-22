@@ -16,7 +16,8 @@ class AudioOpen extends Part {
     this.#input.addEventListener('change', () => { const [file] = this.#input.files; this.#input.value = ''; if (file) this.sound?.open(file) })
   }
   show(sound) {
-    const name = sound?.opens[0] ?? ''
+    // (a file named by its address, by its last part)
+    const name = (sound?.opens[0] ?? '').split('/').pop()
     this.#button.disabled = !sound
     this.#name.textContent = name || 'Open a file'
     this.#button.setAttribute('aria-label', name ? `${name}: open another file` : 'Open a file')

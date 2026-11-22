@@ -40,7 +40,8 @@ const FEATURES = {
   kind: ['repl/kind.js'],
   // the elements (elements/): the editor in parts, in a page of its own
   'audio-code': ['elements/'],
-  'audio-sound': ['elements/']
+  'audio-sound': ['elements/'],
+  'audio-picture': ['elements/']
 }
 // what every repl suite loads: the site, the repl, the library's worker and deck, the tests' page and fixtures
 const REPL = [...SITE, 'repl/', 'worker.js', 'deck.js', 'fn/curves.js', 'test/repl/page.js', 'test/gen.js', 'test/fixture.wav']

@@ -104,6 +104,36 @@ Not built, in the order section 6 gives: the editor's own code pane as `<audio-c
 before and after (`<audio-before>`: the editor's B plays the source at the edits' loudness and maps the time across
 edits that change the length, `editor/play.js`; a part needs both); loop, history, level, the chain.
 
+## 1c. Built: the pictures, and the embedded editor as a sound
+
+22 Nov 2026, after the owner's "go on with the waveform" and "the code reflects what's there in the hero example, -
+adding code ops adds them in the hero and vice-versa".
+
+- `<audio-wave>`, `<audio-spectrogram>` (`elements/picture.js`, `wave.js`, `spectrogram.js`): parts of a sound that
+  draw its output, a lane a channel, the place it plays on it, a press, a drag or the arrows to go there; a slider to a
+  screen reader. Drawn by `gl-waveform` and `gl-spectrogram`, the renderers `repl/view.js` draws with, each loaded with
+  the first sound. `<audio-sound>` gives them `output` (its samples, or a long sound's summaries as the engine feeds
+  them).
+- This is not section 4's "one view.js instance each". The view is 5350 lines in 13 modules with its state at module
+  level (`view/model.js`), seven of them changed in the working tree by other sessions that day: making it an instance
+  is a refactor of its own, to be planned with whoever holds those files. What the elements share with the view today
+  is the renderers; what they lack is the view's: zoom, selection, the time row, the grid, notes, edits on the picture.
+  When the view is an instance, these two elements become its faces and keep their names.
+- `<audio-repl>` answers as a sound (`repl/embed.js`; the frame's side `repl/editor/host.js`, loaded by `editor.js`):
+  `code` both ways with an `input` event, `playing`, `working`, `status`, `error`, `duration`, `time`, `opens`,
+  `saves`, `toggle()`, `play()`, `pause()`, `save()`, `open(File)`. So the parts and a code block of the page act on the
+  whole editor in its frame. The frame says its state by reading the page's own twenty times a second (nothing added to
+  the editor's modules but one import), and asks for the samples' catalogue when its script opens a file of the site's,
+  so a recording is said by its word and credited as one opened from the menu.
+- A part's sound is now anything that answers as one (`part.js`), not `<audio-sound>` alone.
+- Tests: `test/repl/audio-picture.test.js` (4: a tone of amplitude 0.5 from a quarter to three quarters of a lane; a
+  1 kHz tone's row on a log and a linear axis; press, drag and keys; `lazy` and two lanes), `embed-sound.test.js` (1).
+- In use: the site's home. Its opening's editor is the sound of the case under it; the case's code block and parts
+  name it (`for`), and a few lines of the page keep the two scripts one.
+- Not committed with the elements: `repl/embed.js`, `repl/editor/host.js`, the import in `repl/editor.js` and
+  `embed-sound.test.js` stand in the working tree with the other sessions' uncommitted editor work, which `embed.js`
+  already carries.
+
 ## 2. What the editor has that could stand alone
 
 "Tied" means: imports `repl/editor/context.js` (the page's shared bindings) or `repl/editor/config.js` (which reads

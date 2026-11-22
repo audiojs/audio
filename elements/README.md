@@ -12,14 +12,15 @@ The editor in parts: custom elements a page composes. Each is the HTML face of a
   .trim()
   .normalize('podcast')
   .save('episode.mp3')</code></pre></audio-code>
+  <audio-wave></audio-wave>
   <audio-play></audio-play> <audio-seek></audio-seek> <audio-time></audio-time>
   <audio-status></audio-status> <audio-open></audio-open> <audio-save></audio-save>
 </audio-sound>
 ```
 
-`index.js` defines them all; each also has its own module (`code.js`, `sound.js`, `play.js`, `seek.js`, `time.js`,
-`status.js`, `open.js`, `save.js`). Demos: [index.html](index.html) (the code block), [sound.html](sound.html) (a sound
-and its parts).
+`index.js` defines them all; each also has its own module (`code.js`, `sound.js`, `wave.js`, `spectrogram.js`,
+`play.js`, `seek.js`, `time.js`, `status.js`, `open.js`, `save.js`). Demos: [index.html](index.html) (the code block),
+[sound.html](sound.html) (a sound, its pictures and its parts).
 
 ## What loads when
 
@@ -28,6 +29,7 @@ and its parts).
 | The page loads | the elements, the parser, the script's reading | 124 KB |
 | A sound is in sight | the player (`repl/player.js`, `deck.js`) | 19 KB |
 | A reader reaches for a code block | CodeMirror | 108 KB |
+| A picture draws its first sound | its renderer: `gl-waveform` 10 KB, `gl-spectrogram` 26 KB | |
 | The first play or save | the engine's worker, the library's chunks, a decoder | about 370 KB, and the file |
 
 Measured on the site's home, 21 Nov 2026. The script itself runs in a worker; the page's thread stays free.
@@ -70,6 +72,7 @@ it shares one engine, and a name is one file there.
 | `files` | the names the page gives it and the engine holds |
 | `opens`, `saves` | the files the script opens and saves, by name |
 | `duration` | s; 0 till it has run |
+| `output` | what it came to, for a picture: `{ sampleRate, length, channels }`, or, longer than the page holds (ten minutes of one channel), `{ summary }`; `null` till it has run |
 | `time` | where it is, s (set: goes there) |
 | `playing`, `working` | |
 | `status` | what it does, in a word and a figure: `Decoding 40%`, `Applying auto: denoise 3.1s` |
@@ -90,10 +93,13 @@ it is. A file dropped on anything inside it opens.
 ## Its parts
 
 Each is of the sound it is inside, or of the one it names: `<audio-play for="take">`. Each holds a real `<button>` or
-`<input>`. Their look is the page's font and ink, no ground; state shows as attributes.
+`<input>` (a picture is itself a slider to the keys). Their look is the page's font and ink, no ground; state shows as
+attributes.
 
 | Element | Does | For CSS |
 |---|---|---|
+| `<audio-wave>` | the waveform, a lane a channel, the place it plays on it; a press, a drag or the arrows go there. `lazy` | `color`; `data-drawn`, `data-working` |
+| `<audio-spectrogram>` | the spectrogram, the same. `scale`: `log`, `mel`, `erb`, `lin`; `background`; `lazy` | `color`; `data-drawn`, `data-working` |
 | `<audio-play>` | plays and pauses | `data-playing`, `data-working`, `--played` (0 to 1) |
 | `<audio-seek>` | a range along its length | |
 | `<audio-time>` | `0:05 / 0:21`; `remaining`: `−0:16` | |
@@ -101,12 +107,17 @@ Each is of the sound it is inside, or of the one it names: `<audio-play for="tak
 | `<audio-open>` | the file the script opens, by name; pressed, one of the reader's own in its place. `accept` | |
 | `<audio-save>` | the file the script saves, by name; pressed, downloaded. `name` for a script with no `save()` | `data-working` |
 
+The pictures are drawn by the renderers the editor's own view draws with, [gl-waveform](https://github.com/dy/gl-waveform)
+and [gl-spectrogram](https://github.com/dy/gl-spectrogram), the whole sound across the element's width. In sight, a
+picture has its sound run (there is no picture of a sound not made); `lazy` waits for the sound to be played. They do
+not zoom, select or show a time row: that is the editor's view (`repl/view.js`), which is not an element yet.
+
 ## Not built
 
-A picture of the sound (`<audio-wave>`, `<audio-spectrogram>`, `<audio-notes>`): the editor's view must hold its
-state per instance first. Before and after, loop, history, level, the chain of edits. The editor's own code pane is
-not yet this `<audio-code>`; the two share `repl/script.js`. The whole editor in a page is still
-[`<audio-repl>`](../repl/README.md#embed), a frame.
+The editor's view as an element: zoom, selection, the time row, notes, edits made on the picture. Before and after,
+loop, history, level, the chain of edits. The editor's own code pane is not yet this `<audio-code>`; the two share
+`repl/script.js`. A long sound's pictures (past ten minutes of one channel) are fed from the engine's summaries and
+are not tested.
 
-Tests: `test/repl/audio-code.test.js`, `test/repl/audio-sound.test.js` (against the library in Node: a script's
-length, the bytes it saves).
+Tests: `test/repl/audio-code.test.js`, `audio-sound.test.js` (against the library in Node: a script's length, the
+bytes it saves), `audio-picture.test.js` (against the renderers' own definitions: a tone's amplitude, a tone's row).
