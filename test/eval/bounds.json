@@ -579,13 +579,14 @@
    }
   },
   "melody half as long again: stretch pghi/twof": {
-   "value": 75.1916,
+   "value": 68.1928,
    "scatter": 0,
    "read": "2026-11-22",
    "with": {
-    "@audio/stretch-pghi": "1.3.0",
-    "audio": "2.19.1"
-   }
+    "@audio/stretch-pghi": "1.3.1",
+    "audio": "2.19.2"
+   },
+   "accepted": "stretch-pghi 1.3.1 keeps the bins of a partial together (identity locking where the phase's mixed partial derivative reads a partial): the 2f score falls from 75.19 by its count of distorted blocks alone (ADB 1.285 to 1.657: the average is over fewer frames, 5.9 % against 7.6 %), while PEAQ reads the take nearer the true sound by every other measure: its grade -1.81 to -0.72, noise-to-mask -16.7 to -20.2 dB, modulation difference 10.86 to 6.47, noise loudness 0.316 to 0.243; the log-spectral distance from the truth falls too, and steady partials carry 20 dB less beside them"
   },
   "melody half as long again: stretch phase-lock/twof": {
    "value": 71.8122,
