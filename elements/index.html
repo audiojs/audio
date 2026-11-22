@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>audio-code</title>
+<!-- <audio-code> alone, then four of them on one page, as the site's home shows the library's cases (audiojs.github.io
+     index.html #uses). The pre in each is the text where scripts don't run; hidden here till the element draws it -->
+<script type="module" src="code.js"></script>
+<style>
+  body { margin: 0 auto; max-width: 1040px; padding: 32px 16px 64px; background: #ebebeb; color: #141414; font: 15px/1.5 system-ui, sans-serif; }
+  h1, h2 { font-weight: 600; letter-spacing: -.01em; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  h2 { margin: 40px 0 12px; font-size: 17px; }
+  h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+  p { margin: 0 0 12px; max-width: 60ch; }
+  output { display: block; margin-top: 8px; color: #555; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .cases { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 24px 16px; }
+  @media (scripting: enabled) { audio-code:not(:defined) > pre { visibility: hidden; } }
+  pre { margin: 0; padding: 14px 16px; overflow-x: auto; background: #181818; color: #ebebeb; border-radius: 4px; font: 11px/1.75 ui-monospace, monospace; }
+</style>
+
+<h1>audio-code</h1>
+<p>The editor's script, alone: coloured as the editor colours it, editable once you reach for it. Nothing here runs it.</p>
+
+<h2>One</h2>
+<audio-code id="one">
+<pre><code>audio('chime.wav')
+  .trim()
+  .normalize(-1)
+  .fade(0.02, 0.1)</code></pre>
+</audio-code>
+<output for="one" id="said">Not changed yet</output>
+
+<h2>Four</h2>
+<div class="cases">
+  <section><h3>Repair a recording</h3>
+<audio-code>
+<pre><code>// Wellcome Library, CC BY-SA 3.0, an excerpt
+audio('/samples/historic/florence-nightingale.mp3')
+  .auto()</code></pre>
+</audio-code>
+  </section>
+  <section><h3>Master to a reference</h3>
+<audio-code>
+<pre><code>// skrjablin, CC0; the reference: Wolfgang_, CC0
+audio('/samples/music/8-bit/c64-adventure-theme.mp3')
+  .master(audio('/samples/music/8-bit/battle-loop.mp3'))</code></pre>
+</audio-code>
+  </section>
+  <section><h3>Prepare a podcast take</h3>
+<audio-code>
+<pre><code>// read by Jothi Tharavant, LibriVox, public domain
+audio('/samples/sacred/song-celestial-12.mp3')
+  .trim()
+  .normalize('podcast')</code></pre>
+</audio-code>
+  </section>
+  <section><h3>Slow down, change key</h3>
+<audio-code>
+<pre><code>// Kimiko Ishizaka, public domain, an excerpt
+audio('/samples/music/classical/prelude-in-c.mp3')
+  .stretch(1.25)
+  .pitch(-3)</code></pre>
+</audio-code>
+  </section>
+</div>
+
+<script type="module">
+  // the element's input event, its value read on it
+  const one = document.getElementById('one'), said = document.getElementById('said')
+  one.addEventListener('input', () => { const v = one.value; said.textContent = `${v.split('\n').length} lines, ${v.length} characters` })
+</script>
+</html>

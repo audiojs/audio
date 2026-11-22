@@ -152,6 +152,23 @@ const apply = (code, edits) => edits.sort((a, b) => b.from - a.from || b.to - a.
 // a change made: one edit or several, as the editor takes them ({ from, to = from, insert = '' })
 const made = (code, change) => apply(code, [change].flat().map(x => ({ to: x.from, insert: '', ...x })))
 
+// The files a script names, in order, each where it is written as a string, { from, to, name }: those it opens
+// (`opens`: prepare's names, with their places) and those it saves (`saves`: what an export makes, worker.js exporting).
+// What a page says of a script before it has run, and where it renames a file (elements/sound.js)
+export function files(code) {
+  const opens = [], saves = [], place = s => ({ from: s.from, to: s.to, name: unquote(text(code, s)) })
+  parse(code).iterate({
+    enter: ({ node }) => {
+      if (node.name !== 'CallExpression') return
+      if (isAudio(code, node)) opens.push(...sourcesOf(node).map(place))
+      const prop = node.firstChild?.name === 'MemberExpression' && node.firstChild.getChild('PropertyName')
+      const first = prop && text(code, prop) === 'save' && children(node.getChild('ArgList')).find(n => !['(', ')', ','].includes(n.name) && !quiet(n))
+      if (first?.name === 'String') saves.push(place(first))
+    }
+  })
+  return { opens, saves }
+}
+
 // `audio(...)` itself: its callee is the name audio.
 const isAudio = (code, call) => { const callee = call.firstChild; return callee?.name === 'VariableName' && text(code, callee) === 'audio' }
 // String sources passed to audio(): 'a.wav' or ['a.wav', 'b.wav'].

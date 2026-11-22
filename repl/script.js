@@ -1,6 +1,63 @@
 import { ops, methods, stats, presets, GROUPS, format, fromManifest } from './ops.js'
 import words, { WORDS, MEANINGS, PARTS } from './syntax.js'
 
+// The words, as VS Code colours them (syntax.js): each marked with its word (.syntax-<word>), a name with its semantic
+// token too (.semantic-<type-modifiers>), a part's mark round the marks of the words in it. A word wears its own
+// colour and font style (theme.js styles: the skin's --color-syntax-<word> and the rest), the semantic token's over
+// them where the theme sets them (--sem-*, which the token's mark sets); what neither sets it takes from the part
+// round it, as VS Code's TextMate engine lays a scope's style over its parent's. A theme worn restyles them all, the
+// marks as they were. A word's mark is its classes (`marked`), its look a rule of CodeMirror's theme (LOOKS.words);
+// with the slab's (LOOKS.slab) exported, so a page's text before CodeMirror comes is drawn by the same rules
+// (elements/code.js)
+export const marked = (word, meaning) => `syntax-${word}${meaning ? ` semantic-${meaning.replaceAll('.', '-')}` : ''}`
+const own = (w, p) => `var(--${p}-syntax-${w})`
+export const LOOKS = {
+  words: {
+    // the script's own (source.js), round it all
+    '.cm-content': { color: `var(--color-syntax-source, var(--color-screen-ink))`, fontStyle: own('source', 'italic'), fontWeight: own('source', 'bold'), textDecorationLine: own('source', 'line') },
+    ...Object.fromEntries(Object.keys(WORDS).filter(w => w !== 'source').map(w => [`.syntax-${w}`, {
+      color: `var(--sem-color, ${own(w, 'color')})`, fontStyle: `var(--sem-italic, ${own(w, 'italic')})`, fontWeight: `var(--sem-bold, ${own(w, 'bold')})`, textDecorationLine: `var(--sem-line, ${own(w, 'line')})`
+    }])),
+    ...Object.fromEntries(MEANINGS.map(m => m.replaceAll('.', '-')).map(k => [`.semantic-${k}`, Object.fromEntries(['color', 'italic', 'bold', 'line'].map(p => [`--sem-${p}`, `var(--${p}-semantic-${k})`]))])),
+    // a number drags (scrub): the pointer says so
+    '.syntax-number, .syntax-embedded-number': { cursor: 'ew-resize' }
+  },
+  // The code slab's look, the same as the site's code examples: grey syntax on the dark screen, or a theme's (skin.css).
+  slab: {
+    '&': { height: '100%', color: 'var(--color-screen-ink)', backgroundColor: 'transparent', fontSize: 'var(--font-size-code)' },
+    '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.75' },
+    // the code scrolled across goes under the line numbers, cut off at their edge (under)
+    '.cm-content': { padding: '14px 0 40px', caretColor: 'var(--color-screen-bright)', clipPath: 'inset(0 0 0 var(--under, 0px))' },
+    '.cm-line': { padding: '0 16px 0 6px' },
+    '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--color-screen-line-number)' },
+    '.cm-layer': { clipPath: 'inset(-1e5px -1e5px -1e5px var(--under-layer, 0px))' },
+    '.cm-lineNumbers .cm-gutterElement': { padding: '0 6px 0 16px', minWidth: '22px' },
+    '.cm-activeLine': { backgroundColor: 'var(--color-screen-line)' },
+    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-screen-ink)' },
+    '&.cm-focused': { outline: 'none' },
+    '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--color-screen-bright)', borderLeftWidth: '1.5px' },
+    // the selection, and while the focus is elsewhere the inactive one, as an editor's goes
+    '.cm-selectionBackground': { backgroundColor: 'var(--color-screen-select-inactive)' },
+    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': { backgroundColor: 'var(--color-screen-select)' },
+    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: 'var(--color-screen-match)', color: 'inherit', outline: 'none' },
+    '.cm-selectionMatch': { backgroundColor: 'var(--color-screen-match)' },
+    '.cm-tooltip': { backgroundColor: 'var(--color-menu)', color: 'var(--color-screen-soft)', border: 'none', borderRadius: '8px', boxShadow: 'var(--shadow-menu)', fontFamily: 'var(--font-body)', fontSize: '12px' },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-mono)', maxHeight: '19em', minWidth: '300px', padding: '4px' },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '2px 8px', lineHeight: '1.7', borderRadius: '4px' },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--color-menu-select)', color: 'var(--color-menu-select-ink)' },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] :is(.cm-completionLabel, .cm-completionMatchedText, .cm-completionDetail)': { color: 'inherit' },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section': { display: 'block', padding: '8px 8px 2px', fontFamily: 'var(--font-body)', fontSize: '10px', letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--color-screen-muted)', border: 'none' },
+    '.cm-completionLabel': { color: 'var(--color-screen-ink)' },
+    '.cm-completionMatchedText': { textDecoration: 'none', color: 'var(--color-screen-bright)' },
+    '.cm-completionDetail': { fontFamily: 'var(--font-body)', fontStyle: 'normal', color: 'var(--color-screen-muted)', marginLeft: '14px' },
+    '.cm-completionInfo': { padding: '8px 10px', maxWidth: '280px', lineHeight: '1.5', color: 'var(--color-screen-soft)' },
+    '.cm-diagnostic': { padding: '4px 8px' },
+    '.cm-diagnostic-error': { borderLeft: '2px solid var(--color-screen-error)' },
+    '.cm-lintRange-error': { backgroundImage: 'none', textDecoration: 'underline wavy var(--color-screen-error)', textDecorationSkipInk: 'none', textUnderlineOffset: '4px' },
+    '.cm-panels': { backgroundColor: 'var(--color-menu)', color: 'var(--color-screen-soft)' }
+  }
+}
+
 // The script editor: JavaScript with the audio methods completed after a dot, sources and stat names completed
 // inside strings. `oncaret(update)` hears every move of the selection and every change, for the stack beside it. A
 // number says what it sets in the page's hints (`hint`, hint.js), pointed at, selected, dragged or stepped.
@@ -121,16 +178,11 @@ function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe
     autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, bracketMatching, indentOnInput,
     syntaxTree, setDiagnostics, highlightSelectionMatches
   } = lib
-  // The words, as VS Code colours them (syntax.js): each marked with its word (.syntax-<word>), a name with its semantic
-  // token too (.semantic-<type-modifiers>), a part's mark round the marks of the words in it. A word wears its own
-  // colour and font style (theme.js styles: the skin's --color-syntax-<word> and the rest), the semantic token's over
-  // them where the theme sets them (--sem-*, which the token's mark sets); what neither sets it takes from the part
-  // round it, as VS Code's TextMate engine lays a scope's style over its parent's. A theme worn restyles them all, the
-  // marks as they were. Marks that start and end together CodeMirror nests by their sides alone (RangeSet's
+  // The words marked (LOOKS above). Marks that start and end together CodeMirror nests by their sides alone (RangeSet's
   // LayerCursor compare): a part's mark is inclusive, so it goes round a word of its own range, and a template
   // expression's (`${'a'}`) round a part of its range too, that part's inclusive at its end as well
   const marks = new Map(), mark = (word, meaning) => {
-    const c = `syntax-${word}${meaning ? ` semantic-${meaning.replaceAll('.', '-')}` : ''}`
+    const c = marked(word, meaning)
     return marks.get(c) ?? marks.set(c, Decoration.mark({ class: c, inclusiveStart: PARTS.has(word), inclusiveEnd: PARTS.has(word) && word !== 'embedded' })).get(c)
   }
   const decorate = state => {
@@ -142,52 +194,8 @@ function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe
     constructor(view) { this.decorations = decorate(view.state) }
     update(u) { if (u.docChanged || syntaxTree(u.state) !== syntaxTree(u.startState)) this.decorations = decorate(u.state) }
   }, { decorations: v => v.decorations })
-  const own = (w, p) => `var(--${p}-syntax-${w})`
-  const syntax = EditorView.theme({
-    // the script's own (source.js), round it all
-    '.cm-content': { color: `var(--color-syntax-source, var(--color-screen-ink))`, fontStyle: own('source', 'italic'), fontWeight: own('source', 'bold'), textDecorationLine: own('source', 'line') },
-    ...Object.fromEntries(Object.keys(WORDS).filter(w => w !== 'source').map(w => [`.syntax-${w}`, {
-      color: `var(--sem-color, ${own(w, 'color')})`, fontStyle: `var(--sem-italic, ${own(w, 'italic')})`, fontWeight: `var(--sem-bold, ${own(w, 'bold')})`, textDecorationLine: `var(--sem-line, ${own(w, 'line')})`
-    }])),
-    ...Object.fromEntries(MEANINGS.map(m => m.replaceAll('.', '-')).map(k => [`.semantic-${k}`, Object.fromEntries(['color', 'italic', 'bold', 'line'].map(p => [`--sem-${p}`, `var(--${p}-semantic-${k})`]))])),
-    // a number drags (scrub): the pointer says so
-    '.syntax-number, .syntax-embedded-number': { cursor: 'ew-resize' }
-  })
-
-  // The code slab's look, the same as the site's code examples: grey syntax on the dark screen, or a theme's (skin.css).
-  const theme = EditorView.theme({
-    '&': { height: '100%', color: 'var(--color-screen-ink)', backgroundColor: 'transparent', fontSize: 'var(--font-size-code)' },
-    '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.75' },
-    // the code scrolled across goes under the line numbers, cut off at their edge (under)
-    '.cm-content': { padding: '14px 0 40px', caretColor: 'var(--color-screen-bright)', clipPath: 'inset(0 0 0 var(--under, 0px))' },
-    '.cm-line': { padding: '0 16px 0 6px' },
-    '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--color-screen-line-number)' },
-    '.cm-layer': { clipPath: 'inset(-1e5px -1e5px -1e5px var(--under-layer, 0px))' },
-    '.cm-lineNumbers .cm-gutterElement': { padding: '0 6px 0 16px', minWidth: '22px' },
-    '.cm-activeLine': { backgroundColor: 'var(--color-screen-line)' },
-    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-screen-ink)' },
-    '&.cm-focused': { outline: 'none' },
-    '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--color-screen-bright)', borderLeftWidth: '1.5px' },
-    // the selection, and while the focus is elsewhere the inactive one, as an editor's goes
-    '.cm-selectionBackground': { backgroundColor: 'var(--color-screen-select-inactive)' },
-    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': { backgroundColor: 'var(--color-screen-select)' },
-    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: 'var(--color-screen-match)', color: 'inherit', outline: 'none' },
-    '.cm-selectionMatch': { backgroundColor: 'var(--color-screen-match)' },
-    '.cm-tooltip': { backgroundColor: 'var(--color-menu)', color: 'var(--color-screen-soft)', border: 'none', borderRadius: '8px', boxShadow: 'var(--shadow-menu)', fontFamily: 'var(--font-body)', fontSize: '12px' },
-    '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-mono)', maxHeight: '19em', minWidth: '300px', padding: '4px' },
-    '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '2px 8px', lineHeight: '1.7', borderRadius: '4px' },
-    '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--color-menu-select)', color: 'var(--color-menu-select-ink)' },
-    '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] :is(.cm-completionLabel, .cm-completionMatchedText, .cm-completionDetail)': { color: 'inherit' },
-    '.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section': { display: 'block', padding: '8px 8px 2px', fontFamily: 'var(--font-body)', fontSize: '10px', letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--color-screen-muted)', border: 'none' },
-    '.cm-completionLabel': { color: 'var(--color-screen-ink)' },
-    '.cm-completionMatchedText': { textDecoration: 'none', color: 'var(--color-screen-bright)' },
-    '.cm-completionDetail': { fontFamily: 'var(--font-body)', fontStyle: 'normal', color: 'var(--color-screen-muted)', marginLeft: '14px' },
-    '.cm-completionInfo': { padding: '8px 10px', maxWidth: '280px', lineHeight: '1.5', color: 'var(--color-screen-soft)' },
-    '.cm-diagnostic': { padding: '4px 8px' },
-    '.cm-diagnostic-error': { borderLeft: '2px solid var(--color-screen-error)' },
-    '.cm-lintRange-error': { backgroundImage: 'none', textDecoration: 'underline wavy var(--color-screen-error)', textDecorationSkipInk: 'none', textUnderlineOffset: '4px' },
-    '.cm-panels': { backgroundColor: 'var(--color-menu)', color: 'var(--color-screen-soft)' }
-  }, { dark: true })
+  const syntax = EditorView.theme(LOOKS.words)
+  const theme = EditorView.theme(LOOKS.slab, { dark: true })
 
   // Completions: methods after a dot (grouped as the menu groups them), sources and names inside strings.
   const sections = Object.fromEntries([...GROUPS, 'Output'].map((name, rank) => [name, { name, rank }]))
