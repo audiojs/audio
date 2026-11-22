@@ -1,14 +1,13 @@
 import recipes from '../recipes.js'
 import { tracks as tracksOf, master as masterOf } from '../code.js'
-import { builtins } from '../sources.js'
 import { THEMES } from '../theme.js'
 import { root, generators, formats, displays, SPEEDS, specs, STACKED } from './config.js'
 import { state, v, ed, rk, output, steps } from './context.js'
 import { undoList, goTo, editSelection } from './edits.js'
-import { pickFiles, shelved, unshelve, useSample, useCode, useRecipe, openSearch, exportFiles, share } from './files.js'
+import { pickFiles, shelved, unshelve, useSample, sampleRows, askSamples, useCode, useRecipe, openSearch, exportFiles, share } from './files.js'
 import { keys } from './format.js'
 import { worn, dress, setTheme, openTheme, lookMenu, resetView, setDisplay, setGrid, setScroll } from './look.js'
-import { openTools } from './menus.js'
+import { openTools, bar } from './menus.js'
 import { toggleAB, toggleLoop, setSpeed, togglePlay } from './play.js'
 import { retakeHere, startRecording, stopRecording, takeList, deletion } from './recording.js'
 import { closed, newTab, closeTab, reopenTab } from './tabs.js'
@@ -16,8 +15,8 @@ import { nameNewTrack, mastering, lineUp, matchUp, duckUnder, masterOut, untrack
 import { addMarker, setPitch } from './writers.js'
 
 // The page's commands: each act the menus offer, its keys, its tooltip, the help's line, the agent's tool and the Mac's
-// menu bar, written once. A command is { id, label, keys, run, when?, press?, scope?, checked?, items?, hint?, tip?,
-// edit?, script? }:
+// menu bar, written once. A command is { id, label, keys, run, when?, press?, scope?, checked?, items?, opens?, hint?,
+// tip?, edit?, script? } (`opens`, run as its submenu opens: menu.js):
 // - `label`, `hint`, `checked`, `items` and `when` (whether it can act now, else a menu dims it) may read `s`, what the
 //   menus see as one opens (snapshot)
 // - `keys` as the page shows them on this platform; `press`, the key that runs it, where `scope` lets it: 'page' not
@@ -43,7 +42,9 @@ export const commands = [
   { id: 'file.open', label: 'Open file…', keys: keys('⌘O'), scope: 'any', press: e => mod(e) && is(e, 'o'), run: () => pickFiles() },
   { id: 'file.recent', label: 'Open recent', items: s => [...s.lately.map(r => ({ label: r.name, hint: r.meta, run: r.run })), '-', { label: 'Delete kept sounds…', hint: 'Opened or recorded here, in no tab', run: unshelve, disabled: !shelved().length }], when: s => !!s.lately.length },
   { id: 'sound.find', label: 'Find a sound…', tip: 'Freesound, Jamendo, Wikimedia', run: () => openSearch() },
-  { id: 'sound.make', label: 'Sample or generate', items: () => [{ group: 'Samples' }, ...Object.entries(builtins).map(([name, text]) => ({ label: name, hint: text, run: () => useSample(name) })), { group: 'Generate' }, ...generators.map(g => ({ label: g.name, hint: g.text, run: () => useCode(g.code) }))] },
+  // the samples, the recordings by category and the synthesized (files.js sampleRows), the catalogue asked for as this
+  // submenu first opens and the menu made again once it comes; then the generators
+  { id: 'sound.make', label: 'Sample or generate', opens: () => askSamples(() => bar.renew()), items: () => [{ group: 'Samples' }, ...sampleRows((name, text) => ({ label: name, hint: text, run: () => useSample(name) })), { group: 'Generate' }, ...generators.map(g => ({ label: g.name, hint: g.text, run: () => useCode(g.code) }))] },
   { id: 'export', label: () => state.saves.length > 1 ? `Export ${state.saves.length} files` : 'Export', keys: keys('⌘S'), scope: 'any', press: e => mod(e) && is(e, 's'), script: 'Mod-s', when: s => !s.none && !state.exporting, run: () => exportFiles() },
   { id: 'export.as', label: 'Export as', items: s => [
     ...formats.map(f => check(f.name.toUpperCase(), state.format === f.name, () => state.setFormat(f.name), { hint: f.text, disabled: state.saves.length > 0 })),
@@ -97,7 +98,7 @@ export const commands = [
   { id: 'look.spec', label: 'Spectrogram options', items: () => lookMenu('spec') },
   { id: 'minimap', label: 'Minimap', tip: 'The whole sound under the time row, to scroll by', checked: () => state.scroll === 'overview', run: () => setScroll(state.scroll === 'overview' ? 'hover' : 'overview') },
   { id: 'grid', label: 'Grid', tip: 'A faint line from each tick across the lanes', checked: () => state.grid !== 'none', run: () => setGrid(state.grid !== 'none' ? 'none' : 'lines') },
-  { id: 'snap', label: 'Snap', tip: 'Onto onsets, markers and takes, the lines shown as a thing is dragged; Alt shows them all', checked: () => state.snapping, run: () => state.toggleSnap() },
+  { id: 'snap', label: 'Snap', tip: `Onto onsets, markers and takes, the lines shown as a thing is dragged; ${keys('⌘').replace(/\+$/, '')} shows them all`, checked: () => state.snapping, run: () => state.toggleSnap() },
   { id: 'pitch.curve', label: 'Pitch curve', tip: 'The voice\'s pitch on the spectrogram, dragged whole or by its bends', checked: () => state.pitch, run: () => setPitch(!state.pitch) },
   { id: 'zoom', label: 'Zoom', items: s => ['zoom.in', 'zoom.out', 'zoom.selection', 'zoom.all'].map(id => item(id, s)), when: s => !s.none },
   // the keys about the playhead, else the selection's middle or the caret (out: the playhead or the caret); a menu, about
@@ -113,6 +114,8 @@ export const commands = [
     '-',
     ...[['edits', 'Edits'], ['code', 'Code']].map(([name, label]) => check(label, state.side === name, () => state.setSide(name)))
   ] } : { id: 'panel', label: 'Code', checked: () => state.side === 'code', run: () => state.setSide('code') },
+  // the edits laid as the chain, the row over the picture an embed has (?ui= edits chain)
+  { id: 'chain', label: 'Edit chain', tip: 'The edits made, in a row over the picture\nEach pressed for its settings, dragged to move', checked: () => state.laid === 'chain', run: () => state.toggleChain() },
   { id: 'theme', label: 'Theme', items: () => [
     check('The screen', !worn, () => dress(null), { hint: 'Grey on black, as the site draws it' }),
     ...[['Light', /^light/], ['Dark', /^dark/], ['High contrast', /^hc/]].flatMap(([group, kind]) => ['-', { group }, ...THEMES.filter(t => kind.test(t.kind)).map(t => check(t.name, worn?.name === t.name, () => setTheme(t)))]),
@@ -145,7 +148,7 @@ export const commands = [
   // the sound's name's opening its menu again); held, Play shuttles (play.js)
   { id: 'play', label: s => state.playing ? 'Pause' : s.sel ? 'Play the selection' : 'Play from the caret', keys: 'Space', tip: 'Hold Play and drag to rewind or skip', scope: 'page', press: e => e.key === ' ' && (!!state.recording || !e.target.closest('button, a')), script: 'Mod-Enter', when: s => s.whole && !state.recording, run: e => e && state.recording ? stopRecording() : togglePlay() },
   { id: 'loop', label: 'Loop', keys: 'L', scope: 'page', press: e => plain(e, 'l') && state.whole, checked: () => state.loop, when: s => !!s.whole, run: () => toggleLoop() },
-  { id: 'compare', label: 'Hear it before the edits', keys: 'B', tip: 'The original, level-matched', scope: 'page', press: e => plain(e, 'b') && state.whole, checked: () => state.ab, when: () => state.canCompare, run: () => toggleAB() },
+  { id: 'compare', label: 'Hear it before the edits', keys: 'B', tip: 'Seen and heard, level-matched', scope: 'page', press: e => plain(e, 'b') && state.whole, checked: () => state.ab, when: () => state.canCompare, run: () => toggleAB() },
   { id: 'speed', label: 'Speed', hint: 'Pitch kept', items: () => SPEEDS.list.map(r => check(`${r}×`, state.speed === r, () => setSpeed(r))) },
   // R, ⇧R (with nothing to record over, R) and ⌥R (recording.js toggleRecording, Record's button)
   { id: 'record', label: () => state.whole ? 'Record at the caret' : 'Record', keys: 'R', scope: 'page', press: e => rKey(e) && !e.altKey && !(e.shiftKey && state.whole), when: () => !state.recording, run: recorded(() => startRecording()) },
@@ -172,7 +175,7 @@ export function item(id, s, own) {
     id, label: at(c.label), keys: c.keys, hint: at(c.hint), tip: c.tip, icon: c.icon,
     ...c.run && { run: () => c.run() },
     ...'checked' in c && { checked: at(c.checked) },
-    ...c.items && { items: at(c.items) },
+    ...c.items && { items: at(c.items) }, ...c.opens && { opens: c.opens },
     ...c.when && { disabled: !c.when(s) }
   }
 }

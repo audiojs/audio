@@ -1,14 +1,15 @@
 import { prepare, source, chain, number, setArg, declared, rename, tracks as tracksOf, focus, addTrack } from '../code.js'
 import { builtins, sample, search, credit, unique } from '../sources.js'
+import { library, recordings, recorded, shelves, titled, credit as creditOf } from '../library.js'
 import { unkeep, kept, tapes } from '../keep.js'
 import { intoNew } from './clipboard.js'
-import { root, APART, keep, ENCODING, mime, EMBED } from './config.js'
-import { state, eng, v, ed } from './context.js'
+import { root, APART, keep, ENCODING, mime, EMBED, SAMPLES } from './config.js'
+import { state, eng, v, ed, output } from './context.js'
 import { write, applied } from './edits.js'
 import { bytes, ago, label, quote, note } from './format.js'
 import { closeMenus } from './menus.js'
 import { writing, owning, store } from './persist.js'
-import { schedule } from './run.js'
+import { schedule, status } from './run.js'
 import { docs, closed, newTab, reopenTab } from './tabs.js'
 import { retrack } from './tracks.js'
 import { splice } from './writers.js'
@@ -65,8 +66,9 @@ function hold(name, data, lost = 'open it again on the next visit') {
 export function saving(write) { writing.add(write); write.finally(() => writing.delete(write)); return write }
 // The files kept (keep.js), name → File: each goes to the engine when a script first opens it (evaluate). None is let
 // go but when asked (File › Open recent › Delete kept sounds): a tab closed, a step undone, keeps its files for coming back to.
-// the names a new file can't take: a file open, kept, or a sample's
-export const taken = () => new Set([...eng.names, ...shelf.keys(), ...Object.keys(builtins)])
+// the names a new file can't take: a file open, kept, or a sample's (a recording's too, once listed: its word and its
+// line go by its name, readouts.js)
+export const taken = () => new Set([...eng.names, ...shelf.keys(), ...Object.keys(builtins), ...(recordings() ?? []).map(r => r.label)])
 // The kept files no open tab opens, the newest first, as the File menu lists them
 export function shelved() {
   const open = new Set(docs.flatMap(d => prepare(d.id === state.tab ? ed.code : d.code).names))
@@ -152,6 +154,56 @@ export async function useSample(name, how = 'new') {
   closeMenus()
   if (!eng.has(name)) await eng.file(name, sample(name))
   place([name], how)
+}
+// The samples as the sound menus list them (File › Sample or generate; embedded, the sound's menu): the recordings by
+// category (library.js), a submenu each, music's under its groups' heads, each its name, its maker at its end, its line
+// its tooltip; then the synthesized in a submenu of their own. Till the catalogue has come, or where it holds none, the
+// synthesized alone, as ever. `row(name, hint)` makes a sample's row as its menu lays them (an icon, a check); `ask`, the
+// catalogue asked for now (a list of them opening), `again` called once it has come with recordings to list
+export function sampleRows(row, { ask = false, again = null } = {}) {
+  const made = Object.entries(builtins).map(([name, text]) => row(name, text)), held = recordings()
+  if (!held) { if (ask) askSamples(again); return made }
+  if (!held.length) return made
+  const one = r => { const it = row(r.name, r.by); return { ...it, tip: r.about, ...'checked' in it && { checked: r.label === state.name }, run: () => useRecording(r) } }
+  return [
+    ...shelves(held).map(s => ({ label: titled(s.category), items: s.groups.flatMap(g => [...g.group ? [{ group: titled(g.group) }] : [], ...g.recordings.map(one)]) })),
+    { label: 'Synthesized', items: made }
+  ]
+}
+// The catalogue asked for, where it has not come yet; `again` once it has, with recordings to list
+export const askSamples = again => { if (!recordings()) library(SAMPLES).then(list => list.length && again?.()) }
+// A recording of the catalogue, by its address, its credit on the line above the statement that opens it, as a found
+// sound's (useResult); its word and its line said as a sample's, not listened for (readouts.js)
+export function useRecording(r) {
+  closeMenus()
+  state.problem = ''
+  opening(`audio(${quote(r.address)})`, creditOf(r))
+}
+// Embedded, a sound the page asks for (embed.js open()): a recording of the samples' catalogue by its file as the
+// catalogue names it (speech/gettysburg-address.mp3) or by its address (/samples/speech/…), or a synthesized sample by
+// its name (chime.wav), opened in the sound's place as its row in the sound's menu opens it, one step of the history, its
+// word, its line and its credit the catalogue's. → once its sound is in, what is open (pageSound); { error } where there
+// is no such sample, it would not open, or another was asked for meanwhile
+let opened = 0
+export async function pageOpen(file) {
+  const ask = ++opened, want = String(file).trim(), list = await library(SAMPLES)
+  const r = list.find(x => x.file === want || x.address === want), name = r?.label ?? (Object.hasOwn(builtins, want) ? want : null)
+  if (!name) return { error: `No sample ${want}: a file of /samples/index.json, or one of ${Object.keys(builtins).join(', ')}` }
+  r ? useRecording(r) : await useSample(name, 'replace')
+  for (const end = Date.now() + 60000; Date.now() < end; await new Promise(go => setTimeout(go, 100))) {
+    if (ask !== opened) return { error: `Another sound was asked for: ${want} gave way` }
+    if (state.problem) return { error: state.problem }
+    if (state.name === name && state.hasOutput && output?.code === ed.code) return pageSound()
+  }
+  return { error: `${want} did not open in a minute` }
+}
+// Embedded, the sound open now (embed.js sound()): its name (as its tab and the script name it), what it is in a word,
+// and where it is one of the catalogue's recordings (asked for here, where it has not come yet), its file there, its
+// title and its line
+export async function pageSound() {
+  await library(SAMPLES)
+  const r = recorded(state.name)
+  return { name: state.name, kind: state.kind || null, file: r?.file ?? null, title: r?.name ?? null, about: r?.about ?? null }
 }
 // Embedded (?controls= sound), the sound's ways in from its name over the picture, each in its place: a file, a take
 // (as Record makes one), a sample
@@ -253,7 +305,9 @@ export function useResult(r) {
 // Export: each save() the script makes, or the output as one file.
 export async function exportFiles(parts = false, track = null) {
   if (!state.hasOutput || state.exporting) return
+  // (said as the engine's work is, while it takes a moment: run.js status)
   state.exporting = true
+  status()
   try {
     const base = state.exportName.trim().replace(/\.\w+$/, '') || state.exportBase, options = encodingOf(state.format)
     // a track alone, by its index among the tracks; every track, a file each (`track` true)
@@ -264,7 +318,7 @@ export async function exportFiles(parts = false, track = null) {
       for (const file of files) download(file)
     }
   } catch (e) { note(`Export failed: ${e.message}`) }
-  finally { state.exporting = false }
+  finally { state.exporting = false; status() }
 }
 // What a format is encoded with: its setting, the markers in the file or none (WAV's cue chunk, MP3's and M4A's chapters)
 export function encodingOf(format) {
@@ -275,6 +329,7 @@ export function encodingOf(format) {
 export async function exportCuts() {
   if (!state.hasOutput || state.exporting) return
   state.exporting = true
+  status()
   store()
   try {
     // the rate chosen, else the video's own; the file the cuts are of named, as it was opened (a file dropped has no path)
@@ -283,7 +338,7 @@ export async function exportCuts() {
     if (failed) throw new Error(failed.message)
     for (const file of files) download(file)
   } catch (e) { note(`Export failed: ${e.message}`) }
-  finally { state.exporting = false }
+  finally { state.exporting = false; status() }
 }
 function download(file) {
   const url = URL.createObjectURL(new Blob([file.bytes], { type: mime[file.type] || 'application/octet-stream' }))

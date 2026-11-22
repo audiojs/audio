@@ -20,7 +20,7 @@ The editor in parts: custom elements a page composes. Each is the HTML face of a
 
 `index.js` defines them all; each also has its own module (`code.js`, `sound.js`, `wave.js`, `spectrogram.js`,
 `play.js`, `seek.js`, `time.js`, `status.js`, `open.js`, `save.js`). Demos: [index.html](index.html) (the code block),
-[sound.html](sound.html) (a sound, its pictures and its parts).
+[sound.html](sound.html) (a sound, its pictures and its parts, and an embedded editor as the sound).
 
 ## What loads when
 
@@ -112,6 +112,27 @@ and [gl-spectrogram](https://github.com/dy/gl-spectrogram), the whole sound acro
 picture has its sound run (there is no picture of a sound not made); `lazy` waits for the sound to be played. They do
 not zoom, select or show a time row: that is the editor's view (`repl/view.js`), which is not an element yet.
 
+## An embedded editor as the sound
+
+[`<audio-repl>`](../repl/README.md#embed), the whole editor in a frame, answers as a sound too: the parts name it, and
+its script is the page's to read and to set.
+
+```html
+<audio-repl id="take" panel="none"><pre><code>audio('/sounds/take.mp3').trim()</code></pre></audio-repl>
+<audio-play for="take"></audio-play> <audio-time for="take"></audio-time> <audio-save for="take"></audio-save>
+<audio-code id="script"><pre><code>audio('/sounds/take.mp3').trim()</code></pre></audio-code>
+<script type="module">
+  // one text: an edit made in the editor is the code block's, and the code block's is the editor's
+  const take = document.getElementById('take'), script = document.getElementById('script')
+  take.addEventListener('input', () => { if (script.value !== take.code) script.value = take.code })
+  script.addEventListener('input', () => { take.code = script.value })
+</script>
+```
+
+It has `code` (set: the frame's script whole, one step of its history), an `input` event when its script changes in
+the frame, `playing`, `working`, `status`, `error`, `duration`, `time`, `opens`, `saves`, `toggle()`, `play()`,
+`pause()`, `save()`, `open(file)`, and the events of `<audio-sound>`. It has no `output`: its picture is its own.
+
 ## Not built
 
 The editor's view as an element: zoom, selection, the time row, notes, edits made on the picture. Before and after,
@@ -120,4 +141,5 @@ loop, history, level, the chain of edits. The editor's own code pane is not yet 
 are not tested.
 
 Tests: `test/repl/audio-code.test.js`, `audio-sound.test.js` (against the library in Node: a script's length, the
-bytes it saves), `audio-picture.test.js` (against the renderers' own definitions: a tone's amplitude, a tone's row).
+bytes it saves), `audio-picture.test.js` (against the renderers' own definitions: a tone's amplitude, a tone's row),
+`embed-sound.test.js`.

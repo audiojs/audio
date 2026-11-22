@@ -20,8 +20,51 @@ test('editor: a slider rewrites its argument, the output and its guide follow', 
   await page.waitForFunction(() => scriptText().includes('normalize(-1)'))
 })
 
-// Pointed at, a setting says what it does and which way to move it (help.js), with its range and where it starts; the
-// ones few touch wait under Advanced, which opens with the card where the code sets one of them
+// A range silenced, `gain(-Infinity, …)`: its card says −∞dB with its slider at its low end (it read as no value, and
+// said gain's default, 0 dB); moved, the slider writes the value at its place
+test('editor: a silenced range\'s gain reads −∞dB, its slider at its low end, and moves from there', async () => {
+  await open({ edits: true })
+  await write(`audio('chime.wav').gain(-Infinity, { at: 1, d: 1 })`)
+  await lengthIs('0:08.000')
+  await settled()
+  await tab('Edits')
+  await page.locator('.step-name', { hasText: 'Gain' }).click()
+  const slider = page.locator('.step.open .params input[type=range]').first(), out = page.locator('.step.open .param output').first()
+  await slider.waitFor()
+  assert.equal(await out.textContent(), '−∞dB')
+  assert.equal(await slider.inputValue(), '0')
+  assert.equal(await out.evaluate(o => o.classList.contains('unset')), false, 'a value set, not the default')
+  await slider.fill('500')
+  await page.waitForFunction(() => scriptText().includes('gain(-12, { at: 1, d: 1 })'))
+  assert.equal(await out.textContent(), '−12dB')
+})
+
+// A card's setting that makes the sound longer or shorter takes what is selected with the sound, the same moments of it:
+// the chime stretched 2× is 16 s, at 1× (the slider's middle, a quarter to 4 on a log scale) 8 s, a selection half as
+// far in and as long. Undone, it is back where it was, as the history keeps it beside the step
+test('editor: a card\'s setting that changes the length keeps the selection on the same sound', async () => {
+  await open({ edits: true })
+  await write(`audio('chime.wav').stretch(2)`)
+  await lengthIs('0:16.000')
+  await settled()
+  const { box, x } = await axis(16), y = box.y + TOP + TRACK * .3
+  await drag([x(8), y], [x(12) - x(8), 0])
+  const range = async () => (await selected()).split('–').map(t => t.split(':').reduce((s, p) => s * 60 + +p, 0))
+  const [a, b] = await poll(range, ([p, q]) => assert.ok(p > 7 && q > p, `selected ${p}–${q}`))
+  await tab('Edits')
+  await page.locator('.step-name', { hasText: 'Stretch' }).click()
+  await page.locator('.step.open .params input[type=range]').first().fill('500')
+  await page.waitForFunction(() => /\.stretch\(1\)/.test(scriptText()))
+  await lengthIs('0:08.000')
+  await poll(range, ([p, q]) => assert.ok(Math.abs(p - a / 2) < .002 && Math.abs(q - b / 2) < .002, `${p}–${q}, not ${a / 2}–${b / 2}`))
+  await menu('Edit', 'Undo')
+  await lengthIs('0:16.000')
+  await poll(range, ([p, q]) => assert.ok(Math.abs(p - a) < .002 && Math.abs(q - b) < .002, `undone, ${p}–${q}, not ${a}–${b}`))
+})
+
+// Pointed at, a setting says what it does and which way to move it (help.js), two lines at the most: its range is the
+// slider's ends, where it starts its value until set. The ones few touch wait under Advanced, which opens with the card
+// where the code sets one of them
 test('editor: a card\'s settings say what they do; the engine\'s own wait under Advanced', async () => {
   await open({ edits: true })
   const rows = page.locator('.step.open .param'), shown = () => rows.locator('label:visible').allInnerTexts(), more = page.locator('.step.open .step-more')
@@ -36,13 +79,14 @@ test('editor: a card\'s settings say what they do; the engine\'s own wait under 
   await write(`audio('chime.wav').declick()`)
   await reopen('Declick')
   assert.deepEqual(await shown(), ['threshold'])
-  assert.match(await rows.first().evaluate(tipOf), /^Detection threshold\. .*\n2× to 30×, default 8×$/s)
+  assert.match(await rows.first().evaluate(tipOf), /^Detection threshold\. [^\n]+\.$/)
+  assert.equal(await rows.first().locator('output').innerText(), '8×', 'where it starts: its value, none set')
   assert.match(await more.innerText(), /^Advanced\s+2$/)
   assert.equal(await more.getAttribute('aria-expanded'), 'false')
   await more.click()
   assert.deepEqual(await shown(), ['threshold', 'longest', 'order'])
-  // every one says more than its name
-  assert.deepEqual(await rows.evaluateAll(all => all.filter(row => !row.title.includes('\n')).map(row => row.querySelector('label').textContent)), [])
+  // every one says more than its name and range: its words
+  assert.deepEqual(await rows.evaluateAll(all => all.filter(row => (row.title || row.dataset.popoffTitle || '').startsWith(row.querySelector('label').textContent + ':')).map(row => row.querySelector('label').textContent)), [])
   // and it folds again
   await more.click()
   assert.deepEqual(await shown(), ['threshold'])
@@ -63,13 +107,13 @@ test('editor: a card\'s settings say what they do; the engine\'s own wait under 
   assert.deepEqual(await shown(), ['threshold', 'ratio', 'range'])
   await more.click()
   const mode = page.locator('.step.open .param', { hasText: 'mode' })
-  assert.match(await mode.evaluate(tipOf), /^downward turns quiet sound/)
+  assert.match(await mode.evaluate(tipOf), /^downward sinks quiet sound/)
   await mode.getByRole('button', { name: 'upward' }).click()
   await page.waitForFunction(() => /expander\(\{ mode: 'upward' \}\)/.test(scriptText()))
   // a choice of an edit with none folded says what it decides too, its values on the keys
   await write(`audio('chime.wav').compressor().highpass(80)`)
   await reopen('Highpass')
-  assert.match(await page.locator('.step.open .param', { hasText: 'order' }).evaluate(tipOf), /^Steepness\. /)
+  assert.match(await page.locator('.step.open .param', { hasText: 'order' }).evaluate(tipOf), /^Steepness past the cutoff: /)
   // an edit with no settings has nothing to fold
   await write(`audio('chime.wav').reverse()`)
   await tab('Edits')
@@ -77,6 +121,21 @@ test('editor: a card\'s settings say what they do; the engine\'s own wait under 
   await page.locator('.step.open .params.none').waitFor()
   assert.equal(await page.locator('.step.open .params').innerText(), 'No settings')
   assert.equal(await more.count(), 0)
+})
+
+// A step that throws as it is called, skipped and the chain after it made (run.js): its card says so in the problem's
+// red, its error's first line its tooltip; the code made right, the card as any
+test('editor: a step that throws is marked on its card, its error its tooltip', async () => {
+  await open({ edits: true })
+  await write(`audio('chime.wav')\n  .gain(1, 2, 3)\n  .fade(0.5, 0.5)`)
+  await settled()
+  await tab('Edits')
+  const failed = page.locator('.step.failed')
+  await failed.waitFor()
+  assert.deepEqual(await failed.evaluateAll(cs => cs.map(c => [c.querySelector('.step-name').textContent, c.querySelector('.step-toggle').title || c.querySelector('.step-toggle').dataset.popoffTitle])), [['Gain', 'Skipped: gain: expected at most 1 argument (value), got 3']])
+  await write(`audio('chime.wav')\n  .gain(1)\n  .fade(0.5, 0.5)`)
+  await settled()
+  await failed.waitFor({ state: 'detached' })
 })
 
 // The edits, as a history: a press on a step shows the output as it is up to it, the steps after it dimmed, and opens

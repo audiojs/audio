@@ -70,6 +70,29 @@ export function stick(t) {
   return nearest(ownMarks()) ?? nearest(seen().map(i => cues[i]))
 }
 export const stuck = t => stick(t)?.t ?? t
+// A piece of sound carried (pointer.js), [a, b]: the places it may go onto as `how` lays it, { at, edge, to, rank }: its
+// start (`edge` 0) or its end (1) onto the time `at`, its start then at `to`, the edge where the place's line is drawn.
+// First where it came from (rank 0), so it is put back exactly; then right before or after it, a marker or the takes'
+// place (1); then a cue this scale shows (seen, thinned as zoom has them): a primary one, where a sound starts or ends
+// (2), before a secondary one, a hit within (3). Either edge onto any of them, whichever way it goes: moved or put in
+// ('move', 'shuffle'), none of its own cues, which go with it; a copy, put in or over what is there ('copy', 'stamp'),
+// its own too, which stay where they are
+export function landings(a, b, how) {
+  if (!snapping) return []
+  const d = b - a, own = how === 'copy' || how === 'stamp', out = [{ at: a, edge: 0, rank: 0 }, { at: b, edge: 1, rank: 0 }]
+  for (const [at, rank] of [[a, 1], [b, 1], ...ownMarks().map(t => [t, 1]), ...seen().map(i => [cues[i], cueKinds[i] === 'hit' ? 3 : 2])])
+    if (own || at <= a || at >= b) for (const edge of [0, 1]) out.push({ at, edge, rank })
+  return out.map(l => ({ ...l, to: l.at - l.edge * d }))
+}
+// Where a piece `d` s long lands, its start at `to` as the pointer puts it, as an edge goes (stick), within ONTO px at
+// any zoom: back where it came from, where that is in reach; else its start onto the place in reach, the first ranked,
+// the nearest of those, so a piece goes where it begins; else its end so. `held`, every place its edges are on then
+export function land(list, to, d) {
+  const gap = l => Math.abs(x(to + l.edge * d) - x(l.at)), near = list.filter(l => gap(l) <= ONTO)
+  const first = ls => ls.reduce((m, l) => !m || l.rank < m.rank || l.rank === m.rank && gap(l) < gap(m) ? l : m, null)
+  const best = first(near.filter(l => !l.rank)) ?? first(near.filter(l => !l.edge)) ?? first(near)
+  return best ? { to: best.to, held: list.filter(l => Math.abs(x(l.to) - x(best.to)) < .5) } : { to, held: [] }
+}
 // The line edited over the sound, on its own scale in each lane: the gain curve, dB, mirrored about the centre line as
 // the waveform is (GAIN), by tenths of a dB; or, editing pitch, the pitch line, semitones, an octave up at
 // the lane's top and one down at its foot, to the cent. Each snaps to 0
@@ -171,10 +194,12 @@ export function ticks(rect, list, taken, minor = []) {
         if (strip) footing = () => { const room = footRoom() + 4, y = rowTop(); c.fillStyle = ground; c.fillRect(W - room, y, room, plot().h + rowH() - y); c.fillStyle = color('--color-screen-line-number'); c.fillText(text, W - INTO, row()) }
         continue
       }
-      const at = W - 2 * INTO - c.measureText(text).width, [a, b] = square(Math.round(ly)).map(y => Math.max(top, Math.min(foot - 1, y)))
+      // (its patch stops short of the grid's last line, the frame's last pixel column, which runs on whole; its words a
+      // pixel in from where they were for it)
+      const at = W - 1 - 2 * INTO - c.measureText(text).width, [a, b] = square(Math.round(ly)).map(y => Math.max(top, Math.min(foot - 1, y)))
       const half = size() / 2, mid = Math.max(top + half, Math.min(foot - half, (a + b + 1) / 2 + .5))
-      c.fillStyle = ground; c.fillRect(Math.floor(at), Math.floor(mid - half) - 1, W - Math.floor(at), Math.ceil(mid + half) - Math.floor(mid - half) + 2)
-      c.fillStyle = color('--color-screen-line-number'); c.fillText(text, W - INTO, mid)
+      c.fillStyle = ground; c.fillRect(Math.floor(at), Math.floor(mid - half) - 1, W - 1 - Math.floor(at), Math.ceil(mid + half) - Math.floor(mid - half) + 2)
+      c.fillStyle = color('--color-screen-line-number'); c.fillText(text, W - 1 - INTO, mid)
     }
     c.textAlign = 'left'
     return

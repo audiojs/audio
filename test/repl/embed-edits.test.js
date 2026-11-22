@@ -3,25 +3,33 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { deflateRawSync } from 'node:zlib'
 import { page, origin, errors, poll } from './page.js'
 
 const OPS = 'trim(-40) normalize(-1) fade(1, 1) stretch(1.25) pitch(-2) reverse', CONTROLS = 'sound play clock history save loudness rate channels view'
-// The list's first section, Suggested, as read (shown, each its name and its hint): the recipe the sound's kind is
-// offered first (kind.js OFFERS; the chime's word has no row, so the general one's) and the edits it is suggested,
-// four at most: for the page's own sound its ops, for another its kind's (kind.js NEXT), those made gone
-const SUGGESTED = ['Repair a damaged recording 4 edits', 'Trim silence −40dB', 'Normalize −1dB', 'Fade 1s, 1s']
-const SPEECH = ['Clean up a voice recording 7 edits', 'Highpass 80Hz', 'Deepfilter', 'Shrink pauses 0.3s'], MUSIC = ['Master a song for streaming 4 edits', 'Stretch 1.25×', 'Pitch −3st', 'Vocals remove'],
-  GENERAL = ['Repair a damaged recording 4 edits', 'Trim silence', 'Normalize', 'Fade 0.5s, 0.5s'], BOTH = ['Podcast episode 5 edits', 'Deepfilter', 'Normalize podcast']
-// then a row a kind, the Process menu's, and Recipes last, a submenu each
-const KINDS = ['Silence', 'Level', 'Filter', 'Dynamics', 'Repair', 'Time & pitch', 'Effect', 'Color', 'Reverb', 'Space', 'Recipes']
+// The list's first section, Suggested, as read (shown, each its name and its hint): the edits the sound is suggested,
+// four at most: for the page's own sound its ops, for another its kind's (kind.js NEXT; the chime's word has no row, so
+// the general one's), those made gone
+const SUGGESTED = ['Trim silence −40dB', 'Normalize −1dB', 'Fade 1s, 1s', 'Stretch 1.25×']
+const SPEECH = ['Highpass 80Hz', 'Deepfilter', 'Shrink pauses 0.3s', 'Normalize podcast'], MUSIC = ['Stretch 1.25×', 'Pitch −3st', 'Vocals remove', 'Normalize spotify'],
+  GENERAL = ['Trim silence', 'Normalize', 'Fade 0.5s, 0.5s'], BOTH = ['Deepfilter', 'Normalize podcast']
+// then Recipes, a section of its own: the automatic edit, three recipes, More recipes (the rest, a submenu); then a row
+// a kind, the Process menu's, a submenu each
+const KINDS = ['Silence', 'Level', 'Filter', 'Dynamics', 'Repair', 'Time & pitch', 'Effect', 'Color', 'Reverb', 'Space']
 // in Recipes, the automatic edit for the sound's kind first, then every recipe (recipes.js offered, in its order), those
 // its kind is offered first (kind.js OFFERS); the interview's only for a sound of two channels
 const RECIPES = ['Clean up a voice recording', 'Enhance speech', 'Podcast episode', 'Audiobook chapter', 'Voice for broadcast or video', 'Interview, two mics', 'Clean up a location recording', 'Restore a vinyl record', 'Master a song for streaming', 'Master a song to a reference', 'Master a song, warm', 'Repair a damaged recording']
 const first = (...own) => [...own, ...RECIPES.filter(n => !own.includes(n))]
 // An <audio-repl> as the home's hero is, on the page's ground, 5vw in from the frame's sides; its frame once its sound
 // is in. `hold`: the frame held back, for its skeleton (release() lets it come); `ops`: the page's edits ('', none); `ui`:
-// more of the page's own; `controls`, the parts it shows
-async function mount(edits, { kind = 'chime', script = "audio('chime.wav')", hold = false, ops = OPS, ui = {}, controls = CONTROLS } = {}) {
+// more of the page's own; `controls`, the parts it shows. `full`: the editor as a page of its own, the same config in its
+// link (?ui=, the edits laid by it), the script its link's (#code=), in a tab of its own: the page itself the frame
+async function mount(edits, { kind = 'chime', script = "audio('chime.wav')", hold = false, ops = OPS, ui = {}, controls = CONTROLS, full = false } = {}) {
+  if (full) {
+    const config = { ...edits && { edits }, ...kind && { kind }, ...ops && { ops: ops.match(/[\w-]+(?:\([^)]*\))?/g) }, ...ui }
+    await page.goto(`${origin}/repl/?ui=${encodeURIComponent(JSON.stringify(config))}#code=${deflateRawSync(script).toString('base64url')}`)
+    return { f: page, release: () => {} }
+  }
   await page.goto(origin + '/blank.html')
   let release = () => {}
   if (hold) { const held = new Promise(r => release = r); await page.route('**/repl/?embed*', async route => { await held; await route.continue() }) }
@@ -32,6 +40,10 @@ async function mount(edits, { kind = 'chime', script = "audio('chime.wav')", hol
   }, { edits, kind, script, ops, ui, controls })
   return { f: page.frameLocator('audio-repl iframe'), release }
 }
+// The chain is a layout of the editor's, not of an embed's: a check of it that is not about living in another page (its
+// inset, its ground, the frame's width) runs twice, embedded and in the editor as a page of its own laid as the chain
+// (?ui= edits chain, as View › Edit chain lays it), `full` telling mount() which
+const both = (name, fn) => { test(`editor: embedded, ${name}`, () => fn(false)); test(`editor: a page of its own laid as the chain, ${name}`, () => fn(true)) }
 const length = (f, text) => f.locator('.clock .length', { hasText: text }).waitFor({ state: 'attached' })
 // the keys a row of edits has, as read: its name and its values
 const keys = (f, sel) => f.locator(sel).evaluateAll(es => es.map(e => [...e.children].map(c => c.textContent).join(' ').trim()))
@@ -119,9 +131,9 @@ test('editor: embedded, the edits the chain: the name, those made parted by bars
   assert.deepEqual(await order(), ['chain-find'], 'none made: the field alone (the history at the row\'s end)')
   const field = f.locator('.chain-add')
   assert.deepEqual(await field.evaluate(e => [e.tagName, e.textContent, ...['aria-haspopup', 'aria-controls', 'aria-expanded'].map(a => e.getAttribute(a))]), ['BUTTON', 'Edit…', 'tree', 'edits-found', 'false'], 'a button that opens a list, as a select\'s')
-  // in the name's plain words: its face and size, no border, no ground at rest, no chevron
+  // in the name's plain words: its face and size, no border, no ground at rest, no sign
   const look = await f.locator('body').evaluate(() => { const cs = s => getComputedStyle(document.querySelector(s)), a = cs('.chain-add'); return { face: a.fontFamily === cs('.embed-sound-name').fontFamily, size: a.fontSize === cs('.embed-sound-name').fontSize, border: a.borderTopWidth, ground: a.backgroundColor, chevron: !!document.querySelector('.chain-add svg') } })
-  assert.deepEqual(look, { face: true, size: true, border: '0px', ground: 'rgba(0, 0, 0, 0)', chevron: false })
+  assert.deepEqual(look, { face: true, size: true, border: '0px', ground: 'rgba(0, 0, 0, 0)', chevron: false }, 'no sign: no plus, no chevron')
   assert.equal(await f.locator('.view-head').evaluate(h => !!h.querySelector('.chain-hint, .chain-more, .chain-hints, [class*="arrow"]')), false, 'no keys of suggestions, no dropdown, no arrow')
   const l = await lay(f), right = l.W - l.inset, near = (a, b, d = 1.5) => Math.abs(a - b) <= d
   assert.ok(l.box['.status-end'].bottom >= l.H - 1 && l.box['.clock'].bottom > l.H - 60, 'nothing under the bar')
@@ -172,27 +184,29 @@ test('editor: embedded, the edits the chain: the name, those made parted by bars
 })
 
 // The field, Edit…, a button as a select's: pressed, its list under it, never over it, within the frame, a search at its
-// top the keys are in; its groups parted by a hairline: Suggested under a small head, the recipe the sound's kind is
-// offered (the chime's word has no row: the general one's), how many edits it makes, what it does and its edits its
-// title, then three of the page's edits, each its values, what it does its title; then a row a kind, as the Process
-// menu has them (no generator), and Recipes last. The first lit; the arrows move it, round; typed in the search, every edit and every
-// recipe whose name, values or what it does hold the words, flat; Enter makes the lit one, the list shut, the search
-// empty, its settings shut, the keys on the field; Escape shuts it, the keys on the field; a letter typed on the field
-// opens it, the letter in the search; a press on one makes it, the keys back with the page
-test('editor: embedded, the chain\'s field: Suggested, a row a kind, Recipes last; typed in its search, flat', async () => {
-  const { f } = await mount('chain')
+// top the keys are in; its groups parted by a hairline: Suggested under a small head, four of the page's edits, each
+// its values, what it does its title; Recipes under its own, the automatic edit, the recipe the sound's kind is offered
+// (the chime's word has no row: the general one's) and the next two, each how many edits it makes, what it does and its
+// edits its title, then More recipes; then a row a kind, as the Process menu has them (no generator). The first lit;
+// the arrows move it, round; typed in the search, every edit and every recipe whose name, values or what it does hold
+// the words, flat; Enter makes the lit one, the list shut, the search empty, its settings shut, the keys on the field;
+// Escape shuts it, the keys on the field; a letter typed on the field opens it, the letter in the search; a press on
+// one makes it, the keys back with the page
+both('the chain\'s field: Suggested, Recipes, a row a kind; typed in its search, flat', async full => {
+  const { f } = await mount('chain', { full })
   await length(f, '0:08.000')
   const field = f.locator('.chain-add'), list = f.locator('#edits-found'), search = f.locator('.found-search')
   const state = () => f.locator('body').evaluate(() => { const l = document.querySelector('#edits-found'), field = document.querySelector('.chain-add'), search = document.querySelector('.found-search'), r = l.getBoundingClientRect(), fr = field.getBoundingClientRect(); return { open: l.matches(':popover-open'), expanded: field.getAttribute('aria-expanded'), lit: search.getAttribute('aria-activedescendant'), selected: [...l.querySelectorAll('[aria-selected="true"]')].map(o => o.id), within: r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + .5 && r.right <= innerWidth + .5, under: r.top >= fr.bottom, keys: document.activeElement === search ? 'search' : document.activeElement === field ? 'field' : '', value: search.value } })
   await field.click()
   await poll(state, s => assert.deepEqual(s, { open: true, expanded: 'true', lit: 'edits-found-0', selected: ['edits-found-0'], within: true, under: true, keys: 'search', value: '' }))
   const groups = await listed(f)
-  assert.deepEqual(groups, [['Repair a damaged recording', 'Trim silence', 'Normalize', 'Fade'], KINDS], 'Suggested: the recipe for the sound, then three of the page\'s edits; a row a kind, as the Process menu has them, no generator, and Recipes last')
-  assert.deepEqual(await shown(f), SUGGESTED, 'each its name and its values, the recipe how many edits it makes')
-  assert.deepEqual(await list.locator('.found-head').allTextContents(), ['Suggested'], 'one section named by a small head')
+  assert.deepEqual(groups, [['Trim silence', 'Normalize', 'Fade', 'Stretch'], ['Repair and level this sound', 'Repair a damaged recording', 'Clean up a voice recording', 'Enhance speech', 'More recipes'], KINDS], 'Suggested: four of the page\'s edits; then Recipes, the automatic edit, the recipe the sound is offered first and the next two, the rest a row away; a row a kind, as the Process menu has them, no generator')
+  assert.deepEqual(await shown(f), SUGGESTED, 'each its name and its values')
+  assert.deepEqual(await list.locator('.found-head').allTextContents(), ['Suggested', 'Recipes'], 'two sections, each named by a small head')
   assert.equal(await list.locator('.found-about').count(), 0, 'no line of what each does')
-  await poll(() => list.locator('.found-group').first().locator('.found-row').evaluateAll(rs => rs.map(r => r.title)), titles => assert.deepEqual(titles, ['Clipped peaks rebuilt, clicks and hum taken out where they are found, the peak at −1 dB\nDeclip → Declick → Dehum → Normalize −1dB', 'Cut silence from both ends', 'Set peak or loudness', 'Fade in and out'], 'the recipe what it does and its edits, each edit what it does, its title'))
+  await poll(() => list.locator('.found-group').first().locator('.found-row').evaluateAll(rs => rs.map(r => r.title)), titles => assert.deepEqual(titles, ['Cut silence from both ends', 'Set peak or loudness', 'Fade in and out', 'Longer or shorter, same pitch'], 'each edit what it does, its title'))
   assert.equal(await list.locator('.found-group').first().locator('.found-row > svg:first-child path[d]').count(), 4, 'each its icon')
+  assert.deepEqual(await list.locator('.found-group[aria-label="Recipes"] .found-row').evaluateAll(rs => rs.slice(1, 2).map(r => [r.querySelector('.found-hint').textContent, r.title])), [['4 edits', 'Clipped peaks rebuilt, clicks and hum taken out where they are found, the peak at −1 dB']], 'a recipe how many edits it makes, what it does its title')
   // the arrows, round
   await page.keyboard.press('ArrowUp')
   await poll(state, s => assert.equal(s.lit, `edits-found-${groups.flat().length - 1}`, 'round from the first to the last'))
@@ -216,7 +230,7 @@ test('editor: embedded, the chain\'s field: Suggested, a row a kind, Recipes las
   await poll(() => made(f), ks => assert.deepEqual(ks, ['Stretch 1.25×']))
   await poll(state, s => assert.deepEqual([s.open, s.expanded, s.value, s.keys], [false, 'false', '', 'field']))
   assert.equal(await f.locator('#step-settings').evaluate(p => p.matches(':popover-open')), false, 'its settings shut')
-  assert.deepEqual(await shown(f), SUGGESTED, 'Stretch made: not one of the first four')
+  assert.deepEqual(await shown(f), ['Trim silence −40dB', 'Normalize −1dB', 'Fade 1s, 1s', 'Pitch −2st'], 'Stretch made: gone from Suggested, the next in its place')
   // a letter typed on the field: the list open, the letter in its search; Escape: shut, the search empty, the keys on
   // the field
   await page.keyboard.type('pit')
@@ -239,8 +253,9 @@ test('editor: embedded, the chain\'s field: Suggested, a row a kind, Recipes las
   await list.locator('.found-row', { hasText: 'Trim silence' }).first().click()
   await poll(() => made(f), ks => assert.deepEqual(ks, ['Stretch 1.25×', 'Gain 0dB', 'Trim −40dB'], 'the chain shows the call'))
   await poll(state, s => assert.deepEqual([s.open, s.keys], [false, '']))
-  assert.deepEqual(await shown(f), ['Repair a damaged recording 4 edits', 'Normalize −1dB', 'Fade 1s, 1s', 'Pitch −2st'], 'made, gone from Suggested, the next in its place')
+  assert.deepEqual(await shown(f), ['Normalize −1dB', 'Fade 1s, 1s', 'Pitch −2st', 'Reverse'], 'made, gone from Suggested, the next in its place')
   // on a phone, the list as wide as the frame, 8 px in from either side, under the field
+  if (full) return assert.deepEqual(errors, [])
   await width(390)
   await poll(() => f.locator('body').evaluate(() => innerWidth), w => assert.equal(w, 390))
   await field.click()
@@ -254,8 +269,8 @@ test('editor: embedded, the chain\'s field: Suggested, a row a kind, Recipes las
 // slider or a choice each. A choice or a slider writes its value into the script, the edit's values with it (its tab's
 // too), each one undo step; the same edit pressed again, or Escape, closes them (Escape the keys back on the edit); one
 // with no settings shows what it does alone, then Remove. Pressed by the keys, the keys on its first setting
-test('editor: embedded, an edit of the chain pressed opens its settings; a choice or a slider sets it, undone as any', async () => {
-  const { f } = await mount('chain')
+both('an edit of the chain pressed opens its settings; a choice or a slider sets it, undone as any', async full => {
+  const { f } = await mount('chain', { full })
   await length(f, '0:08.000')
   for (const name of ['Normalize', 'Reverse']) { await make(f, name.toLowerCase()); await poll(() => made(f), ks => assert.ok(ks.some(k => k.startsWith(name)))) }
   const panel = f.locator('#step-settings'), open = () => panel.evaluate(p => p.matches(':popover-open'))
@@ -298,6 +313,57 @@ test('editor: embedded, an edit of the chain pressed opens its settings; a choic
   assert.deepEqual(await panel.evaluate(p => [p.querySelector('.params').checkVisibility(), p.querySelector('.step-remove').checkVisibility()]), [false, true], 'no settings, Remove')
   await f.locator('.status-end').click({ position: { x: 4, y: 4 } })
   await poll(open, o => assert.equal(o, false))
+  assert.deepEqual(errors, [])
+})
+
+// A setting that makes the sound longer or shorter takes what is selected with the sound: the same moments of it, so a
+// selection past the shorter one's end is not lost, and the loop playing it plays them. A stretch's method does: of
+// stretch(8), wsola stretches 4× at most, PaulStretch 8×, phase-lock any (the factor's max in @audio/stretch-wsola's
+// and @audio/stretch-paulstretch's audio.js; the chime is 8 s, so 32 s and 64 s). One that keeps the length keeps the
+// selection's times
+test('editor: embedded, a stretch\'s method that changes the length keeps the selection on the same sound, the loop with it', async () => {
+  const { f } = await mount('chain', { script: "audio('chime.wav').stretch(8)", controls: `${CONTROLS} loop` })
+  await length(f, '1:04.000')
+  const secs = text => text.split(':').reduce((s, p) => s * 60 + +p, 0)
+  const sel = async () => (await f.locator('.clock').evaluate(e => e.title || e.dataset.popoffTitle || '')).match(/^Selected (\S+)–(\S+):/)?.slice(1).map(secs) ?? null
+  const near = (got, want, what) => assert.ok(got && want.every((t, i) => Math.abs(got[i] - t) < .002), `${what}: ${JSON.stringify(got)}, not ${JSON.stringify(want)}`)
+  const panel = f.locator('#step-settings'), open = () => panel.evaluate(p => p.matches(':popover-open'))
+  const method = async name => {
+    if (!await open()) await f.locator('.chain-edit', { hasText: 'Stretch' }).click()
+    await poll(open, o => assert.equal(o, true))
+    await panel.locator('.choices button', { hasText: new RegExp(`^${name}$`) }).click()
+  }
+  // past the half of it: 40 s to 48 s, as near as the pointer lands
+  const box = await f.locator('.plot').boundingBox(), x = t => box.x + t / 64 * box.width, y = box.y + box.height * .4
+  await page.mouse.move(x(40), y)
+  await page.mouse.down()
+  await page.mouse.move(x(48), y, { steps: 6 })
+  await page.mouse.up()
+  const [a, b] = await poll(sel, s => assert.ok(s && s[0] > 32 && s[1] > s[0], `selected ${s}`))
+  // (the loop on as the editor opens, embedded too)
+  assert.equal(await f.getByRole('button', { name: 'Loop' }).getAttribute('aria-pressed'), 'true')
+  await f.getByRole('button', { name: 'Play', exact: true }).click()
+  await f.getByRole('button', { name: 'Pause' }).waitFor()
+  // wsola, 4×: the sound half as long, the selection half as far in and as long; once it is whole (the sound before
+  // playing on till then, as any new output takes over), the loop in it
+  await method('wsola')
+  await poll(() => f.locator('.clock .length').textContent(), t => assert.ok(Math.abs(secs(t) - (b - a) / 2) < .002, `the selection's length ${t}`), 15000)
+  await f.locator('body').evaluate(() => __settled())
+  await page.waitForTimeout(250)
+  for (let i = 0; i < 6; i++, await page.waitForTimeout(250)) {
+    const t = secs(await f.locator('.clock .time').textContent())
+    assert.ok(t >= a / 2 - .05 && t <= b / 2 + .05, `the loop plays ${t}, outside ${a / 2}–${b / 2}`)
+  }
+  await f.getByRole('button', { name: 'Pause' }).click()
+  near(await poll(sel, s => assert.ok(s)), [a / 2, b / 2], 'on wsola')
+  // PaulStretch, 8×: back where it was
+  await method('paulstretch')
+  await poll(sel, s => near(s, [a, b], 'on PaulStretch'), 15000)
+  // phase-lock, 8× too: the length kept, the times kept
+  await method('phase-lock')
+  await poll(() => panel.locator('.choices button[aria-pressed="true"]').textContent(), t => assert.equal(t, 'phase-lock'))
+  await f.locator('body').evaluate(() => __settled())
+  near(await sel(), [a, b], 'on phase-lock')
   assert.deepEqual(errors, [])
 })
 
@@ -428,8 +494,8 @@ const script = f => f.locator('body').evaluate(async () => (await import('/repl/
 // Remove, lit while the edit would land on it, the copy under the pointer gone there; let go there, it is taken away.
 // Escape, or a drop far off the chain, puts it back, the script as it was; a press that does not move still opens its
 // settings
-test('editor: embedded, an edit dragged along the chain moves there, onto the field it is taken away', async () => {
-  const { f } = await mount('chain')
+both('an edit dragged along the chain moves there, onto the field it is taken away', async full => {
+  const { f } = await mount('chain', { full })
   await length(f, '0:08.000')
   for (const name of ['normalize', 'reverse', 'stretch']) { const n = (await made(f)).length; await make(f, name); await poll(() => made(f), ks => assert.equal(ks.length, n + 1)) }
   await page.mouse.move(2, 2)
@@ -483,8 +549,8 @@ test('editor: embedded, an edit dragged along the chain moves there, onto the fi
 
 // By the keys on an edit, as the old widget's pills: Alt and an arrow move it a place, the keys with it, each move an
 // undo step, said in the live line; none past either end. Its description says so
-test('editor: embedded, Alt and an arrow move an edit of the chain a place', async () => {
-  const { f } = await mount('chain')
+both('Alt and an arrow move an edit of the chain a place', async full => {
+  const { f } = await mount('chain', { full })
   await length(f, '0:08.000')
   for (const name of ['normalize', 'reverse', 'stretch']) { const n = (await made(f)).length; await make(f, name); await poll(() => made(f), ks => assert.equal(ks.length, n + 1)) }
   const edit = f.locator('.chain-edit', { hasText: 'Normalize' })
@@ -776,11 +842,11 @@ test('editor: embedded, the chain\'s list as menus: a kind\'s edits beside its r
   const sub = () => f.locator('body').evaluate(() => { const l = document.querySelector('#edits-found'), g = l.querySelector('.found-group[data-sub]'), r = g?.getBoundingClientRect(), lr = l.getBoundingClientRect(); return g ? { kind: g.getAttribute('aria-label'), beside: r.left >= lr.right - 1 || r.right <= lr.left + 1, within: r.left >= 0 && r.top >= 0 && r.right <= innerWidth + .5 && r.bottom <= innerHeight + .5, owned: !!l.querySelector(`[aria-owns="${g.id}"]`) } : null })
   await field.click()
   const s = await poll(() => found(f), s => assert.equal(s.open, true))
-  assert.deepEqual([s.role, await field.getAttribute('aria-haspopup'), s.title.split('\n')[0]], ['tree', 'tree', 'Clipped peaks rebuilt, clicks and hum taken out where they are found, the peak at −1 dB'], 'a tree, the field says so')
-  assert.deepEqual(await kinds(), KINDS.map(k => [k, 'false', true]), 'a row a kind, a chevron each, shut')
+  assert.deepEqual([s.role, await field.getAttribute('aria-haspopup'), s.title.split('\n')[0]], ['tree', 'tree', 'Cut silence from both ends'], 'a tree, the field says so')
+  assert.deepEqual(await kinds(), [['More recipes', 'false', true], ...KINDS.map(k => [k, 'false', true])], 'the rest of the recipes and a row a kind, a chevron each, shut')
   assert.deepEqual(await row('Filter').evaluate(r => [r.querySelector('.found-hint').textContent, r.dataset.tip]), ['', '27 edits'], 'no number at its end; how many edits it has in its tooltip')
-  // ↓ to Filter (past the four suggested, Silence and Level), → into its edits
-  for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowDown')
+  // ↓ to Filter (past the four suggested, the five rows of Recipes, Silence and Level), → into its edits
+  for (let i = 0; i < 11; i++) await page.keyboard.press('ArrowDown')
   await poll(() => found(f), s => assert.equal(s.lit, 'Filter'))
   await page.keyboard.press('ArrowRight')
   await poll(sub, g => assert.deepEqual(g, { kind: 'Filter', beside: true, within: true, owned: true }, 'Filter\'s edits beside the list, inside the frame, owned by its row'))
@@ -866,8 +932,9 @@ test('editor: embedded, the pointer on its way to a kind\'s edits crosses the ro
   assert.deepEqual(errors, [])
 })
 
-// Recipes, the list's last row, opens beside it: first the automatic edit made for the sound's kind (auto(type), its
-// type at its row's end, what it does in its tooltip), then every recipe (recipes.js offered), each a goal's whole
+// Recipes, a section of the list after Suggested and before the kinds, More recipes its last row, the rest beside it:
+// first the automatic edit made for the sound's kind (auto(type), its type at its row's end, what it does in its
+// tooltip), then three recipes, then the rest beside the list: every recipe (recipes.js offered), each a goal's whole
 // chain of two edits or more (the interview a script, for a sound of two channels), each its own icon (none another's,
 // none an edit's or a kind's), at its row's end how many edits it makes, what it does and its edits in its tooltip;
 // those the sound's kind is offered first (kind.js OFFERS). One pressed puts its whole chain on the sound at once, each
@@ -875,8 +942,19 @@ test('editor: embedded, the pointer on its way to a kind\'s edits crosses the ro
 // its name first. A record's on a sound of one channel is its own (no side to take its rumble from), and the interview
 // none; the master to a reference asks for the reference as it is put on
 test('editor: embedded, Recipes: the automatic edit, then every recipe, the sound\'s kind\'s first; one puts its whole chain on, one undo step', async () => {
-  const read = f => f.locator('.found-group[data-sub] .found-row').evaluateAll(rs => rs.map(r => ({ name: r.querySelector('.found-name').textContent, hint: r.querySelector('.found-hint').textContent, icon: r.querySelector('svg path').getAttribute('d'), tip: r.dataset.tip })))
-  const opened = async f => { await f.locator('.chain-add').click(); await f.locator('#edits-found .found-row[aria-expanded]', { hasText: 'Recipes' }).click(); return poll(() => read(f), rs => assert.ok(rs.length > 1)) }
+  const read = (f, sel) => f.locator(sel).evaluateAll(rs => rs.map(r => ({ name: r.querySelector('.found-name').textContent, hint: r.querySelector('.found-hint').textContent, icon: r.querySelector('svg path').getAttribute('d'), tip: r.dataset.tip })))
+  // (the section's rows, the automatic edit and three recipes, then, More recipes opened, the rest beside the list:
+  // every one, in their order; a row by its name, wherever it stands)
+  const more = f => f.locator('#edits-found .found-row[aria-expanded]', { hasText: 'More recipes' })
+  const opened = async f => {
+    await f.locator('.chain-add').click()
+    const section = (await read(f, '#edits-found .found-group[aria-label="Recipes"] .found-row')).filter(r => r.name !== 'More recipes')
+    await more(f).evaluate(r => r.scrollIntoView({ block: 'center' }))
+    await more(f).click()
+    return [...section, ...await poll(() => read(f, '.found-group[data-sub] .found-row'), rs => assert.ok(rs.length > 1))]
+  }
+  const recipe = (f, name) => f.locator('#edits-found .found-row', { has: f.locator('.found-name', { hasText: new RegExp(`^${name}$`) }) }).first()
+  const press = async (f, name) => { await recipe(f, name).evaluate(r => r.scrollIntoView({ block: 'center' })); await recipe(f, name).click() }
   const offered = async kind => {
     const { f } = await mount('chain', { ops: '', kind })
     await length(f, '0:08.000')
@@ -884,7 +962,7 @@ test('editor: embedded, Recipes: the automatic edit, then every recipe, the soun
   }
   const { rows: speech } = await offered('speech')
   assert.deepEqual(speech.map(r => r.name), ['Repair and level this voice', ...first('Clean up a voice recording', 'Podcast episode', 'Audiobook chapter', 'Voice for broadcast or video', 'Enhance speech')], 'speech: auto first, a voice\'s recipes next')
-  assert.deepEqual([speech[0].hint, speech[0].tip.split('\n')[1]], ['speech', 'One edit, Auto: its chain is what it measures as it runs'])
+  assert.deepEqual([speech[0].hint, speech[0].tip], ['speech', 'Repairs what it finds in the voice, −16 LUFS\nOne edit: its chain is what it measures'])
   const { f, rows: music } = await offered('music')
   assert.deepEqual(music.map(r => r.name), ['Repair and level this song', ...first('Master a song for streaming', 'Master a song to a reference', 'Master a song, warm', 'Restore a vinyl record', 'Repair a damaged recording')], 'music: its own first, the rest after')
   const sets = music.slice(1), others = await f.locator('body').evaluate(async () => { const icons = (await import('/repl/icons.js')).default, { icons: kinds } = await import('/repl/ops.js'); return [...Object.values(icons), ...Object.values(kinds)] })
@@ -892,9 +970,9 @@ test('editor: embedded, Recipes: the automatic edit, then every recipe, the soun
   assert.deepEqual(sets.filter(r => others.includes(r.icon)).map(r => r.name), [], 'none an edit\'s or a kind\'s icon')
   assert.deepEqual(sets.filter(r => !(+r.hint.split(' ')[0] >= 2) && r.hint !== 'script').map(r => r.name), [], 'each two edits or more, or a script')
   const vinyl = sets.find(r => r.name === 'Restore a vinyl record')
-  assert.deepEqual([vinyl.hint, vinyl.tip], ['8 edits', 'Clicks, crackle, rumble and wow off a transfer, the bass kept\nDeclip → Declick → Decrackle → Midside → Highpass → Midside → Highpass 20Hz, 4 → Dewow'], 'how many edits at its row\'s end; what it does, then its edits in their order as their rows say them, in its tooltip')
+  assert.deepEqual([vinyl.hint, vinyl.tip], ['8 edits', 'Clicks, crackle, rumble and wow off a transfer, the bass kept'], 'how many edits at its row\'s end; what it does, its tooltip')
   // (one with no model to fetch: the page here asks nothing of the world)
-  await f.locator('.found-group[data-sub] .found-row', { hasText: 'Master a song for streaming' }).click()
+  await press(f, 'Master a song for streaming')
   await poll(() => made(f), ks => assert.deepEqual(ks.map(k => k.split(' ')[0]), ['Highpass', 'Normalize', 'VCA', 'Normalize'], 'its edits, each in the chain'))
   await f.locator('.head-end .undo').click()
   await poll(() => made(f), ks => assert.deepEqual(ks, [], 'one undo step: all gone'))
@@ -906,11 +984,16 @@ test('editor: embedded, Recipes: the automatic edit, then every recipe, the soun
   await poll(() => made(f), ks => assert.equal(ks.length, 4))
   await f.locator('.head-end .undo').click()
   await poll(() => made(f), ks => assert.deepEqual(ks, []))
+  // and by an edit it makes, as its row says it
+  await f.locator('.chain-add').click()
+  await f.locator('.found-search').fill('decrackle')
+  await poll(() => listed(f), gs => assert.ok(gs.flat().includes('Restore a vinyl record'), `${gs}`))
+  await page.keyboard.press('Escape')
   // the master to a reference asks for it as it is put on: the file chooser opens, the file chosen is kept as the
   // reference the call names, and the master made with it
   const chooser = page.waitForEvent('filechooser')
   await opened(f)
-  await f.locator('.found-group[data-sub] .found-row', { hasText: 'Master a song to a reference' }).click()
+  await press(f, 'Master a song to a reference')
   await (await chooser).setFiles({ name: 'song.wav', mimeType: 'audio/wav', buffer: readFileSync(new URL('../fixture.wav', import.meta.url)) })
   await poll(() => f.locator('body').evaluate(async () => { const { ed, state, output } = await import('/repl/editor/context.js'); return [/\.master\(audio\('reference\.wav'\)\)/.test(ed.code), state.missing, output?.code === ed.code] }), r => assert.deepEqual(r, [true, '', true], 'made with the file chosen'), 30000)
   await f.locator('.head-end .undo').click()
@@ -920,8 +1003,8 @@ test('editor: embedded, Recipes: the automatic edit, then every recipe, the soun
   await drop(f, 'mono.wav')
   const one = await opened(f)
   const record = one.find(r => r.name === 'Restore a vinyl record')
-  assert.deepEqual([record.hint, record.tip.split('\n')[1], one.some(r => r.name === 'Interview, two mics')], ['5 edits', 'Declip → Declick → Decrackle → Highpass 20Hz, 4 → Dewow', false])
-  await f.locator('.found-group[data-sub] .found-row', { hasText: 'Restore a vinyl record' }).click()
+  assert.deepEqual([record.hint, one.some(r => r.name === 'Interview, two mics')], ['5 edits', false])
+  await press(f, 'Restore a vinyl record')
   await poll(() => made(f), ks => assert.deepEqual(ks.map(k => k.split(' ')[0]), ['Declip', 'Declick', 'Decrackle', 'Highpass', 'Dewow']))
   assert.deepEqual(errors, [])
 })
@@ -945,10 +1028,11 @@ test('editor: embedded, a row\'s hint cut with an ellipsis past its room, the wh
   // the edits': a recipe's hint how many edits it makes, short, whole, its tooltip what it does, then its edits in their
   // order (in Recipes); a value short, whole, its tooltip what it does alone
   await f.locator('.chain-add').click()
-  await f.locator('#edits-found .found-row[aria-expanded]', { hasText: 'Recipes' }).click()
+  await f.locator('#edits-found .found-row[aria-expanded]', { hasText: 'More recipes' }).evaluate(r => r.scrollIntoView({ block: 'center' }))
+  await f.locator('#edits-found .found-row[aria-expanded]', { hasText: 'More recipes' }).click()
   const podcast = await poll(() => rows('#edits-found .found-row').then(rs => rs.find(r => r.name === 'Podcast episode')), r => assert.ok(r?.title, 'Podcast episode, its tooltip'))
   assert.deepEqual([podcast.hint, podcast.cut, podcast.named, podcast.right], ['5 edits', false, true, true], `short and whole, at the right end: ${JSON.stringify(podcast)}`)
-  assert.equal(podcast.title, 'Apple Podcasts: −16 LUFS, peaks under −1 dBTP\nHighpass 80Hz → Dehum → Deepfilter → Deesser → Normalize podcast', 'what it does, then its edits in their order')
+  assert.equal(podcast.title, 'Apple Podcasts: −16 LUFS, peaks under −1 dBTP', 'what it does')
   await f.locator('.found-search').fill('trim')
   const trim = await poll(() => rows('#edits-found .found-row').then(rs => rs[0]), r => assert.equal(r.title, 'Cut silence from both ends'))
   assert.deepEqual([trim.name, trim.hint, trim.cut, trim.right, trim.title], ['Trim silence', '−40dB', false, true, 'Cut silence from both ends'], 'short: whole, at the right end, its tooltip what it does')
@@ -969,7 +1053,9 @@ test('editor: embedded, an edit lit in the list shows what it would do on the pi
   // (guides are drawn in time, on the reel's marks canvas, moved as the reel is: page.js __overlay)
   const ink = t => f.locator('.plot').evaluate((plot, t) => import('/repl/editor/context.js').then(({ v }) => { const m = plot.querySelector('canvas.marks'), o = plot.querySelector('canvas.overlay'), k = m.width / m.clientWidth, shift = -new DOMMatrix(getComputedStyle(plot.querySelector('.reel')).transform).m41, px = t / v.duration * o.clientWidth + shift, y = o.clientHeight * .3; return m.getContext('2d').getImageData(Math.round(px * k), Math.round(y * k), 1, 1).data[3] }), t)
   await f.locator('.chain-add').click()
-  // the first row lit, a recipe: none (a whole chain's would be a guess)
+  // a recipe lit (past the four suggested and the automatic edit): none (a whole chain's would be a guess)
+  await poll(() => found(f), s => assert.equal(s.lit, 'Trim silence'))
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowDown')
   await poll(() => found(f), s => assert.equal(s.lit, 'Repair a damaged recording'))
   assert.deepEqual(await marks(), [], 'a recipe: none')
   // Trim −40dB found (the page's), lit: its cuts; the samples read as the library's trim reads them
@@ -1202,27 +1288,27 @@ test('editor: embedded, a take recording has its Stop in sight, the caret and th
 // A made edit's settings and the field's list are one or the other, never both open: the list opened (the field
 // pressed, by the pointer or the keys) shuts the settings; an edit pressed (or Enter on it) shuts the list, its settings
 // opening. An edit made from the list opens neither
-test('editor: embedded, an edit\'s settings and the field\'s list are never open together', async () => {
-  const { f } = await mount('chain')
+both('an edit\'s settings and the field\'s list are never open together', async full => {
+  const { f } = await mount('chain', { full })
   await length(f, '0:08.000')
-  const both = () => f.locator('body').evaluate(() => [document.querySelector('#step-settings').matches(':popover-open'), document.querySelector('#edits-found').matches(':popover-open')])
+  const opens = () => f.locator('body').evaluate(() => [document.querySelector('#step-settings').matches(':popover-open'), document.querySelector('#edits-found').matches(':popover-open')])
   await make(f, 'reverse')
   await poll(() => made(f), ks => assert.deepEqual(ks, ['Reverse']))
-  await poll(both, b => assert.deepEqual(b, [false, false], 'made: its settings shut, the list shut'))
+  await poll(opens, b => assert.deepEqual(b, [false, false], 'made: its settings shut, the list shut'))
   await f.locator('.chain-edit', { hasText: 'Reverse' }).click()
-  await poll(both, b => assert.deepEqual(b, [true, false], 'the edit pressed: its settings'))
+  await poll(opens, b => assert.deepEqual(b, [true, false], 'the edit pressed: its settings'))
   await f.locator('.chain-add').click()
-  await poll(both, b => assert.deepEqual(b, [false, true], 'the field pressed: the list, the settings shut'))
+  await poll(opens, b => assert.deepEqual(b, [false, true], 'the field pressed: the list, the settings shut'))
   await f.locator('.chain-edit', { hasText: 'Reverse' }).click()
-  await poll(both, b => assert.deepEqual(b, [true, false], 'the edit pressed: its settings, the list shut'))
+  await poll(opens, b => assert.deepEqual(b, [true, false], 'the edit pressed: its settings, the list shut'))
   // by the keys: the field reached (Tab from the edit) and pressed shuts them; Enter on the edit shuts the list
   await f.locator('.chain-edit', { hasText: 'Reverse' }).focus()
   await page.keyboard.press('Tab')
   await page.keyboard.press('Enter')
-  await poll(both, b => assert.deepEqual(b, [false, true]))
+  await poll(opens, b => assert.deepEqual(b, [false, true]))
   await f.locator('.chain-edit', { hasText: 'Reverse' }).focus()
   await page.keyboard.press('Enter')
-  await poll(both, b => assert.deepEqual(b, [true, false]))
+  await poll(opens, b => assert.deepEqual(b, [true, false]))
   assert.deepEqual(errors, [])
 })
 
@@ -1250,11 +1336,48 @@ test('editor: embedded, a setting pointed at marks its own part of the edit\'s h
   assert.deepEqual(errors, [])
 })
 
+// An edit of the chain says the values it is made with whether the code gives them by their place or by their name, in
+// its settings' order, each in its unit; not a range's place and length, which the selection sets (menus.js
+// valuesOfStep)
+both('the chain says each edit\'s values, given by their place or by their name', async full => {
+  const { f } = await mount('chain', { full, script: "audio('chime.wav')\n  .highpass(120)\n  .highpass({ order: 4, freq: 200 })\n  .deconstruct(0, -24, 0, { separation: 4 })\n  .gain(-6, { at: 1, d: 1 })" })
+  await length(f, '0:08.000')
+  await poll(() => made(f), ks => assert.deepEqual(ks, ['Highpass 120Hz', 'Highpass 200Hz, 4', 'Deconstruct 0dB, −24dB, 0dB, 4×', 'Gain −6dB']))
+  assert.deepEqual(errors, [])
+})
+
+// A step that throws as it is called is skipped, the rest of the chain made without it (run.js); its edit in the chain
+// says so in the problem's red, its error's first line its tooltip, two lines at the most, and so does the tab of its
+// settings opened; the others as they were
+both('a step that throws is marked on its edit in the chain, its error its tooltip', async full => {
+  const { f } = await mount('chain', { full, script: "audio('chime.wav')\n  .gain(1, 2, 3)\n  .fade(0.5, 0.5)" })
+  const failed = f.locator('.chain-edit[data-failed]')
+  await failed.waitFor()
+  assert.deepEqual(await failed.evaluateAll(es => es.map(e => [e.querySelector('.edit-name').textContent, e.getAttribute('title') ?? e.dataset.popoffTitle, e.getAttribute('aria-label')])), [['Gain', 'Skipped: gain: expected at most 1 argument (value), got 3', 'Gain 1dB, skipped']])
+  assert.equal(await f.locator('.chain-edit:not([data-failed])').count(), 1, 'the fade made')
+  const [red, ink] = await Promise.all([failed.locator('.edit-name').evaluate(e => getComputedStyle(e).color), f.locator('.message.problem').evaluate(e => getComputedStyle(e).color).catch(() => null)])
+  if (ink) assert.equal(red, ink, 'in the problem\'s red')
+  await failed.click()
+  await f.locator('.step-tab[data-failed]').waitFor({ state: 'attached' })
+})
+
+// One that fails as the chain renders, long after it is called, is marked the same: an op the script registers whose
+// preparation fails, as a model that does not load does (worker.js: the call that made the edit the engine names)
+both('a step that fails as the chain renders is marked on its edit in the chain, its error its tooltip', async full => {
+  const { f } = await mount('chain', { full, script: "audio.op('flaky', { prepare: () => Promise.reject(new Error('the model did not load')), process: (input, output) => input.forEach((x, c) => output[c].set(x)) })\naudio('chime.wav')\n  .flaky()\n  .fade(0.5, 0.5)" })
+  const failed = f.locator('.chain-edit[data-failed]')
+  await failed.waitFor()
+  assert.deepEqual(await failed.evaluateAll(es => es.map(e => [e.querySelector('.edit-name').textContent, e.getAttribute('title') ?? e.dataset.popoffTitle, e.getAttribute('aria-label')])), [['Flaky', 'Skipped: the model did not load', 'Flaky, skipped']])
+  assert.equal(await f.locator('.chain-edit:not([data-failed])').count(), 1, 'the fade made')
+  await length(f, '0:08.000')
+  assert.deepEqual(errors, [])
+})
+
 // Bypass, beside Remove at an edit's settings' foot: pressed, the edit stays where it stands in the chain, struck
 // through, its call commented out where it is (as the edits' cards' switch has it), the sound as without it; pressed
 // again, on; each one undo step; its settings stay open, set, they go into its comment
-test('editor: embedded, an edit bypassed stays in the chain, off, the sound as without it; undone as any', async () => {
-  const { f } = await mount('chain')
+both('an edit bypassed stays in the chain, off, the sound as without it; undone as any', async full => {
+  const { f } = await mount('chain', { full })
   await length(f, '0:08.000')
   const code = () => f.locator('body').evaluate(async () => (await import('/repl/editor/context.js')).ed.code)
   const off = () => f.locator('.chain-step > .chain-edit').evaluateAll(es => es.map(e => `${e.textContent}${e.hasAttribute('data-off') ? ' off' : ''}`))
@@ -1428,7 +1551,8 @@ test('editor: embedded, the row\'s right end: Undo, Redo, Save, the repl', async
     return { order: [...q('.view-head').children].filter(e => e.getClientRects().length).map(e => e.className.split(' ')[0]), inEnd: [...q('.head-end').children].map(e => e.className.split(' ')[0]), save: q('.head-end .embed-save').textContent.trim(), repl: [q('.embed-open').innerText.trim(), q('.embed-open').ariaLabel, q('.embed-open').title || q('.embed-open').dataset.popoffTitle, !!q('.embed-open svg'), q('.embed-open').target], adjacent: Math.round(r('.embed-open').left - r('.head-end').right), line: Math.abs(r('.embed-open svg').right - (innerWidth - inset)) <= 2, name: Math.round(r('.embed-sound').top), endTop: Math.round(r('.head-end').top), chain: Math.round(r('.embed-chain').top) }
   })
   const e = await end()
-  assert.deepEqual([e.order, e.inEnd, e.save, e.repl, e.line], [['embed-sound', 'embed-chain', 'head-end', 'embed-open'], ['history', 'embed-save'], 'Save', ['', 'Open in the editor', 'Open in the editor', true, '_blank'], true], 'the history, Save, then the repl\'s mark alone, named, its mark on the inset\'s line')
+  assert.deepEqual([e.order, e.inEnd, e.save, e.repl, e.line], [['embed-sound', 'embed-chain', 'head-end', 'embed-open'], ['history', 'before', 'embed-save'], 'Save', ['', 'Open in the editor', 'Open in the editor', true, '_blank'], true], 'the history, Before (out of sight: not named), Save, then the repl\'s mark alone, named, its mark on the inset\'s line')
+  assert.equal(await f.locator('.head-end .before').isVisible(), false, 'Before not named: none')
   assert.ok(e.adjacent >= 0 && e.adjacent <= 8, `the repl right after the save, the row's gap between: ${e.adjacent} px`)
   await make(f, 'reverse')
   await poll(() => made(f), ks => assert.deepEqual(ks, ['Reverse']))
@@ -1505,21 +1629,21 @@ test('editor: embedded, the chain in a narrow frame: whole, inside it, the field
       assert.ok(b['.embed-chain'].top >= b['.embed-sound'].bottom - 1 && near(row('.head-end'), row('.embed-sound'), 2), `at ${px}: the chain under the name, the save on its row`)
       assert.ok(b['.embed-chain'].left >= l.inset - 11 && b['.chain-add'].right <= l.W - l.inset + 1, `at ${px}: the chain and its field within the inset's lines: ${JSON.stringify([b['.embed-chain'], b['.chain-add']])}`)
     })
-    assert.ok(await f.locator('.embed-chain').evaluate(c => { const first = c.querySelector('.edit-name').getBoundingClientRect().left, inset = parseFloat(getComputedStyle(document.querySelector('.view-head')).paddingLeft); return Math.abs(first - inset) <= 1.5 }), 'the chain\'s first edit on the inset\'s line')
+    assert.ok(await f.locator('.embed-chain').evaluate(c => { const first = [...c.querySelectorAll('.chain-edit .edit-icon, .chain-edit .edit-name')].find(e => e.checkVisibility()).getBoundingClientRect().left, inset = parseFloat(getComputedStyle(document.querySelector('.view-head')).paddingLeft); return Math.abs(first - inset) <= 1.5 }), 'the chain\'s first edit (its icon) on the inset\'s line')
   }
   await width(null)
-  // a chain longer than its row: on under it, the name and the save on its first line, the picture lower by as much
+  // a chain longer than its row with its names: compact, each edit its icon alone, on the row still, the picture where it was
   const view = (await lay(f)).box['.view'].top
   for (const [i, name] of ['gain', 'pan', 'highpass', 'lowpass', 'bandpass', 'notch'].entries()) { await make(f, name); await poll(() => f.locator('.chain-edit').count(), n => assert.equal(n, 4 + i)) }
-  await poll(() => lay(f), l => {
-    const b = l.box
-    assert.ok(b['.embed-chain'].height > 40 && Math.abs(b['.embed-sound'].top - b['.embed-chain'].top) <= 1 && Math.abs(b['.head-end'].top - b['.embed-chain'].top) <= 1, `on under its row, the name and the save on its first line: ${JSON.stringify([b['.embed-sound'], b['.embed-chain'], b['.head-end']])}`)
-    assert.ok(b['.view'].top > view, 'the picture lower')
+  await poll(async () => ({ ...await lay(f), compact: await f.locator('.embed-chain').evaluate(c => c.hasAttribute('data-compact')) }), l => {
+    const b = l.box, on = l.compact
+    assert.ok(on && b['.embed-chain'].height <= 30 && Math.abs(b['.embed-sound'].top - b['.embed-chain'].top) <= 1 && Math.abs(b['.head-end'].top - b['.embed-chain'].top) <= 1, `compact, on the name's row: ${JSON.stringify([b['.embed-sound'], b['.embed-chain'], b['.head-end']])}`)
+    assert.equal(b['.view'].top, view, 'the picture where it was')
     assert.deepEqual(l.past, [])
   })
   // each of its lines starts with an edit or the field, never a bar; between two on a line, a bar (a frame narrow
-  // enough for those made to run on to lines of their own)
-  await width(700)
+  // enough for those made, compact as they are, to run on to lines of their own)
+  await width(320)
   await poll(() => f.locator('.embed-chain').evaluate(c => [...c.querySelectorAll('.chain-step, .chain-find')].map((s, i, all) => [i > 0 && s.offsetTop > all[i - 1].offsetTop + 2, getComputedStyle(s, '::before').visibility === 'visible' && getComputedStyle(s, '::before').content === '""'])), steps => assert.ok(steps.some(([starts]) => starts) && steps.every(([starts, bar], i) => i ? starts !== bar : !bar), `no bar at a line's start: ${JSON.stringify(steps)}`))
   await width(null)
   assert.deepEqual(errors, [])
@@ -1614,5 +1738,389 @@ test('editor: embedded, the page asks what the list offers by the element\'s edi
   assert.deepEqual(await page.evaluate(() => document.querySelector('audio-repl').edits()), list, 'asked again once in: the same')
   await page.evaluate(call => document.querySelector('audio-repl').edit(call), list[0].edits[1].call)
   await poll(() => made(f), ks => assert.deepEqual(ks, ['Shrink 0.3s'], 'its call made as its row would'))
+  assert.deepEqual(errors, [])
+})
+
+// Each edit of the chain its name and values; where they do not stand on one row with the field, or the frame is a
+// phone's, compact: each its icon alone (its own, the list's row's, else its kind's), its name and values its tooltip's
+// and a screen reader's. Alt with a press on it, or B on it, bypasses it (struck, dimmed, its call commented out), a step
+// of the history, Undo bringing it back; again, on again; a plain press opens its settings
+test('editor: embedded, an edit bypassed by Alt and a press or by B; compact, each edit its icon alone where the names do not fit', async () => {
+  const { f } = await mount('chain')
+  await length(f, '0:08.000')
+  for (const name of ['normalize', 'reverse']) await make(f, name)
+  await poll(() => made(f), ks => assert.equal(ks.length, 2))
+  const compact = () => f.locator('.embed-chain').evaluate(c => [c.hasAttribute('data-compact'), [...c.querySelectorAll('.chain-edit')].map(e => [e.querySelector('.edit-icon').checkVisibility(), e.querySelector('.edit-name').checkVisibility(), e.getAttribute('aria-label')])])
+  assert.deepEqual(await compact(), [false, [[false, true, 'Normalize −1dB'], [false, true, 'Reverse']]], 'wide: the names, no icons')
+  const code = () => f.locator('body').evaluate(async () => (await import('/repl/editor/context.js')).ed.code)
+  const edit = f.locator('.chain-step > .chain-edit').first()
+  await edit.click({ modifiers: ['Alt'] })
+  await poll(code, c => assert.match(c, /\/\/ \.normalize\(-1\)/, 'Alt and a press: its call commented out'))
+  assert.deepEqual([await edit.getAttribute('data-off'), await edit.getAttribute('aria-label')], ['', 'Normalize −1dB, bypassed'])
+  assert.equal(await f.locator('#step-settings').evaluate(p => p.matches(':popover-open')), false, 'its settings not opened')
+  await f.locator('.head-end .undo').click()
+  await poll(code, c => assert.doesNotMatch(c, /\/\/ \.normalize/, 'undone: on again'))
+  await edit.focus()
+  await page.keyboard.press('b')
+  await poll(code, c => assert.match(c, /\/\/ \.normalize/, 'B on it: bypassed'))
+  await page.keyboard.press('b')
+  await poll(code, c => assert.doesNotMatch(c, /\/\/ \.normalize/, 'again: on again'))
+  await edit.click()
+  await poll(() => f.locator('#step-settings').evaluate(p => p.matches(':popover-open')), o => assert.equal(o, true, 'a plain press opens its settings'))
+  await page.keyboard.press('Escape')
+  // more edits than the row holds with their names: each its icon alone, its own, else its kind's
+  for (const name of ['highpass', 'lowpass', 'stretch', 'pitch', 'fade', 'gain']) await make(f, name)
+  await poll(compact, ([on]) => assert.equal(on, true, 'compact'))
+  const [, rows] = await compact()
+  assert.ok(rows.every(([icon, name, label]) => icon && !name && label), `each its icon alone, named: ${JSON.stringify(rows)}`)
+  const icons = await f.locator('.chain-edit .edit-icon path').evaluateAll(ps => ps.map(p => p.getAttribute('d')))
+  const own = await f.locator('body').evaluate(async () => (await import('/repl/icons.js')).default.normalize)
+  assert.equal(icons[0], own, 'its own icon')
+  assert.deepEqual(errors, [])
+})
+
+// An edit's settings open, another edit of the chain pointed at opens its own in their place, as a menu bar's menus do
+// once one is open; none open, pointing opens nothing
+both('while an edit\'s settings are open, pointing at another edit opens its settings', async full => {
+  const { f } = await mount('chain', { full })
+  await length(f, '0:08.000')
+  for (const name of ['normalize', 'reverse']) await make(f, name)
+  await poll(() => made(f), ks => assert.equal(ks.length, 2))
+  const open = () => f.locator('#step-settings').evaluate(p => p.matches(':popover-open') ? p.querySelector('.step-tab .edit-name')?.textContent : null)
+  const at = async name => { const b = await f.locator('.chain-step > .chain-edit', { hasText: name }).boundingBox(); await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 3 }) }
+  await at('Reverse')
+  await page.waitForTimeout(300)
+  assert.equal(await open(), null, 'none open: pointing opens nothing')
+  await f.locator('.chain-step > .chain-edit', { hasText: 'Normalize' }).click()
+  await poll(open, n => assert.equal(n, 'Normalize'))
+  await at('Reverse')
+  await poll(open, n => assert.equal(n, 'Reverse', 'pointed at: its own, the first shut'))
+  await at('Normalize')
+  await poll(open, n => assert.equal(n, 'Normalize', 'and back'))
+  // the foot's words centred in their buttons
+  assert.deepEqual(await f.locator('#step-settings :is(.step-bypass, .step-remove)').evaluateAll(bs => bs.map(b => { const s = getComputedStyle(b); return [s.justifyContent, s.textAlign] })), [['center', 'center'], ['center', 'center']])
+  assert.deepEqual(errors, [])
+})
+
+// Before (controls before), by the history, the bar's Before in its place: the editor's one comparison (play.js toggleAB,
+// B), there while an edit is on; pressed, the sound before the edits, in the picture and in what plays, at the edits'
+// loudness, playing on from where it was, the script and the history untouched; again, the edits; the bar has none
+both('Before shows and plays the sound before the edits, level-matched, again the edits, the history untouched', async full => {
+  const { f } = await mount('chain', { controls: `${CONTROLS} before`, full })
+  await length(f, '0:08.000')
+  const before = f.locator('.head-end .before')
+  // no edit on: not there (the owner, 20 Nov: "let's not display \"before\" button if there was no edits"); what stands at
+  // its right (embedded, Save; else the row's end) where it is when the first edit brings it
+  const save = () => f.locator('.head-end').evaluate(h => { let n = h.querySelector('.before').nextElementSibling; while (n && !n.checkVisibility()) n = n.nextElementSibling; return Math.round(n ? n.getBoundingClientRect().left : h.getBoundingClientRect().right) })
+  assert.equal(await before.evaluate(b => b.checkVisibility()), false, 'no edit on: no Before')
+  const at = await save()
+  assert.equal(await f.locator('.status .before').count(), 0, 'none in the bar: the row\'s is it')
+  await make(f, 'reverse')
+  await poll(() => made(f), ks => assert.deepEqual(ks, ['Reverse']))
+  await poll(() => before.evaluate(b => b.checkVisibility()), shown => assert.equal(shown, true, 'an edit on: it is there'))
+  assert.equal(await save(), at, 'nothing at its right moved as the first edit brought it')
+  // its sign a compare view's divider: two halves, the first filled, parted by a line taller than both
+  assert.deepEqual(await before.locator('svg').evaluate(s => { const ps = [...s.querySelectorAll('path')], box = p => p.getBBox(); return [ps.length, ps.filter(p => p.getAttribute('fill') === 'currentColor').length, box(ps[2]).height > box(ps[0]).height, box(ps[2]).width] }), [3, 1, true, 0], 'its sign: two halves, one filled, a divider taller than both between them')
+  const read = () => f.locator('body').evaluate(async () => { const { ed, output, state, pl } = await import('/repl/editor/context.js'); return { code: ed.code, ran: output?.code, loudness: output?.stats?.loudness, gain: state.abGain, undo: state.canUndo, playing: pl.playing, time: pl.time } })
+  const was = await read()
+  await f.locator('.panes .play').click()
+  await poll(read, r => assert.ok(r.playing))
+  await page.waitForTimeout(400)
+  const t0 = (await read()).time
+  await before.click()
+  const on = await poll(read, r => assert.equal(r.ran, "audio('chime.wav')", 'the sound before the edits'))
+  assert.equal(await before.getAttribute('aria-pressed'), 'true')
+  assert.deepEqual([on.code, on.undo, on.playing], [was.code, was.undo, true], 'the script and the history as they were, still playing')
+  assert.ok(on.time >= t0, `on from where it was: ${on.time} after ${t0}`)
+  assert.ok(Math.abs(on.gain - (was.loudness - on.loudness)) < 1e-9, `at the edits' loudness: ${on.gain} dB`)
+  await before.click()
+  await poll(read, r => assert.equal(r.ran, was.code, 'the edits again'))
+  assert.equal(await before.getAttribute('aria-pressed'), 'false')
+  await f.locator('.panes .play').click()
+  // an edit made meanwhile: the edits again
+  await before.click()
+  await poll(() => before.getAttribute('aria-pressed'), p => assert.equal(p, 'true'))
+  await make(f, 'normalize')
+  await poll(() => before.getAttribute('aria-pressed'), p => assert.equal(p, 'false', 'the script changed: after again'))
+  await f.locator('.head-end .undo').click()
+  await poll(read, r => assert.equal(r.code, was.code, 'undo takes back the edit, not the press'))
+  assert.deepEqual(errors, [])
+})
+
+// One idiom for a toggle, Before's: the loop on, a quiet lit ground behind it, its ink bright, as Before pressed has; off,
+// none, its icon at full strength (not dimmed); no accent for either. The time value: a hand pointed at, the scrub's
+// arrows while it is held
+test('editor: embedded, the loop a toggle as Before is: on, its ground lit; off, none; the time value a hand, the arrows while held', async () => {
+  const { f } = await mount('chain', { controls: `${CONTROLS} loop before` })
+  await length(f, '0:08.000')
+  const loop = f.locator('.status .loop')
+  const look = el => el.evaluate(b => { const s = getComputedStyle(b); return { pressed: b.getAttribute('aria-pressed'), ground: s.backgroundColor, ink: s.color, strength: +getComputedStyle(b.querySelector('svg')).opacity } })
+  const accent = await f.locator('body').evaluate(() => { const p = document.createElement('i'); p.style.color = 'var(--color-screen-accent)'; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c })
+  await page.mouse.move(2, 2)
+  if (await loop.getAttribute('aria-pressed') === 'false') await loop.click()
+  await page.mouse.move(2, 2)
+  const on = await look(loop)
+  await loop.click()
+  await page.mouse.move(2, 2)
+  const off = await look(loop)
+  // Before pressed, as the loop on
+  await make(f, 'reverse')
+  await poll(() => f.locator('.head-end .before').getAttribute('aria-disabled'), d => assert.equal(d, null))
+  await f.locator('.head-end .before').click()
+  await page.mouse.move(2, 2)
+  const before = await look(f.locator('.head-end .before'))
+  assert.deepEqual([on.pressed, on.ground, on.strength], ['true', before.ground, 1], `on: Before's lit ground, ${on.ground}`)
+  assert.equal(on.ink, before.ink, 'on: Before\'s bright ink')
+  assert.deepEqual([off.pressed, off.ground, off.strength], ['false', 'rgba(0, 0, 0, 0)', 1], 'off: no ground, not dimmed')
+  assert.ok(on.ground !== 'rgba(0, 0, 0, 0)' && on.ink !== accent && off.ink !== accent, 'no accent')
+  const time = f.locator('.clock .time'), cursor = () => time.evaluate(t => getComputedStyle(t).cursor)
+  const b = await time.boundingBox()
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+  assert.equal(await cursor(), 'pointer', 'pointed at: a hand')
+  await page.mouse.down()
+  assert.equal(await cursor(), 'ew-resize', 'held: the scrub\'s arrows')
+  await page.mouse.up()
+  assert.equal(await cursor(), 'pointer', 'let go: a hand again')
+  assert.deepEqual(errors, [])
+})
+
+// The page opens a sample in the sound's place by the element's open(): a synthesized one by its name (the catalogue,
+// /samples/index.json, is the site's: none here), as the sound's menu opens it, one step of the history; a promise of
+// what is open once its sound is in, as sound() says it; one there is none of, an error, nothing changed
+test('editor: embedded, the page opens a sample by the element\'s open(), and reads what is open by sound()', async () => {
+  const { f } = await mount('chain')
+  await length(f, '0:08.000')
+  const el = fn => page.evaluate(fn)
+  assert.deepEqual(await el(() => document.querySelector('audio-repl').sound()), { name: 'chime.wav', kind: 'chime', file: null, title: null, about: null })
+  const got = await el(() => document.querySelector('audio-repl').open('birdsong.wav'))
+  assert.deepEqual([got.name, got.kind], ['birdsong.wav', 'birdsong'], 'once its sound is in, what is open')
+  await f.locator('.embed-sound-name', { hasText: 'birdsong.wav' }).waitFor()
+  assert.equal((await el(() => document.querySelector('audio-repl').sound())).name, 'birdsong.wav')
+  const none = await el(() => document.querySelector('audio-repl').open('nothing.wav'))
+  assert.match(none.error, /^No sample nothing\.wav/)
+  assert.equal((await el(() => document.querySelector('audio-repl').sound())).name, 'birdsong.wav', 'nothing changed')
+  await f.locator('.head-end .undo').click()
+  await f.locator('.embed-sound-name', { hasText: 'chime.wav' }).waitFor()
+  assert.deepEqual(errors, [])
+})
+
+// Code (controls code), before the way on to the editor: pressed, the code for the sound as it stands in a popover
+// under it, in the script editor itself, the code pane's (one CodeMirror on the page, taken in as it opens and back in
+// the pane as it shuts): its words painted, long lines wrapped, written in as the pane is, the sound following; Escape or
+// a press outside shuts it
+test('editor: embedded, Code shows the sound\'s code in the script editor itself, Escape or a press outside shutting it', async () => {
+  const { f } = await mount('chain', { controls: `${CONTROLS} code link` })
+  await length(f, '0:08.000')
+  await make(f, 'reverse')
+  await poll(() => made(f), ks => assert.deepEqual(ks, ['Reverse']))
+  const view = f.locator('#code-view'), open = () => view.evaluate(p => p.matches(':popover-open'))
+  const order = await f.locator('.view-head').evaluate(h => [...h.querySelectorAll('.embed-code, .embed-open')].map(e => e.classList.contains('embed-code') ? 'embed-code' : 'embed-open'))
+  assert.deepEqual(order, ['embed-code', 'embed-open'], 'before the way on to the editor')
+  await f.locator('.embed-code').click()
+  await poll(open, o => assert.equal(o, true))
+  const lines = () => view.evaluate(v => [...v.querySelectorAll('.cm-line')].map(l => l.textContent).join('\n'))
+  await poll(lines, t => assert.equal(t, "audio('chime.wav')\n  .reverse()", 'the code as it stands'))
+  assert.deepEqual(await f.locator('body').evaluate(() => [document.querySelectorAll('.cm-editor').length, !!document.querySelector('#code-view > .script-editor > .cm-editor'), !document.querySelector('.script > .script-editor')]), [1, true, true], 'the script editor itself, out of its pane while open: one on the page')
+  assert.deepEqual(await f.locator('.embed-code').evaluate(b => [b.textContent.trim(), b.getAttribute('aria-label'), b.title || b.dataset.popoffTitle]), ['', 'Code', 'The code for this sound'], 'an icon alone, named')
+  assert.ok(await view.locator('.cm-content [class^="syntax-"]').count() > 3, 'its words painted as the script editor paints them')
+  assert.deepEqual(await view.locator('.cm-content').evaluate(p => [p.classList.contains('cm-lineWrapping'), getComputedStyle(p).whiteSpace]), [true, 'break-spaces'], 'long lines wrap')
+  // written in, the script: the sound follows, the chain with it
+  await view.locator('.cm-line').last().click()
+  await page.keyboard.press('End')
+  await page.keyboard.type('.normalize(-1)')
+  await poll(() => made(f), ks => assert.deepEqual(ks, ['Reverse', 'Normalize −1dB'], 'typed in, the chain follows'), 8000)
+  // (Escape the editor's first where it takes it: its completions, typing having asked for them, shut, as in the pane)
+  await page.mouse.move(2, 2)
+  await page.keyboard.press('Escape')
+  if (await open()) await page.keyboard.press('Escape')
+  await poll(open, o => assert.equal(o, false, 'Escape shuts it'))
+  assert.equal(await f.locator('body').evaluate(() => !!document.querySelector('.script > .script-editor > .cm-editor')), true, 'back in its pane')
+  await f.locator('.embed-code').click()
+  await poll(open, o => assert.equal(o, true))
+  await page.mouse.click(5, 300)
+  await poll(open, o => assert.equal(o, false, 'a press outside shuts it'))
+  assert.deepEqual(errors, [])
+})
+
+// Before pointed at, there being edits, the sound before them a ghost over the picture: its waveform's outline in the
+// guides' ink, on a canvas of its own that takes no press; asked of the engine only the first time it is pointed at for
+// that script (nothing baked till then) and kept for it; gone as the pointer leaves; none once pressed (the picture is
+// the sound before then)
+both('Before pointed at: the sound before the edits a ghost over the picture, asked only then, gone as the pointer leaves', async full => {
+  const { f } = await mount('chain', { full, script: "audio('chime.wav').gain(-12)", controls: `${CONTROLS} before` })
+  await length(f, '0:08.000')
+  const baked = () => f.locator('body').evaluate(() => globalThis.__baked)
+  await f.locator('body').evaluate(async () => { const { eng } = await import('/repl/editor/context.js'), bake = eng.bake; globalThis.__baked = 0; eng.bake = s => (globalThis.__baked++, bake(s)) })
+  const before = f.locator('.head-end .before')
+  await poll(() => before.getAttribute('aria-disabled'), d => assert.equal(d, null))
+  await page.waitForTimeout(300)
+  assert.equal(await baked(), 0, 'nothing asked till it is pointed at')
+  const ghost = () => f.locator('.before-ghost').evaluate(c => { if (c.hidden) return null; const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return { n, area: c.width * c.height, press: getComputedStyle(c).pointerEvents } })
+  await before.hover()
+  // (an outline: a line over and under, a few pixels of the canvas, where the waveform it bounds fills many)
+  await poll(ghost, g => assert.ok(g && g.n > 1000 && g.n < g.area * .05 && g.press === 'none', `drawn, an outline, nothing filled, taking no press: ${JSON.stringify(g)}`))
+  assert.equal(await baked(), 1, 'asked once')
+  await f.locator('.plot').hover()
+  await poll(ghost, g => assert.equal(g, null, 'gone as the pointer leaves'))
+  await before.hover()
+  await poll(ghost, g => assert.ok(g, 'again'))
+  assert.equal(await baked(), 1, 'kept for that script')
+  await before.click()
+  await poll(ghost, g => assert.equal(g, null, 'pressed: none'))
+  assert.deepEqual(errors, [])
+})
+
+// How far the engine's work has come. Embedded, the frame draws no strip: it tells the page, a `progress` event on the
+// element, { p } 0 to 1 (or null while busy with no figure) as it changes, then { done: true }. A page of its own, the
+// strip along its top: a tick each 6 px, on while it works, filled as far as it has come or the busy wave, gone once done
+test('editor: embedded, the work\'s progress told to the page as `progress` events, then done; no strip in the frame', async () => {
+  const { f } = await mount('chain', { script: "audio('chime.wav').repeat(16)" })
+  await length(f, '2:16.000')
+  await f.locator('body').evaluate(() => __settled())
+  await page.evaluate(() => { globalThis.__told = []; document.querySelector('audio-repl').addEventListener('progress', e => __told.push(e.detail)) })
+  await f.locator('body').evaluate(async () => { const { ed } = await import('/repl/editor/context.js'); ed.change({ from: ed.code.length, insert: ".stretch(1.5, { method: 'paulstretch' })" }) })
+  const told = await poll(() => page.evaluate(() => __told), t => assert.ok(t.length > 1 && t.at(-1).done, `told, then done: ${JSON.stringify(t)}`), 30000)
+  const steps = told.slice(0, -1)
+  assert.ok(steps.every(d => Object.keys(d).join() === 'p' && (d.p === null || d.p >= 0 && d.p < 1)), `each { p }, 0 to 1 or null: ${JSON.stringify(steps)}`)
+  assert.ok(steps.every((d, i) => !i || d.p !== steps[i - 1].p), 'each as it changes, none twice')
+  assert.deepEqual(told.at(-1), { done: true })
+  assert.equal(await f.locator('.progress').evaluate(b => getComputedStyle(b).display), 'none', 'no strip in the frame: the page draws its own')
+  assert.deepEqual(errors, [])
+})
+test('editor: a page of its own, the work\'s progress a strip of ticks along its top, gone once done', async () => {
+  const { f } = await mount('chain', { full: true, script: "audio('chime.wav').repeat(16)" })
+  await length(f, '2:16.000')
+  await page.evaluate(() => __settled())
+  const strip = () => page.evaluate(() => { const b = document.querySelector('.progress'), r = b.getBoundingClientRect(); return { on: b.hasAttribute('data-on'), busy: b.hasAttribute('data-busy'), now: b.getAttribute('aria-valuenow'), cells: b.children.length, fit: Math.floor(innerWidth / 6), top: r.top, wide: r.width === innerWidth, role: b.getAttribute('role') } })
+  await page.evaluate(async () => { const { ed } = await import('/repl/editor/context.js'); ed.change({ from: ed.code.length, insert: ".stretch(1.5, { method: 'paulstretch' })" }) })
+  const on = await poll(strip, s => assert.ok(s.on, 'on while it works'), 15000)
+  assert.deepEqual([on.top, on.wide, on.cells, on.role], [0, true, on.fit, 'progressbar'], `along the very top, the page's width, a tick each 6 px: ${JSON.stringify(on)}`)
+  const seen = await poll(strip, s => assert.ok(s.busy || +s.now > 0, `the busy wave or a figure: ${JSON.stringify(s)}`), 15000)
+  assert.ok(seen.on)
+  await poll(strip, s => assert.equal(s.on, false, 'gone once done'), 30000)
+  assert.deepEqual(errors, [])
+})
+
+// The code view a card's width (560 px at most), as tall as its lines (420 px at most, then scrolled down); its long
+// lines wrapped, nothing scrolled sideways, a wrapped line's rest 4 ch in from where the line starts, so the calls still
+// read down the left as a chain
+test('editor: embedded, the code view a card\'s width, its long lines wrapped, their rest indented', async () => {
+  const credit = `// ${'a credit line long enough to wrap in a card '.repeat(3).trim()}`
+  const { f } = await mount('chain', { controls: `${CONTROLS} code link`, script: `${credit}\naudio('chime.wav')` })
+  await length(f, '0:08.000')
+  await f.locator('.embed-code').click()
+  const view = f.locator('#code-view')
+  await poll(() => view.locator('.cm-line').count(), n => assert.equal(n, 2))
+  const laid = await view.evaluate(v => {
+    const r = v.getBoundingClientRect(), line = v.querySelector('.cm-line'), range = document.createRange(), scroller = v.querySelector('.cm-scroller')
+    range.selectNodeContents(line)
+    const rows = [...range.getClientRects()].reduce((m, x) => (m[Math.round(x.top)] = Math.min(m[Math.round(x.top)] ?? Infinity, x.left), m), {})
+    const lefts = Object.keys(rows).sort((a, b) => a - b).map(t => rows[t]), ch = parseFloat(getComputedStyle(line).fontSize) * .6
+    return { width: r.width, height: r.height, most: getComputedStyle(v).maxHeight, room: Math.min(420, innerHeight - 64), rows: lefts.length, indent: lefts[1] - lefts[0], ch, sideways: scroller.scrollWidth > scroller.clientWidth + 1 }
+  })
+  assert.ok(laid.width <= 560 && laid.width >= 400, `a card's width: ${laid.width}`)
+  assert.ok(laid.height < 260 && laid.most === `${laid.room}px`, `as tall as its lines, 420 px at most (the frame's height less 64 px, where less): ${laid.height}, ${laid.most}`)
+  assert.ok(laid.rows >= 2 && !laid.sideways, `the credit wrapped, nothing sideways: ${JSON.stringify(laid)}`)
+  assert.ok(Math.abs(laid.indent - 4 * laid.ch) < laid.ch, `its rest 4 ch in: ${laid.indent} px for ${laid.ch} px a ch`)
+  assert.deepEqual(errors, [])
+})
+
+// Denoise, a noise learned where it plays alone, is in the list: found by its name and by the noise it takes out (a word
+// that undoes something, "denoise", by what it undoes too: every edit that takes noise out, Deepfilter and RNNoise
+// among them, which say so), and first of the Repair kind's; with nothing selected its row says to select the noise
+// first, and a press makes nothing; with a selection, it learns there, one step
+both('denoise is found by its name and by the noise it takes out; it learns from the selection', async full => {
+  const { f } = await mount('chain', { full })
+  await length(f, '0:08.000')
+  const rows = () => f.locator('#edits-found .found-row').evaluateAll(rs => rs.map(r => `${r.querySelector('.found-name').textContent} ${r.querySelector('.found-hint').textContent}`.trim()))
+  const row = name => f.locator('#edits-found .found-row', { has: f.locator('.found-name', { hasText: new RegExp(`^${name}$`) }) }).first()
+  await f.locator('.chain-add').click()
+  await f.locator('.found-search').fill('denoise')
+  await poll(rows, rs => { assert.equal(rs[0], 'Denoise select where the noise plays alone first', `first, saying what it needs: ${rs}`); for (const n of ['OMLSA', 'Deepfilter', 'RNNoise', 'Wiener', 'Specsub']) assert.ok(rs.some(r => r.startsWith(n)), `${n} among them: ${rs}`) })
+  await f.locator('.found-search').fill('noise')
+  await poll(rows, rs => assert.ok(['Denoise', 'Deepfilter', 'RNNoise', 'OMLSA'].every(n => rs.some(r => r.startsWith(n))), `${rs}`))
+  await f.locator('.found-search').fill('')
+  await row('Repair').click()
+  await poll(() => listed(f), gs => assert.ok(gs.some(g => g[0] === 'Denoise' && g.includes('OMLSA')), `first of the Repair kind's: ${JSON.stringify(gs)}`))
+  const was = await script(f)
+  await row('Denoise').click()
+  await page.waitForTimeout(300)
+  assert.equal(await script(f), was, 'nothing selected: nothing made')
+  await f.locator('body').evaluate(async () => (await import('/repl/editor/context.js')).v.select(1, 1.5))
+  await f.locator('.chain-add').click()
+  await f.locator('.found-search').fill('denoise')
+  await poll(rows, rs => assert.equal(rs[0], 'Denoise from the selection'))
+  await page.keyboard.press('Enter')
+  await poll(() => script(f), c => assert.match(c, /\.denoise\(\{ noise: \{ at: 1, d: 0\.5 \} \}\)$/, 'learned from the selection'))
+  await poll(() => made(f), ks => assert.equal(ks.at(-1), 'Denoise'))
+  assert.deepEqual(errors, [])
+})
+
+// A fragment selected, the list's Suggested is what one does to a fragment, For the selection, in place of what suits
+// the whole sound: crossfaded across, deleted, silenced, cropped to, faded in, faded out, reversed, each at the length it
+// would be made over; lit, each draws over it what it would do (where it goes or goes silent, a fade's ramp); pressed,
+// made over it, one step. A pause in a voice selected: its noise taken out everywhere, the pause shortened as a voice's
+// are. The recipes' section after it, then the kinds. Nothing selected, as it was
+both('a fragment selected: Suggested is what one does to it, each drawn over it and made over it as one step', async full => {
+  const { f } = await mount('chain', { full, script: "audio('chime.wav').pad(0, 2)", kind: 'speech' })
+  await length(f, '0:10.000')
+  const select = (a, b) => f.locator('body').evaluate(async (_, [a, b]) => (await import('/repl/editor/context.js')).v.select(a, b), [a, b])
+  const first = () => f.locator('#edits-found .found-group').first().evaluate(g => [g.getAttribute('aria-label'), [...g.querySelectorAll('.found-row')].map(r => `${r.querySelector('.found-name').textContent} ${r.querySelector('.found-hint').textContent}`.trim())])
+  const guides = () => f.locator('body').evaluate(async () => (await import('/repl/editor/context.js')).v.guides.map(g => g.cut ? `cut ${g.cut.map(t => +t.toFixed(3))}` : g.ramps ? `ramp ${g.ramps[0].slice(0, 3).map(t => typeof t === 'number' ? +t.toFixed(3) : t)}` : ''))
+  await select(2, 3)
+  await f.locator('.chain-add').click()
+  await poll(first, ([g, rs]) => assert.deepEqual([g, rs], ['For the selection', ['Crossfade across it 1s', 'Delete 1s', 'Silence it −∞dB', 'Crop to it 1s', 'Fade in 1s', 'Fade out 1s', 'Reverse 1s']]))
+  assert.deepEqual(await f.locator('#edits-found .found-head').allTextContents(), ['For the selection', 'Recipes'], 'its small head says what it is for, the recipes\' section after it')
+  assert.deepEqual((await f.locator('#edits-found .found-group').evaluateAll(gs => gs.map(g => g.getAttribute('aria-label')))).slice(0, 3), ['For the selection', 'Recipes', 'Kinds'], 'then the recipes, then the kinds')
+  await page.keyboard.press('ArrowDown')
+  await poll(guides, gs => assert.ok(gs.includes('cut 2,3'), `Delete lit: where it goes, ${gs}`))
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown')
+  await poll(guides, gs => assert.ok(gs.includes('ramp 2,3,out'), `Fade out lit: its ramp, ${gs}`))
+  const was = await script(f)
+  await f.locator('#edits-found .found-row', { hasText: /^Silence it/ }).click()
+  await poll(() => script(f), c => assert.match(c, /\.gain\(-Infinity, \{ at: 2, d: 1 \}\)$/, 'silenced over it'))
+  await f.locator('.head-end .undo').click()
+  await poll(() => script(f), c => assert.equal(c, was, 'one step'))
+  await f.locator('.chain-add').click()
+  await f.locator('#edits-found .found-row', { hasText: /^Fade out/ }).click()
+  await poll(() => script(f), c => assert.match(c, /\.fade\(-1, \{ at: 2 \}\)$/, 'faded out over it'))
+  // a pause of the voice selected (the silence padded after it): what its kind reads there too
+  await select(8.6, 9.6)
+  await f.locator('.chain-add').click()
+  await poll(first, ([, rs]) => assert.deepEqual(rs.slice(-2), ['Take this noise out everywhere learned here', 'Shorten the pause 0.3s']))
+  await page.keyboard.press('Escape')
+  // nothing selected: as it was
+  await select(0, 0)
+  await f.locator('.chain-add').click()
+  await poll(first, ([g]) => assert.equal(g, 'Suggested'))
+  assert.deepEqual(errors, [])
+})
+
+// The editor as a page of its own lays the edits as the chain where View › Edit chain is checked, as a link's ?ui= edits
+// chain does: the tabs and the row's right end (Before, the history) on one line, the chain under them, Before gone from
+// the bar into that row; kept for the next visit; unchecked, as it was. Its edits are the script's (the chime's three)
+test('editor: View › Edit chain lays the edits as the chain on a page of its own, kept for the next visit; unchecked, as it was', async () => {
+  await page.goto(origin + '/repl/')
+  await page.locator('.readout[data-of="all"]').waitFor({ state: 'attached' })
+  const parts = () => page.evaluate(() => ({ chain: !!document.querySelector('.view-head > .embed-chain'), end: !!document.querySelector('.view-head > .head-end'), bar: !!document.querySelector('.status .before'), save: !!document.querySelector('.head-end .embed-save') }))
+  const view = async () => { await page.locator('.menubar-item', { hasText: /^View$/ }).click(); return page.locator('.menubar-list .menu-row', { has: page.locator('.menu-label', { hasText: /^Edit chain$/ }) }) }
+  assert.deepEqual(await parts(), { chain: false, end: false, bar: true, save: false }, 'as it was: no chain, Before in the bar')
+  let row = await view()
+  assert.equal(await row.getAttribute('aria-checked'), 'false')
+  await row.click()
+  await poll(parts, p => assert.deepEqual(p, { chain: true, end: true, bar: false, save: false }, 'the chain over the picture, Before at its right end, no save there: the bar\'s Export is the page\'s'))
+  await poll(() => made(page), ks => assert.equal(ks.length, 3, `the script's edits: ${ks}`))
+  const lay = await page.evaluate(() => { const r = s => document.querySelector(s).getBoundingClientRect(); return { tabs: r('.files'), end: r('.head-end'), chain: r('.embed-chain') } })
+  assert.ok(lay.chain.top >= lay.tabs.bottom - 1 && lay.end.left >= lay.tabs.right - 1 && lay.end.bottom <= lay.chain.top + 1, `the tabs and the row's end on one line, the chain under them: ${JSON.stringify(lay)}`)
+  await page.locator('.chain-step > .chain-edit').first().click()
+  await poll(() => page.locator('#step-settings').evaluate(p => p.matches(':popover-open')), o => assert.equal(o, true, 'an edit pressed: its settings'))
+  await page.keyboard.press('Escape')
+  await page.reload()
+  await page.locator('.readout[data-of="all"]').waitFor({ state: 'attached' })
+  await poll(parts, p => assert.equal(p.chain, true, 'kept for the next visit'))
+  row = await view()
+  assert.equal(await row.getAttribute('aria-checked'), 'true')
+  await row.click()
+  await poll(parts, p => assert.deepEqual(p, { chain: false, end: false, bar: true, save: false }, 'unchecked: as it was'))
   assert.deepEqual(errors, [])
 })

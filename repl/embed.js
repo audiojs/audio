@@ -12,7 +12,8 @@
 // in the repl. A file dropped on it opens in its sound's place. Nothing of the reader's is kept. A sound named by its
 // path from the site's root,
 // audio('/sounds/take.mp3'), is that site's file. Its mark's moves come out as `mark` events, for a page's own logo to
-// move with it.
+// move with it; how far its work has come as `progress` events ({ p } 0 to 1, null while busy with no figure; then
+// { done: true }), for a strip at the page's own top, as the editor of its own draws one at its top.
 //
 // What it shows, the frame takes as one JSON (?ui=, repl/editor/config.js reads it): the element's `ui` attribute, as
 // that JSON, and over it these attributes, each one key of it:
@@ -38,8 +39,10 @@
 // sound is, in a word, said by the level (another's is heard); axis inside, the time row and the values written in the
 // sheet the grid rules, which runs the frame's width; inset, a length: the frame the page's width, its picture from
 // side to side, the sound's name and the bar standing in from its sides that far (read in the frame: a vw is the
-// frame's), or two, how far from its left side and from its right; a length may name the page's own custom
-// properties (var(--name)), given their values on the element as the frame loads
+// frame's), or two, how far from its left side and from its right; foot, a length: the room under the picture, from
+// its foot to the frame's, the bar in it, its time midway between the grid's last line and the frame's foot (the bar's
+// own 60 px at the least); a length may name
+// the page's own custom properties (var(--name)), given their values on the element as the frame loads
 //   height      in px (320), the element's own
 //
 // And two methods, for the page's own controls, each loading the frame first where it is not in yet:
@@ -48,6 +51,14 @@
 // el.edits() resolves to what the chain's list offers, by kind, in its order, recipes left out:
 // [{ kind: 'Silence', edits: [{ call: 'trim(-40)', name: 'Trim silence', value: '−40dB', line: 'Cut silence from both
 // ends' }, …] }, …], each call what edit() takes, name and value as its row says them, line its tooltip.
+//
+// And it is a sound to the page's own parts, as <audio-sound> is (elements/sound.js): a play button, a clock, a code
+// block elsewhere on the page name it (`<audio-play for="id">`, elements/part.js) and show and act on the sound in the
+// frame (repl/editor/host.js answers them). el.code, its script as it is now (set: the frame's script whole, one step of
+// its history); an `input` event each time its script changes in the frame, by an edit made there; el.playing,
+// el.working, el.status, el.error, el.duration, el.time (set: goes there), el.opens and el.saves (the files its script
+// opens and saves, by name); toggle(), play(), pause(), save(); open(file) with a File, the reader's own in its sound's
+// place; events change, run, play, pause, timeupdate, as <audio-sound>'s.
 const HOME = new URL('./', import.meta.url)
 
 // The colour a page shows under an element: the first box from it up that paints one of its own, else the page's
@@ -106,6 +117,17 @@ function insetsOf(el) {
   probe.remove()
   return px
 }
+// The room an element's frame keeps under its picture for the bar to stand in (its ui's foot), px as the
+// page measures it, never less than the bar's own 60; 60 where it asks for none
+function footOf(el) {
+  const foot = own(el, typeof uiOf(el).foot === 'number' ? `${uiOf(el).foot}px` : uiOf(el).foot)
+  if (typeof foot !== 'string' || !CSS.supports('height', foot)) return 60
+  const probe = el.appendChild(document.createElement('i'))
+  probe.style.cssText = `position: absolute; visibility: hidden; height: ${foot}`
+  const px = probe.offsetHeight
+  probe.remove()
+  return Math.max(60, px)
+}
 // The skeleton of an element's repl, laid out as index.html lays out its parts at the element's size: the
 // sound's name and the way to the repl over the picture; a panel beside it, or under the bar at 640 px and
 // narrower (panel, code unless none); the bar: play, the time (large where the picture has the width), the history, and
@@ -118,7 +140,9 @@ function skeleton(el) {
   const W = el.clientWidth, H = el.clientHeight, panel = el.getAttribute('panel') !== 'none', narrow = W <= 640, ui = uiOf(el)
   const shows = part => el.hasAttribute('controls') ? el.getAttribute('controls').trim().split(/\s+/).includes(part) : !['sound', 'view', 'open', 'save'].includes(part)
   const chained = ui.edits === 'chain', linked = shows('link'), top = chained && W <= 760 ? 66 : 46
-  const under = panel && narrow ? Math.round(H * .45) : 0, bar = H - under - 60, side = panel && !narrow ? Math.round(W * .44) : W
+  // (the bar's 60 px in the room under the picture, ui foot: the time in the middle of all under the grid's last line,
+  // the strip of times over the room counted in, as the view lays it, 26 px: editor.js underGrid)
+  const room = footOf(el), strip = room > 60 && ui.axis === 'inside' ? 26 : 0, under = panel && narrow ? Math.round(H * .45) : 0, pic = H - under - room, bar = pic + (room - 60 - strip) / 2, side = panel && !narrow ? Math.round(W * .44) : W
   const [inset, back = inset] = insetsOf(el), edge = inset ?? 12, far = back ?? 12, x = inset ?? (el.hasAttribute('background') ? 0 : 12), wide = !panel && !narrow
   const block = (left, top, width, height, round = 4, area = false) => `<i${area ? ' class="area"' : ''} style="left:${left}px;top:${top}px;width:${Math.max(0, width)}px;height:${Math.max(0, height)}px;border-radius:${round}px"></i>`
   // (the row over the picture's right end, with the chain: the save; the way to the repl before it; the chain after the
@@ -127,8 +151,8 @@ function skeleton(el) {
   const chain = !chained ? [] : W <= 760 ? [block(edge, 40, Math.min(260, W - edge - far), 10)] : [block(edge + 166, 14, Math.min(420, at - (linked ? 162 : 0) - edge - 178), 10)]
   return [
     block(edge, 13, 140, 12), linked && block(at - 146, 14, 146, 10), end && block(side - far - end, 14, end, 10), ...chain,
-    inset == null ? block(8, top, side - 16, bar - top - 8, 8, true) : block(0, top, side, bar - top - 8, 0, true),
-    panel && (narrow ? block(8, H - under + 8, W - 16, under - 16, 8, true) : block(side + 8, top, W - side - 16, bar - top - 8, 8, true)),
+    inset == null ? block(8, top, side - 16, pic - top - 8, 8, true) : block(0, top, side, pic - top - 8, 0, true),
+    panel && (narrow ? block(8, H - under + 8, W - 16, under - 16, 8, true) : block(side + 8, top, W - side - 16, pic - top - 8, 8, true)),
     block(x + (inset == null ? 10 : 0), bar + 18, 24, 24, 12), block(x + (inset == null ? 50 : 40), bar + 17, wide ? 150 : 86, 26), block(x + (inset == null ? 0 : -10) + (wide ? 214 : 150), bar + 24, 56, 12),
     W > 670 && block(W - far - 124, bar + 25, 124, 10)
   ].filter(Boolean).join('')
@@ -155,7 +179,37 @@ class AudioRepl extends HTMLElement {
   disconnectedCallback() { AudioRepl.observer.unobserve(this) }
 
   // the script: the element's code as written, read once, before the frame goes in beside it
-  get script() { return this.code ??= dedent((this.querySelector('pre') ?? this).textContent) }
+  get script() { return this.written ??= dedent((this.querySelector('pre') ?? this).textContent) }
+
+  // The sound in the frame, as the frame last said it (host.js): its script and the files it names; its state
+  told = null
+  state = { playing: false, working: false, status: '', error: '', duration: 0, time: 0 }
+  get code() { return this.told?.code ?? this.script }
+  set code(text) {
+    text = String(text)
+    if (text === this.code) return
+    // (before the frame is in, the script it opens with; then asked of it: what the frame says of its script till it
+    // says this one, sent before it took this, is not news; for two seconds at most, should it never say it)
+    if (!this.frame) return void (this.written = text)
+    this.told = { opens: [], saves: [], ...this.told, code: text }
+    this.sent = { code: text, till: performance.now() + 2000 }
+    this.ask({ audio: 'code', code: text })
+  }
+  get opens() { return this.told?.opens ?? [] }
+  get saves() { return this.told?.saves ?? [] }
+  get files() { return [] }
+  get playing() { return this.state.playing }
+  get working() { return this.state.working }
+  get status() { return this.state.status }
+  get error() { return this.state.error }
+  get duration() { return this.state.duration }
+  get time() { return this.state.time }
+  set time(t) { this.state = { ...this.state, time: +t || 0 }; this.ask({ audio: 'seek', time: +t || 0 }); this.dispatchEvent(new CustomEvent('timeupdate')) }
+  toggle() { this.ask({ audio: 'toggle' }) }
+  play() { this.ask({ audio: 'play' }) }
+  pause() { this.ask({ audio: 'pause' }) }
+  save() { this.ask({ audio: 'save' }) }
+  describe() { return null }
 
   async load() {
     if (this.frame) return
@@ -166,15 +220,16 @@ class AudioRepl extends HTMLElement {
     for (const name of ['panel', 'display', 'background']) if (this.hasAttribute(name)) ui[name] = this.getAttribute(name).trim()
     for (const name of ['controls', 'ops']) if (this.hasAttribute(name)) ui[name] = words(name)
     if (ui.background === 'page') ui.background = ground(this.parentElement)
-    // (its insets as the frame can read them: the page's custom properties given their values here)
+    // (its insets and its foot as the frame can read them: the page's custom properties given their values here)
     if (ui.inset != null) ui.inset = Array.isArray(ui.inset) ? ui.inset.map(length => own(this, length)) : own(this, ui.inset)
+    if (ui.foot != null) ui.foot = own(this, ui.foot)
     const q = new URLSearchParams({ embed: '' })
     if (Object.keys(ui).length) q.set('ui', JSON.stringify(ui))
     const frame = this.frame = document.createElement('iframe')
     frame.title = this.getAttribute('title') || 'audio editor: the script, its sound, to play and edit'
     // the microphone, for a script that records; the clipboard, for the editor's copy
     frame.allow = 'microphone; autoplay; clipboard-write'
-    // shown once its sound is in, its mark first at rest; or a while after it loads, whatever its script does
+    // shown once its sound is in (its length said, or its mark first at rest); or a while after it loads, whatever its script does
     const ready = () => { if ('ready' in this.dataset) return; this.dataset.ready = ''; this.sizes?.disconnect(); setTimeout(() => this.wait?.remove(), 400) }
     frame.addEventListener('load', () => setTimeout(ready, 8000), { once: true })
     // how its mark moves (repl/editor/play.js), a `mark` event on the element: { mode: rest, work, play, record or
@@ -182,7 +237,31 @@ class AudioRepl extends HTMLElement {
     addEventListener('message', e => {
       if (e.source !== frame.contentWindow) return
       // (what the list offers, asked by edits())
-      if (e.data?.audio === 'edits') { this.answers?.get(e.data.id)?.(e.data.list); this.answers?.delete(e.data.id); return }
+      if (e.data?.audio === 'edits' || e.data?.audio === 'answer') { this.answers?.get(e.data.id)?.(e.data.list ?? e.data.answer); this.answers?.delete(e.data.id); return }
+      // how far its work has come (repl/editor/run.js progress), a `progress` event on the element, for the page to draw
+      // at its own top: { p } 0 to 1, or null while busy with no figure; { done: true } once it ends
+      // its script, as it changed there; its state (host.js): said on to the page's parts as <audio-sound> says its own
+      if (e.data?.audio === 'code') {
+        if (this.sent && e.data.code !== this.sent.code && performance.now() < this.sent.till) return
+        this.sent = null
+        const fresh = e.data.code !== this.code
+        this.told = { code: e.data.code, opens: e.data.opens ?? [], saves: e.data.saves ?? [] }
+        if (fresh) this.dispatchEvent(new Event('input', { bubbles: true }))
+        return this.dispatchEvent(new CustomEvent('change'))
+      }
+      if (e.data?.audio === 'state') {
+        const { audio, ...now } = e.data, was = this.state
+        this.state = now
+        // (shown once its sound has a length: the file as it is, drawn while an edit that takes seconds is still made
+        // on it, where the mark's first rest would keep the skeleton up till that edit is in)
+        if (now.duration) ready()
+        this.dispatchEvent(new CustomEvent('change'))
+        if (now.duration && now.duration !== was.duration) this.dispatchEvent(new CustomEvent('run'))
+        if (now.playing !== was.playing) this.dispatchEvent(new CustomEvent(now.playing ? 'play' : 'pause'))
+        if (now.time !== was.time) this.dispatchEvent(new CustomEvent('timeupdate'))
+        return
+      }
+      if (e.data?.audio === 'progress') return this.dispatchEvent(new CustomEvent('progress', { detail: e.data.done ? { done: true } : { p: Number.isFinite(e.data.p) ? e.data.p : null } }))
       if (e.data?.audio !== 'mark') return
       this.heard = true
       this.send()
@@ -198,7 +277,19 @@ class AudioRepl extends HTMLElement {
   edit(call) { this.ask({ audio: 'edit', call: String(call) }) }
   // What the chain's list offers, by kind, in its order, recipes left out: a promise of [{ kind, edits: [{ call, name,
   // value, line }] }], each call what edit() takes (repl/editor/menus.js offer)
-  edits() { return new Promise(resolve => { const id = this.asked = (this.asked ?? 0) + 1; (this.answers ??= new Map()).set(id, resolve); this.ask({ audio: 'edits', id }) }) }
+  edits() { return this.answer({ audio: 'edits' }) }
+  // A sample the page asks for in the sound's place, as the sound's menu opens one, one step of its history: a recording
+  // of the playground's samples by its file as /samples/index.json names it (speech/gettysburg-address.mp3), or a
+  // synthesized one by its name (chime.wav); its word, its line and its credit the catalogue's. A promise of what is open
+  // once its sound is in, as sound() says it, or { error } (no such sample, it would not open, another asked for after
+  // it) (repl/editor/files.js pageOpen)
+  // A File of the reader's own instead, opened as one dropped on the frame, as <audio-sound>'s open() takes one
+  open(file) { return file instanceof Blob ? this.ask({ audio: 'file', file }) : this.answer({ audio: 'open', file: String(file) }) }
+  // The sound open now: a promise of { name, kind, file, title, about }, file, title and about the catalogue's where it is
+  // one of its recordings, else null (repl/editor/files.js pageSound)
+  sound() { return this.answer({ audio: 'sound' }) }
+  // (a message the frame answers, by its id)
+  answer(message) { return new Promise(resolve => { const id = this.asked = (this.asked ?? 0) + 1; (this.answers ??= new Map()).set(id, resolve); this.ask({ ...message, id }) }) }
   // a message to the frame, sent once it listens (its first mark: the editor's scripts in), the frame loaded first where
   // it is not in yet
   ask(message) { (this.queued ??= []).push(message); this.load(); this.send() }

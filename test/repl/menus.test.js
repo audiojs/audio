@@ -49,6 +49,60 @@ test('editor: a control pointed at says what it is and does, on a tag pointing a
   await page.keyboard.press('Escape')
 })
 
+// Every tooltip says what it is in two lines at the most, at the tooltip's own width (popoff's tag, its words parsed as
+// it parses them: a name, then what it says): the page's titles, laid as the editor or as the chain; the commands'
+// tips; every setting's words (help.js) as its row says them; every edit's words as the chain's edit, the palette's row
+// and the list's row say them; every row of the list, for each kind of sound, each kind of edit open, a fragment
+// selected; and the kind word's (readouts.js kindTip), what the listeners heard under a sound's own words, for a
+// recording of the catalogue (its line and its credit, the site's own as written: the heard line gives way), each
+// generated sound (samples.js) and a dropped file (what it is most like alone)
+const CATALOGUE = [{ file: 'speech/gettysburg-address.mp3', name: 'Gettysburg Address', category: 'speech', kind: 'speech', about: 'The Gettysburg Address, 1863, read aloud\nJohn Greenman, LibriVox, public domain', by: 'John Greenman, LibriVox', license: 'Public domain', page: 'https://archive.org/details/gettysburg_johng_librivox' }]
+test('editor: every tooltip says what it is in two lines at the most', async () => {
+  await page.route('**/samples/index.json', route => route.fulfill({ json: CATALOGUE }))
+  const sweep = () => page.evaluate(async () => {
+    await document.fonts.ready
+    const { parse } = await import('/assets/popoff.js'), { texts } = await import('/repl/help.js'), { ops, GROUPS } = await import('/repl/ops.js')
+    const { commands } = await import('/repl/editor/commands.js'), { findable, fragment } = await import('/repl/editor/menus.js'), { state } = await import('/repl/editor/context.js')
+    const { kindTip } = await import('/repl/editor/readouts.js'), { builtins } = await import('/repl/sources.js'), { library } = await import('/repl/library.js')
+    await library('/samples/index.json')
+    const tip = document.body.appendChild(Object.assign(document.createElement('div'), { className: 'popoff-tip', popover: 'manual' }))
+    tip.style.visibility = 'hidden'
+    tip.innerHTML = '<p class="popoff-tip-head"><span class="popoff-tip-name"></span><kbd class="popoff-tip-keys"></kbd></p><p class="popoff-tip-body"></p>'
+    tip.showPopover()
+    const [name, keys] = tip.firstChild.children, body = tip.lastChild, line = parseFloat(getComputedStyle(tip).lineHeight)
+    const lines = text => {
+      const p = parse(text)
+      Object.assign(name, { textContent: p.name }), Object.assign(keys, { textContent: p.keys, hidden: !p.keys }), Object.assign(body, { textContent: p.body, hidden: !p.body })
+      return Math.round((tip.firstChild.offsetHeight + (p.body ? body.offsetHeight : 0)) / line)
+    }
+    const all = new Map(), add = (where, text) => typeof text === 'string' && text.trim() && !all.has(text) && all.set(text, where)
+    for (const el of document.querySelectorAll('[title], [data-popoff-title], [data-tip]')) add(`the page's ${el.className || el.localName}`, el.getAttribute('title') ?? el.dataset.popoffTitle ?? el.dataset.tip)
+    for (const c of commands) if (typeof c.tip === 'string') add(`command ${c.id}`, c.tip)
+    for (const [op, t] of Object.entries(texts)) for (const [s, text] of Object.entries(t)) add(`setting ${op}.${s}`, text)
+    for (const op of Object.values(ops)) if (op.text) add(`edit ${op.name}, the chain's`, `${op.text}\nAlt-click or B bypasses it`), add(`edit ${op.name}, the palette's`, `.${op.name}(): ${op.text}`)
+    for (const kind of ['', 'speech', 'music', 'speech and music']) for (const channels of [1, 2]) for (const open of ['', ...GROUPS, 'Recipes'])
+      for (const sel of [{}, { any: true, rows: fragment([1, 2], null, 1, kind) ?? [] }]) for (const g of findable('', state.restList ?? [], open, kind, {}, channels, sel)) for (const r of g.items) add(`the list's ${g.group}`, r.about)
+    // (heard as the listeners say it at its longest: five classes it is most like, and its shares)
+    const heard = { shares: { speech: .62, music: .3, noise: .08 }, like: [['speech', .91], ['narration, monologue', .88], ['male speech, man speaking', .8], ['conversation', .71], ['inside, small room', .6]] }
+    for (const name of ['gettysburg-address.mp3', ...Object.keys(builtins), 'take.wav']) add(`the kind word's, ${name}`, kindTip(name, 'speech', { [name]: heard }))
+    const long = [...all].map(([text, where]) => [where, lines(text), text]).filter(([, n]) => n > 2)
+    tip.remove()
+    return long
+  })
+  await open()
+  assert.deepEqual(await sweep(), [], 'past two lines: where, how many, what it says')
+  await open({ edits: 'chain' })
+  assert.deepEqual(await sweep(), [], 'past two lines, the chain laid: where, how many, what it says')
+  // the catalogue's sound keeps its line and its credit, the heard line gone; a generated one and a dropped file say
+  // what they are most like
+  const tips = await page.evaluate(async () => {
+    const { kindTip } = await import('/repl/editor/readouts.js'), like = { like: [['speech', .91], ['narration', .88], ['male speech, man speaking', .8]] }
+    return ['gettysburg-address.mp3', 'chime.wav', 'take.wav'].map(n => kindTip(n, 'speech', { [n]: like }))
+  })
+  assert.deepEqual(tips, ['The Gettysburg Address, 1863, read aloud\nJohn Greenman, LibriVox, public domain', 'Airport chime, rising and falling\nMost like speech 0.91, narration 0.88', 'Most like speech 0.91, narration 0.88, male speech, man speaking 0.80'], 'under a line of its own, what stands in one line; alone, in two')
+  await page.unroute('**/samples/index.json')
+})
+
 // The palette (⌘K), a notch over the picture: the edits for what is selected, then every method by kind; the words
 // typed find one, the arrows go through them, Enter adds it, on the selection, and the panel turns to the edits with
 // its card open. One the library can't run without a value gets its default written. Escape closes it.
@@ -219,7 +273,8 @@ test('editor: one Stretch, its algorithm a choice; the menus name each method in
   const more = page.locator('.step.open .step-more')
   if (await more.count() && await more.getAttribute('aria-expanded') === 'false') await more.click()
   const method = page.locator('.step.open .param', { hasText: 'method' })
-  assert.match(await method.evaluate(tipOf), /^How it stretches\./)
+  // (its words as help.js has them now, two lines at the most: which method for which sound)
+  assert.match(await method.evaluate(tipOf), /^phase-lock plays as it works; wsola for a voice/)
   await method.getByRole('button', { name: 'wsola', exact: true }).click()
   await page.waitForFunction(() => /stretch\(1\.5, \{ method: 'wsola' \}\)/.test(scriptText()))
   await lengthIs('0:12.000')

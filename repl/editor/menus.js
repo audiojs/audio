@@ -1,20 +1,20 @@
 import { ops, GROUPS, labelOf, rowOf, previews, format, hint, fromInput, named, toSlider, fromSlider, icons as groupIcons } from '../ops.js'
-import { steps as stepsOf, dropStep, chain, rollback, number } from '../code.js'
-import { builtins } from '../sources.js'
+import { steps as stepsOf, dropStep, chain, rollback, number, valuesOf } from '../code.js'
 import menubar, { hinted, aim, cue } from '../menu.js'
 import opIcons from '../icons.js'
 import { SLOP } from '../view.js'
-import { root, EMBED, STACKED, RECIPED, quickOf, QUICK, NEXT_EDITS, EDITS, SUGGESTS, formats, icons, glyphs, displays, stored, generators } from './config.js'
+import { root, EMBED, STACKED, RECIPED, quickOf, QUICK, NEXT_EDITS, SUGGESTS, formats, icons, glyphs, displays, stored, generators } from './config.js'
 import { snapshot, item, keysOf } from './commands.js'
 import { state, eng, v, ed, output, assign } from './context.js'
-import { editSelection, addOp } from './edits.js'
-import { pickFiles, reopenable, useSample, useCode, useRecipe, openSearch, callsOf, NOTE, SOUND, exportFiles } from './files.js'
+import { editSelection, addOp, write } from './edits.js'
+import { pickFiles, reopenable, useSample, sampleRows, useCode, useRecipe, openSearch, callsOf, NOTE, SOUND, exportFiles, pageOpen, pageSound } from './files.js'
 import { keys } from './format.js'
 import { later } from './persist.js'
 import { ownSound } from './readouts.js'
 import { toggleRecording, takesHere, takesMenu } from './recording.js'
-import { schedule } from './run.js'
+import { schedule, retime } from './run.js'
 import { offered, codeFor, fits } from '../recipes.js'
+import { viewed } from './play.js'
 import { OFFERS, rowFor } from '../kind.js'
 import { others, trackMenu } from './tracks.js'
 
@@ -32,7 +32,7 @@ function menus() {
     { name: 'File', items: at('tab.new', 'file.open', 'file.recent', 'sound.find', 'sound.make', '-', 'export', 'export.as', 'check', 'link.copy', '-', 'tab.close', 'tab.reopen') },
     { name: 'Edit', items: at('undo', 'redo', 'history', '-', 'cut', 'copy', 'paste', 'delete', 'crop', '-', 'mark', ...STACKED ? ['-', 'group', 'ungroup'] : []) },
     { name: 'Select', items: at('select.all', 'select.none', '-', 'select.fragment', 'select.sound', 'select.next', '-', 'caret') },
-    { name: 'View', items: at(...displays.map(d => `display.${d.name}`), 'look.wave', 'look.spec', '-', 'minimap', 'grid', 'snap', 'pitch.curve', 'zoom', '-', 'panel', 'theme', '-', 'view.reset') },
+    { name: 'View', items: at(...displays.map(d => `display.${d.name}`), 'look.wave', 'look.spec', '-', 'minimap', 'grid', 'snap', 'pitch.curve', 'zoom', '-', 'panel', 'chain', 'theme', '-', 'view.reset') },
     { name: 'Track', items: at('track.new', 'track.fromFile', 'track.move', 'track.voice', 'track.stems', '-', 'track.lineUp', 'track.match', 'track.duck', 'track.master', '-', 'track.toTab', 'track.delete') },
     { name: 'Process', items: [...RECIPED ? at('recipes', '-') : [], ...kinds().map(k => ({ ...k, disabled: s.none })), ...at('-', 'palette')] },
     { name: 'Transport', items: at('play', 'loop', 'compare', 'speed', '-', 'record', 'record.track', 'record.take', 'takes') },
@@ -159,9 +159,10 @@ export function toolKey(event) {
 // back (files.js opening): a file; a take; New, an empty sound, nothing to play, Record taking it into nothing, the
 // edits dimmed till there is a sound; a found one (Openverse, as the whole editor's search, its credit a line over it:
 // files.js useResult); one generated (config.js generators, a submenu); the samples, past a hairline under a small head, as the list of
-// edits parts its sections
+// edits parts its sections: the recordings by category, the synthesized in a place of their own (files.js sampleRows),
+// the catalogue asked for as the menu first opens, the menu made again in place once it comes
 export function soundMenu(event) {
-  bar.at([
+  const owner = event.currentTarget, items = (ask = false) => [
     { label: 'File…', hint: 'WAV, MP3, FLAC and more', icon: NOTE, run: () => pickFiles() },
     { label: state.recording ? 'Stop recording' : 'Record', hint: 'A new sound in its place', icon: 'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z', run: () => toggleRecording(), disabled: state.playing },
     { label: 'New', hint: 'An empty sound', icon: 'M6 3h8l4 4v14H6zM14 3v4h4', run: () => useCode('') },
@@ -169,10 +170,11 @@ export function soundMenu(event) {
     { label: 'Generate', icon: 'M3 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0', items: generators.map(g => ({ label: g.name, hint: g.text, run: () => useCode(g.code) })) },
     '-',
     { group: 'Samples' },
-    ...Object.entries(builtins).map(([name, text]) => ({ label: name, hint: text, icon: SOUND, checked: name === state.name, run: () => useSample(name, 'replace') }))
-  ], 0, 0, event.currentTarget)
+    ...sampleRows((name, text) => ({ label: name, hint: text, icon: SOUND, checked: name === state.name, run: () => useSample(name, 'replace') }), { ask, again: () => bar.renew(owner, items()) })
+  ]
+  bar.at(items(true), 0, 0, owner)
 }
-// Embedded, the edits suggested for the sound shown: for the page's own, the page's (?ops=); for another (opened,
+// The edits suggested for the sound shown: for the page's own, the page's (?ops=); for another (opened,
 // dropped, recorded), and for the page's own where it names none, what its kind is given next (config.js NEXT_EDITS),
 // read as the recipes are (kind.js rowFor): till its kind is heard, or where that has no row, the general row, the
 // page's edits where it names them
@@ -185,26 +187,46 @@ export function suggested() {
 export const madeSteps = code => stepsOf(code).map((s, i) => ({ ...s, i }))
 // a made step's call as its settings take it: one bypassed says so (settings.js: set, it goes into its comment)
 const callOf = s => s.on ? s.call : { ...s.call, off: true }
+// A made step's values as its row says them: each setting the call sets, by its place or by its name (code.js
+// valuesOf), in the settings' order and unit, parted by commas; not a range's place and length, which the selection
+// sets, nor what is not a plain value (a curve, a range, a reference). A plugin's, whose settings the page has not
+// read, by place (config.js quickOf)
+function valuesOfStep(s) {
+  const op = ops[s.name], spec = op?.params
+  if (!spec || !s.call.args) return quickOf(s.text.slice(1))?.values ?? ''
+  const range = n => op.range && ['at', 'duration', 'to'].includes(n)
+  return valuesOf(spec, s.call).flatMap((x, i) => (typeof x === 'number' || typeof x === 'string') && !range(spec[i].name) ? [format(x, spec[i])] : []).join(', ')
+}
+// the line of the code a place in it is on, from 1
+const lineAt = (code, at) => code.slice(0, at).split('\n').length
+// The error a made step threw as the chain ran, by the step's lines (`lines`: run.js, the step skipped and the rest made
+// without it, `state.failed`), its first line cut to the tooltip's line; '' where it ran. A card's by its call (stack.js)
+export const failure = e => {
+  const f = e?.lines && state.failed.find(f => e.lines[0] <= f.line && f.line <= e.lines[1])
+  return !f ? '' : f.message.length > 48 ? `${f.message.slice(0, f.message.lastIndexOf(' ', 46))}…` : f.message
+}
+export const callFailure = call => failure({ lines: [lineAt(ed.code, call.dot), lineAt(ed.code, call.to)] })
 // Those, in their order, each with its values and a line on what it does: one made, its place in the chain (`n`, from
-// 1), whether it is bypassed (`off`), pressed taken away (dropStep), as a switch turns a filter off; one not made, made
-// as the menus make it; after them, the edits made by other means (a crop on the picture; a second of one)
+// 1), whether it is bypassed (`off`), its lines in the code (`lines`, a step that ran: failure), pressed taken away
+// (dropStep), as a switch turns a filter off; one not made, made as the menus make it; after them, the edits made by
+// other means (a crop on the picture; a second of one)
 export function quickEdits(code = ed.code) {
   const made = madeSteps(code), first = name => made.findIndex(s => s.name === name), list = suggested()
-  const of = k => { const s = made[k]; return { label: labelOf(s.name), values: quickOf(s.text.slice(1))?.values ?? '', about: ops[s.name]?.text, n: k + 1, off: !s.on, run: () => ed.change(dropStep(ed.code, s.i)) } }
+  const of = k => { const s = made[k]; return { label: labelOf(s.name), values: valuesOfStep(s), about: ops[s.name]?.text, icon: opIcons[s.name] ?? groupIcons[ops[s.name]?.group] ?? RECIPE, n: k + 1, off: !s.on, lines: s.on ? [lineAt(code, s.call.from), lineAt(code, s.call.to)] : null, run: () => ed.change(dropStep(ed.code, s.i)) } }
   return [
     ...list.map(q => first(q.name) < 0 ? { label: q.label, values: q.values, about: q.text, icon: q.icon, n: 0, name: q.name, args: q.args, run: () => addOp(q.name, false, q.args) } : of(first(q.name))),
     ...made.flatMap((s, k) => list.some(q => q.name === s.name) && first(s.name) === k ? [] : [of(k)])
   ]
 }
-// Embedded, the edits as the script has them now: how many are made (the plus counts them) and, laid as the chain,
-// those made in the chain's order and those left to suggest (found by the field's search at their values): a list as
-// long as it was told anew in place, its keys the same, laid again only when it grows or shrinks; the chain fitted to its row again after (fitChain), and
-// the settings of an edit open followed (stepFollow). As the script changes, and as the sound shown or what it is
-// heard to be does (readouts.js hearKind)
+// The edits as the script has them now: how many are made (embedded, the plus counts them) and, laid as the chain,
+// embedded or not, those made in the chain's order and those left to suggest (found by the field's search at their
+// values): a list as long as it was told anew in place, its keys the same, laid again only when it grows or shrinks; the
+// chain fitted to its row again after (fitChain), and the settings of an edit open followed (stepFollow). As the script
+// changes, as the sound shown or what it is heard to be does (readouts.js hearKind), and as the chain is laid
 export function quicken(code = ed?.code) {
-  if (!SUGGESTS || code == null) return
+  if (code == null || state.laid !== 'chain' && !SUGGESTS) return
   state.made = stepsOf(code).filter(s => s.on).length
-  if (EDITS === 'menu') return
+  if (state.laid !== 'chain') return
   const all = quickEdits(code)
   for (const [name, list] of [['madeList', all.filter(e => e.n).sort((a, b) => a.n - b.n)], ['restList', all.filter(e => !e.n)]]) {
     if (list.length === state[name].length) list.forEach((e, i) => Object.assign(state[name][i], e))
@@ -223,14 +245,18 @@ export function opsMenu(event) {
     ...rest.map(e => ({ label: e.label, hint: e.values, about: e.about, icon: e.icon, run: e.run }))
   ], 0, 0, event.currentTarget)
 }
-// Embedded, the chain fitted to its row (?ui= edits chain): an edit made, or the field after them, that a long chain
+// The chain fitted to its row (?ui= edits chain): an edit made, or the field after them, that a long chain
 // runs on to a line of its own has no bar before it, its room kept, so a line starts with an edit, never with a bar. In
 // the order they are laid: while an edit is dragged along, the order it would leave them in (chain.js, their `order`)
+// Compact, each edit its icon alone, its name in its tooltip and to a screen reader (editor.css): where its names do
+// not stand on one row with the field, laid with their names first to see; a narrow frame's too (editor.css)
 export function fitChain() {
-  const items = [...root.querySelectorAll('.chain-step, .chain-find')].sort((a, b) => (+a.style.order || 0) - (+b.style.order || 0))
+  const chain = root.querySelector('.embed-chain'), items = [...root.querySelectorAll('.chain-step, .chain-find')].sort((a, b) => (+a.style.order || 0) - (+b.style.order || 0))
+  const wraps = () => items.some((item, i) => i > 0 && item.offsetTop > items[i - 1].offsetTop + 2)
+  if (chain && !chain.hasAttribute('data-carry')) { chain.removeAttribute('data-compact'); chain.toggleAttribute('data-compact', wraps()) }
   items.forEach((item, i) => item.toggleAttribute('data-wrap', i > 0 && item.offsetTop > items[i - 1].offsetTop + 2))
 }
-// Embedded, the chain's field (?ui= edits chain), Edit…, a button: pressed, a list under it of the edits a press makes
+// The chain's field (?ui= edits chain), Edit…, a button: pressed, a list under it of the edits a press makes
 // of the sound as it is (`findable`), as a menu, a search at its top that the keys are in: a hairline between one
 // group and the next; the recipes under their small head (recipes.js offered, those the sound's kind is offered first:
 // kind.js OFFERS), then a row a kind (ops.js GROUPS, as the Process menu has them); a kind's edits open beside the list
@@ -240,9 +266,10 @@ export function fitChain() {
 // it does hold what is typed, flat, one group. One lit: ↑ ↓ move it, Enter makes it (a recipe: its whole chain, one
 // step), the keys back on the field; a press makes one, the keys back with the page, so Space plays; Escape shuts the
 // list, the keys on the field. The lit edit shows on the picture what it would do (ops.js hints). Not those a press has
-// not what they need for: a range or a selection, another sound, the clipboard; nor a generator, which makes a sound
-// and edits none
-const pressable = op => !op.range && op.group !== 'Generate' && !op.params?.some(s => s.name === 'source' || s.selection) && op.name !== 'paste'
+// not what they need for: a range, another sound, the clipboard; nor a generator, which makes a sound and edits none.
+// One that learns from a selection (denoise: where the noise plays alone) is there, its row saying so: it takes the
+// selection when there is one (`learns`, findable; addOp)
+const pressable = op => !op.range && op.group !== 'Generate' && !op.params?.some(s => s.name === 'source') && op.name !== 'paste'
 // an edit as a press makes it: what the library can't do without (addOp), else its first setting at its default, so
 // what its row says it applies is what it applies (a trim at −40 dB, not a threshold of the library's own finding)
 const pressed = op => {
@@ -253,65 +280,105 @@ const pressed = op => {
 // silence at the caret, as Alt on the caret's line opens one on the picture; from the page (edits(), edit()) as from
 // the row, the caret where it stands then. Pad, beside it, adds silence at both ends
 const silence = group => ({ group, name: 'insert', args: null, call: 'insert(1)', label: 'Insert silence', values: '1s', about: 'A second of silence at the caret', icon: opIcons.insert ?? groupIcons[group], run: () => addOp('insert', false, `1, ${number(v.cursor, v.unit)}`) })
-const every = GROUPS.flatMap(group => Object.values(ops).filter(op => op.group === group && pressable(op)).map(op => { const args = pressed(op); return { group, name: op.name, args, call: args ? `${op.name}(${args})` : op.name, label: rowOf(op.name), values: quickOf(`${op.name}(${args})`)?.values ?? '', about: op.text, icon: opIcons[op.name] ?? groupIcons[group], run: () => addOp(op.name, false, args || undefined) } }).concat(group === 'Silence' ? [silence(group)] : []))
+const every = GROUPS.flatMap(group => Object.values(ops).filter(op => op.group === group && pressable(op)).map(op => {
+  const learns = op.params?.find(s => s.selection)?.selection, args = learns ? null : pressed(op)
+  return { group, name: op.name, args, call: args ? `${op.name}(${args})` : op.name, label: rowOf(op.name), values: args ? quickOf(`${op.name}(${args})`)?.values ?? '' : '', about: op.text, icon: opIcons[op.name] ?? groupIcons[group], learns, run: () => addOp(op.name, false, args || undefined) }
+}).concat(group === 'Silence' ? [silence(group)] : []))
 // The one automatic edit made for the sound's kind (@audio/chain's auto(type): fn/auto.js), named for what it does to
-// that kind and what it does in its tooltip: its chain is what it measures as it runs, so the list can't say it before.
-// A sound with no word, or one of no voice, is music to it, which leaves a voice's repairs out (no noise bed taken, no
-// room, no pops)
+// that kind and, in its tooltip's two lines, what it does: its chain is what it measures as it runs, so the list can't
+// say it before (what it may repair, by kind: fn/auto.js). A sound with no word, or one of no voice, is music to it,
+// which leaves a voice's repairs out (no noise bed taken, no room, no pops)
 const AUTO = {
-  speech: ['speech', 'Repair and level this voice', 'Measures the voice, then undoes only what it finds: clipping, clicks, pops, hum, a noise bed, a room, harsh s; evens its tone toward speech\'s; −16 LUFS, peaks under −1 dBTP'],
-  'speech and music': ['voice-music', 'Repair and level this voice over music', 'Measures it, then undoes only what it finds: clipping, clicks, hum, the noise under the voice, harsh s; −16 LUFS, peaks under −1 dBTP'],
-  music: ['music', 'Repair and level this song', 'Measures it, then undoes only what it finds: clipping, clicks, hum; a range wider than finished music keeps narrowed; −14 LUFS, peaks under −1 dBTP'],
-  '': ['music', 'Repair and level this sound', 'Measures it, then undoes only what it finds: clipping, clicks, hum; a range wider than finished music keeps narrowed; −14 LUFS, peaks under −1 dBTP']
+  speech: ['speech', 'Repair and level this voice', 'Repairs what it finds in the voice, −16 LUFS'],
+  'speech and music': ['voice-music', 'Repair and level this voice over music', 'Repairs the voice over the music, −16 LUFS'],
+  music: ['music', 'Repair and level this song', 'Repairs what it finds in the song, −14 LUFS'],
+  '': ['music', 'Repair and level this sound', 'Repairs what it finds, −14 LUFS']
 }
 function automatic(kind) {
   const [type, label, what] = rowFor(AUTO, kind), args = `'${type}'`
-  return { group: 'Auto', name: 'auto', args, call: `auto(${args})`, label, values: type, about: `${what}\nOne edit, Auto: its chain is what it measures as it runs`, icon: opIcons.auto ?? groupIcons.Dynamics, run: () => addOp('auto', false, args) }
+  return { group: 'Auto', name: 'auto', args, call: `auto(${args})`, label, values: type, about: `${what}\nOne edit: its chain is what it measures`, icon: opIcons.auto ?? groupIcons.Dynamics, run: () => addOp('auto', false, args) }
 }
 // The recipes (recipes.js offered: each a chain on the sound, its own icon), those for a sound of its channels (an
 // interview's two), those the sound's kind is offered first (kind.js OFFERS, read as NEXT is), then the rest in their
 // order; each its code for the sound as it is (`channels`: a record's for one channel, recipes.js codeFor), how many
-// edits it makes at the row's end, what it does and its edits in their order, each as its row and the chain say it
-// (`Highpass 80Hz`; an arrow between, its values having commas), in its tooltip, a press putting its whole chain on the
-// sound (files.js useRecipe; one that asks for a file, the reference a master matches, asks for it then)
+// edits it makes at the row's end, what it does in its tooltip (recipes.js's words, two lines at the most), its edits,
+// each as its row and the chain say it (`Highpass 80Hz`), found by a search (`chain`) and in the chain once pressed: a
+// press puts the whole of it on the sound, one step (files.js useRecipe; one that asks for a file, the reference a
+// master matches, asks for it then)
 function recipes(kind, channels) {
   const first = rowFor(OFFERS, kind), rank = p => first.includes(p.name) ? first.indexOf(p.name) : first.length
   return offered.filter(p => fits(p, channels)).sort((a, b) => rank(a) - rank(b)).map(p => {
     const calls = callsOf(codeFor(p, channels))?.map(c => { const q = quickOf(c), name = c.match(/^[\w$-]+/)[0]; return [rowOf(name), q?.values].filter(Boolean).join(' ') })
-    return { group: 'Recipes', label: p.name, values: calls ? `${calls.length} edits` : 'script', about: calls ? `${p.text}\n${calls.join(' → ')}` : `${p.text}\nA script: it measures each mic, then sets them`, icon: p.icon, run: () => useRecipe(p) }
+    return { group: 'Recipes', label: p.name, values: calls ? `${calls.length} edits` : 'script', about: p.text, chain: calls?.join(' ') ?? '', icon: p.icon, run: () => useRecipe(p) }
   })
 }
 // (the Recipes row's icon: layers, the chains they put on)
 const RECIPE = 'M12 3 3 8l9 5 9-5-9-5ZM3 12l9 5 9-5M3 16l9 5 9-5'
 // What the field finds, in its groups (named to a screen reader; Suggested by a small head too), each row its place
 // among all (`at`, its id), its level (2, a kind's edits or the recipes, beside its row, in menus) and whether its value
-// is a drag's to set (`drags`, findHold). With nothing typed: Suggested, a few ideas for this sound, four at most: the
-// recipe its kind is offered first (kind.js OFFERS: a whole chain, its edits in its tooltip), then the edits it is
-// suggested (`rest`: the page's ops for its own, its kind's for another's, suggested(), at the values they would be
-// made with); then a row a kind, each kind's every edit beside it, a suggested one too; last, a row of the same make,
-// Recipes, beside it the automatic edit made for the sound's kind, then every recipe, those for its kind first, the
-// suggested one too. `open`, the kind (or Recipes) open; `kind`, what the sound is; `channels`, how many it has.
+// is a drag's to set (`drags`, findHold). With nothing typed: Suggested, a few ideas for this sound, four at most, the
+// edits it is suggested (`rest`: the page's ops for its own, its kind's for another's, suggested(), at the values they
+// would be made with); then Recipes, a section of its own under its small head: the automatic edit made for the sound's
+// kind, then the recipes its kind is offered first (kind.js OFFERS: a whole chain each, what it does its tooltip), three
+// of them, and last a row, More recipes, the rest beside it (twelve and the automatic edit would fill the list); then a
+// row a kind, each kind's every edit beside it, a suggested one too. `open`, the kind (or Recipes) open; `kind`, what the
+// sound is; `channels`, how many it has; `sel`, what is selected: `any`, whether anything is, and `rows`, what one does
+// to a fragment of it (fragment): with those, Suggested is them, For the selection, in place of what suits the whole
+// sound. An edit that learns from a selection says at its row's end whether it has one to learn from.
 // Typed in, one group: every edit and recipe that holds the words, each once, a suggested edit at its values, those
-// whose name begins with them first, then those whose name holds them, then their values, then what they do
-const SHOWN = 4
-export function findable(query, rest, open = '', kind = '', set = {}, channels) {
-  const q = query.trim().toLowerCase(), sets = recipes(kind, channels), named = new Set(rest.map(e => e.name)), own = rowFor(OFFERS, kind)
-  const made = sets.filter(p => own.includes(p.label)).slice(0, 1), edits = rest.map(e => ({ ...e, label: rowOf(e.name) }))
+// whose name begins with them first, then those whose name holds them, then their values, then what they do, then
+// those that hold each word, a word that undoes something (denoise, dehiss) by what it undoes too (noise, hiss)
+const SHOWN = 4, RECIPES = 3
+export function findable(query, rest, open = '', kind = '', set = {}, channels, sel = {}) {
+  const q = query.trim().toLowerCase(), sets = recipes(kind, channels), named = new Set(rest.map(e => e.name)), edits = rest.map(e => ({ ...e, label: rowOf(e.name) }))
   // (a row that opens a submenu says no number at its end, which would read as a value to set: its chevron alone)
-  const kinds = () => [...GROUPS.map(g => [g, every.filter(e => e.group === g).length]).filter(([, n]) => n).map(([g, n]) => ({ group: 'Kinds', kind: g, label: g, values: '', about: `${n} edits`, icon: groupIcons[g] })),
-    { group: 'Kinds', kind: 'Recipes', label: 'Recipes', values: '', about: `${sets.length} recipes, a whole chain each, and the automatic edit for this sound`, icon: RECIPE }]
-  const rank = e => { const name = e.label.toLowerCase(); return name.startsWith(q) ? 0 : name.includes(q) ? 1 : e.values?.toLowerCase().includes(q) ? 2 : e.about?.toLowerCase().includes(q) ? 3 : -1 }
-  const all = !q ? [...[...made, ...edits].slice(0, SHOWN).map(e => ({ ...e, group: 'Suggested' })), ...kinds(), ...(open === 'Recipes' ? [automatic(kind), ...sets] : every.filter(e => e.group === open)).map(e => ({ ...e, group: open, level: 2 }))]
+  const kinds = () => GROUPS.map(g => [g, every.filter(e => e.group === g).length]).filter(([, n]) => n).map(([g, n]) => ({ group: 'Kinds', kind: g, label: g, values: '', about: `${n} edits`, icon: groupIcons[g] }))
+  const recipeRows = [automatic(kind), ...sets.slice(0, RECIPES), ...sets.length > RECIPES ? [{ kind: 'Recipes', label: 'More recipes', values: '', about: `${sets.length - RECIPES} more, a whole chain each`, icon: RECIPE }] : []].map(e => ({ ...e, group: 'Recipes' }))
+  const words = q.split(/\s+/).filter(Boolean), undone = w => /^de\w{4,}$/.test(w) ? w.slice(2) : null
+  const rank = e => {
+    const name = e.label.toLowerCase(), text = `${name} ${e.name ?? ''} ${e.values ?? ''} ${e.about ?? ''} ${e.chain ?? ''}`.toLowerCase()
+    return name.startsWith(q) ? 0 : name.includes(q) ? 1 : e.values?.toLowerCase().includes(q) ? 2 : e.about?.toLowerCase().includes(q) ? 3 : words.every(w => text.includes(w) || undone(w) && text.includes(undone(w))) ? 4 : -1
+  }
+  const suggested = sel.rows?.length ? sel.rows : edits.slice(0, SHOWN).map(e => ({ ...e, group: 'Suggested' }))
+  const all = !q ? [...suggested, ...recipeRows, ...kinds(), ...(open === 'Recipes' ? sets.slice(RECIPES) : every.filter(e => e.group === open)).map(e => ({ ...e, group: open === 'Recipes' ? 'More recipes' : open, level: 2 }))]
     : [...edits, ...every.filter(e => !named.has(e.name)), ...sets].map(e => [rank(e), e]).filter(([r]) => r >= 0).sort((a, b) => a[0] - b[0]).map(([, e]) => ({ ...e, group: 'Found' }))
-  const groups = []
-  all.forEach((e, at) => { const g = groups.at(-1)?.group === e.group ? groups.at(-1) : groups[groups.push({ group: e.group, sub: e.level === 2, head: e.level !== 2 && !q && e.group === 'Suggested' ? 'Suggested' : null, items: [] }) - 1]; g.items.push({ level: 1, ...valued(e, set), at }) })
+  const groups = [], learned = e => e.learns ? { ...e, values: sel.any ? 'from the selection' : `select ${e.learns} first` } : e, headed = ['Suggested', FRAGMENT, 'Recipes']
+  all.forEach((e, at) => { const g = groups.at(-1)?.group === e.group ? groups.at(-1) : groups[groups.push({ group: e.group, sub: e.level === 2, head: e.level !== 2 && !q && headed.includes(e.group) ? e.group : null, items: [] }) - 1]; g.items.push({ level: 1, ...valued(learned(e), set), at }) })
   return groups
+}
+// What one does to a fragment, the selection (one range of time, not all of the sound; not a band, nor several): the
+// list's Suggested while one is selected, For the selection, each at the values it would be made with, made over it as
+// one step, what it would do drawn over it as the list's other rows draw theirs (`mark`: the hint, ops.js hints, by an
+// edit's name and its arguments): crossfaded across (crossfade() over a range: what is before it fading into what is
+// after it over its length, the range gone), deleted, the gap closed (its seam crossfaded as a delete's), silenced, its
+// time kept, cropped to, faded in or out over its length, reversed. Then what the sound's kind reads there: a pause (a
+// silence the worker found, the selection within it), its noise learned and taken out everywhere (denoise), and a
+// voice's pause shortened as its kind's chain shortens them (kind.js NEXT, shrink 0.3 s). `kind`, the sound's word
+const FRAGMENT = 'For the selection'
+export function fragment(sel, band, ranges, kind = '') {
+  if (!sel || band || ranges > 1 || !v || !output?.duration) return null
+  const [a, b] = sel, s = t => number(t, v.unit)
+  if (b - a < v.unit || a <= v.unit / 2 && b >= v.duration - v.unit / 2) return null
+  const at = s(a), d = s(b - a), span = `{ at: ${at}, d: ${d} }`, range = { at: +at, duration: +d }, long = format(+d, ops.fade.params[0])
+  const pause = output.segments?.silences?.some(([p, q]) => a >= p - .03 && b <= q + .03)
+  const row = (name, label, values, about, run, mark = null) => ({ group: FRAGMENT, name, label, values, about, icon: opIcons[name] ?? groupIcons[ops[name]?.group], mark, fixed: true, run })
+  return [
+    row('crossfade', 'Crossfade across it', long, 'What is before it fades into what is after it, over its length: it goes, no seam', () => write(`crossfade(${span})`), ['remove', range]),
+    row('remove', 'Delete', long, 'Take it out, the gap closed', () => editSelection('remove'), ['remove', range]),
+    row('gain', 'Silence it', '−∞dB', 'Mute it, its time kept', () => write(`gain(-Infinity, ${span})`), ['remove', range]),
+    row('crop', 'Crop to it', long, 'Keep it, drop the rest', () => editSelection('crop'), ['crop', range]),
+    row('fade', 'Fade in', long, 'From silence up to its level, over its length', () => write(`fade(${d}, { at: ${at} })`), ['fade', { in: +d, at: +at }]),
+    row('fade', 'Fade out', long, 'From its level down to silence, over its length', () => write(`fade(-${d}, { at: ${at} })`), ['fade', { in: -d, at: +at }]),
+    row('reverse', 'Reverse', long, 'Play it backwards', () => editSelection('reverse')),
+    ...pause ? [row('denoise', 'Take this noise out everywhere', 'learned here', 'The noise that plays alone here, learned, taken 12 dB down everywhere', () => addOp('denoise', false))] : [],
+    ...pause && /speech/.test(kind) ? [row('shrink', 'Shorten the pause', '0.3s', 'Down to 0.3 s, as a voice\'s pauses are shortened', () => write(`shrink(0.3, ${span})`))] : []
+  ]
 }
 // A row as its values stand: an edit's, those a drag set (`set`, by its name: findHold) where it set them, made with
 // them, each value apart (`parts`: its words, the comma after it but the last's, and whether a drag sets it); any other
-// row's (a recipe's count), one part, set by none
+// row's (a recipe's count, a fragment's, `fixed`), one part, set by none
 function valued(e, set) {
-  const args = e.name && set[e.name] != null ? set[e.name] : e.args, q = e.name && args != null && quickOf(`${e.name}(${args})`)
+  const args = e.name && !e.fixed && set[e.name] != null ? set[e.name] : e.args, q = e.name && args != null && quickOf(`${e.name}(${args})`)
   if (!q) return { ...e, parts: e.values ? [{ i: -1, text: e.values, drags: false }] : [] }
   const vals = String(args).split(',').map(a => a.trim()), params = ops[e.name]?.params ?? []
   const parts = q.parts.map((text, i) => ({ i, text: i < q.parts.length - 1 ? `${text}, ` : text, drags: !!params[i] && !params[i].values && params[i].min != null && !Number.isNaN(+vals[i]) }))
@@ -376,12 +443,15 @@ export async function pageEdit(call) {
 // Embedded, what the list offers the page (embed.js edits()), by kind, in its order, recipes left out: every edit a
 // press makes, under its kind, as its row makes it, [{ kind, edits: [{ call, name, value, line }] }]: `call` what
 // edit() takes (its own defaults, as the row's), `name` the row's words, `value` its value as the row shows it, `line`
-// what it does, its tooltip
-export const offer = () => GROUPS.map(kind => ({ kind, edits: every.filter(e => e.group === kind).map(e => ({ call: e.call, name: e.label, value: e.values, line: e.about })) })).filter(g => g.edits.length)
+// what it does, its tooltip. Not one that learns from a selection, which a page has no way to give
+export const offer = () => GROUPS.map(kind => ({ kind, edits: every.filter(e => e.group === kind && !e.learns).map(e => ({ call: e.call, name: e.label, value: e.values, line: e.about })) })).filter(g => g.edits.length)
 if (EMBED && parent !== window) addEventListener('message', e => {
   if (e.source !== parent) return
   if (e.data?.audio === 'edit') pageEdit(String(e.data.call))
   if (e.data?.audio === 'edits') parent.postMessage({ audio: 'edits', id: e.data.id, list: offer() }, '*')
+  // (a sample opened, the sound open now: answered by id, embed.js open(), sound())
+  if (e.data?.audio === 'open') pageOpen(e.data.file).then(answer => parent.postMessage({ audio: 'answer', id: e.data.id, answer }, '*'))
+  if (e.data?.audio === 'sound') pageSound().then(answer => parent.postMessage({ audio: 'answer', id: e.data.id, answer }, '*'))
 })
 // The pointer over a row lights it, on the level it is on; in menus the pointer over a kind opens its edits beside it,
 // over another row of the first level shuts them (not in a phone's frame, where they open in the list's place, by a
@@ -500,12 +570,13 @@ function hintWith(marks) {
 }
 function showHint() {
   const e = state.finding && state.found[state.lit], held = state.findHeld?.at === e?.at ? state.findHeld : null
-  hintWith(e?.name ? hint(e.name, named(e.name, held?.args ?? e.args), sound()) : [])
+  // (a fragment's row its own: over the selection, fragment)
+  hintWith(e?.mark ? hint(...e.mark, sound()) : e?.name && !e.fixed ? hint(e.name, named(e.name, held?.args ?? e.args), sound()) : [])
   // (and each row's tooltip, the list laid out anew: its value whole where its room cut it short, menu.js hinted; and
   // where it, or a kind's edits beside it, is cut short by the frame's foot, its cut edges said: menu.js cue)
   requestAnimationFrame(() => { if (!isOpen()) return; hinted(finds().querySelectorAll('.found-row')); cue(finds().querySelector('.found-list')); cue(finds().querySelector('.found-group[data-sub]')) })
 }
-// Embedded, an edit of the chain pressed (?ui= edits chain, `k` its place among those made): its settings drop from it,
+// An edit of the chain pressed (?ui= edits chain, `k` its place among those made): its settings drop from it,
 // one shape with it, as the old widget's pill and its menu were (index.html #step-settings): what it does, then a slider
 // or a choice each, as the edits' cards open to them (settings.js), then Remove (chain.js dropEdit); one with no
 // settings, what it does and Remove. A press on it again or outside them, or Escape, closes them, the keys back on the
@@ -513,6 +584,12 @@ function showHint() {
 // there, another's, they close
 let step = null
 const panel = () => root.querySelector('#step-settings')
+// While an edit's settings are open, another edit of the chain pointed at opens its own in their place, as a menu bar's
+// menus follow the pointer once one is open; none opens by pointing while none is open, nor while an edit is carried
+export function followStep(k, event) {
+  if (event.pointerType !== 'mouse' || event.buttons || state.stepOpen < 0 || state.stepOpen === k) return
+  openStep(k, { detail: 1 })
+}
 export async function openStep(k, event) {
   findShut()
   const open = panel().matches(':popover-open'), again = open && step?.k === k
@@ -520,7 +597,7 @@ export async function openStep(k, event) {
   const s = madeSteps(ed.code)[k]
   if (again || !state.hasOutput || !s) return
   const { default: settings } = await import('../settings.js'), card = { call: callOf(s), params: null }
-  card.params = settings(card, { ed, describe: name => eng.describe(name), duration: () => v.duration, onpreview: (name, was, is) => { v.preview(fromInput(name, is) ? null : previews[name]?.(was, is, v.duration) ?? null); stepHint(s, is) }, onsettle: () => { if (!pointed) stepHint(null) }, onpoint: (name, args) => point(s, name, args) })
+  card.params = settings(card, { ed, describe: name => eng.describe(name), duration: () => v.duration, onpreview: (name, was, is) => { v.preview(fromInput(name, is) ? null : previews[name]?.(was, is, v.duration) ?? null); retime(name, was, is); stepHint(s, is) }, onsettle: () => { if (!pointed) stepHint(null) }, onpoint: (name, args) => point(s, name, args) })
   step = { k, name: s.name, card }
   Object.assign(state, { stepOpen: k, stepTitle: labelOf(s.name), stepAbout: ops[s.name]?.text ?? '' })
   const p = panel()
@@ -573,7 +650,7 @@ function stepHint(s, args) {
   if (!s) {
     drawing = null
     hintWith([])
-    if (rolled != null) { rolled = null; assign({ viewing: { delta: null, back: null } }); schedule(0) }
+    if (rolled != null) { rolled = null; assign({ viewing: viewed() }); schedule(0) }
     return
   }
   drawing = () => hint(s.name, args, sound()).map(m => pointed && m.of && !m.of.includes(pointed) ? { ...m, quiet: true } : m)
@@ -606,6 +683,12 @@ function stepFollow(code) {
 export function saveMenu(event) {
   bar.at(formats.map(f => ({ label: f.name.toUpperCase(), hint: f.text, checked: f.name === state.format, run: () => { state.setFormat(f.name); exportFiles() } })), 0, 0, event.currentTarget)
 }
+// The chain fitted to its row as it is laid out anew (the frame resized, an edit made or taken away, the history come
+// beside it), an edit's settings with it; watched once it is laid (View › Edit chain lays it on a page of its own)
+const chained = new ResizeObserver(() => { fitChain(); placeStep() })
+export const watchChain = () => { const chain = root.querySelector('.embed-chain'); if (chain) chained.observe(chain) }
+// the pointer gone from the field's list and a kind's edits open beside it (inside it): nothing it was about to take
+export const findLeave = () => aimed.stop()
 // Every popover over the page closed; the look's dropdown by closeDropdown, so its owner and state say so at once, not
 // when the popover's toggle event comes
 export const closeMenus = () => { closeDropdown(); for (const menu of root.querySelectorAll('[popover]')) if (menu.matches(':popover-open')) menu.hidePopover() }
@@ -627,11 +710,7 @@ export function wire() {
   // edit of the chain, whose own press opens or closes them
   panel()?.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeStep() } })
   addEventListener('pointerdown', event => { if (step && !panel().contains(event.target) && !event.target.closest?.('.chain-edit')) closeStep() }, true)
-  // the chain fitted to its row as it is laid out anew (the frame resized, an edit made or taken away), an edit's
-  // settings with it
-  if (root.querySelector('.embed-chain')) new ResizeObserver(() => { fitChain(); placeStep() }).observe(root.querySelector('.embed-chain'))
-  // the pointer gone from the field's list and a kind's edits open beside it (inside it): nothing it was about to take
-  finds()?.addEventListener('pointerleave', () => aimed.stop())
+  watchChain()
   // Esc with the keys in it (a choice just pressed) closes it too, the keys back on its button
   root.querySelector('.dropdown').addEventListener('keydown', event => {
     // a select's list open in it closes alone, as a popover of its own

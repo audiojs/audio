@@ -1,5 +1,6 @@
 import { NOTES, noteOf } from '../view.js'
 import { kinds as sampleKinds, builtins } from '../sources.js'
+import { recorded } from '../library.js'
 import { levels, spectra, ballistics } from '../meters.js'
 import { root, cueTimes, layouts, specs, SHOWN, SAYS_KIND, SUGGESTS, QUICK, KIND, ABOUT } from './config.js'
 import { state, eng, v, ed, pl, output, shown, carded, notesFor, assign } from './context.js'
@@ -97,14 +98,15 @@ let readMarks = []
 let own = null
 export const ownSound = name => !!name && name !== 'untitled' && (own ??= name) === name
 // What a sound is, in a word, by its name. The page says it of its own sound (?ui= kind), and the playground of its own
-// samples (samples.js kind), each known, none listened to; another has none of theirs, and is listened to (worker.js
-// kind; state.heardKinds, '' while it is heard): once a sound, and only where the
-// word shows (config.js SAYS_KIND) or the edits suggested follow it (menus.js suggested). A name that is no one sound's
-// (untitled, generated) is not heard: two sounds made by scripts would share its word. Not while a take records into
-// it either: its sound is not done till the take is, and the others play from the engine meanwhile; the take's output
-// is asked of once it comes. Each output is asked of once: an answer of nothing (the output gone, a newer one in its
-// place before it was heard) lets the sound be asked of again, of a newer output only, however often it is looked at
-const sampled = name => Object.hasOwn(sampleKinds, name) ? sampleKinds[name] : ''
+// samples (samples.js kind) and of the recordings it lists (library.js: the catalogue's word), each known, none
+// listened to; another has none of theirs, and is listened to (worker.js kind; state.heardKinds, '' while it is
+// heard): once a sound, and only where the word shows (config.js SAYS_KIND) or the edits suggested follow it
+// (menus.js suggested). A name that is no one sound's (untitled, generated) is not heard: two sounds made by scripts
+// would share its word. Not while a take records into it either: its sound is not done till the take is, and the
+// others play from the engine meanwhile; the take's output is asked of once it comes. Each output is asked of once: an
+// answer of nothing (the output gone, a newer one in its place before it was heard) lets the sound be asked of again,
+// of a newer output only, however often it is looked at
+const sampled = name => Object.hasOwn(sampleKinds, name) ? sampleKinds[name] : recorded(name)?.kind ?? ''
 export const pageKind = name => (KIND && ownSound(name) ? KIND : '') || sampled(name)
 // a tab's (state.heardKinds its `heard`): the page's word only for the sound the one shown has made its own
 export const kindOf = (name, heard) => (KIND && name === own ? KIND : '') || sampled(name) || heard[name] || ''
@@ -130,16 +132,22 @@ function hearKind() {
 }
 
 // What more is known of a sound than its word, the word's tooltip (the bar's, a tab's): what the page says of its own
-// (?ui= about) or a sample's own line (samples.js description), then what the listeners heard of it (worker.js kind):
-// where the tagger named it, what it found it most like, each its score (its mean over what was heard, 0 to 1: kind.js
-// likest); else its shares of speech, music and neither. Not who said the word, nor by which rule: '' where nothing
-// more is known (the page's word alone; silence, the level beside it saying how quiet)
+// (?ui= about) or a sample's own line (samples.js description; a recording's, its catalogue's), then what the
+// listeners heard of it (worker.js kind): where the tagger named it, what it found it most like, each its score (its
+// mean over what was heard, 0 to 1: kind.js likest); else its shares of speech, music and neither. Not who said the
+// word, nor by which rule: '' where nothing more is known (the page's word alone; silence, the level beside it saying
+// how quiet). Two lines at the most, as every tooltip: a sound's own words of two lines, what it is and its credit
+// (which its licence may ask for), keep them, and what the listeners heard gives way
 const percent = x => `${Math.round(x * 100)}%`
 const split = s => [['speech', s.speech], ['music', s.music], ['neither', s.noise]].filter(([, x]) => x >= .005).map(([k, x]) => `${percent(x)} ${k}`).join(', ')
 export function kindTip(name, word, facts) {
   if (!word) return ''
-  const { shares, like } = facts?.[name] ?? {}, given = (ABOUT && ownSound(name) ? ABOUT : '') || (Object.hasOwn(builtins, name) ? builtins[name] : '')
-  return [given, like?.length ? `Most like ${like.map(([w, s]) => `${w} ${s.toFixed(2)}`).join(', ')}` : shares && split(shares)].filter(Boolean).join('\n')
+  const { shares, like } = facts?.[name] ?? {}, given = (ABOUT && ownSound(name) ? ABOUT : '') || (Object.hasOwn(builtins, name) ? builtins[name] : recorded(name)?.about ?? '')
+  // (what it is most like, as many as stand in the line or lines left: one under a line of its own words, two alone)
+  const room = given ? 46 : 94, likest = []
+  for (const x of (like ?? []).map(([w, s]) => `${w} ${s.toFixed(2)}`)) { if (likest.length && `Most like ${[...likest, x].join(', ')}`.length > room) break; likest.push(x) }
+  const heard = likest.length ? `Most like ${likest.join(', ')}` : shares && split(shares)
+  return [given, !given.includes('\n') && heard].filter(Boolean).join('\n')
 }
 // What the word's place in the bar says, as its menu picks (the kind's readout pressed, pickKind): what the sound is
 // (the word), or what the repl hears of it as a musician says it (listen: the note or chords at the caret, the key and

@@ -2,23 +2,24 @@ import { HOLD, SLOP } from '../view.js'
 import player from '../player.js'
 import { mark as drawMark, sways, PACE } from '../../logo/mark.js'
 import { levels, cycle, trace } from '../meters.js'
+import { chain, steps, rollback, prepare } from '../code.js'
 import { root, EMBED, PLAY_STOPS, SPEEDS, SHUTTLE } from './config.js'
-import { state, eng, v, pl, output } from './context.js'
+import { state, eng, v, ed, pl, output, assign } from './context.js'
 import { stamp, note } from './format.js'
 import { meter, live, chordAt } from './readouts.js'
 import { recorder, stopRecording } from './recording.js'
-import { working, lend, sourceName } from './run.js'
+import { working, schedule } from './run.js'
 import { docs, docOf, badges } from './tabs.js'
 import { laneIndex } from './tracks.js'
 
-// Playing: each tab's player, Play and its shuttle, the playhead followed, the speed, the loop, A/B against the file,
+// Playing: each tab's player, Play and its shuttle, the playhead followed, the speed, the loop, before and after,
 // the caret scrubbed, and the mark in the bar that moves with what sounds
 
 // Each tab plays on its own, as a browser's tabs do: one left as it plays plays on, heard with the one shown, its speaker
 // on its tab muting it (toggleTabMute). `pl`, the shown tab's player (switchTab), each tab's made as it is first shown
 export const playerOf = doc => doc.player ??= player({ onend: () => ended(doc) })
-// the frame that draws the playhead (chase); the file as it opened, level-matched, heard before the edits (toggleAB)
-export let ticker = 0, original = null
+// the frame that draws the playhead (chase)
+export let ticker = 0
 // the caret is where playback ends, as it is where it pauses; a tab not shown, its speaker goes
 function ended(doc) {
   if (doc.player !== pl) return sway()
@@ -55,24 +56,93 @@ export function sway() {
   logoMark?.set(mode !== 'scrub' ? sways[mode] : { ...sways.scrub, signal: () => { const w = output && pl.heard(scrubbed); if (w) cycle(w.x, scrubbed * output.sampleRate - w.from, output.sampleRate, heard, .5); return heard.wave }, cycles: () => cyclesOf(heard.hz), amplitude: () => swell(beneath()) })
   tell({ mode })
 }
-// A/B: the original at the same place, level-matched to the output; the next output, or B again, returns to it.
-// B, or Play > Hear it before the edits; the word over the picture says which is heard
-export async function toggleAB() {
-  const name = sourceName()
-  if (!state.hasOutput) return
-  if (!name) return note('A generated sound has no file as it opened to hear it against.')
-  if (state.ab) { state.ab = false; lend(output); return note('Hearing the output, after the edits') }
-  const loudness = output.stats.loudness
-  if (original?.name !== name || original.loudness !== loudness) {
-    const r = await eng.original(name, loudness)
-    if (!r.sampleRate) return note(r.error?.message || 'The file as it opened is no longer open.')
-    original = { name, loudness, ...r }
-  }
+// Before and after, one comparison wherever it is asked (B; Transport › Hear it before the edits; Before, in the bar or,
+// with the edits laid as the chain, at the row's right end; the agent's play): pressed, the sound before the edits, the
+// chain rolled back to its source (run.js evaluate, saying nothing), in the picture and in what plays, played at the
+// edits' loudness (BS.1770, through gain: matched), so what is heard is what the edits did, not that one is louder; the
+// script and the history untouched; playing, on from where it was, the other taking over as it comes (run.js settle).
+// Pressed again, after; the script changed meanwhile (an edit made, bypassed or set, another sound, another tab), after
+// again (editor.js onchange). None for a sound with no edit on, nor with tracks. Its source: the chain's calls before its
+// first edit (a generated sound's own maker, audio.from(…), kept)
+let was = null
+export const comparable = (out = output) => !!out?.duration && !out.tracks && steps(ed.code).some(s => s.on)
+const backOf = code => (chain(code)?.calls.length ?? 0) - steps(code).filter(s => s.on).length
+export function toggleAB() {
+  beforeGhost(false)
+  if (state.ab) return after()
+  if (!comparable()) return state.hasOutput && note('No edits to hear it before.')
+  was = { code: ed.code, back: backOf(ed.code), loudness: output.stats?.loudness }
   state.ab = true
-  state.abGain = original.gain
-  pl.out = null
-  pl.set(original.channels, original.sampleRate, o => eng.voice({ ...o, source: name, loudness, ...original.channels && { held: { key: `original ${name} ${loudness}`, channels: original.channels, sampleRate: original.sampleRate } } }), original.length)
-  note(`Hearing before the edits: the file as it opened, level-matched (${original.gain >= 0 ? '+' : '−'}${Math.abs(original.gain).toFixed(1)}dB). B for after`)
+  assign({ viewing: viewed() })
+  schedule(0)
+}
+export function after(code) {
+  if (!state.ab || code === was.code) return
+  was = null
+  state.ab = false
+  state.abGain = 0
+  assign({ viewing: viewed() })
+  schedule(0)
+  if (code == null) note('Hearing the output, after the edits')
+}
+// What the picture shows of the chain, a step's view let go (menus.js stepHint): before the edits while compared, else
+// all of it
+export const viewed = () => state.ab ? { delta: null, back: was.back, quiet: true } : { delta: null, back: null }
+// The gain the sound before the edits plays at, dB (the edits' loudness less its own, 0 where either is silence); null
+// for any other output. Said once it is heard
+export function matched(out) {
+  if (!state.ab || !out || out.code !== rollback(was.code, was.back)) return null
+  const a = was.loudness, b = out.stats?.loudness, gain = Number.isFinite(a) && Number.isFinite(b) ? a - b : 0
+  if (state.abGain !== gain || !state.notice.startsWith('Hearing before')) note(`Hearing before the edits, level-matched (${gain >= 0 ? '+' : '−'}${Math.abs(gain).toFixed(1)}dB). B for after`)
+  state.abGain = gain
+  return gain
+}
+// The sound before the edits as a ghost over the picture while Before is pointed at or focused, there being edits and
+// it not pressed: the outline of its waveform, a line along each column's peaks over and under, nothing filled, in the
+// guides' ink (the accent, as an edit lit in the list draws what it would do), each channel in its lane at the
+// picture's scale, over the present one; a trial, all of it off by GHOST (false: none, nothing asked). Asked of the
+// engine the first time it is pointed at for that script (the chain rolled back, baked: worker.js bake) and kept for it;
+// drawn on a canvas of its own over the picture that takes no press, so it never holds the picture up; gone as the
+// pointer leaves. Where it could not be drawn true, none: a spectrogram or notes, levels in dB, a long sound held as its
+// peaks, tracks, and edits that change the length (a stretch, a cut), the sound before having another timeline
+const GHOST = true
+let baked = null, hover = false
+export async function beforeGhost(on) {
+  hover = on
+  const canvas = root.querySelector('.before-ghost'), code = ed.code
+  if (!GHOST || !canvas) return
+  if (!on || state.ab || !comparable() || state.display !== 'wave' || state.levels !== 'linear' || output?.long) return void (canvas.hidden = true)
+  const run = rollback(code, backOf(code))
+  if (baked?.run !== run) baked = { run, sound: eng.bake(prepare(run)) }
+  const sound = await baked.sound
+  if (!hover || ed.code !== code || state.ab || !sound?.channels?.length || Math.abs(sound.channels[0].length / sound.sampleRate - output.duration) > .001) return
+  outline(canvas, sound)
+}
+function outline(canvas, { channels, sampleRate }) {
+  const f = v.frame, row = state.layout?.rows?.[0], plot = root.querySelector('.plot')
+  if (!f || !row || !plot) return
+  const dpr = devicePixelRatio || 1, W = plot.clientWidth, H = plot.clientHeight, gutter = parseFloat(getComputedStyle(root.querySelector('.panes')).getPropertyValue('--axis')) || 0
+  const w = W - gutter, [a, b] = f.range, [lo, hi] = f.levels, one = state.wave.lanes === 'one', n = one ? 1 : channels.length, GAP = 2, lh = (row.h - GAP * (n - 1)) / n
+  canvas.width = Math.round(W * dpr), canvas.height = Math.round(H * dpr)
+  const c = canvas.getContext('2d'), ink = getComputedStyle(root).getPropertyValue('--color-screen-accent').trim()
+  c.scale(dpr, dpr)
+  c.strokeStyle = ink, c.lineWidth = 1, c.globalAlpha = .85
+  for (let k = 0; k < n; k++) {
+    const top = row.y + k * (lh + GAP), y = s => top + (hi - Math.max(lo, Math.min(hi, s))) / (hi - lo) * lh, ups = [], downs = []
+    for (let x = 0; x < w; x++) {
+      const i0 = Math.floor((a + (b - a) * x / w) * sampleRate), i1 = Math.max(i0 + 1, Math.floor((a + (b - a) * (x + 1) / w) * sampleRate))
+      let peak = -Infinity, dip = Infinity
+      for (const ch of one ? channels : [channels[k]]) for (let i = Math.max(0, i0), e = Math.min(ch.length, i1); i < e; i++) { if (ch[i] > peak) peak = ch[i]; if (ch[i] < dip) dip = ch[i] }
+      if (peak >= dip) ups.push([x + .5, y(peak)]), downs.push([x + .5, y(dip)])
+    }
+    for (const line of [ups, downs]) {
+      if (!line.length) continue
+      c.beginPath()
+      line.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y))
+      c.stroke()
+    }
+  }
+  canvas.hidden = false
 }
 export function toggleLoop() { state.loop = !state.loop; pl.loop = state.loop }
 // Transport
@@ -203,6 +273,8 @@ export function timePress(event) {
   let moved = false, locked = false, dx = 0
   el.addEventListener('mousedown', e => e.preventDefault(), { once: true })
   el.setPointerCapture?.(id)
+  // held, the scrub's arrows (editor.css .clock .time[data-held]); pointed at, a hand
+  el.toggleAttribute('data-held', true)
   const move = e => {
     if (e.pointerId !== id) return
     dx = locked && document.pointerLockElement === el ? dx + e.movementX : e.clientX - x0
@@ -220,6 +292,7 @@ export function timePress(event) {
   }
   const up = e => {
     if (e.pointerId !== id) return
+    el.removeAttribute('data-held')
     for (const [type, f] of on) el.removeEventListener(type, f)
     if (locked && document.pointerLockElement === el) document.exitPointerLock()
     if (!moved) return

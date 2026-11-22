@@ -4,9 +4,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { NAMED, TOP, TRACK, page, origin, readout, tipOf, muteTrack, mutedTracks, open, settled, frames, poll, settings, selected, menu, facts, noCues, write, LANES, HEAD, tall, tracksAt, gutter, axis, grab, boxDrag, drag, lengthIs, tap, taken, heard, show, chime, measuredOnRow, crossed, onRow } from './page.js'
 
-// Before, a key at the bar's right end, after the rate and channels: pressed, the file as it opened, as B does, lit while it is heard; again, or B,
-// the output. A generated sound has no file to hear it against: the key is off
-test('editor: Before, at the bar\'s right, hears the file as it opened, lit while it does; off for a generated sound', async () => {
+// Before, a key at the bar's right end, after the rate and channels: pressed, the sound before the edits, as B does, lit
+// while it is heard; again, or B, after. A sound with no edit on has nothing to hear before it: the key is off; a
+// generated one with an edit has its own source to hear
+test('editor: Before, at the bar\'s right, hears the sound before the edits, lit while it does; off with no edit on', async () => {
   await open()
   await write(`audio('chime.wav').gain(-6)`)
   await lengthIs('0:08.000')
@@ -15,7 +16,7 @@ test('editor: Before, at the bar\'s right, hears the file as it opened, lit whil
   assert.equal(await before.getAttribute('aria-pressed'), 'false')
   await before.click()
   await page.waitForFunction(() => document.querySelector('button.before').getAttribute('aria-pressed') === 'true')
-  assert.match(await page.locator('.status').innerText(), /Hearing before the edits/)
+  await page.locator('.status', { hasText: /Hearing before the edits/ }).waitFor()
   const lit = await before.evaluate(e => getComputedStyle(e).backgroundColor)
   await page.mouse.move(2, 2)
   assert.equal(await before.evaluate(e => getComputedStyle(e).backgroundColor), lit, 'lit, the pointer on it or not')
@@ -24,20 +25,39 @@ test('editor: Before, at the bar\'s right, hears the file as it opened, lit whil
   await page.waitForFunction(() => document.querySelector('button.before').getAttribute('aria-pressed') === 'false')
   await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t), { duration: 1 })`)
   await lengthIs('0:01.000')
-  assert.equal(await before.isDisabled(), true, 'a generated sound: nothing to hear it against')
+  assert.equal(await before.isDisabled(), true, 'no edit on: nothing to hear it before')
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t), { duration: 1 }).gain(-6)`)
+  await page.waitForFunction(() => !document.querySelector('button.before').disabled)
+  await before.click()
+  await page.locator('.status', { hasText: /Hearing before the edits/ }).waitFor()
 })
 
-// B: the file as it opened, level-matched, at the same place; B again, the output. What is heard is said over the picture
-// and checked in Play > Hear it before the edits
-test('editor: B plays the file as it opened, level-matched to the result, and a new output returns to the result', async () => {
+// B: the sound before the edits, the chain rolled back to its source, in the picture and in what plays, at the edits'
+// loudness (the gain, the edits' BS.1770 loudness less its own), at the same place, the script and the history
+// untouched; B again, after. What is heard is said over the picture and checked in Transport › Hear it before the edits.
+// A change to the script, after again; with no edit on, nothing to hear before
+test('editor: B shows and plays the sound before the edits, level-matched to them, and a change to the script returns to them', async () => {
   await open()
   const heardBefore = async () => { await page.locator('.menubar-item', { hasText: /^Transport$/ }).click(); const on = await page.locator('.menubar-list .menu-row', { has: page.locator('.menu-label', { hasText: /^Hear it before the edits$/ }) }).getAttribute('aria-checked'); await page.keyboard.press('Escape'); return on === 'true' }
+  const read = () => page.evaluate(async () => { const { ed, output, state } = await import('/repl/editor/context.js'); return { code: ed.code, ran: output?.code, loudness: output?.stats?.loudness, gain: state.abGain, undo: state.canUndo } })
+  await settled()
+  const was = await read()
   await page.locator('body').press('b')
-  await page.locator('.message', { hasText: /^Hearing before the edits: the file as it opened, level-matched \([+−]\d+\.\ddB\)/ }).waitFor()
+  await page.locator('.message', { hasText: /^Hearing before the edits, level-matched \([+−]\d+\.\ddB\)/ }).waitFor()
   assert.ok(await heardBefore())
+  const on = await poll(read, r => assert.equal(r.ran, "audio('chime.wav')", 'the picture the source, no edit applied'))
+  assert.deepEqual([on.code, on.undo], [was.code, was.undo], 'the script and the history untouched')
+  assert.ok(Math.abs(on.gain - (was.loudness - on.loudness)) < 1e-9, `at the edits' loudness: ${on.gain} dB, ${was.loudness} LUFS after, ${on.loudness} before`)
+  assert.match(await page.locator('.message').textContent(), new RegExp(`\\(${on.gain >= 0 ? '\\+' : '−'}${Math.abs(on.gain).toFixed(1).replace('.', '\\.')}dB\\)`), 'the gain said')
+  // what plays it, through that gain (heard.js, an edit of the voice's own)
+  await page.evaluate(async () => { const { eng } = await import('/repl/editor/context.js'), voice = eng.voice; eng.voice = o => (globalThis.__voiced = o, voice(o)) })
+  await page.locator('.panes .play').click()
+  await poll(() => page.evaluate(() => globalThis.__voiced?.edit), edit => assert.deepEqual(edit, ['gain', on.gain], 'played through the gain'))
+  await page.locator('.panes .play').click()
   await page.locator('body').press('b')
   await page.locator('.message', { hasText: 'Hearing the output, after the edits' }).waitFor()
   assert.ok(!await heardBefore())
+  await poll(read, r => assert.equal(r.ran, was.code, 'the edits again'))
   await page.locator('body').press('b')
   await page.locator('.message', { hasText: /^Hearing before the edits/ }).waitFor()
   await write(`audio('chime.wav').normalize(-6)`)
@@ -47,7 +67,7 @@ test('editor: B plays the file as it opened, level-matched to the result, and a 
   await page.locator('.source', { hasText: 'generated' }).waitFor()
   await page.locator('.plot').focus()
   await page.keyboard.press('b')
-  await page.locator('.message', { hasText: 'A generated sound has no file as it opened' }).waitFor()
+  await page.locator('.message', { hasText: 'No edits to hear it before.' }).waitFor()
 })
 
 // Play pressed while it plays pauses at its release (a press held still searches), the caret where the playhead line
@@ -166,13 +186,14 @@ test('editor: the caret goes where the pointer presses; Play starts on its press
   assert.ok(await page.getByRole('button', { name: 'Pause' }).isVisible())
   await page.keyboard.press('Space')
   await page.getByRole('button', { name: 'Play', exact: true }).waitFor()
-  // the loop switch toggles without taking focus, so Space still plays
-  await page.getByRole('button', { name: 'Loop' }).click()
+  // the loop on as the editor opens; its switch toggles without taking focus, so Space still plays
   assert.equal(await page.getByRole('button', { name: 'Loop' }).getAttribute('aria-pressed'), 'true')
+  await page.getByRole('button', { name: 'Loop' }).click()
+  assert.equal(await page.getByRole('button', { name: 'Loop' }).getAttribute('aria-pressed'), 'false')
   assert.notEqual(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Loop')
   await page.keyboard.press('Space')
   await page.getByRole('button', { name: 'Pause' }).waitFor()
-  assert.equal(await page.getByRole('button', { name: 'Loop' }).getAttribute('aria-pressed'), 'true')
+  assert.equal(await page.getByRole('button', { name: 'Loop' }).getAttribute('aria-pressed'), 'false')
 })
 
 test('editor: the playhead starts at the caret and only moves on, however late the device sounds', async () => {
@@ -957,6 +978,9 @@ test('editor: the mark still shows the wave of a fragment pitched down, playing,
 test('editor: a file still decoding plays as far as it has come', async () => {
   await page.addInitScript(taken)
   await open()
+  // the loop off (on as the editor opens), so it plays to its end and stops
+  await page.getByRole('button', { name: 'Loop' }).click()
+  assert.equal(await page.getByRole('button', { name: 'Loop' }).getAttribute('aria-pressed'), 'false')
   for (const [ms, chain] of [[60, ''], [70, '.normalize(-3)']]) {
     await write(`audio('${origin}/slow/test/fixture.wav?ms=${ms}')${chain}`)
     await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
@@ -986,7 +1010,8 @@ test('editor: the caret put elsewhere while a selection loops plays from there, 
   await open()
   const { box, x } = await axis(6.525), y = box.y + TOP + TRACK * .3
   await drag([x(1), y], [x(1.5) - x(1), 0])
-  await page.getByRole('button', { name: 'Loop' }).click()
+  // (the loop on as the editor opens)
+  assert.equal(await page.getByRole('button', { name: 'Loop' }).getAttribute('aria-pressed'), 'true')
   await page.keyboard.press('Space')
   await page.getByRole('button', { name: 'Pause' }).waitFor()
   // looping a while

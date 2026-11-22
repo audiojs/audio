@@ -23,6 +23,8 @@ const FEATURES = {
   pitch: ['repl/view/notes.js', 'repl/editor/writers.js'],
   markers: ['repl/view/strips.js', 'repl/editor/writers.js'],
   select: ['repl/view/select.js', 'repl/view/pointer.js', 'repl/view/gestures.js', 'repl/view/overlay.js'],
+  drag: ['repl/view/pointer.js', 'repl/view/gestures.js', 'repl/view/scales.js', 'repl/view/overlay.js', 'repl/view/strips.js', 'repl/view/render.js', 'repl/editor/edits.js'],
+  level: ['repl/view/strips.js', 'repl/view/overlay.js'],
   ruler: ['repl/view/ruler.js'],
   zoom: ['repl/view/scales.js'],
   render: ['repl/view/render.js', 'repl/view/overlay.js'],
@@ -38,10 +40,12 @@ const FEATURES = {
   embed: ['repl/embed.js'],
   'embed-edits': ['repl/embed.js', 'repl/settings.js', 'repl/samples.js', 'repl/editor/chain.js'],
   kind: ['repl/kind.js'],
+  library: ['repl/library.js'],
   // the elements (elements/): the editor in parts, in a page of its own
   'audio-code': ['elements/'],
   'audio-sound': ['elements/'],
-  'audio-picture': ['elements/']
+  'audio-picture': ['elements/'],
+  'embed-sound': ['elements/', 'repl/embed.js', 'repl/editor/host.js']
 }
 // what every repl suite loads: the site, the repl, the library's worker and deck, the tests' page and fixtures
 const REPL = [...SITE, 'repl/', 'worker.js', 'deck.js', 'fn/curves.js', 'test/repl/page.js', 'test/gen.js', 'test/fixture.wav']

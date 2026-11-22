@@ -2,7 +2,9 @@ import { glyph } from './icons.js'
 
 // The app menu: every act the page offers, grouped as desktop apps group them, each with its keys, so the menu is also
 // the map of the page. `model()` gives the menus afresh each time one opens (what is checked, what can't be done now):
-//   [{ name, items: [{ label, keys?, hint?, tip?, run?, checked?, disabled?, items? } | '-' | { group: 'Heading' }] }]
+//   [{ name, items: [{ label, keys?, hint?, tip?, run?, checked?, disabled?, items?, opens? } | '-' | { group: 'Heading' }] }]
+// An item with `items` opens them as a submenu; its `opens`, where it has one, runs as that submenu opens (what it lists
+// asked for then: the samples' catalogue). A list whose rows came while it was open is made again in place (renew)
 // An item's `tip`, its tooltip (popoff): only what the row and a try don't say. Its hint (keys, or a word on what it is) at
 // the row's right end, as much as its room holds (editor.css: 12em at most), cut with an ellipsis past it, the whole of it
 // then in the tooltip, with the tip (hinted)
@@ -50,10 +52,11 @@ export default function menubar(root, model) {
     panel.className += ' menubar-menu'
     document.body.append(panel)
     panel.showPopover({ source: button })
-    place(panel, button.getBoundingClientRect(), 'below')
+    const placed = () => place(panel, button.getBoundingClientRect(), 'below')
+    placed()
     button.setAttribute('aria-expanded', 'true')
     buttons().forEach(b => b.tabIndex = b === button ? 0 : -1)
-    opened({ i, button, panel }, focus)
+    opened({ i, button, panel, placed }, focus)
   }
   // The menu at a point, a context menu's `items`, the keys going back where they were when it closes. It opens while
   // the button is still down (a Mac's right press), so it closes itself on a press outside it rather than on the release.
@@ -67,13 +70,34 @@ export default function menubar(root, model) {
     panel.popover = 'manual'
     document.body.append(panel)
     panel.showPopover()
-    const r = owner?.getBoundingClientRect()
-    place(panel, r ? { left: r.right - panel.offsetWidth, right: r.right, top: r.top, bottom: r.bottom } : { left: x, right: x, top: y - 4, bottom: y - 4 }, 'below', !!r)
+    const placed = () => { const r = owner?.getBoundingClientRect(); place(panel, r ? { left: r.right - panel.offsetWidth, right: r.right, top: r.top, bottom: r.bottom } : { left: x, right: x, top: y - 4, bottom: y - 4 }, 'below', !!r) }
+    placed()
     addEventListener('pointerdown', outside, true)
     owner?.setAttribute('aria-expanded', 'true')
     // (its toggle comes a task after it closed: by then its button may have opened another, which it leaves open)
     panel.addEventListener('toggle', event => { if (event.newState === 'closed') { removeEventListener('pointerdown', outside, true); if (!open || open.panel === panel) owner?.setAttribute('aria-expanded', 'false') } })
-    opened({ i: -1, button: null, panel, owner }, false)
+    opened({ i: -1, button: null, panel, owner, placed }, false)
+  }
+  // The open menu made again as its rows now are (what they list came while it was open), in place: `items`, or a bar's
+  // menu's from the model; only the one `owner` opened, where it is given. The submenus that were open open again, the
+  // keys on the row they were on, each found by its words
+  function renew(owner = null, items = null) {
+    if (!open || owner && open.owner !== owner) return
+    const { panel } = open, now = items ?? (open.i >= 0 ? menus()[open.i]?.items : null)
+    if (!now) return
+    aimed.stop()
+    const words = row => row.children[1].textContent
+    const inside = panel.contains(document.activeElement), on = document.activeElement?.closest?.('.menu-row'), keyed = inside && on ? words(on) : null, path = []
+    for (let p = panel, row; (row = [...p.children].find(r => r.sub && live(r.sub))); p = row.sub) path.push(words(row))
+    panel.replaceChildren()
+    fill(panel, now)
+    hinted(rows(panel))
+    open.placed()
+    let p = panel
+    for (const name of path) { const row = [...p.children].find(r => r.sub && words(r) === name); if (!row) break; expand(row); p = row.sub }
+    const back = keyed && [panel, ...panel.querySelectorAll('.menubar-sub')].filter(live).flatMap(rows).find(r => words(r) === keyed)
+    if (back) back.focus({ preventScroll: true })
+    else if (inside && !panel.contains(document.activeElement)) panel.focus({ preventScroll: true })
   }
   function opened(o, focus) {
     const { panel, button } = open = o
@@ -105,6 +129,11 @@ export default function menubar(root, model) {
     // its own rows', not its submenus' (inside it), each move; none where the pointer goes out of the menus
     panel.addEventListener('pointermove', event => { if (event.pointerType !== 'touch' && event.target.closest('.menubar-list') === panel) moved(panel, event.target.closest('.menu-row'), event) })
     panel.addEventListener('pointerleave', () => aimed.stop())
+    fill(panel, items)
+    return panel
+  }
+  // Its rows, as the items say them, into a list (one made, or made again: renew)
+  function fill(panel, items) {
     for (const it of items) {
       if (it === '-') { const hr = panel.appendChild(document.createElement('hr')); hr.setAttribute('role', 'separator'); continue }
       if (it.group) { const p = panel.appendChild(document.createElement('p')); p.className = 'menu-group'; p.textContent = it.group; continue }
@@ -135,13 +164,13 @@ export default function menubar(root, model) {
         if (narrow.matches) { sub.popover = null; sub.hidden = true; sub.classList.add('inline') }
         row.after(sub)
         row.sub = sub
+        row.opens = it.opens
         row.addEventListener('click', () => expand(row, true))
       }
       else row.addEventListener('click', () => { if (!it.disabled) run(it) })
       row.addEventListener('pointerdown', event => event.preventDefault())
       row.addEventListener('keydown', event => menuKey(event, row, panel))
     }
-    return panel
   }
   // The pointer over `row` of `panel` (or between its rows): heading into the panel's open submenu, from another row,
   // that row's submenu stays, the row it rests on the one only once it has rested (Amazon's menus, as Ben Kamens took them
@@ -164,6 +193,7 @@ export default function menubar(root, model) {
   function expand(row, focus = false) {
     const panel = row.parentElement
     if (row.sub.classList.contains('inline')) {
+      if (row.sub.hidden) row.opens?.()
       row.sub.hidden = !row.sub.hidden
       row.setAttribute('aria-expanded', String(!row.sub.hidden))
       cue(row.closest('.menubar-menu'))
@@ -172,6 +202,7 @@ export default function menubar(root, model) {
     }
     collapse(panel, row.sub)
     if (!row.sub.matches(':popover-open')) {
+      row.opens?.()
       row.sub.showPopover({ source: row })
       place(row.sub, row.getBoundingClientRect(), 'beside')
       hinted(rows(row.sub))
@@ -191,6 +222,7 @@ export default function menubar(root, model) {
   // menu (`held`) never over its button: where it fits neither under it nor over it, on the side with more room, as
   // tall as that room, scrolled within (an embed's short frame), saying so at its cut edges (cue)
   function place(panel, at, where, held = false) {
+    panel.style.maxHeight = ''
     const w = panel.offsetWidth, h = panel.offsetHeight, W = innerWidth, H = innerHeight
     let x = where === 'below' ? at.left : at.right - 2, y = where === 'below' ? at.bottom + 4 : at.top - 6
     if (x + w > W - 8) x = where === 'below' ? W - 8 - w : at.left - w + 2
@@ -278,7 +310,7 @@ export default function menubar(root, model) {
   draw()
   // the menus as they are now, for a host that shows them its own way (desktop/app.js: the Mac's menu bar)
   root.menus = model
-  return { draw, close, at }
+  return { draw, close, at, renew }
 }
 
 // The pointer's aim at an open submenu, the one rule both lists go by, these menus and the chain's field's

@@ -129,6 +129,25 @@ test('editor: held Alt, a press held takes the caret along, no caret added; onto
   assert.ok(Math.abs(await clock() - cue[0]) < 2e-3, `the caret on the cue: ${await clock()}`)
 })
 
+// The caret's ghost, where a press would put the caret, gone onto a cue the pointer is by: a snap's crosses where its
+// line meets the waveform, as what is dragged onto one has them (the owner, 19 Nov: "When we snap a caret to a stem - I
+// think we should display small crosses like we do for draggable element"); none where it is by nothing
+test('editor: the caret\'s ghost by a cue stands on it with a snap\'s crosses; by nothing, none', async () => {
+  await open()
+  await write(hits)
+  await lengthIs('0:02.000')
+  const { box, x } = await axis(2), y = box.y + TOP + 40, w = await spans(box), lane = tall(box)
+  const cue = await poll(async () => (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02), cue => assert.ok(cue.length, 'the cue at 1 s'), 8000)
+  const rows = Array.from({ length: Math.round(lane) - TOP }, (_, k) => TOP + k)
+  // the rows with the cues' colour just before the line at `px`, where no wash is: a cross's arms
+  const arms = async px => { const at = await hinted(rows.flatMap(y => [-3, -2, -1].map(dx => [px + dx, y]))); return rows.filter((y, k) => [0, 1, 2].some(d => at[k * 3 + d] > 48)).length }
+  await page.mouse.move(x(cue[0]) + 2, y)
+  await poll(() => arms(Math.round(x(cue[0]) - box.x)), n => assert.ok(n >= 3 && n <= 14, `by the cue, a cross or two where its line meets the waveform: ${n} rows`))
+  await page.mouse.move(x(.75), y)
+  await poll(() => arms(Math.round(x(.75) - box.x)), n => assert.equal(n, 0, `by nothing, none: ${n} rows`))
+  assert.equal(await selected(), '', 'nothing pressed')
+})
+
 // A range begun within a few px of a cue starts on it, as the pointer's time said it would; its end dragged onto one is
 // the caret's line there (the caret at the end a drag moves), the crosses where it meets the waveform saying it snapped
 test('editor: a range begun by a cue starts on it; its end dragged onto one, the caret\'s line there', async () => {
@@ -765,11 +784,11 @@ test('editor: Alt and Shift always make another, never extending', async () => {
   assert.deepEqual(await marked(), [6], 'a caret beside them')
 })
 
-// A copy goes in where it is let go, what was there moving on after it, as a text's dragged copy goes in. Moved, the
-// audio slides over what is there, silence where it was, as a graphic editor's object or a DAW's clip (move(), the
-// length kept), dragged as selected text is, no key held (once only with ⌘, a drag inside the selection selecting
-// anew). Each seam crossfaded as a delete's (the settings, 10 ms). Clicked inside it, the caret there alone
-test('editor: dragged inside the selection, its audio slides over what is there; with Alt a copy goes in where it lands', async () => {
+// A copy (Alt) goes in where it is let go, what was there moving on after it, as a text's dragged copy goes in. Moved
+// with ⌘, the audio slides over what is there, silence where it was, as a graphic editor's object or a DAW's clip
+// (move(), the length kept). Each seam crossfaded as a delete's (the settings, 10 ms). Clicked inside it, the caret
+// there alone. No key, put in where it lands, and how each goes onto what is near, drag.test.js
+test('editor: dragged inside the selection with ⌘, its audio slides over what is there; with Alt a copy goes in where it lands', async () => {
   const { x, y } = await chime()
   const before = await seconds()
   await drag([x(1), y], [x(2) - x(1), 0])
@@ -781,7 +800,7 @@ test('editor: dragged inside the selection, its audio slides over what is there;
   await page.waitForFunction(() => scriptText() === "audio('chime.wav')")
   await page.mouse.click(x(7.5), y)
   await drag([x(1), y], [x(2) - x(1), 0])
-  await drag([x(1.5), y], [x(4) - x(1), 0])
+  await keyed(['ControlOrMeta'], () => drag([x(1.5), y], [x(4) - x(1), 0]))
   await page.waitForFunction(() => /\.move\(\{ at: 1, d: 1, to: 4, xfade: 0\.01 \}\)$/.test(scriptText()))
   assert.equal(await selected(), '0:04.000–0:05.000', 'the moved audio stays selected where it went')
   await lengthIs('0:08.000')

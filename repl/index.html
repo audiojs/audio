@@ -23,6 +23,7 @@
   <link rel="modulepreload" href="editor/config.js" fetchpriority="low">
   <link rel="modulepreload" href="editor/context.js" fetchpriority="low">
   <link rel="modulepreload" href="editor/format.js" fetchpriority="low">
+  <link rel="modulepreload" href="editor/host.js" fetchpriority="low">
   <link rel="modulepreload" href="editor/persist.js" fetchpriority="low">
   <link rel="modulepreload" href="editor/look.js" fetchpriority="low">
   <link rel="modulepreload" href="editor/clipboard.js" fetchpriority="low">
@@ -67,6 +68,7 @@
   <link rel="modulepreload" href="code.js" fetchpriority="low">
   <link rel="modulepreload" href="recipes.js" fetchpriority="low">
   <link rel="modulepreload" href="sources.js" fetchpriority="low">
+  <link rel="modulepreload" href="library.js" fetchpriority="low">
   <link rel="modulepreload" href="menu.js" fetchpriority="low">
   <link rel="modulepreload" href="keep.js" fetchpriority="low">
   <link rel="modulepreload" href="hint.js" fetchpriority="low">
@@ -120,6 +122,10 @@
       // a number, px; or two, the left side's and the right's), and the words' one face (sans): editor.css
       const insets = [].concat(ui.inset ?? []).map(length => typeof length === 'number' ? `${length}px` : length)
       if (insets.length && insets.every(length => typeof length === 'string' && CSS.supports('padding-left', length))) html.dataset.inset = '', html.style.setProperty('--inset', insets[0]), html.style.setProperty('--inset-end', insets[1] ?? insets[0])
+      // the room under the picture, the bar's time in the middle of all under the grid (a CSS length; a number, px):
+      // editor.css, editor.js underGrid
+      const foot = typeof ui.foot === 'number' ? `${ui.foot}px` : ui.foot
+      if (typeof foot === 'string' && CSS.supports('height', foot)) html.dataset.foot = '', html.style.setProperty('--under', foot)
       if (ui.font === 'sans') html.dataset.font = 'sans'
       // the page's quick edits in sight, not behind a plus: the row over the picture the chain itself (chain): editor.css
       if (ui.edits === 'chain') html.dataset.edits = ui.edits
@@ -135,6 +141,9 @@
 </head>
 <body>
   <div id="app" class="app" data-boot :class="{ dropping: dropping === 'open' || dropping === 'track', 'dropping-tab': dropping === 'tab' }">
+    <!-- along the page's top while the engine works, how far it has come, in ticks (run.js strip); embedded, the page
+         around it draws its own (embed.js progress) -->
+    <div class="progress" role="progressbar" aria-label="Progress" aria-valuemin="0" aria-valuemax="100"></div>
     <header class="bar">
       <a class="wordmark" href="/" aria-label="audio home" title="Library home" draggable="false"><span class="logo" aria-hidden="true"><svg viewBox="0 0 96 101" fill="currentColor" stroke="currentColor" stroke-width="4.5"><path d="M0 50.4159C5.08842 50.4159 8.70378 49.9251 17.0681 24.9808C27.8621 -7.20948 35.9058 -10.5986 47.7771 50.4159H0Z"/><path d="M95.5543 50.416C90.4658 50.416 86.8505 50.9067 78.4862 75.8511C67.6922 108.041 59.6484 111.43 47.7771 50.416H95.5543Z"/></svg><canvas hidden></canvas></span><span class="name">audio</span></a>
       <nav class="menubar" aria-label="Menu"></nav>
@@ -149,8 +158,8 @@
         <!-- embedded: where the tabs are, the way to the whole editor with this script, as it reads now -->
         <!-- embedded: the sound's name; pressed, its ways in, each in its place: a file, a take, a sample (?controls= sound) -->
         <button class="embed-sound" type="button" :if="embed" aria-haspopup="menu" :title="'Change the sound: ' + name" :onclick="soundMenu"><span class="embed-sound-name" :text="name"></span></button>
-        <!-- embedded, the edits laid as the chain itself (?ui= edits chain), nothing under the bar: after the sound's name,
-             past a thin bar, the edits made, in their order, each its name and its values, a thin bar between one and the
+        <!-- the edits laid as the chain itself (?ui= edits chain; a page of its own, View › Edit chain, the chain on a row of
+             its own under the tabs), nothing under the bar: after the sound's name, past a thin bar, the edits made, in their order, each its name and its values, a thin bar between one and the
              next, as a flyer parts its genres (one made by other means, a crop on the picture, among them): pressed, its
              settings drop from it, a slider or a choice each, as an edit's card has them (settings.js), and at their foot
              Remove; dragged along the chain, it moves there, onto the field, it is taken away; Alt and an arrow move it,
@@ -158,8 +167,8 @@
              plain words, Edit…, a button as a select's: pressed, a list under it of the edits a press makes
              and the recipes, a search at its top that the keys are in (menus.js findKey); while an edit is carried, a
              trash can, Remove. With no sound to edit, dimmed and saying so, never disabled -->
-        <div class="embed-chain" role="group" aria-label="Edits" :if="embed && laid === 'chain'">
-          <span class="chain-step" :each="e in madeList"><button class="chain-edit" type="button" aria-haspopup="dialog" aria-description="Drag along the chain to move it, onto the field, Edit…, to remove it. Alt and an arrow move it; Delete removes it." :aria-expanded="stepOpen === e.n - 1 ? 'true' : 'false'" :aria-disabled="hasOutput ? null : 'true'" :data-off="e.off ? '' : null" :aria-label="e.off ? (e.values ? e.label + ' ' + e.values : e.label) + ', bypassed' : null" :title="e.off ? 'Bypassed: ' + e.about : e.about" :onclick="event => openStep(e.n - 1, event)" :onpointerdown="event => carryEdit(e.n - 1, event)" :onkeydown="event => editKey(e.n - 1, event)"><span class="edit-name" :text="e.label"></span><span class="edit-values" :text="e.values"></span></button></span>
+        <div class="embed-chain" role="group" aria-label="Edits" :if="laid === 'chain'">
+          <span class="chain-step" :each="e in madeList"><button class="chain-edit" type="button" aria-haspopup="dialog" aria-description="Drag along the chain to move it, onto the field, Edit…, to remove it. Alt and an arrow move it; Delete removes it." :aria-expanded="stepOpen === e.n - 1 ? 'true' : 'false'" :aria-disabled="hasOutput ? null : 'true'" :data-off="e.off ? '' : null" :data-failed="failure(e) ? '' : null" :aria-label="(e.values ? e.label + ' ' + e.values : e.label) + (e.off ? ', bypassed' : failure(e) ? ', skipped' : '')" :title="failure(e) ? 'Skipped: ' + failure(e) : e.about + '\n' + (e.off ? 'Bypassed: ' : '') + alt + '-click or B ' + (e.off ? 'turns it on' : 'bypasses it')" :onclick="event => event.altKey ? bypassEdit(e.n - 1) : openStep(e.n - 1, event)" :onpointerenter="event => followStep(e.n - 1, event)" :onpointerdown="event => carryEdit(e.n - 1, event)" :onkeydown="event => editKey(e.n - 1, event)"><svg class="edit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="e.icon"/></svg><span class="edit-name" :text="e.label"></span><span class="edit-values" :text="e.values"></span></button></span>
           <!-- a button that opens the list, as a select's does (menus.js findToggle): the list's search the field typed in
                (its first row), a key typed on the button going there -->
           <span class="chain-find"><button class="chain-add" type="button" aria-label="Add an edit" aria-controls="edits-found" :aria-haspopup="findTree ? 'tree' : 'listbox'" :aria-expanded="finding ? 'true' : 'false'" :aria-disabled="hasOutput ? null : 'true'" :onclick="findToggle" :onkeydown="findButtonKey"><span>Edit…</span></button><span class="chain-trash" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13M10 10v7m4-7v7"/></svg>Remove</span></span>
@@ -167,14 +176,29 @@
         <!-- at this row's right end, opposite the sound's name, with the edits the chain, aligned there: the history, undo
              and redo, none of it while there is no history at all; once there is, both in their places, the one that
              cannot act dimmed (aria-disabled), so neither moves under the pointer between presses;
-             the save, its icon and its word (where the page shows it, ?controls= save); then the way to the repl, its mark
-             alone, that it leaves the page, named Open in the editor (?controls= link) -->
-        <div class="head-end" :if="embed && laid === 'chain'">
+             embedded, the save, its icon and its word (where the page shows it, ?controls= save: a page of its own has its
+             Export in the bar); then the way to the repl, its mark alone, that it leaves the page, named Open in the
+             editor (?controls= link). A page of its own: at the tabs' right end -->
+        <div class="head-end" :if="laid === 'chain'">
           <div class="history" role="group" aria-label="History" :hidden="!canUndo && !canRedo">
             <button class="icon-button undo" :aria-disabled="canUndo ? null : 'true'" :onclick="undo" aria-label="Undo" :title="tip('undo')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
             <button class="icon-button redo" :aria-disabled="canRedo ? null : 'true'" :onclick="redo" aria-label="Redo" :title="tip('redo')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5m5 5H10a6 6 0 0 0 0 12h3"/></svg></button>
           </div>
-          <button class="embed-save" type="button" aria-label="Save as" title="Save as…" aria-haspopup="menu" :disabled="!hasOutput || exporting" :onclick="saveMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M4 19h16"/></svg><span>Save</span></button>
+          <!-- Before, after the history (which takes no room till there is one, so coming it moves nothing at its right),
+               the bar's Before in its place with the edits the chain (?ui= controls before; play.js
+               toggleAB, B): pressed, the sound before the edits, in the picture and in what plays, at the edits'
+               loudness, the history untouched; again, after. A toggle as Loop is: on, a quiet lit ground. Not there
+               while no edit is on (the owner, 20 Nov: "let's not display \"before\" button if there was no edits";
+               dimmed in its place before): it comes with the first edit, as the history does at its left, the row set
+               from its right, so nothing at its right moves. Pointed at or focused, the sound before the edits a ghost
+               over the picture (play.js beforeGhost). Its sign a compare view's divider ("the icon looks a bit like
+               sidebar now - what if we make it more like \"divider\"?"; a frame split down the middle before): two
+               halves parted by a line taller than both, the first half filled, before beside after -->
+          <button class="before" type="button" :hidden="!canCompare && !ab" :aria-pressed="ab ? 'true' : 'false'" :title="ab ? 'Back to the edits (' + shortcut('compare') + ')' : canCompare ? 'Hear and see it before the edits (' + shortcut('compare') + ')\nLevel-matched' : 'Before\nNo edit on to compare'" :onclick="toggleAB" :onpointerenter="() => beforeGhost(true)" :onpointerleave="() => beforeGhost(false)" :onfocus="() => beforeGhost(true)" :onblur="() => beforeGhost(false)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h3Z" fill="currentColor"/><path d="M15 7h3a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-3"/><path d="M12 3v18"/></svg><span>Before</span></button>
+          <button class="embed-save" type="button" :if="embed" aria-label="Save as" title="Save as…" aria-haspopup="menu" :disabled="!hasOutput || exporting" :onclick="saveMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M4 19h16"/></svg><span>Save</span></button>
+          <!-- the code for the sound as it stands (?ui= controls code), before the way on to the editor: a popover under
+               it, as the menus are, Escape or a press outside shutting it; the script to read and select, a copy -->
+          <button class="icon-button embed-code" type="button" :if="codes" popovertarget="code-view" aria-haspopup="dialog" aria-label="Code" title="The code for this sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 8-4 4 4 4m8-8 4 4-4 4"/></svg></button>
         </div>
         <a class="embed-open" :if="embed" :href="full || './'" target="_blank" rel="noopener" title="Open in the editor" :aria-label="laid === 'chain' ? 'Open in the editor' : null"><span class="embed-name">audio</span><span class="embed-label" :if="laid !== 'chain'">Open in editor</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6m0-6-9 9M18 14v5H5V6h5"/></svg></a>
         <!-- the open sounds, a tab each, as an audio editor's files, dragged along to reorder; a selection's audio dragged
@@ -233,6 +257,8 @@
             </div>
           </nav>
           <div class="plot" role="application" :aria-label="plotHelp" aria-describedby="status"></div>
+          <!-- the sound before the edits, a ghost over the picture while Before is pointed at (play.js beforeGhost) -->
+          <canvas class="before-ghost" hidden aria-hidden="true"></canvas>
           <!-- the output shown when it is not the whole chain's, over the picture: up to a step chosen in the edits, those
                after it bypassed for now, or what a step takes out; Show all, the whole chain again. Nothing is lost -->
           <p class="viewing" :if="viewing"><span :text="viewing"></span><button type="button" :onclick="showAll" title="The whole chain (Esc)">Show all</button></p>
@@ -335,8 +361,9 @@
           <!-- a status bar's two sides: at the left, after the time and its length, what they come to (the level, the note
                or chords, the tempo of all of it or of the selection), or in their place, what was done, what the engine
                does now (how far a sound on its way has come, a mark turning while it works) or what went wrong; at the
-               right, what the sound is: its rate and channels, each a click from changing it; the check; Before: the file
-               as it opened, level-matched, from the same place; again, after (B); the export -->
+               right, what the sound is: its rate and channels, each a click from changing it; the check; Before: the
+               sound before the edits, seen and heard, level-matched, from the same place; again, after (B; with the
+               edits the chain, at the row's right end over the picture); the export -->
           <!-- embedded, the edits the chain over the picture (?ui= edits chain), its row the sound's name and its edits:
                before the level, what kind of sound it is, in a word, where it is known, what more is known of the sound
                in its tooltip (readouts.js kindTip); pressed, a menu of what it shows instead, each with its value: the kind, the note or chords
@@ -388,7 +415,7 @@
             </table>
             <p class="check-note" :if="report?.note" :text="report?.note"></p>
           </div>
-          <button class="before" :aria-pressed="ab ? 'true' : 'false'" :onclick="toggleAB" :disabled="!canCompare" :title="canCompare ? (ab ? 'Back to the edit (' + shortcut('compare') + ')' : 'Hear the original (' + shortcut('compare') + ')\nLevel-matched') : 'No original to compare'">Before</button>
+          <button class="before" :if="laid !== 'chain'" :aria-pressed="ab ? 'true' : 'false'" :onclick="toggleAB" :disabled="!canCompare" :title="canCompare ? (ab ? 'Back to the edits (' + shortcut('compare') + ')' : 'Hear and see it before the edits (' + shortcut('compare') + ')\nLevel-matched') : 'No edits to compare'" :onpointerenter="() => beforeGhost(true)" :onpointerleave="() => beforeGhost(false)" :onfocus="() => beforeGhost(true)" :onblur="() => beforeGhost(false)">Before</button>
           <!-- embedded, with no menu bar to hold them: the history, at the bar's right end, after the level and the facts,
                where nothing coming moves it: undo, redo (with the edits the chain, after the edits made, above), none
                of it while there is no history at all; once there is, both in their places, the one that cannot act
@@ -408,7 +435,7 @@
         </div>
       </footer>
     </main>
-    <!-- embedded, what the chain's field finds (?ui= edits chain): under it, over the picture as a menu is; at its top
+    <!-- what the chain's field finds (?ui= edits chain): under it, over the picture as a menu is; at its top
          a search, the keys in it as the list opens, typed in to narrow it; a line an edit, its icon, its name, at its
          right end the value it is made with (a recipe's count of edits), cut short past its room, what it does its title
          (menu.js hinted); one lit. A press on a row takes no keys from the search, and one made by a press gives them
@@ -416,7 +443,13 @@
          a small head (menu-group, as the menus' sections), then a row a kind, the edits of a kind beside it, a tree to
          the keys, a hairline between the groups (in a phone's frame in the list's place, a way back over them); typed
          in, one flat list -->
-    <div id="edits-found" class="edits-found" popover="manual" :data-kind="findKind || null" :if="embed && laid === 'chain'" :ontoggle="e => finding = e.newState === 'open'" :onmousedown="e => e.target.closest('.found-search') || e.preventDefault()">
+    <!-- the code for the sound as it stands (?ui= controls code, editor.js codeToggle): the script editor itself, taken in
+         from the code pane as it opens, back there as it shuts; under it, Copy. Escape shuts it, but where the editor
+         takes the key (its completions shut first, as in the pane) -->
+    <div id="code-view" class="code-view" popover role="dialog" aria-label="The code for this sound" :if="laid === 'chain'" :onbeforetoggle="codeToggle">
+      <p class="code-foot"><span :text="codeSaid"></span><button class="code-copy" type="button" :onclick="codeCopy">Copy</button></p>
+    </div>
+    <div id="edits-found" class="edits-found" popover="manual" :data-kind="findKind || null" :if="laid === 'chain'" :ontoggle="e => finding = e.newState === 'open'" :onmousedown="e => e.target.closest('.found-search') || e.preventDefault()" :onpointerleave="findLeave">
       <!-- (a field one tells from a row at a glance, as a design app's search: a well a shade under the list's ground, a
            magnifier before the words, a clear button once something is typed, a ring in the accent while the keys are
            in it, a hairline under its area) -->
@@ -430,13 +463,13 @@
         <p class="found-none" :if="!found.length">No edit by that name</p>
       </div>
     </div>
-    <!-- embedded, an edit of the chain's (?ui= edits chain) pressed: its settings dropping from it, one shape with it, as
+    <!-- an edit of the chain's (?ui= edits chain) pressed: its settings dropping from it, one shape with it, as
          the old widget's pill and its menu were: over the edit, its tab, the edit again on the settings' ground (seen
          only: a press on it reaches the edit under it, which closes them); joined under it, what it does in a quiet line,
          its settings (menus.js openStep, settings.js), and at their foot Bypass, pressed while the edit is off, beside
          Remove (chain.js bypassEdit, dropEdit). A press outside it or Escape closes it, the keys back on the edit -->
     <div id="step-settings" class="step-settings" popover="manual" role="dialog" :aria-label="stepTitle" :ontoggle="stepToggle">
-      <p class="step-tab" aria-hidden="true" :data-off="madeList[stepOpen]?.off ? '' : null"><span class="edit-name" :text="madeList[stepOpen]?.label"></span><span class="edit-values" :text="madeList[stepOpen]?.values"></span></p>
+      <p class="step-tab" aria-hidden="true" :data-off="madeList[stepOpen]?.off ? '' : null" :data-failed="failure(madeList[stepOpen]) ? '' : null" :title="failure(madeList[stepOpen]) ? 'Skipped: ' + failure(madeList[stepOpen]) : null"><span class="edit-name" :text="madeList[stepOpen]?.label"></span><span class="edit-values" :text="madeList[stepOpen]?.values"></span></p>
       <div class="step-body">
         <p class="step-about" :text="stepAbout"></p>
         <div class="step-settings-body"></div>
@@ -444,7 +477,7 @@
       </div>
     </div>
     <!-- (what the chain's keys and drags did, said: chain.js) -->
-    <p class="visually-hidden" role="status" :if="embed && laid === 'chain'" :text="chainSaid"></p>
+    <p class="visually-hidden" role="status" :if="laid === 'chain'" :text="chainSaid"></p>
     <!-- how a band shows, the dropdown by its look in its layer: what it shows, then how that draws, every group
          in sight, its choices as keys, what the chosen one does under them -->
     <div class="dropdown" popover="manual" role="dialog" :aria-label="dropTitle" :ontoggle="dropToggle">
@@ -546,7 +579,7 @@
         <tr :if="whole"><th scope="row">Level</th><td colspan="2"><button class="at" type="button" :onclick="pickReading" :text="readout"></button></td></tr>
         <tr :if="whole"><th scope="row">Check</th><td colspan="2"><button class="at" type="button" :onclick="pickSpec" :text="spec ? specs.find(s => s.key === spec)?.label + (report ? (report.pass ? ', passes' : ', fails') : '') : 'Off'"></button></td></tr>
         <tr :if="sound"><th scope="row">Sound</th><td colspan="2"><button class="at" type="button" popovertarget="rate-menu" :text="sound?.rate"></button> <button class="at" type="button" popovertarget="channels-menu" :text="sound?.channels"></button></td></tr>
-        <tr><th scope="row">Before</th><td colspan="2"><button class="at" type="button" :disabled="!canCompare" :onclick="toggleAB" :text="ab ? 'Hearing the original' : 'Hear the original'"></button></td></tr>
+        <tr><th scope="row">Before</th><td colspan="2"><button class="at" type="button" :disabled="!canCompare" :onclick="toggleAB" :text="ab ? 'Hearing before the edits' : 'Hear it before the edits'"></button></td></tr>
       </tbody></table>
     </div>
 
@@ -621,7 +654,7 @@
         <dt :text="keys(shortcut('palette'))"></dt><dd>The palette: the edits for what is selected, and every method, found by typing (⌘K too)</dd>
         <dt :text="keys('Delete, ' + shortcut('cut', 'copy', 'paste') + ', ' + shortcut('undo', 'redo'))"></dt><dd>Edit the selection; undo, redo. Each edit is a step of the chain, its seams crossfaded (the settings). What is copied pastes in any tab, and in another window of the editor; in Chrome, as a WAV in any page that takes one. ⌘V also pastes an audio file copied in the Finder or the Explorer</dd>
         <dt :text="keys(shortcut('loop') + ', Loop')"></dt><dd>Playback repeats the selection, or all of it</dd>
-        <dt :text="keys(shortcut('compare') + ', Before')"></dt><dd>Hear the file as it opened, level-matched, at the same place; B or Before again, the output. Before is on the deck, after Loop</dd>
+        <dt :text="keys(shortcut('compare') + ', Before')"></dt><dd>Hear and see the sound before the edits, the chain rolled back to its source, level-matched to the edits, from the same place; B or Before again, after; any change to the script, after again. Before is at the bar's right end; with the edits laid as the chain, at the row's right end over the picture</dd>
         <dt :text="keys(shortcut('record') + ', Record')"></dt><dd>Into the picture from the caret, drawn as the waveform or the spectrogram, its level and spectrum on the meters, over what is there, as a tape; into a selection, to its end (with the loop on, pass after pass, each a take, the last cut short left out). Stopped, the caret waits where the take ended: Record again records on. Recorded again where a take went in, one more take there. Undo takes it back. Into a track, the other tracks play as it records, the take lined up with what was heard (the device's latency read off its clocks)</dd>
         <dt :text="keys(shortcut('record.track'))"></dt><dd>Record in a new track (or Record with Shift): an empty one under the last, recorded into from the caret as the others play</dd>
         <dt :text="keys(shortcut('record.take'))"></dt><dd>A take (or Record with Alt, which adds), made as it is pressed: over what is selected, the range at the caret or the takes there, an empty one recorded into, to its end; with none there, a recording from the caret, the first</dd>

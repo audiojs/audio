@@ -1,11 +1,12 @@
-import { labelOf } from '../ops.js'
-import { prepare, error, bare, source, chain, rollback, residual } from '../code.js'
+import { labelOf, retimes, retimer } from '../ops.js'
+import { prepare, error, bare, source, chain, rollback, residual, turnOff } from '../code.js'
 import { builtins, sample } from '../sources.js'
 import { pastable } from './clipboard.js'
-import { state, eng, v, ed, pl, output, incoming, timer, hush, steps, viewing, assign } from './context.js'
+import { root, EMBED } from './config.js'
+import { state, eng, v, ed, pl, output, incoming, timer, hush, steps, viewing, rk, assign } from './context.js'
 import { shelf, restoring } from './files.js'
 import { clock, several, note } from './format.js'
-import { sway, togglePlay } from './play.js'
+import { sway, togglePlay, plays, matched, comparable } from './play.js'
 import { marks, meter, describe } from './readouts.js'
 import { places } from './recording.js'
 import { docs, docOf, soundName, badges } from './tabs.js'
@@ -70,11 +71,18 @@ export async function evaluate() {
   }
   return perform(runs, code, quiet)
 }
+// A step's settings changed that scale time (ops.js retimes): from where, s, for the next run asked, whose output takes
+// what is selected, the caret, the view and what plays with the sound (carry). A setting set to what it was asks nothing
+let retiming = null
+export function retime(name, was, is) {
+  const at = JSON.stringify(was) === JSON.stringify(is) ? null : retimes[name]?.(was, is, v.duration)
+  if (at != null) retiming = at
+}
 // Runs `runs`, the editor holding `code`, its reply and output shown as they come; the last asked (sent)
 let sent = null
 // A run a mute asks (`quiet`) is made unseen: the mix again without the tracks muted, for the levels and the export, its
 // lanes as they were; nothing says it works, nor does the picture take it up as it comes (heard already: toggleMute)
-async function perform(runs, code, quiet = false) {
+async function perform(runs, code, quiet = false, failed = []) {
   // a script with nothing in it runs nothing, nothing else on its way: no sound, at once, the engine not waited for, so
   // an empty tab shows its empty track as the page comes up (and the run asked last is no longer this script's)
   if (!waiting() && !incoming && !bare(runs).trim()) { sent = null; show({ logs: [] }); return status() }
@@ -84,8 +92,10 @@ async function perform(runs, code, quiet = false) {
   // arrives before the run that opens it, and runs stay in the order they were asked for.
   // A file kept opens as it was kept, before a sample of its name (one kept before names stayed clear of theirs)
   for (const name of script.names) if (!eng.has(name) && (shelf.has(name) || builtins[name])) eng.file(name, shelf.get(name) ?? sample(name))
-  // the output keeps the code that made it (what ran, and what the editor had), and the tab it is for
-  const tab = eng.tab, coming = sent = Object.assign(arrival(script.names), { code: runs, editor: code, tab, quiet })
+  // the output keeps the code that made it (what ran, and what the editor had), and the tab it is for; the steps skipped
+  // on the way to it (`failed`, below)
+  const tab = eng.tab, coming = sent = Object.assign(arrival(script.names), { code: runs, editor: code, tab, quiet, retime: retiming, failed })
+  retiming = null
   asking.set(tab, (asking.get(tab) ?? 0) + 1)
   if (quiet) hushed.set(tab, (hushed.get(tab) ?? 0) + 1)
   asked = script.names
@@ -95,6 +105,8 @@ async function perform(runs, code, quiet = false) {
   const left = asking.get(tab) - 1
   left > 0 ? asking.set(tab, left) : asking.delete(tab)
   if (quiet) { const n = hushed.get(tab) - 1; n > 0 ? hushed.set(tab, n) : hushed.delete(tab) }
+  const again = !result.skipped && without(coming, result.error)
+  if (again) return again
   // another tab shown meanwhile: the reply is the one left's, its output made on for it there (arrival)
   if (!result.skipped && eng.tab === tab) show(result, false, script.names, coming)
   else if (!result.skipped && result.output && docOf(tab)) {
@@ -103,6 +115,26 @@ async function perform(runs, code, quiet = false) {
   }
   status()
 }
+// A step that fails, as it is called (perform) or as the chain renders (arrival's error): the chain made again without
+// it, as a host bypasses a plugin that fails, so the steps after it and the sound are still heard and drawn; it is said
+// (show), and stays in the script as written. A step at a time, eight at most; none for a run whose tab was left, or a
+// newer run of which was asked meanwhile (that one takes its place). The run `coming` was (perform's) asked again
+// without it, or null
+function without(coming, e) {
+  const k = eng.tab === coming.tab && !waiting() && coming.failed.length < 8 && failing(coming.code, e), off = k && turnOff(coming.code, k)
+  if (!off) return null
+  retiming = coming.retime
+  return perform(applied(coming.code, off), coming.editor, coming.quiet, [...coming.failed, { ...e, name: k.name }])
+}
+// The chain's step a run's error is at, by its line (worker.js: the line of its first frame in the script, or of the call
+// that made the edit that raised it as the chain rendered), or null: an error elsewhere, or with no line
+function failing(code, e) {
+  if (!e?.line) return null
+  const line = at => code.slice(0, at).split('\n').length
+  return chain(code)?.calls.find(k => line(k.dot) <= e.line && e.line <= line(k.to)) ?? null
+}
+// code with a change (code.js turnOff: one, or several) made
+const applied = (code, change) => [change].flat().sort((p, q) => q.from - p.from).reduce((c, x) => c.slice(0, x.from) + (x.insert ?? '') + c.slice(x.to ?? x.from), code)
 // Stopped: what renders stops, and the edit that set it off is undone, as an editor's Cancel leaves an effect unapplied:
 // the script goes back to the one the picture shows, which runs at once from what the worker kept (Redo applies the edit
 // again). A worker held past stopping is replaced, and what it kept goes with it: the output shown is made again in the
@@ -114,18 +146,23 @@ export async function stop() {
 }
 // A run's reply: what the script printed in the console under it; what went wrong, in the status bar after the time
 // and at its line in the script. The last output that ran stays. A sound it made
-// then arrives (arrival).
+// then arrives (arrival). A step skipped as it failed, called or rendered (without), is said the same way, its output
+// shown without it
 function show(result, syntax = false, names = [], coming = null) {
   // the first result, whatever it is, says whether there is a sound: until then the view waits, not invites
   state.ran = true
-  const lines = saying(result), e = result.error
+  const lines = saying(result), e = result.error, failed = coming?.failed ?? []
   state.lines = lines
-  const problem = e ? e.message + (e.line ? ` (line ${e.line})` : '') : ''
+  const told = f => f.message + (f.line ? ` (line ${f.line})` : '')
+  const problem = e ? told(e) : failed.length ? `${failed.map(told).join('; ')}: ${failed.length > 1 ? 'those steps' : labelOf(failed[0].name)} skipped, the rest of the chain made without ${failed.length > 1 ? 'them' : 'it'}` : ''
   state.problem = problem
   state.missing = e?.missing || ''
   if (syntax) return
-  const line = e?.line && lineOf(ed.code, e.line)
-  ed.errors(line ? [{ ...line, message: e.message }] : [])
+  ed.errors([...e ? [e] : [], ...failed].flatMap(f => { const line = f.line && lineOf(ed.code, f.line); return line ? [{ ...line, message: f.message }] : [] }))
+  // and on the step itself, the chain's edit and its card (menus.js failure): by its line, its error's first line
+  const was = JSON.stringify(state.failed)
+  state.failed = failed.filter(f => f.line).map(f => ({ line: f.line, message: String(f.message ?? '').split('\n')[0] }))
+  if (JSON.stringify(state.failed) !== was) rk?.refresh()
   state.canPaste = pastable()
   // an edit drawn ahead of its output that failed: the picture goes back to the output there is
   if (e) { v.expect(null); if (!state.hasOutput) entitle(names, false); return finished({ ok: false, problem }) }
@@ -255,8 +292,12 @@ function arrival(names) {
     // output, arriving unlooked-for, would show all of it again, the view moved under the pointer
     if (v.expecting && !a.on && a.editor !== ed.code) { a.parts = []; return status() }
     const out = assemble(m)
+    // (playing, what plays aimed anew from the player's own output, which this one takes over where it is)
+    const replay = a.retime != null && pl.playing && pl.out ? retimer(a.retime, spanOf(pl.out), spanOf(out)) : null
     if (a.on) v.finish()
+    else carry(a, spanOf(out))
     settle(out, !a.on, a.editor !== ed.code)
+    if (replay) pl.play(plays(replay(pl.time)))
     finished({ ok: true, duration: m.duration, loudness: m.stats?.loudness, peak: m.stats?.peak })
     status()
   }
@@ -292,29 +333,40 @@ function arrival(names) {
   const unclaim = () => { const d = docOf(a.tab); if (d?.coming === a) d.coming = null }
   const gone = () => { if (away()) { unclaim(); badges() } }
   a.skip = gone
+  // Its render failed: the step that failed is skipped (without), the run made again without it said once it is made;
+  // else the problem said, with the op that raised it where no step is named
   a.error = m => {
     if (!current()) return gone()
     assign({ incoming: null })
     unclaim()
-    state.problem = m.error.message
-    finished({ ok: false, problem: m.error.message })
-    v.expect(null)
+    const again = without(a, m.error)
+    if (!again) { state.problem = unnamed(m.error); finished({ ok: false, problem: state.problem }); v.expect(null) }
     // what showed of it goes: the last whole output comes back, or nothing
     if (a.on || a.preview) settle(output?.duration ? output : null)
     state.loading = false
-    status()
+    if (!again) status()
   }
   return a
 }
+// A render's error no step of the chain is named for (a script with no chain, a step of another track, one the engine's
+// blame did not tie to an edit of the output): its words, and the op that raised it and the track it was on, where the
+// worker says them (worker.js failure, mixTracks: never of a file that did not open)
+const unnamed = e => e.op ? `${e.message} (${labelOf(e.op)}${e.track ? `, track ${e.track}` : ''})` : e.message
 // A file the shown output doesn't open
 const fresh = names => names.join() !== (output?.names || []).join()
 // An output arriving as long as the one shown, at its rate, with its channels, of the same files
 export const alike = a => !!output?.channels && !output.tracks && a.total != null && a.total === output.length && a.sampleRate === output.sampleRate && a.channels === output.channels.length && !fresh(a.names)
+// How long the sound a step's settings change is in an output, s: with tracks, the edited track
+const spanOf = out => { const t = lane(out); return t ? t.length / out.sampleRate : out?.duration ?? 0 }
+// An output a step's new settings made that scale time (retime), `T` s long, in place of the one shown: what is
+// selected, the caret and the view taken with the sound to where it is on it (view.js retime); as long, all where it was
+const carry = (a, T) => { if (a.retime != null) v.retime(retimer(a.retime, spanOf(output), T)) }
 // The view shows an output as it arrives; the player has what has come
 export function begin(a) {
   a.on = true
   a.preview = false
   assign({ showing: a.id })
+  if (a.total != null) carry(a, a.total / a.sampleRate)
   v.stream({ sampleRate: a.sampleRate, channels: a.channels, total: a.total })
   aim(false, true)
   for (const p of a.parts) piece(p)
@@ -371,22 +423,24 @@ export function settle(out, draw = true, behind = false) {
   // the markers as the script has them: an older script's output, the newer one on its way, leaves those the view
   // drew ahead of it (made, named, moved) as they are
   if (!behind) v.markers = numbered(out?.markers)
-  // a tab shown again whose player plays its output already plays on as it is
-  if (pl.out !== out || !has) lend(out)
+  // a tab shown again whose player plays its output already plays on as it is; the sound before the edits at the edits'
+  // loudness (play.js toggleAB)
+  const gain = matched(out)
+  if (pl.out !== out || !has) lend(out, gain ?? 0)
   if (!has && pl.playing) togglePlay()
   state.duration = has ? out.duration : 0
-  state.ab = false
-  state.canCompare = has && !out.tracks && !!sourceName()
+  state.canCompare = comparable(out)
   describe()
   marks()
   meter()
   scheduleCheck()
 }
-// What the shown tab's player plays: output `out` (none: nothing), the output it holds (`out`) known by it
-export function lend(out) {
-  const has = !!out?.duration
+// What the shown tab's player plays: output `out` (none: nothing), the output it holds (`out`) known by it; `gain` dB
+// over it (heard.js, an edit of its own, a moment heard through another taking its place)
+export function lend(out, gain = 0) {
+  const has = !!out?.duration, opens = has && hears(out)
   pl.out = has ? out : null
-  pl.set(has ? out.channels : null, out?.sampleRate, has ? hears(out) : null, has ? out.length : 0, fetches(out), has ? lanesOf(out) : null)
+  pl.set(has ? out.channels : null, out?.sampleRate, !has ? null : gain ? o => opens(o.edit ? o : { ...o, edit: ['gain', gain] }) : opens, has ? out.length : 0, fetches(out), has ? lanesOf(out) : null)
 }
 // What the engine is doing, said after the time once it takes a moment: a file the view has not shown decoding, and
 // how much of it has come; an output rendering, and how much of it. One word from the first run to the last output, so
@@ -418,7 +472,69 @@ export function status() {
   state.working = shown
   if (busy && !ticking) ticking = setInterval(status, 100)
   if (!busy && ticking) { clearInterval(ticking); ticking = 0 }
+  progress(shown ? state.arrived : state.exporting ? null : undefined)
   sway()
+}
+// How far the work has come, told where it is drawn as it changes, from when the words say it (200 ms) on, an export
+// too (files.js: busy, no figure; not the words', whose Stop would undo the edit before it): `p` 0 to 1, null while
+// busy with no figure, undefined idle. A page of its own: the strip along its top (strip). Embedded: the
+// page around it, which draws its own (embed.js `progress`: { p }, then { done })
+let said
+function progress(p) {
+  p = p == null ? p : Math.round(p * 1000) / 1000
+  if (p === said) return
+  said = p
+  if (!EMBED) return strip().set(p)
+  if (parent !== window) parent.postMessage(p === undefined ? { audio: 'progress', done: true } : { audio: 'progress', p }, '*')
+}
+// The strip along the page's top, as the site's tools draw their progress (its util.js ticks): a tick each 6 px, filled
+// from the left as far as the work has come, the cells a step crosses filling one after another, a step of 8 or more
+// sweeping in two turns; busy with no figure, the ticks thickening in a wave along it, nothing filled; done, all of it
+// filled, then gone, emptied out of sight. Each cell its place along it (`--p`), its share of the work done (`--f`), its
+// delay in turns (`--d`): editor.css .progress. Its cells made once there is work, again as its width changes
+const PITCH = 6, BUSY_AFTER = 120
+let ticks = null
+function strip() {
+  if (ticks) return ticks
+  const bar = root.querySelector('.progress'), fill = (i, at) => Math.min(1, Math.max(0, at - i)), cells = () => [...bar.children]
+  let n = 0, share = 0, busy = false, wait = 0, gone = 0, figured = false
+  const lay = () => {
+    const m = Math.max(1, Math.floor(bar.clientWidth / PITCH))
+    if (!bar.clientWidth || m === n) return
+    n = m
+    bar.replaceChildren(...Array.from({ length: n }, (_, i) => { const c = document.createElement('i'); c.style.setProperty('--p', +((i + .5) / n).toFixed(4)); if (!busy) c.style.setProperty('--f', fill(i, share * n)); return c }))
+  }
+  const idle = () => { busy = true; share = 0; bar.toggleAttribute('data-busy', true); bar.removeAttribute('aria-valuenow'); for (const c of cells()) { c.style.removeProperty('--f'); c.style.removeProperty('--d') } }
+  const to = p => {
+    if (busy) { busy = false; bar.removeAttribute('data-busy') }
+    const was = share * n, at = p * n, lo = Math.floor(Math.min(was, at)), hi = Math.min(n, Math.ceil(Math.max(was, at))), sweep = Math.min(Math.abs(at - was), 8) / 4
+    share = p
+    bar.setAttribute('aria-valuenow', Math.round(p * 100))
+    for (let i = lo; i < hi; i++) {
+      const c = bar.children[i], f = fill(i, at)
+      if (+c.style.getPropertyValue('--f') === f) continue
+      c.style.setProperty('--d', +(sweep * (at > was ? i - lo : hi - 1 - i) / Math.max(1, hi - lo - 1)).toFixed(3))
+      c.style.setProperty('--f', f)
+    }
+  }
+  new ResizeObserver(lay).observe(bar)
+  lay()
+  return ticks = { set(p) {
+    clearTimeout(wait)
+    clearTimeout(gone)
+    if (p === undefined) {
+      if (!bar.hasAttribute('data-on')) return
+      // (a figure said, filled whole first; out of sight, emptied for the next work, nothing seen to run back)
+      if (figured) to(1)
+      gone = setTimeout(() => { bar.removeAttribute('data-on'); wait = setTimeout(() => { to(0); idle() }, 400) }, figured ? 300 : 0)
+      figured = false
+      return
+    }
+    bar.toggleAttribute('data-on', true)
+    if (p === null) { if (!busy) wait = setTimeout(idle, BUSY_AFTER); return }
+    figured = true
+    to(Math.min(1, Math.max(0, p)))
+  } }
 }
 // Named as its tab is (soundName), for the files a run opened where the script alone does not say, while a chain is being
 // typed; so a file that failed to open is still named
@@ -426,7 +542,7 @@ function entitle(names, has) {
   state.name = soundName(ed.code, source(ed.code)?.strings.map(s => s.name) || names, has)
   document.title = `${state.name === 'untitled' ? '' : state.name + ' · '}audio editor`
 }
-// The one file the script opens, whose original the output compares with; none for generated or joined sources.
+// The one file the script opens (the agent's tools.js); none for generated or joined sources
 export const sourceName = () => { const s = source(ed.code)?.strings; return s?.length === 1 ? s[0].name : null }
 // Checks the output against the chosen spec, a moment after it settles; a newer output's check replaces an older one's,
 // which the page then ignores.

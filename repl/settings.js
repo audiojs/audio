@@ -7,6 +7,16 @@ import { valuesOf, setArg } from './code.js'
 // sets one of them. A slider rewrites its argument in place, its moves live and out of the history until it comes to
 // rest, a whole drag one undo step; a choice is one step.
 
+// The change setting `index` of `spec` set to `value` makes to `call`: by its name in the options object where the
+// library reads it there alone (`option`: the op takes it in its options, not at a place), and for a range or a plugin
+// where the call has its options object or no argument yet; else at its place, the places before it filled with their
+// defaults. A setting written at a place the op does not read is a call it refuses (plan.js opMethod)
+export function argChange(call, spec, index, value) {
+  const op = ops[call.name], s = spec[index], positional = call.args.filter(a => a.kind !== 'object'), options = call.args.find(a => a.kind === 'object')
+  const named = s.option || (!op?.params || op.range) && (options || !positional.length)
+  return named ? setArg(call, s.name, value) : setArg(call, index, value, spec.map(p => p.default))
+}
+
 // What each setting does and which come first (help.js), the largest text the page has: loaded with the first
 // settings, not with the page
 let help, layout, line
@@ -46,11 +56,13 @@ export default function settings(card, { ed, describe = async () => null, durati
   // (a number's place on its slider, and the value at a place, rounded to its step: ops.js toSlider, fromSlider)
   // Times in the audio reach its end.
   const limits = s => ['at', 'duration', 'to'].includes(s.name) && s.unit === 's' ? { ...s, max: Math.max(duration(), .01) } : s
-  // What pointing at a setting says: what it does and which way to move it (help.js), and for a number its range and
-  // where it starts; the choices are on show.
+  // What pointing at a setting says, two lines at the most as every tooltip: what it does and which way to move it
+  // (help.js). Its range is the slider's ends and where it starts its value until one is set; a setting with no words
+  // says those.
   function tip(s, text) {
-    const lim = limits(s), facts = s.values ? s.values.join(', ') : `${format(lim.min, s)} to ${format(lim.max, s)}${s.default == null ? '' : `, default ${format(s.default, s)}`}`
-    return !text ? `${s.name}: ${facts}` : s.values ? text : `${text}\n${facts}`
+    if (text) return text
+    const lim = limits(s)
+    return `${s.name}: ${s.values ? s.values.join(', ') : `${format(lim.min, s)} to ${format(lim.max, s)}${s.past === undefined ? '' : `, then ${format(s.past, s)}`}${s.default == null ? '' : `, default ${format(s.default, s)}`}`}`
   }
   // a row: its name and value above, its slider (or choices) across below; pointed at or focused, said (onpoint)
   function build(s, index) {
@@ -134,9 +146,7 @@ export default function settings(card, { ed, describe = async () => null, durati
     return { ...Object.fromEntries(options?.props.map(p => [p.name, p.value]) || []), ...Object.fromEntries(spec.map((p, i) => [p.name, set[i]])) }
   }
   function write(s, index, value, live = false) {
-    const call = card.call, op = ops[call.name], spec = self.spec, positional = call.args.filter(a => a.kind !== 'object'), options = call.args.find(a => a.kind === 'object')
-    const named = s.option || (!op.params || op.range) && (options || !positional.length)
-    const change = named ? setArg(call, s.name, value) : setArg(call, index, value, spec.map(p => p.default))
+    const call = card.call, change = argChange(call, self.spec, index, value)
     // what the picture shows at once: the settings it had and the ones it gets, by name, its range with them
     const was = now()
     // bypassed, the output stays as it is

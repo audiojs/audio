@@ -651,6 +651,8 @@ test('code: the CLI translation makes the same audio as the script (bin/cli.js o
     assert.equal(cli(scripts[3], name => ops[name]?.params), 'audio in.wav denoise noise:0s..0.4s')
     assert.equal(cli(scripts[4], name => ops[name]?.params), 'audio in.wav denoise 20db noise:0s..0.4s 1s..1.5s')
     assert.equal(cli(`audio('in.wav').denoise({ noise: [{ at: 0, duration: 0.4 }, { at: 1, duration: 0.2 }] })`), null)
+    // Infinity bare, as the command line reads it (bin/cli.js INF): no unit after it
+    assert.equal(cli(`audio('in.wav').gain(-Infinity, { at: 0, d: 1 })`, name => ops[name]?.params), 'audio in.wav gain -Infinity 0s..1s')
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
 

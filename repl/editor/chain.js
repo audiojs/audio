@@ -58,6 +58,8 @@ export function moveEdit(k, to, keyed = false) {
 export function editKey(k, event) {
   const bare = !event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey
   if (bare && (event.key === 'Delete' || event.key === 'Backspace')) { event.preventDefault(); return dropEdit(k, true) }
+  // B: bypassed, or on again, as Alt with a press does (index.html .chain-edit)
+  if (bare && (event.key === 'b' || event.key === 'B')) { event.preventDefault(); event.stopPropagation(); return bypassEdit(k) }
   const by = event.altKey && !event.metaKey && !event.ctrlKey && { ArrowLeft: -1, ArrowRight: 1 }[event.key]
   if (!by) return
   event.preventDefault()

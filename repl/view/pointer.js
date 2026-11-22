@@ -1,12 +1,12 @@
 import { markLane } from './data.js'
 import { lockedAt, haunt, unghost, pointers, plot, spare, tallOf, lanes, inRoom, own, onOwn, laneAt, trackAt, footAt, bands, resized, refocus, freeze, own0, frozenAt } from './geometry.js'
-import { selectDown, origin, current, caretAt, edgeAt, gripDown, endDown, gapDown, take, lifting, lock, aimed, fine, scrub, unscrub, nearCue, cueDown, penDown, toneDown, pitchDown, noteDown, tapped, heardAround } from './gestures.js'
+import { selectDown, origin, current, caretAt, edgeAt, gripDown, endDown, gapDown, take, lifting, lock, aimed, aims, amid, carried, copied, fine, scrub, unscrub, nearCue, cueDown, penDown, toneDown, pitchDown, noteDown, tapped, heardAround } from './gestures.js'
 import { EDGE, ONTO, FINE, HOLD, SLOP, EXTEND, ADD, OPEN, root, onedit, onmode, onscrub, onaudition, onheight, duration, show, markers, more, pieces, start, end, fview, selection, band, cursor, playhead, steered, cues, envelope, shift, contour, fadeCurve, aview, LEVEL_STEP, tracks, focus, across, sections, heights, lift, chosen, held, recording, assign } from './model.js'
 import { hear, pitchRange, noteAt, linePoints, curveOf, onLine, pointOn, knotOn } from './notes.js'
 import { lanesEnd, gripAt, gripPointer, glide } from './overlay.js'
 import { arrange, faded, crossed, invalidate } from './render.js'
 import { steer, onAway, bring } from './ruler.js'
-import { bar, onBar, x, time, clamp, snap, free, snapF, stick, stuck, pitchLine, snapV, local, inside, uy, ya, fold, pointAt, lineLanes, pitchLanes, setRange, setFreqs, zoomSpan, onFreqs, onLevels, zoomLevels } from './scales.js'
+import { bar, onBar, x, time, clamp, snap, free, snapF, stuck, landings, land, pitchLine, snapV, local, inside, uy, ya, fold, pointAt, lineLanes, pitchLanes, setRange, setFreqs, zoomSpan, onFreqs, onLevels, zoomLevels } from './scales.js'
 import { around, select, told, addCaret, setCursor } from './select.js'
 import { thumb, liftAt, editing, caretTo, notch, stripAt, kin, same, rename, nameAt, placeMarker } from './strips.js'
 
@@ -86,8 +86,8 @@ export function down(event) {
   const L = own(lanes())
   drag = gripDown(px, py, L, event) || endDown(px, py, event) || gapDown(px, py, event) || cueDown(px, py, event) || (show.gain && !pitchLine() && penDown(px, py, L)) || (pitchLine() && (toneDown(px, py, L) || penDown(px, py, L, true) || pitchDown(px, py, L) || penDown(px, py, L))) || noteDown(px, py, L, event) || selectDown(event, px, py, t, L)
   drag.bound = boundOf(drag, was)
-  // ⌘ aims finely, but not what it took hold of: a box, audio carried, an end stretched, a cue
-  drag.aim = { px, py, ex: px, ey: py, on: editing(event), k: editing(event) && !drag.box && !drag.carry && !drag.end && drag.cue == null ? FINE : 1 }
+  // ⌘ aims finely, but not what it took hold of (aims)
+  drag.aim = { px, py, ex: px, ey: py, on: editing(event), k: editing(event) && aims(drag) ? FINE : 1 }
   // a plain press held still, Alt's too: the caret, dragged, no selection (no caret added)
   const d = drag
   if (d.anchor != null && !d.moved && !d.caret && !d.box && !d.keep) d.hold = setTimeout(() => {
@@ -192,27 +192,32 @@ export function drags(event, px, py) {
     if (drag.locked) Promise.resolve(root.requestPointerLock()).catch(() => { if (drag) drag.locked = false })
     return drags(event, px, py)
   }
-  // moved audio lands with its start or its end on a cue, whichever is nearer one, past the end too (silence opening
-  // up to it); a copy goes in at a cue, anywhere up to the end. Up over the head, onto the tabs, it goes to a tab of
-  // its own: the picture shows what it leaves (a move takes it out, the rest closing up), the pointer back to say so
+  // audio carried lands with its start or its end on a place in reach (scales.js landings, land): where it came from, a
+  // marker, a cue; moved over what is there, past the end too (silence opening up to it); put in, or a copy, within the
+  // sound. ⌘ or Alt pressed or let go on the way turns how at once (carried), the picture showing it. Up over the
+  // head, onto the tabs, it goes to a tab of its own: the picture shows what it leaves (a move takes it out, the rest
+  // closing up), the pointer back to say so
   else if (drag.carry) {
     if (!drag.moved && Math.abs(px - drag.x) < SLOP && Math.abs(py - drag.y) < SLOP) return
     drag.moved = true
+    drag.carry = carried(event)
     drag.out = py < 0
     // down or up into another track's lane, it goes to that track (`into`), over what is there, as a clip dropped on
     // another track; none for a selection through every lane, which moves in each, nor into a locked track
     // under the last, into a new track there ('room'), as a clip dropped under a DAW's tracks
-    const L = lanes(), lane = tracks && !across && !drag.out ? trackAt(L, py) : -1
+    const L = lanes(), lane = tracks && !across && !drag.out ? trackAt(L, py) : -1, copy = copied(drag.carry)
     drag.into = !across && !drag.out && inRoom(py, L) ? 'room' : lane >= 0 && lane !== focus && !tracks?.[lane]?.locked ? lane : null
-    root.style.cursor = drag.out ? (drag.carry === 'copy' ? 'copy' : 'grabbing') : 'none'
-    const d = drag.b - drag.a, to = free(drag.a + time(px) - time(drag.x)), s = stick(to), e = drag.carry === 'move' && stick(to + d)
-    drag.to = Math.max(0, Math.min(drag.carry === 'move' || drag.into != null ? Infinity : duration, s && (!e || s.d <= e.d) ? s.t : e ? e.t - d : to))
+    root.style.cursor = drag.out ? (copy ? 'copy' : 'grabbing') : 'none'
+    // (into another track, over what is there there, as moved)
+    const d = drag.b - drag.a, how = drag.into != null ? 'move' : drag.carry, most = how === 'move' ? Infinity : how === 'shuffle' ? duration - d : duration
+    drag.landings = drag.out ? [] : landings(drag.a, drag.b, how).filter(l => l.to >= 0 && l.to <= most)
+    ;({ to: drag.to, held: drag.held } = land(drag.landings, Math.min(most, free(drag.a + time(px) - time(drag.x))), d))
     // where it was, silence (moved) or as it is (copied) while it goes to another track
-    assign({ pieces: drag.into != null ? drag.carry === 'move' ? arrange('silence', drag.a, drag.b) : null
-      : drag.out ? drag.carry === 'move' ? arrange('remove', drag.a, drag.b) : null : arrange(drag.carry, drag.a, drag.b, drag.to) })
+    assign({ pieces: drag.into != null ? copy ? null : arrange('silence', drag.a, drag.b)
+      : drag.out ? copy ? null : arrange('remove', drag.a, drag.b) : arrange(how, drag.a, drag.b, drag.to) })
     // into another track, drawn there as it will go, over what it covers
     assign({ guest: drag.into != null ? { lane: drag.into, at: drag.to, a: drag.a, b: drag.b, of: focus } : null })
-    if (drag.carry === 'move' && !drag.out && drag.into == null) overrun(drag.to + drag.b - drag.a)
+    if ((how === 'move' || how === 'stamp') && !drag.out && drag.into == null) overrun(drag.to + d)
     return invalidate()
   }
   // the grip: trimmed back to it, or silence added out to it; else stretched or sped, within a quarter and four times
@@ -348,8 +353,9 @@ function overrun(reach) {
   if (end > was) drag.overrun = requestAnimationFrame(() => { if (!drag?.overrun) return; drag.overrun = 0; drags(...drag.last) })
 }
 // What a press would grab, as the pointer: a handle; held Alt, the other way, a range's end to set its length or a
-// caret's line to open silence at; held ⌘ (Ctrl), a cue's line; the selection's audio (held Alt to copy); a marker's
-// serif in its strip; the gain line or a point on it, a voiced stretch of the pitch curve, a range's edge (lit, `hot`)
+// caret's line to open silence at; held ⌘ (Ctrl), a cue's line, but inside the selection; the selection's audio (held
+// Alt to copy);
+// a marker's serif in its strip; the gain line or a point on it, a voiced stretch of the pitch curve, a range's edge (lit, `hot`)
 // or a caret; held ⌘ over the lanes, a cross, aiming and measuring (on the spectrogram, a box of time and frequency).
 // Else what a press does: the I-beam, a range of time; held Shift, with a chevron the way the selection goes out to
 // it; held Alt, with a plus. What it grabs (`grabbing`), or the time row, a right-click leaves as it is (context).
@@ -389,13 +395,13 @@ export function hover(px, py, keys = held) {
   opening = !handle && !end && other && !editing(keys) && !!caretAt(px, py)
   const cue = !handle && !end && !opening && nearCue(px, py, keys) >= 0
   const note = !handle && !end && !cue && !keys.shiftKey && !keys.altKey && L.notes.some(r => inside(r, px, py) && noteAt(r, px, py))
-  const within = selection && !band && onOwn(py) && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE && !caretAt(px, py) && !thirdAt(px, py)
+  const within = amid(px, py)
   const taken = handle ? gripPointer(handle)
     : end ? gripPointer('stretch')
     : opening ? OPEN
     : cue ? 'col-resize'
     : note ? 'ns-resize'
-    : within ? keys.altKey ? 'copy' : 'grab'
+    : within ? copied(carried(keys)) ? 'copy' : 'grab'
     : rect && onLine(rect, px, py) && pointAt(rect, px, py) >= 0 || tone && (pointOn(tone, px, py) >= 0 || knotOn(tone, px, py) != null) ? 'move'
     : tone && pitchDown(px, py, L) || rect && onLine(rect, px, py) ? 'ns-resize' : null
   // Shift or Alt held, a press sums or adds wherever it is, an edge's or a caret's line too
@@ -444,21 +450,22 @@ export function up(event) {
   else if (d.points) { if (d.line === 'pitchline') onaudition(null); if ((!d.tone || d.moved) && JSON.stringify(d.points) !== d.before) onedit(d.line, curveOf(d.points)) }
   // a drag that moved audio: the picture keeps the pieces where they went until the output comes (set, stream)
   else if (d.carry) {
-    const length = d.b - d.a
+    const length = d.b - d.a, copy = copied(d.carry)
     if (!d.moved) { const t = snap(time(local(event)[0])); if (d.alt) addCaret(t); else { select(0, 0); setCursor(t) } }
-    else if (d.out) { if (!onedit('tab', { at: d.a, duration: length, copy: d.carry === 'copy' })) assign({ pieces: null }); else if (d.carry === 'move') { select(0, 0); setCursor(d.a) } }
+    else if (d.out) { if (!onedit('tab', { at: d.a, duration: length, copy })) assign({ pieces: null }); else if (!copy) { select(0, 0); setCursor(d.a) } }
     // into another track: that one edited then (onedit made it so), the piece selected where it landed in it; what it
     // left and where it went drawn so at once, both frozen, till the output comes
     else if (d.into != null) {
       const from = focus
-      if (!onedit('carry', { at: d.a, duration: length, to: d.to, copy: d.carry === 'copy', into: d.into === 'room' ? 'new' : d.into })) { assign({ guest: null, pieces: null }); return invalidate() }
+      if (!onedit('carry', { at: d.a, duration: length, to: d.to, copy, into: d.into === 'room' ? 'new' : d.into })) { assign({ guest: null, pieces: null }); return invalidate() }
       if (pieces) pieces.lane = from
-      freeze([...d.carry === 'move' ? [{ lane: from, a: d.a, b: d.b }] : [], { lane: d.into, a: d.to, b: d.to + length }])
+      freeze([...copy ? [] : [{ lane: from, a: d.a, b: d.b }], { lane: d.into, a: d.to, b: d.to + length }])
       select(d.to, d.to + length)
     }
-    else if (Math.abs(d.to - d.a) < 1e-9 || !onedit('carry', { at: d.a, duration: length, to: d.to, copy: d.carry === 'copy' })) assign({ pieces: null })
-    // in its own lane: what it moves frozen till the output comes (a copy put in, all after it)
-    else { freeze([{ lane: own0(), a: d.carry === 'copy' ? d.to : Math.min(d.a, d.to), b: d.carry === 'copy' ? d.to + length : Math.max(d.b, d.to + length) }]); select(d.to, d.to + length, null, true) }
+    else if (Math.abs(d.to - d.a) < 1e-9 || !onedit('carry', { at: d.a, duration: length, to: d.to, copy, shuffle: d.carry === 'shuffle', over: d.carry === 'stamp' })) assign({ pieces: null })
+    // in its own lane: what it moves frozen till the output comes (a copy, put in or over what is there; moved or put in,
+    // from where it was to where it went)
+    else { freeze([{ lane: own0(), a: copy ? d.to : Math.min(d.a, d.to), b: copy ? d.to + length : Math.max(d.b, d.to + length) }]); select(d.to, d.to + length, null, true) }
   }
   else if ((d.stretch || d.pill) && !d.moved) { if (d.stretch) onmode('grip') }
   else if (d.stretch && d.mode === 'trim') {

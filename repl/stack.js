@@ -20,8 +20,9 @@ import { SLOP, KINDS } from './view.js'
 // it less the output after it). Steps grouped in the code (code.js groups: a recipe's, under its name) are one card,
 // folded: a press unfolds it to its steps, its switch bypasses them all and turns them back on, its × removes them all. What the output
 // shows, when it is not the whole chain, goes to `onview({ delta, back })`: `delta` the index of the live step whose
-// difference plays, `back` how many live steps are kept.
-export default function stack(root, { ed, ontake = change => ed.change(change), describe = async () => null, duration = () => 1, source = () => null, oncall = () => {}, onview = () => {}, onchoose = () => {}, onpreview = () => {}, oncontext = () => {}, onflatten = () => {}, track = () => null, onuntrack = () => {}, keys = k => k }) {
+// difference plays, `back` how many live steps are kept. A step the last run skipped as it threw (`failure(call)`, its
+// error's first line) is marked, its error its tooltip.
+export default function stack(root, { ed, ontake = change => ed.change(change), describe = async () => null, duration = () => 1, failure = () => '', source = () => null, oncall = () => {}, onview = () => {}, onchoose = () => {}, onpreview = () => {}, oncontext = () => {}, onflatten = () => {}, track = () => null, onuntrack = () => {}, keys = k => k }) {
   // the cards first, what adds to them after
   const list = root.insertBefore(document.createElement('ol'), root.firstChild)
   list.className = 'steps-list'
@@ -313,9 +314,10 @@ export default function stack(root, { ed, ontake = change => ed.change(change), 
       c.li.classList.toggle('rolled', back != null && n > at)
       c.li.classList.toggle('delta', i >= 0 && i === delta)
       c.toggle.setAttribute('aria-pressed', String(n === at))
-      const others = shared[call.part] ?? []
+      const others = shared[call.part] ?? [], failed = !call.off && !call.sound && !call.origin && failure(call)
       c.li.classList.toggle('shared', others.length > 0)
-      c.toggle.title = (n === at ? 'Whole chain (Esc)' : call.off ? 'Bypassed' : call.sound ? 'The source' : ops[call.name]?.text || `.${call.name}()`) + (others.length ? `\nShared with ${others.join(', ')}` : '')
+      c.li.classList.toggle('failed', !!failed)
+      c.toggle.title = failed ? `Skipped: ${failed}` : (n === at ? 'Whole chain (Esc)' : call.off ? 'Bypassed' : call.sound ? 'The source' : ops[call.name]?.text || `.${call.name}()`) + (others.length ? `\nShared with ${others.join(', ')}` : '')
       c.args.textContent = call.sound ? '' : summary(code, call)
       if (c.on) {
         c.on.setAttribute('aria-pressed', String(!call.off))

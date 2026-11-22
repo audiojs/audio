@@ -1,7 +1,9 @@
 // What each setting does, for someone who has not read a manual: the tooltip over a slider's label (stack.js), and which
 // settings a card shows first. A text says what the setting is, what it does to the sound and which way to move it, with a
-// plain name first where its label is cryptic. By op and setting; `*` is what a setting of that name means in every op that
-// has it. The tests keep every setting of every op in here, built-in and plugin alike, and nothing that is not one.
+// plain name first where its label is cryptic, in two lines of the tooltip at the most (some 90 letters): what an op's
+// docs say at length stays there. By op and setting; `*` is what a setting of that name means in every op that has it.
+// The tests keep every setting of every op in here, built-in and plugin alike, and nothing that is not one, each in two
+// lines.
 
 // The settings a card shows, in order, and after `|` those it folds under Advanced: the engine's own, and those few touch. An
 // op not listed shows them all.
@@ -47,18 +49,18 @@ export const texts = {
     duration: 'Length. How long the range lasts, in seconds.',
     mix: 'How much of the effect is blended in: 0 is the original sound only, 1 is the effect only.',
     amp: 'How loud it plays, from silent (0) to full scale (1).',
-    seed: 'The starting point of its random choices: the same number always gives the same result, another gives another take.',
-    link: 'How far the channels are turned down together. At 0 each follows its own level; at 1 all follow the loudest, so the stereo image stays where it is.',
+    seed: 'Random seed: the same number, the same result.',
+    link: 'Stereo link. At 0 each channel is turned down by its own level; at 1 all by the loudest.',
     factor: 'Length. 2 makes it twice as long and 0.5 half as long; the pitch stays.'
   },
   // Edit
   trim: {
-    threshold: 'Silence level, in dB. Audio quieter than this at the start and the end is cut away. Left unset, it is found from the sound itself.'
+    threshold: 'Silence level, in dB: quieter ends are cut; unset, it is found.'
   },
   shrink: {
     gap: 'Longest pause kept, in seconds. A pause longer than this is cut down to it.',
-    threshold: 'Silence level, in dB. Audio quieter than this counts as a pause. Left unset, it is found from the sound itself.',
-    crossfade: 'How each cut is joined, in seconds: 0 a hard cut, as now; more fades the two sides of it into each other over that long, the length the same.'
+    threshold: 'Silence level, in dB: quieter is a pause; unset, it is found.',
+    crossfade: 'Each cut faded over this long, in seconds; 0 is a hard cut. The length stays.'
   },
   move: {
     to: 'Where the range lands, in seconds. Its audio goes over what is there.'
@@ -78,16 +80,16 @@ export const texts = {
   },
   // Level
   gain: {
-    value: 'Volume change. Above 0 is louder, below 0 quieter; every 6 dB doubles or halves the size of the wave.'
+    value: 'Volume change, in dB: each 6 dB doubles or halves the wave.'
   },
   normalize: {
-    target: 'Level to bring the sound to, in dB: the loudest peak in peak mode, the overall loudness in lufs mode, the average level in rms mode.',
-    mode: 'What is measured to reach the target: the loudest peak, the perceived loudness (lufs, as streaming services measure it) or the average level (rms).'
+    target: 'The level it is brought to, in dB: its peak, loudness or average, as the mode says.',
+    mode: 'What meets the target: peak, loudness (lufs) or average (rms).'
   },
   fade: {
     in: 'Fade in. How long the start takes to come up from silence, in seconds.',
     out: 'Fade out. How long the end takes to die away to silence, in seconds.',
-    curve: 'Shape of the fade. Linear changes the level evenly, cos eases at both ends, exp stays nearer silence for longer, log stays nearer full level.'
+    curve: 'Shape of the fade. linear is even, cos eases both ends, exp stays low longer, log high.'
   },
   pan: {
     value: 'Balance. -1 is all left, 0 is centred, 1 is all right. The far side is turned down; nothing is boosted.'
@@ -98,22 +100,22 @@ export const texts = {
   },
   crossfade: {
     duration: 'How long the two sounds overlap while the first gives way to the second, in seconds.',
-    curve: 'How the two trade places. equal keeps the loudness steady when the sounds differ; cos and linear suit the same or similar sounds, and dip a little for different ones.'
+    curve: 'How the two trade places. equal keeps unlike sounds level; cos and linear suit like ones.'
   },
   remix: {
     channels: 'How many channels the sound ends up with: 1 is mono, 2 is stereo.'
   },
   dither: {
-    bits: 'The bit depth you are going down to. Dither adds a whisper of noise so rounding to fewer bits sounds smooth, not grainy.'
+    bits: 'The bit depth it goes down to. A whisper of noise makes the rounding smooth, not grainy.'
   },
   // Filter
   highpass: {
     freq: 'Cutoff. Sound below this frequency is turned down.',
-    order: 'Steepness. How sharply sound past the cutoff falls away: 2 is gentle (12 dB per octave), 8 is steep (48).'
+    order: 'Steepness past the cutoff: 2 is gentle, 12 dB an octave; 8 is steep, 48.'
   },
   lowpass: {
     freq: 'Cutoff. Sound above this frequency is turned down.',
-    order: 'Steepness. How sharply sound past the cutoff falls away: 2 is gentle (12 dB per octave), 8 is steep (48).'
+    order: 'Steepness past the cutoff: 2 is gentle, 12 dB an octave; 8 is steep, 48.'
   },
   bandpass: {
     freq: 'Centre. The frequency that is kept; the rest falls away on either side.',
@@ -124,11 +126,11 @@ export const texts = {
     Q: 'Width of the cut. Higher removes a narrower slice and touches less of the sound around it.'
   },
   allpass: {
-    freq: 'Where the sound\'s timing (its phase) is shifted most, in Hz. The level stays the same at every frequency.',
+    freq: 'Where its phase shifts most, in Hz; the level stays the same at every frequency.',
     Q: 'How narrow the shifted region is: higher is more abrupt and more local.'
   },
   phase: {
-    angle: 'How far every frequency\'s phase turns, in degrees. 180 flips the polarity; 90 or -90 can lower a voice\'s peaks with nothing heard. Left unset, the angle that lowers the peaks most is found as the sound goes.'
+    angle: 'How far the phase turns, in degrees; 180 flips it. Unset, the turn that lowers peaks most.'
   },
   lowshelf: {
     freq: 'Corner. Everything below it is raised or lowered by the gain.',
@@ -164,7 +166,7 @@ export const texts = {
     g16k: 'Boost or cut of the band around 16 kHz, in dB.'
   },
   tilt: {
-    gain: 'A see-saw around the pivot: above 0 raises the lows and lowers the highs by the same amount (warmer); below 0 does the opposite (brighter).',
+    gain: 'A see-saw at the pivot; above 0 the lows go up and highs down, warmer, below 0 brighter.',
     pivot: 'The frequency the see-saw balances around, in Hz. It stays level there.'
   },
   baxandall: {
@@ -181,37 +183,37 @@ export const texts = {
     attack: 'How fast it reacts when the band gets loud, in ms.',
     release: 'How fast it lets go when the band falls back, in ms.',
     maxGain: 'Most the band is turned down or up, in dB.',
-    mode: 'down turns the band down when it gets loud, to tame harshness. up turns it up when it gets loud, to bring out what is strong.'
+    mode: 'down lowers the band when it gets loud, taming harshness; up raises it, bringing it out.'
   },
   'spectral-tilt': {
-    slope: 'How much each octave is raised over the one below, in dB: above 0 brightens, below 0 darkens, 0 does nothing. It adds up across the octaves, so large values change the loudness a lot.'
+    slope: 'Each octave raised over the last, in dB: above 0 brighter, below darker. It adds up.'
   },
   moog: {
-    fc: 'Cutoff, in Hz: lowpass turns down sound above it, highpass sound below it, bandpass both sides of it.',
-    resonance: 'Emphasis at the cutoff, 0 to 1. Higher gives the squelchy, singing edge of the classic filter; at 1 it rings by itself.',
-    drive: 'How hard the sound is pushed into the filter, which saturates: above 1 adds warm distortion, below 1 is cleaner and quieter.',
-    type: 'Which side of the cutoff is kept: lowpass the lows (the classic Moog sound), highpass the highs, bandpass a band around the cutoff.',
-    poles: 'Steepness past the cutoff: 4 poles turn sound down 24 dB per octave, the classic ladder; 2 poles, 12 dB, gentler and brighter.'
+    fc: 'Cutoff, in Hz. lowpass lowers what is above it, highpass below, bandpass both sides.',
+    resonance: 'Emphasis at the cutoff, 0 to 1: higher squelches and sings; at 1 it rings by itself.',
+    drive: 'Push into the filter; above 1 adds warm distortion, below 1 is cleaner and quieter.',
+    type: 'What is kept. lowpass the lows (the Moog sound), highpass the highs, bandpass a band.',
+    poles: 'Steepness. 4 poles, 24 dB an octave, is the classic ladder; 2, 12 dB, gentler, brighter.'
   },
   korg35: {
-    fc: 'Cutoff, in Hz: lowpass turns down sound above it, highpass turns down sound below it.',
-    resonance: 'How aggressive the filter\'s edge gets, 0 to 1. Higher adds the bite and grit of the MS-20. It does not ring by itself.',
-    drive: 'How hard the sound is pushed into the filter, which saturates: above 1 adds distortion, below 1 is cleaner and quieter.',
+    fc: 'Cutoff, in Hz. lowpass turns down sound above it, highpass turns down sound below it.',
+    resonance: 'How hard its edge bites, 0 to 1; higher adds the MS-20\'s grit. It never rings by itself.',
+    drive: 'Push into the filter; above 1 adds distortion, below 1 is cleaner and quieter.',
     type: 'lowpass keeps the lows and turns down the highs; highpass does the opposite.'
   },
   diode: {
     fc: 'Cutoff, in Hz: sound above it is turned down, 24 dB per octave.',
-    resonance: 'Emphasis at the cutoff, 0 to 1.2. Higher gives the squelch of an acid bass line; it starts to ring by itself around 1.15.',
-    drive: 'How hard the sound is pushed into the filter, which saturates: above 1 adds distortion, below 1 is cleaner and quieter.'
+    resonance: 'Emphasis at the cutoff, 0 to 1.2: an acid bass\'s squelch; it rings by itself from 1.15.',
+    drive: 'Push into the filter; above 1 adds distortion, below 1 is cleaner and quieter.'
   },
   oberheim: {
     fc: 'Cutoff or centre, in Hz: where the filter acts.',
     resonance: 'Emphasis at the cutoff, 0 to 1. Higher rings more.',
-    type: 'lowpass keeps the lows, highpass the highs, bandpass a band around the cutoff, notch removes a band around it.'
+    type: 'lowpass keeps the lows, highpass the highs, bandpass a band at the cutoff, notch cuts it.'
   },
   variable: {
     fc: 'Cutoff or centre, in Hz. Moving it while it plays is smoothed, so it does not click.',
-    Q: 'Sharpness: higher is narrower, or adds a peak at the cutoff; 0.7 is smooth.',
+    Q: 'Sharpness. Higher is narrower, or adds a peak at the cutoff; 0.7 is smooth.',
     type: 'lowpass keeps the lows, highpass the highs, bandpass a band around the cutoff.'
   },
   resonator: {
@@ -219,102 +221,102 @@ export const texts = {
     bw: 'How narrow the ringing is, in Hz. Smaller rings longer and purer; larger is shorter and duller.'
   },
   comb: {
-    delay: 'Length of the delay, in ms. It sets the pitch the comb sounds at: 10 ms puts teeth every 100 Hz. Shorter is higher.',
-    gain: 'Strength of the delayed copy; negative flips it. Higher is a stronger comb, and with feedback a longer ring. Near 1 it rings for a long time.',
-    type: 'feedforward adds one delayed copy: a hollow, flanger-like sound. feedback keeps re-echoing it: a ringing, resonant tone.'
+    delay: 'Delay length, in ms; it sets the pitch: 10 ms puts teeth every 100 Hz. Shorter is higher.',
+    gain: 'Strength of the delayed copy; negative flips it. Near 1, with feedback, it rings long.',
+    type: 'feedforward adds one delayed copy, hollow; feedback keeps re-echoing it, a ringing tone.'
   },
   dcblocker: {
-    R: 'How close to zero frequency the cut sits. Nearer 1 removes only the steady offset and keeps all the bass; lower also thins the lowest bass.'
+    R: 'Nearer 1 takes only the steady offset, keeping the bass; lower thins the lowest bass.'
   },
   emphasis: {
-    alpha: 'How strongly the highs are raised over the lows. Higher is stronger; 0.97 is the usual setting for speech.'
+    alpha: 'How strongly the highs are raised over the lows; 0.97 is the usual setting for speech.'
   },
   deemphasis: {
-    alpha: 'How strongly the highs are turned down against the lows. Use the value the emphasis used to undo it exactly.'
+    alpha: 'How strongly the highs are lowered; the emphasis\'s own value undoes it exactly.'
   },
   integral: {
-    leak: 'How quickly the running total forgets what came before: 1 keeps everything, so it can drift; lower lets drift leak away, at the cost of the lowest frequencies.'
+    leak: 'How fast the total forgets. 1 keeps all and may drift; lower stops drift, thins the lows.'
   },
   // Dynamics
   compressor: {
-    threshold: 'Level where compression starts, in dB. Sound above it is turned down, sound below it is left alone. Lower catches more of the sound.',
-    ratio: 'How firmly sound above the threshold is turned down. At 4, every 4 dB over the threshold comes out 1 dB over. Higher is stronger; 20 is close to a limiter.',
+    threshold: 'Where compression starts, in dB. Louder sound is turned down; lower catches more of it.',
+    ratio: 'Ratio. At 4, each 4 dB over the threshold comes out 1 dB over; 20 is near a limiter.',
     knee: 'How gradually it sets in around the threshold: 0 is an abrupt corner, higher is a softer approach.',
     makeup: 'Gain added after compressing, in dB, to bring the level back up.',
     attack: 'How fast it reacts when the level rises. Fast catches short peaks; slow lets them through.',
     release: 'How fast it lets go after the level falls. Fast follows closely; slow sounds smoother.',
-    upThreshold: 'Level, in dB, under which quiet sound is lifted toward it (upward compression). Does nothing while upRatio is 1.',
-    upRatio: 'How firmly sound under upThreshold is lifted. 1 does nothing; higher brings up quiet detail, and noise with it.',
-    upKnee: 'How gradually the lift sets in around upThreshold: 0 is an abrupt corner, higher is softer.',
+    upThreshold: 'Under this level, in dB, quiet sound is lifted toward it. Nothing while upRatio is 1.',
+    upRatio: 'How firmly quiet sound is lifted: 1 does nothing; higher brings up detail, and noise.',
+    upKnee: 'How gradually the lift sets in: 0 is an abrupt corner, higher is softer.',
     upRange: 'Most the lift can add, in dB, so near-silence is not turned up without end.'
   },
   limiter: {
     ceiling: 'Highest level allowed, in dB. Nothing gets past it; 0 is full scale.',
-    lookahead: 'How far ahead it looks, in ms. It eases the volume down over this time so each peak arrives at the ceiling without clipping. Longer is smoother but dips the sound before a peak.',
-    release: 'How fast the volume comes back after a peak, in ms. Short stays louder but can distort bass; long is smoother and may dull what follows.',
-    truePeak: 'Holds the waveform between the samples under the ceiling too, as a player rebuilds it. On for a delivery spec in dBTP, such as streaming\'s -1; adds about 2 ms of delay.'
+    lookahead: 'Look ahead, in ms, to ease each peak to the ceiling; longer is smoother, dips before it.',
+    release: 'How fast it comes back, in ms. Short is louder but can distort bass; long is smoother.',
+    truePeak: 'Keeps peaks between samples under it too, as a dBTP spec asks; it adds about 2 ms.'
   },
   gate: {
-    threshold: 'Level where the gate opens, in dB. Sound louder than this passes; quieter sound is turned down to the range.',
-    closeThreshold: 'Level where the gate closes again, in dB. Keep it a few dB under the threshold so the gate does not flutter near one level. It does not move with the threshold.',
-    range: 'How far the gate turns sound down while it is closed, in dB. -90 is near silence; a smaller drop, like -20, leaves the background faintly there.',
-    hold: 'How long the gate stays open after the sound falls below the threshold, in ms. Stops it chattering on words that dip in and out.',
+    threshold: 'Where the gate opens, in dB. Louder passes; quieter is turned down by the range.',
+    closeThreshold: 'Where it closes again, in dB, a few under the threshold, so it does not flutter.',
+    range: 'How far it turns sound down while closed, in dB: -90 near silence; -20 leaves a trace.',
+    hold: 'How long it stays open after the sound falls, in ms, so it does not chatter on words.',
     attack: 'How fast the gate opens, in ms. Very short keeps the start of each sound; longer fades it in.',
     release: 'How fast the gate closes, in ms. Short cuts the tail off abruptly; long fades it out.',
-    lookahead: 'How far ahead it listens, in ms, so the gate is already open when a sound arrives and never clips its start. 0 is off.'
+    lookahead: 'How far ahead it listens, in ms, so it opens before a sound and never clips its start.'
   },
   expander: {
-    mode: 'downward turns quiet sound further down, a softer gate. upward turns loud sound up, restoring dynamics that were squashed.',
-    threshold: 'Level, in dB, that divides quiet from loud: downward mode acts below it, upward mode above it.',
-    ratio: 'How steeply it pushes. At 2, every 1 dB under the threshold becomes 2 dB under it. Higher is closer to a gate.',
+    mode: 'downward sinks quiet sound, a soft gate; upward lifts loud sound back from a squash.',
+    threshold: 'Level, in dB, between quiet and loud: downward acts below it, upward above it.',
+    ratio: 'How steeply. At 2, each dB under the threshold becomes 2 under; higher nears a gate.',
     knee: 'How gradually it sets in around the threshold: 0 is an abrupt corner, higher is a softer approach.',
-    range: 'Most it will change the sound, in dB: how far quiet sound is turned down, or how far loud sound is turned up.',
+    range: 'Most it changes the sound, in dB: how far quiet goes down, or loud goes up.',
     attack: 'How fast it follows the level as it rises, in ms. Short lets a new sound through at once.',
-    release: 'How fast it follows the level as it falls, in ms. Short turns quiet sound down quickly; long keeps it open through short gaps.'
+    release: 'How fast it follows a fall, in ms. Short sinks quiet sound quickly; long bridges gaps.'
   },
   deesser: {
-    mode: 'split turns down only the sound over the split frequency while an s lasts, the voice under it untouched; band, only a narrow range around fc; broadband, the whole sound.',
-    split: 'Where the s range starts, in Hz, in split mode: sound over it is turned down while an s lasts, sound under it never. A voice\'s s sounds lie above about 3.5 kHz.',
+    mode: 'What an s turns down. split the highs over the split, band a narrow range, broadband all.',
+    split: 'In split mode, where the s range starts, in Hz; a voice\'s s lies above about 3.5 kHz.',
     fc: 'In band mode, where the harsh s sound sits, in Hz. Voices usually have it between 5 and 9 kHz.',
     Q: 'In band mode, the width of the range turned down. Higher is narrower and more precise.',
-    threshold: 'How far the s range must rise over the voice below it, in dB, before it is turned down: 0 is as loud as the voice. Not a level, so it works the same on a quiet or a loud recording. Lower catches softer s sounds.',
+    threshold: 'How far an s must rise over the voice, in dB, to be cut; not a level. Lower catches more.',
     ratio: 'How firmly the s range is turned down once past the threshold. Higher is stronger.',
     range: 'Most it will turn an s down, in dB. About 6 to 8 tames it; much more and the voice starts to lisp.',
     knee: 'How gradually it sets in around the threshold.',
     attack: 'How fast it reacts when an s begins, in ms.',
     release: 'How fast it lets go after an s ends, in ms.',
-    lookahead: 'How far ahead it listens, in ms, so the cut is in place as an s begins rather than just after. The sound comes out that much later, and the editor lines it up.'
+    lookahead: 'How far ahead it listens, in ms, so the cut is in place as an s begins.'
   },
   leveler: {
-    target: 'The average level each stretch of speech is brought to, in dB. Quieter stretches are turned up toward it, louder ones down.',
+    target: 'Average level each stretch of speech is brought to, in dB, quieter up, louder down.',
     maxGain: 'Most it will turn a stretch up or down, in dB. Stops very quiet parts being raised without end.',
-    frame: 'Length of each stretch it measures and adjusts, in seconds. Short follows every word; long follows whole phrases.',
-    smooth: 'How many neighbouring stretches each volume change is blended across. Higher is smoother and slower to follow; 0 follows each stretch exactly.',
-    gate: 'Pause detector. Stretches this many dB quieter than the speech are taken as pauses and keep the volume of the speech before them, so the room noise is not turned up between phrases.'
+    frame: 'Stretch measured, in seconds: short follows every word, long whole phrases.',
+    smooth: 'How many stretches each change is blended across: higher is smoother; 0 follows each.',
+    gate: 'Pauses, this many dB under the speech, keep its level, so the room is not raised.'
   },
   'transient-shaper': {
-    attackGain: 'Punch. How strong the start of each sound is: 0 leaves it, above 0 sharpens attacks, below 0 softens them, -1 removes them. A factor, not dB.',
-    sustainGain: 'Body. How strong what follows the start is: 0 leaves it, above 0 makes sounds ring and fill out, below 0 makes them tighter and drier. A factor, not dB.'
+    attackGain: 'Punch, a factor, not dB. Above 0 sharpens each attack, below softens it, -1 removes it.',
+    sustainGain: 'Body, a factor, not dB. Above 0 sounds ring and fill out; below, tighter and drier.'
   },
   softclip: {
-    curve: 'The shape of the rounding. tanh and atan are smooth and warm, sin and cubic are firmer, hard cuts flat at the ceiling and sounds harsh.',
-    drive: 'Gain before the curve. Higher pushes more of the sound into the rounding, adding saturation and loudness; below 1 it is gentle.',
+    curve: 'Its shape. tanh and atan are smooth and warm, sin and cubic firmer, hard flat and harsh.',
+    drive: 'Gain before the curve. Higher pushes more into it, more saturated and louder.',
     ceiling: 'Highest level the output reaches, as a share of full scale: 1 is full scale, 0.5 is 6 dB under.',
-    oversample: 'Runs the curve at this many times the sample rate to avoid harsh high tones from heavy clipping. 1 is off; higher is cleaner and slower.'
+    oversample: 'The curve run at this many times the rate, against harsh highs; 1 is off.'
   },
   compand: {
-    out0: 'Level that sound arriving at -90 dB (near silence) comes out at, in dB. The same number leaves it alone; higher lifts it, lower sinks it.',
-    out1: 'Level that sound arriving at -60 dB (very quiet) comes out at, in dB. The same number leaves it alone; higher lifts it, lower sinks it.',
-    out2: 'Level that sound arriving at -20 dB (a loud passage) comes out at, in dB. The same number leaves it alone; lower turns it down.',
-    out3: 'Level that sound arriving at 0 dB (the loudest peak) comes out at, in dB. Under 0 turns the peaks down, as a compressor does.',
+    out0: 'Where -90 dB, near silence, comes out, in dB: higher lifts it, lower sinks it.',
+    out1: 'Where -60 dB, very quiet, comes out, in dB: higher lifts it, lower sinks it.',
+    out2: 'Where -20 dB, a loud passage, comes out, in dB: -20 leaves it, lower turns it down.',
+    out3: 'Where 0 dB, the loudest peak, comes out, in dB: under 0 turns peaks down.',
     attack: 'How fast it follows the level when it rises, in ms.',
     release: 'How fast it follows the level when it falls, in ms.'
   },
   unlimit: {
     amount: 'The most it will lift any attack, in dB. This is the strength of the restoring.',
-    drive: 'How much of the missing punch is put back. 1 restores attacks to the target, less is gentler, more overshoots (up to the amount).',
-    adaptive: 'On: lifts only attacks that are too weak, the kind a limiter squashes, and leaves healthy ones alone. Off: exaggerates every attack in proportion.',
-    crestTarget: 'How strong a healthy attack is, in dB: how far its start stands over its body. Attacks weaker than this are taken as squashed and lifted toward it.',
+    drive: 'How much missing punch goes back: 1 restores attacks to the target; more overshoots.',
+    adaptive: 'On lifts only attacks too weak, as a limiter leaves them; off exaggerates every attack.',
+    crestTarget: 'A healthy attack\'s rise over its body, in dB; weaker ones are lifted toward it.',
     ceiling: 'Highest level allowed after the lift, in dB. The top of the range, 24, is out of reach: no limit.',
     fastAttack: 'How fast the quick level follower rises, in ms. It is the one that sees an attack: keep it short.',
     fastRelease: 'How fast the quick level follower falls, in ms.',
@@ -322,229 +324,229 @@ export const texts = {
     slowRelease: 'How fast the slow level follower falls, in ms.'
   },
   ducker: {
-    threshold: 'Level of the other sound, in dB, above which this one is turned down. Lower ducks on quieter sounds.',
+    threshold: 'The other sound\'s level, in dB, over which this one goes down; lower ducks on quieter.',
     ratio: 'How firmly this sound is turned down once the other passes the threshold. Higher is stronger.',
     knee: 'How gradually it sets in around the threshold: 0 is an abrupt corner, higher is a softer approach.',
     range: 'Most this sound is turned down, in dB. -24 leaves it clearly there under the other; -90 mutes it.',
     attack: 'How fast this sound gives way when the other begins, in ms.',
-    release: 'How slowly it comes back after the other stops, in ms. Short brings it back fast and may pump; long is smoother.'
+    release: 'How slowly it comes back after the other stops, in ms: short may pump; long is smoother.'
   },
   multiband: {
     low: 'Where the low band ends, in Hz. Sound below it is compressed on its own.',
-    high: 'Where the high band starts, in Hz. Sound above it is compressed on its own; what is between is the mid band.',
+    high: 'Where the high band starts, in Hz; between it and the low band\'s end is the mid band.',
     threshold: 'Level, in dB, where compression starts in each of the three bands. Lower catches more.',
     ratio: 'How firmly each band is turned down above the threshold. Higher is stronger.',
-    upThreshold: 'Level, in dB, under which quiet sound in each band is lifted toward it. Does nothing while upRatio is 1.',
-    upRatio: 'How firmly quiet sound under upThreshold is lifted. 1 does nothing; higher brings up quiet detail, and noise with it.',
-    depth: 'How much of the change is applied: 0 leaves the sound as it was, 1 is as set, 2 doubles every change in dB.',
+    upThreshold: 'Under this level, in dB, quiet sound in each band is lifted. Nothing while upRatio is 1.',
+    upRatio: 'How firmly quiet sound is lifted: 1 does nothing; higher brings up detail, and noise.',
+    depth: 'How much of the change is made: 0 none, 1 as set, 2 doubles every change in dB.',
     attack: 'How fast it reacts when the level rises. Fast catches short peaks; slow lets them through.',
     release: 'How fast it lets go after the level falls. Fast follows closely; slow sounds smoother.',
     makeup: 'Gain added after compressing, in dB, to bring the level back up.'
   },
   fet: {
-    threshold: 'Level where compression starts, in dB. Sound above it is turned down, sound below it is left alone. Lower catches more of the sound.',
-    ratio: 'How firmly sound above the threshold is turned down. FET compressors work at high ratios: 4 is firm, 20 is nearly a limiter.',
+    threshold: 'Where compression starts, in dB. Louder sound is turned down; lower catches more of it.',
+    ratio: 'How firmly louder sound goes down; a FET works high: 4 is firm, 20 nearly a limiter.',
     knee: 'How gradually it sets in around the threshold: 0 is an abrupt corner, higher is a softer approach.',
     makeup: 'Gain added after compressing, in dB, to bring the level back up.',
-    attack: 'How fast it reacts when the level rises, in ms. A FET is very fast, so even peaks of a fraction of a millisecond are caught.',
+    attack: 'How fast it reacts, in ms; a FET is quick enough to catch peaks under a millisecond.',
     release: 'How fast it lets go after the level falls. Fast follows closely; slow sounds smoother.'
   },
   opto: {
-    threshold: 'Level where compression starts, in dB. Sound above it is turned down, sound below it is left alone. Lower catches more of the sound.',
-    ratio: 'How firmly sound above the threshold is turned down. An optical compressor stays gentle: 3 is its natural setting.',
-    knee: 'How gradually it sets in around the threshold. An optical compressor has a wide soft knee, so the start is hard to hear.',
+    threshold: 'Where compression starts, in dB. Louder sound is turned down; lower catches more of it.',
+    ratio: 'How firmly louder sound goes down; an optical compressor stays gentle, 3 its own.',
+    knee: 'How gradually it sets in; an optical\'s wide soft knee makes the start hard to hear.',
     makeup: 'Gain added after compressing, in dB, to bring the level back up.',
     attack: 'How fast it reacts when the level rises, in ms. Slow enough to let the start of a note through.'
   },
   varimu: {
-    threshold: 'Level where compression starts, in dB. Sound above it is turned down, sound below it is left alone. Lower catches more of the sound.',
-    knee: 'How gradually it sets in around the threshold. A wide knee eases the compression in. The ratio also grows by itself the further sound is over the threshold.',
+    threshold: 'Where compression starts, in dB. Louder sound is turned down; lower catches more of it.',
+    knee: 'How gradually it sets in; the ratio itself grows the further sound is over the threshold.',
     attack: 'How fast it reacts when the level rises, in ms. Slow, so the start of notes passes.',
     release: 'How fast it lets go after the level falls. Fast follows closely; slow sounds smoother.',
     makeup: 'Gain added after compressing, in dB, to bring the level back up.'
   },
   vca: {
-    threshold: 'Level where compression starts, in dB. Sound above it is turned down, sound below it is left alone. Lower catches more of the sound.',
-    ratio: 'How firmly sound above the threshold is turned down. At 4, every 4 dB over the threshold comes out 1 dB over. Higher is stronger; 20 is close to a limiter.',
-    knee: 'How gradually it sets in around the threshold: 0 is an abrupt corner, higher is a softer approach. A VCA compressor has a nearly hard knee.',
+    threshold: 'Where compression starts, in dB. Louder sound is turned down; lower catches more of it.',
+    ratio: 'Ratio. At 4, each 4 dB over the threshold comes out 1 dB over; 20 is near a limiter.',
+    knee: 'How gradually it sets in. 0 is an abrupt corner; a VCA compressor\'s is nearly hard.',
     makeup: 'Gain added after compressing, in dB, to bring the level back up.',
     attack: 'How fast it reacts when the level rises. Fast catches short peaks; slow lets them through.',
     release: 'How fast it lets go after the level falls. Fast follows closely; slow sounds smoother.'
   },
   auto: {
-    type: 'What the sound is: speech, music, or both. It decides which fixes are used and the loudness aimed for.',
-    intensity: 'How strong the fixes are: 0 the lightest, 1 as measured, 2 stronger. Covers noise reduction, harshness, tone and compression; hum and clicks found are always removed.',
+    type: 'What the sound is, speech, music or both; it picks the fixes and the loudness aimed for.',
+    intensity: 'Strength of the fixes. 0 lightest, 1 as measured, 2 stronger; hum and clicks always go.',
     targetLufs: 'Loudness to aim for, in LUFS. 0 picks one for the type: -16 for speech, -14 for music.',
     ceiling: 'Highest peak allowed after levelling, in dB. -1 leaves room for streaming encoders.'
   },
   // Repair
   denoise: {
-    reduction: 'How far the noise is turned down, in dB, everywhere. More removes more, and risks a hollow, watery sound. 0 leaves the sound as it was.',
-    threshold: 'Treats the noise as this many dB louder than it was learned: above 0, quiet sound just over the noise is removed too; below 0, more of it is kept.'
+    reduction: 'How far the noise goes down, in dB; more risks a hollow, watery sound. 0 leaves it.',
+    threshold: 'Noise taken as this many dB louder than learned: above 0 more goes, below 0 more stays.'
   },
   omlsa: {
-    gMin: 'Most the noise is turned down, in dB. More negative removes more, and risks a hollow, watery voice.',
-    threshold: 'Treats the noise as this many dB louder than it seems: above 0, quiet sound just over the noise goes too, and a voice\'s faintest edges with it; below 0, more is kept.',
-    alphaDD: 'Smoothing over time. How much each moment leans on the one before it when judging what is noise. Higher is steadier with fewer warbling leftovers, but slower to catch the start of a word.',
-    qPrior: 'How likely any moment is assumed to be only noise. 0 works it out from the sound itself. A value above 0 sets it by hand; from 0.9 up, everything counts as noise and is turned down.',
-    xiFloor: 'Lowest signal-to-noise ratio it assumes, in dB. Lower removes more of faint sounds close to the noise; higher protects them, but leaves more noise.'
+    gMin: 'Most the noise goes down, in dB; more negative removes more, risks a watery voice.',
+    threshold: 'Noise taken as this many dB louder than it seems: above 0 more goes, a voice\'s edges too.',
+    alphaDD: 'Smoothing in time. Higher warbles less but is slower to catch the start of a word.',
+    qPrior: 'How likely a moment is only noise: 0 finds it from the sound; from 0.9 up, all is noise.',
+    xiFloor: 'Lowest signal-to-noise it assumes, in dB: lower takes more faint sound, higher spares it.'
   },
   recover: {
-    cutoff: 'Where the band stops, in Hz: above it the voice\'s harmonics and breath are rebuilt where the take lacks them. Left out, the edge is found where the spectrum falls off a cliff; a take with none gets nothing.'
+    cutoff: 'Where the take\'s highs end, in Hz, rebuilt above it. Unset, found where they fall away.'
   },
   deepfilter: {
-    limit: 'The most the noise is turned down, in dB. Past 18 the voice itself starts to sound filtered, like a call. At 0 nothing is taken under the voice. Infinity, in the code, lifts the limit: pauses can fall to digital silence.',
-    music: 'pass leaves music as it is, songs included, and cleans only speech and noise. enhance cleans everything, which takes music down and dulls it.',
-    floor: 'Noise the limit would leave closer than this to the voice, in dB, is taken down to this far under it; quieter noise keeps the limit, so the room stays. 0 keeps the limit alone.'
+    limit: 'Most the noise goes down, in dB; past 18 a voice sounds filtered. The last stop lifts the limit.',
+    music: 'pass cleans speech and leaves music as it is; enhance cleans everything, dulling music.',
+    floor: 'In pauses, noise the limit leaves nearer the voice than this, in dB, goes this far under; 0 is off.'
   },
   rnnoise: {
-    limit: 'The most the noise is turned down, in dB. A limit keeps the model from damaging the voice. At 0 nothing is taken.',
-    music: 'pass leaves music as it is, songs included, and cleans only speech and noise. It decides as it plays: music is cleaned for its first second or so. enhance cleans everything.'
+    limit: 'Most the noise goes down, in dB, so the model spares the voice; at 0 nothing is taken.',
+    music: 'pass cleans speech and leaves music, after its first second or so; enhance cleans all.'
   },
   wiener: {
-    rule: 'How the amount to remove is worked out. mmse-lsa leaves less warbling noise behind; wiener is the classic, simpler rule.',
-    alphaDD: 'Smoothing over time. How much each moment leans on the one before it when judging what is noise. Higher is steadier with fewer warbling leftovers, but slower to catch the start of a word.',
-    xiFloor: 'Roughly how far the noise can be turned down, in dB. More negative removes more and sounds more hollow.'
+    rule: 'How much to remove is worked out. mmse-lsa leaves less warbling; wiener is the classic.',
+    alphaDD: 'Smoothing in time. Higher warbles less but is slower to catch the start of a word.',
+    xiFloor: 'Roughly how far the noise can go down, in dB; more negative removes more, more hollow.'
   },
   specsub: {
-    alpha: 'Over-subtraction. How much more than the noise estimate is taken away. Higher removes more noise but leaves watery warbling on speech. 0 chooses it by itself: stronger where the noise is louder.',
-    beta: 'Noise left behind, as a share of its power: 0.05 keeps 5%. Higher leaves a steady hiss that hides watery artifacts; lower removes more and sounds less natural.'
+    alpha: 'Over-subtraction. Taking more than the noise leaves less of it, more warble; 0 picks it.',
+    beta: 'Noise left, as a share of its power: 0.05 keeps 5%; more hides the warble as a hiss.'
   },
   dehum: {
-    freq: 'The hum frequency, in Hz: 50 or 60 for mains. 0 measures it from the sound. A set value is still tuned by measuring within 0.4%.',
-    harmonics: 'How many multiples of the hum to remove, the hum itself first (50, 100, 150 Hz and so on). 0 removes every one to 1 kHz, and above it those that stand out of the sound, to 8 kHz: a buzz. Each is followed as it drifts.',
-    adaptive: 'With a set frequency, searches for the hum within about half a hertz of it instead of 0.4%: for hum off its nominal frequency, as from a tape running at the wrong speed.',
-    tones: 'Also removes steady tones that are not multiples of the hum, held through the whole take: a whine, a test tone, a monitor\'s 15.7 kHz line. A tone that glides, or starts or stops within the take, is left. Off, the hum alone.'
+    freq: 'The hum, in Hz, 50 or 60 for mains; 0 measures it. A set value is tuned within 0.4%.',
+    harmonics: 'How many of the hum\'s multiples go; 0, all to 1 kHz and those that stand out to 8 kHz.',
+    adaptive: 'With a set frequency, looks within half a hertz, not 0.4%: for a tape at the wrong speed.',
+    tones: 'Also steady tones held through the take, not the hum\'s: a whine, a test tone, 15.7 kHz.'
   },
   roomtone: {
-    threshold: 'Silence level. Stretches quieter than this count as digital silence and are filled with the recording\'s own room tone.'
+    threshold: 'Silence level. Quieter stretches count as digital silence, filled with the room\'s tone.'
   },
   azimuth: {
-    delay: 'How late the second channel is, in milliseconds: it is moved that much earlier, onto the first. Left unset, the delay and the polarity are measured as the sound goes; a pair already in line is left as it is.'
+    delay: 'How late the second channel is, in ms, moved onto the first. Unset, measured as it goes.'
   },
   dewow: {
-    mode: 'How the speed is read. partial follows the music\'s notes, for a disc\'s once-a-turn wow; reference reads a steady tone (a pilot, a calibration tone, hum); pitch reads one voice, its vibrato taken for wow too.',
-    refFreq: 'The steady tone reference mode reads, in Hz: a calibration tone, a pilot, or 50 or 60 for mains hum. 0 finds it: a pilot above 5 kHz, else the hum.',
-    smooth: 'Where wow ends and flutter begins, in seconds: speed changes slower than this are wow, faster ones flutter.',
-    maxDeviation: 'The most the speed may be off, as a share: 0.05 is 5%. A tone is looked for within it, and no correction goes further.',
+    mode: 'How the speed is read. partial off the notes, reference a steady tone, pitch one voice.',
+    refFreq: 'The steady tone reference mode reads, in Hz: a pilot, or 50 or 60 for hum; 0 finds it.',
+    smooth: 'Where wow ends and flutter begins, in seconds: slower changes are wow, faster flutter.',
+    maxDeviation: 'The most the speed may be off, as a share: 0.05 is 5%; no correction goes further.',
     wow: 'Correct the slow speed changes: a warped or off-centre record, a stretched tape.',
-    flutter: 'Correct the fast speed changes: a tape machine\'s capstan and rollers. Read from a steady tone only.'
+    flutter: 'Correct fast speed changes, a tape\'s capstan and rollers; read from a steady tone only.'
   },
   rebalance: {
-    vocals: 'Level of the singing voice, in dB. 0 leaves it; lower pushes it back, -60 all but takes it out (a karaoke track); higher brings it forward.',
+    vocals: 'The singing, in dB. 0 leaves it, -60 all but takes it out (karaoke); higher brings it up.',
     bass: 'Level of the bass, in dB. 0 leaves it; lower thins the low end, higher thickens it.',
-    drums: 'Level of the drums and percussion, in dB. 0 leaves them; lower softens the beat, higher punches it up.',
-    other: 'Level of everything else (guitars, keys, strings, pads), in dB. 0 leaves it; -60, with the rest at 0, keeps only the vocals, bass and drums.'
+    drums: 'The drums and percussion, in dB. 0 leaves them; lower softens the beat, higher punches.',
+    other: 'The rest (guitars, keys, strings, pads), in dB: 0 leaves it, -60 all but takes it out.'
   },
   scene: {
-    dialogue: 'Level of the speech, in dB. 0 leaves it; higher lifts it over the music and effects, lower pushes it back, -60 all but takes it out, leaving a music and effects track.',
-    music: 'Level of the score and any songs, in dB. 0 leaves it; lower makes room for the dialogue, -60 all but takes it out.',
-    effects: 'Level of everything else: footsteps, doors, traffic, rain, the room, in dB. 0 leaves it; lower quiets the scene around the voices.',
-    model: 'Which model tells the parts apart. mrx is quick, about a fifth of real time. tiger keeps music and effects apart far better, and takes about fifty times as long.'
+    dialogue: 'The speech, in dB. Higher lifts it over the rest; -60 leaves a music and effects track.',
+    music: 'The score and any songs, in dB. Lower makes room for the dialogue; -60 all but removes it.',
+    effects: 'All else, footsteps to rain and the room, in dB: lower quiets the scene around the voices.',
+    model: 'mrx is quick, a fifth of real time; tiger parts music and effects far better, 50× slower.'
   },
   deconstruct: {
-    tonal: 'Level of the tones (held notes, hum, a voice\'s vowels), in dB. 0 leaves them; -60 all but removes them.',
-    noise: 'Level of the noise, in dB: what is neither tone nor attack (hiss, breath, room, a snare\'s rattle). 0 leaves it; lower turns it down.',
-    transient: 'Level of the attacks (clicks, consonants, drum hits), in dB. 0 leaves them; lower softens them, higher sharpens them.',
-    separation: 'How strictly the parts are told apart. 1 splits all of it between tones and attacks; higher leaves more to the noise, taking only clear tones and clear attacks.'
+    tonal: 'The tones (held notes, hum, vowels), in dB: 0 leaves them; -60 all but removes them.',
+    noise: 'The noise, neither tone nor attack (hiss, breath, room), in dB: 0 leaves it, lower less.',
+    transient: 'The attacks (clicks, consonants, drum hits), in dB: lower softens them, higher sharpens.',
+    separation: 'How strict the split is. 1 parts all into tones or attacks; higher leaves more to noise.'
   },
   declick: {
-    threshold: 'Detection threshold. How far a click must stand out of the sound around it, in multiples of its usual unpredictability. Lower finds fainter clicks (and may nibble the sound); higher, only loud ones.',
-    longest: 'Longest click rebuilt, in milliseconds. A burst longer than this is taken for real sound and left alone, unless it is in the selection; a pop\'s ring is taken off with it if it dies away within this.',
-    order: 'Model detail. How many earlier samples predict the next, so a click stands out from what the sound would do. Higher follows pitched sound more closely and runs slower.'
+    threshold: 'Detection threshold. How far a click stands out of the sound; lower finds fainter ones.',
+    longest: 'Longest click rebuilt, in ms; a longer burst is taken for real sound, unless selected.',
+    order: 'Model detail. How many samples predict the next; higher follows pitch better, slower.'
   },
   decrackle: {
-    threshold: 'Detection threshold. How far a tick must stand out, both from what the sound before it predicts and from what the sound either side implies, to count as crackle. Lower finds fainter crackle and may touch the sound; higher, only clear ticks.',
-    order: 'Model detail. How many samples either side predict each one, so a tick stands out from what the sound would do. Higher follows pitched sound more closely and runs slower.'
+    threshold: 'Detection threshold. How far a tick stands out of the sound; lower finds fainter crackle.',
+    order: 'Model detail. How many samples either side predict each; higher follows pitch, slower.'
   },
   declip: {
-    clipLevel: 'The level where the sound was cut flat, as a share of full scale, the same on both sides. 0 finds each side\'s from the sound, and leaves a sound that was never cut untouched.',
-    order: 'Model detail. How many earlier samples are used to predict the wave across a cut peak. Higher follows rich music more closely and runs much slower.'
+    clipLevel: 'Where it was cut flat, as a share of full scale; 0 finds it and spares an uncut sound.',
+    order: 'Model detail. How many samples predict the wave across a cut; higher is richer, slower.'
   },
   dereverb: {
-    reduction: 'How far the room\'s echo goes down, in dB. At 60 it is gone, early reflections and tail alike, and the voice sounds as if spoken into the microphone; lower keeps some of the room, 12 leaves a hint of it.',
-    music: 'pass leaves music as it is, songs included, and takes the room off speech alone; a voice over a music bed counts as speech, and the bed goes with the room. enhance takes everything it hears that is not a voice.',
-    method: 'roformer is a trained model: it takes the whole room, and downloads once (60 MB). wpe needs no model: it takes about 6 dB of the late echo, and leaves a dry take or music as it came.'
+    reduction: 'How far the room\'s echo goes down, in dB: 60 takes it all; 12 leaves a hint of it.',
+    music: 'pass takes the room off speech alone, its bed too; enhance takes all that is not a voice.',
+    method: 'roformer, a 60 MB model, takes the whole room; wpe needs none, takes 6 dB of late echo.'
   },
   restore: {
-    strength: 'How much of the model\'s take: 1 is the model\'s alone, lower mixes the take as it came back in, where a damaged sound is better than an invented one.'
+    strength: 'How much of the model\'s take. 1 its alone; lower mixes the take as it came back in.'
   },
   vocos: {
-    crossover: 'Above this frequency, in Hz, the sound is kept as it came: the vocoder makes nothing above 12 kHz. Written as 0 in the script, the vocoder\'s alone, its top cut off.'
+    crossover: 'Above this, in Hz, the sound is kept as it came: the vocoder makes nothing over 12 kHz.'
   },
   deplosive: {
-    triggerRatio: 'How much stronger the low thump must be than the rest of the voice to count as a pop. Lower catches more pops; higher catches only the worst. A voice or a bass note, whose low end has a pitch, is let through.',
+    triggerRatio: 'How much stronger a pop\'s thump is than the voice: lower catches more; pitched lows pass.',
     attenuation: 'How far the low end is turned down during a pop, in dB.',
-    crossover: 'The frequency below which pops are found and turned down, in Hz. During a pop, sound an octave above it dips under 1 dB; between pops nothing is touched.',
+    crossover: 'Under this, in Hz, pops are found and turned down; between pops nothing is touched.',
     attack: 'How fast the low end is turned down once a pop is found.',
     release: 'How slowly the low end comes back after a pop. Longer is smoother.'
   },
   dewind: {
-    attenuation: 'How far the wind is turned down, in dB. A voice\'s harmonics that stand over the wind keep their level; lower takes the wind further and leaves the voice drier. 0 takes nothing.',
-    cutoff: 'The highest frequency wind is taken from, in Hz. Most wind lies under 500 Hz, but strong wind rushes up to several kHz, so by default it is taken up to 8 kHz. Nothing above it is touched, and with no wind nothing at all.'
+    attenuation: 'How far the wind goes down, in dB; a voice\'s harmonics over it stay. 0 takes nothing.',
+    cutoff: 'Wind is taken up to this, in Hz; strong wind rushes to several kHz. Above, nothing.'
   },
   debreath: {
-    range: 'How far each breath is turned down, in dB, above 300 Hz and never under the room. -12 softens it; lower removes more.',
-    room: 'How far the rest of each pause, the room between phrases, is turned down, in dB. 0 leaves it as it is, so pauses sound natural; lower makes them quieter, then dead.',
-    attack: 'How long before speech starts the volume comes back. It rises ahead of the word, so the start is never cut; longer is softer.',
-    release: 'How slowly the cut is applied after speech ends. Longer is smoother; shorter turns breaths down sooner.'
+    range: 'How far each breath goes down, in dB, above 300 Hz, never under the room; -12 softens it.',
+    room: 'The rest of each pause, in dB. 0 leaves it natural; lower makes it quieter, then dead.',
+    attack: 'How long before speech the volume comes back, so a word\'s start is never cut.',
+    release: 'How slowly the cut comes after speech ends: longer is smoother, shorter catches sooner.'
   },
   derustle: {
-    reduction: 'How far under the voice the rustle of clothes on a clip-on mic is taken, in dB. Higher takes more of it; 0 turns it down only as far as the room\'s tone.',
-    ambience: 'Keep the room\'s steady tone, its air and hum, turned 12 dB down where the rustle is taken. Off removes it with the rustle, leaving silence between words.'
+    reduction: 'How far under the voice a clip-on mic\'s rustle goes, in dB; 0 only to the room\'s tone.',
+    ambience: 'Keeps the room\'s air and hum, 12 dB down, where rustle goes; off leaves silence there.'
   },
   desqueak: {
-    squeak: 'How far a string squeak, a finger sliding along a wound string, is turned down at most, in dB. Only the squeak goes: the notes ringing under it keep their partials, and a take with no squeak is left as it is. 0 leaves squeaks.',
-    pick: 'How far a pick\'s attack is softened at most, in dB: the bright click of each pluck, its first 10 ms, taken down to the level the note rings at just after. 0 leaves attacks; -9 tames attacks that are too sharp.',
-    amp: 'How far the amp\'s steady hiss, hum and buzz are turned down, in dB, learned from the quietest moments, best a second of the amp alone before the playing. The notes and their decay stay. 0 leaves it; -20 is typical.'
+    squeak: 'Most a string squeak goes down, in dB; the notes under it stay. 0 leaves squeaks.',
+    pick: 'Most a pick\'s click is softened, in dB, to the note\'s level after; -9 tames sharp ones.',
+    amp: 'The amp\'s hiss, hum and buzz, in dB, learned where it is alone; -20 is typical.'
   },
   debleed: {
-    attenuation: 'How far the bleed that cancelling leaves is turned down, in dB. Lower takes more of it and, where the wanted sound and the bleed share a frequency, a little of the wanted sound; 0 only cancels.',
-    span: 'How long a stretch of the room between the bleeding source and the mic is learned, in seconds: its delay and first reflections. A bigger, more echoing room wants more.'
+    attenuation: 'How far the bleed cancelling leaves goes down, in dB; lower takes more; 0 only cancels.',
+    span: 'How long a stretch of the room is learned, in seconds; a bigger, echoing room wants more.'
   },
   defeedback: {
-    notches: 'How many howl frequencies it can cut at once. Each one found gets its own narrow cut; when all are in use, the shallowest is replaced.',
-    Q: 'Width of each cut. Higher is narrower: it takes out only the howl and spares the sound around it, but the howl can slip past if its pitch drifts.',
-    strength: 'How deep each cut deepens per step while the howl lasts: 1 is full (9 dB a step, to 24 dB), lower is gentler, 0 does nothing.'
+    notches: 'How many howl frequencies it cuts at once; when all are used, the shallowest is replaced.',
+    Q: 'Width of each cut. Higher spares the sound around a howl, but a drifting howl slips past.',
+    strength: 'How fast each cut deepens while a howl lasts: 1 is 9 dB a step, to 24; 0 does nothing.'
   },
   spectral: {
-    gain: 'What happens to the selected band, in dB: -60 removes it, 0 leaves it as it is, above 0 boosts it.'
+    gain: 'The selected band, in dB: -60 removes it, above 0 boosts it.'
   },
   // Time & pitch
   speed: {
     rate: 'Playback speed. 2 is twice as fast and an octave higher; 0.5 is half as fast and an octave lower.'
   },
   stretch: {
-    method: 'How it stretches. phase-lock plays as it works; the others take the whole stretch at once: wsola or psola for a voice, transient or hybrid for drums, sms or pghi for held tones, paulstretch for a drone.'
+    method: 'phase-lock plays as it works; wsola for a voice, transient for drums, sms for held tones.'
   },
   pitch: {
     semitones: 'Pitch change in semitones. 12 is an octave up, -12 an octave down; the length stays.',
-    method: 'How it shifts. phase-lock plays as it works; formant, psola or lpc keep a voice; transient or hybrid suit drums, sms held tones; granular and paulstretch blur it; ola is the plainest; auto picks.'
+    method: 'phase-lock plays as it works; formant or psola keep a voice; transient drums; auto picks.'
   },
   intonation: {
-    factor: 'How far the voice\'s pitch strays from its middle, as a multiple: 1 leaves it, 0 is a monotone, 2 makes every rise and fall twice as wide.'
+    factor: 'How far the pitch strays from its middle: 1 leaves it, 0 is a monotone, 2 twice as wide.'
   },
   modulation: {
-    factor: 'How wide each note\'s vibrato and wobble swing about its own slow line, as a multiple: 1 leaves it, 0 makes a smooth line, 2 swings twice as wide, -1 turns it over.'
+    factor: 'How wide each note\'s vibrato swings: 1 leaves it, 0 is smooth, 2 twice, -1 turns it over.'
   },
   drift: {
-    factor: 'How far each note\'s slow line wanders from its centre, as a multiple: 1 leaves it, 0 holds the note at its centre with its vibrato, 2 wanders twice as far.'
+    factor: 'How far each note\'s slow line wanders: 1 leaves it, 0 holds its centre, 2 twice as far.'
   },
   center: {
-    factor: 'How far each note\'s centre stays from its note, as a multiple: 1 leaves it, 0 puts it on the note, 0.5 half way. What moves inside the note stays.',
-    scale: 'Which notes a centre may land on. chromatic is every note; the others restrict it to that scale around the root.',
-    root: 'The note the scale starts on, in semitones up from C: 0 is C, 2 is D, 7 is G, 9 is A. Not used by the chromatic scale.'
+    factor: 'How far each note\'s centre stays off its note: 1 leaves it, 0 on it; its vibrato stays.',
+    scale: 'Which notes a centre may land on. chromatic every note, the others the scale at the root.',
+    root: 'The scale\'s first note, in semitones up from C: 0 C, 2 D, 7 G, 9 A; not for chromatic.'
   },
   formant: {
-    semitones: 'How far the formants move, in semitones, the pitch staying: up is a smaller, brighter voice, down a larger, darker one. 2 or 3 is a lot.'
+    semitones: 'Formants moved, the pitch staying. Up a smaller, brighter voice, down darker; 3 is a lot.'
   },
   tune: {
-    scale: 'Which notes the pitch may land on. chromatic is every note, fixing only what is slightly off; the others restrict it to that scale around the root.',
-    root: 'The note the scale starts on, in semitones up from C: 0 is C, 2 is D, 7 is G, 9 is A. Not used by the chromatic scale.',
-    a4: 'The tuning of the note A above middle C, in Hz, that every note is worked out from. 440 is standard.',
-    tolerance: 'How far off a note can be, in cents (hundredths of a semitone), before it is corrected. Notes closer than this are left as sung.',
-    strength: 'How much of the correction is applied: 1 snaps each note to the exact pitch, less moves it part of the way, 0 does nothing.',
-    speed: 'How long the pitch may stray from its note before it is pulled back, in milliseconds. 0 holds every moment on the note: the hard, stepped sound. 80 keeps the voice\'s vibrato and slides and takes out its slow drift; 400 only moves each note\'s centre.'
+    scale: 'Which notes it lands on. chromatic all, fixing only what is off; else the root\'s scale.',
+    root: 'The scale\'s first note, in semitones up from C: 0 C, 2 D, 7 G, 9 A; not for chromatic.',
+    a4: 'The A above middle C, in Hz, that every note is worked out from; 440 is standard.',
+    tolerance: 'How far off a note may be, in cents, before it is corrected; closer is left as sung.',
+    strength: 'How much of the correction. 1 snaps each note exactly, less part way, 0 does nothing.',
+    speed: 'How long it may stray, in ms. 0 holds it on the note, stepped; 80 keeps the vibrato.'
   },
   resample: {
     rate: 'The new sample rate, in Hz. A lower rate keeps less of the high frequencies.'
@@ -552,48 +554,48 @@ export const texts = {
   // Effect
   delay: {
     time: 'The gap between the sound and its echo, in seconds.',
-    feedback: 'How much of each echo feeds the next. 0 gives a single echo; higher gives a longer trail that fades slowly.',
-    sync: 'Ties the gap to the tempo: a note value (1/4, 1/8, 1/8d, 1/8t and so on) in place of the time. off leaves the time.'
+    feedback: 'How much of each echo feeds the next: 0 a single echo; higher a longer, slower trail.',
+    sync: 'The gap as a note value at the tempo (1/4, 1/8d, 1/8t), not a time. off leaves the time.'
   },
   pingpong: {
     time: 'The gap between echoes, in seconds. Each echo lands on the other side.',
-    feedback: 'How much of each echo feeds the next, which bounces to the other side. Higher gives more bounces.',
-    sync: 'Ties the gap to the tempo: a note value in place of the time, 2 seconds at the most. off leaves the time.'
+    feedback: 'How much of each echo feeds the next, on the other side; higher gives more bounces.',
+    sync: 'The gap as a note value at the tempo, 2 s at the most, not a time. off leaves the time.'
   },
   multitap: {
-    feedback: 'How much of the echoes feeds back to make more. 0 gives the two set echoes only (at 0.25 s and 0.5 s); higher adds a repeating trail.'
+    feedback: 'How much of the echoes feeds back: 0 the two set echoes only; higher adds a trail.'
   },
   chorus: {
     rate: 'How fast the copies drift in timing, in cycles per second. Slow is lush; fast is wobbly.',
     depth: 'How far the copies drift in timing, 0 to 1. More detunes them further; 0 gives no thickening.',
-    delay: 'How far behind the copies run on average, in seconds. 10 to 30 ms is the classic chorus; shorter sounds metallic, longer like a double.',
+    delay: 'How far behind the copies run, in seconds: 10 to 30 ms is chorus; longer, a double.',
     voices: 'How many detuned copies are blended in. More sounds thicker, like a bigger ensemble.',
-    phase: 'How far each channel\'s copies run from the channel before\'s, in degrees: 90 spreads them wide; 0 moves the channels together.'
+    phase: 'Each channel\'s copies against the one before\'s, in degrees: 90 spreads wide; 0 moves as one.'
   },
   flanger: {
-    rate: 'How fast the sweep goes up and down, in cycles per second. Slow is a long whoosh; fast is a warble.',
+    rate: 'How fast the sweep goes, in cycles per second: slow is a long whoosh, fast a warble.',
     depth: 'How far the sweep reaches, 0 to 1. More is a wider, more obvious whoosh.',
-    delay: 'Centre delay of the sweep, in seconds. A few ms or less gives the jet sound; longer is closer to a chorus.',
-    feedback: 'How much of the effect feeds back into itself. Higher makes the whoosh more intense, with a ringing metallic edge.',
-    phase: 'How far each channel\'s sweep runs ahead of the one before, in degrees: 90 spreads it wide; 0 moves the channels together.'
+    delay: 'Centre delay of the sweep, in seconds: a few ms is the jet sound; longer nears a chorus.',
+    feedback: 'How much feeds back into itself: higher is a fiercer whoosh with a metallic ring.',
+    phase: 'Each channel\'s sweep ahead of the one before, in degrees: 90 spreads it wide; 0 moves as one.'
   },
   phaser: {
-    rate: 'How fast the sweep goes up and down, in cycles per second. Slow is a long whoosh; fast is a warble.',
+    rate: 'How fast the sweep goes, in cycles per second: slow is a long whoosh, fast a warble.',
     depth: 'How far the sweep reaches around the centre frequency, 0 to 1.',
-    stages: 'How many filter stages swirl the sound. More gives more notches and a deeper, more complex swirl.',
-    feedback: 'How much of the effect feeds back into itself. Higher makes the swirl more pronounced and resonant.',
+    stages: 'How many filter stages swirl it: more notches and a deeper, more complex swirl.',
+    feedback: 'How much feeds back into itself: higher is a stronger, more resonant swirl.',
     fc: 'Centre of the sweep, in Hz: the swirl moves around this pitch region.',
-    phase: 'How far each channel\'s sweep runs ahead of the one before, in degrees: 90 spreads it wide; 0 moves the channels together.'
+    phase: 'Each channel\'s sweep ahead of the one before, in degrees: 90 spreads it wide; 0 moves as one.'
   },
   tremolo: {
     rate: 'How many pulses of volume per second.',
     depth: 'How far the volume dips on each pulse: 0 is none, 1 dips to silence.',
-    phase: 'How far each channel\'s pulse runs ahead of the one before, in degrees: 0 keeps them together; 180 is an auto-pan.'
+    phase: 'Each channel\'s pulse ahead of the one before, in degrees: 0 together; 180 is an auto-pan.'
   },
   vibrato: {
     rate: 'How fast the pitch wobbles, in cycles per second.',
-    depth: 'How wide the pitch wobbles: 0 is none, 1 the widest. A faster rate widens it further.',
-    phase: 'How far each channel\'s wobble runs ahead of the one before, in degrees: 0 keeps them together; 180 swings their pitches opposite ways.'
+    depth: 'How wide the pitch wobbles, 0 none, 1 the widest; a faster rate widens it further.',
+    phase: 'Each channel\'s wobble ahead of the one before, in degrees: 0 together; 180 swings pitches apart.'
   },
   autowah: {
     base: 'Lowest position of the filter, in Hz: where it rests when the sound is quiet.',
@@ -608,31 +610,31 @@ export const texts = {
     depth: 'How far the sweep reaches each way around the centre, in octaves. Auto mode only.',
     fc: 'Centre of the sweep, in Hz. In manual mode, where the filter is held still.',
     Q: 'Sharpness of the filter. Higher is a narrower, more vocal wah.',
-    mode: 'auto sweeps by itself at the rate; manual holds the filter still at the centre, like a pedal left in one place.',
-    phase: 'In auto mode, how far each channel\'s sweep runs ahead of the one before, in degrees: 0 keeps them together; 180 sweeps them opposite ways.'
+    mode: 'auto sweeps at the rate; manual holds the filter at the centre, like a pedal left still.',
+    phase: 'In auto mode, each channel\'s sweep ahead of the one before, in degrees: 0 together; 180 opposite.'
   },
   rotary: {
     hornSpeed: 'How fast the treble horn spins, in turns per second. 0.8 is the slow setting, 6.7 the fast one.',
     drumSpeed: 'How fast the bass drum spins, in turns per second. 0.7 is the slow setting, 5.9 the fast one.',
     depth: 'How strong the swirl of pitch and volume is, 0 to 1. 0 is none.',
-    crossover: 'Where the sound splits between the bass drum and the treble horn, in Hz. Under it turns with the drum, over it with the horn.',
-    hornInertia: 'How long the horn takes to spin up to its speed, in seconds. It starts at rest, so the swirl builds over this time.',
+    crossover: 'Where the sound splits, in Hz. Under it turns with the bass drum, over with the horn.',
+    hornInertia: 'How long the horn takes to spin up, in seconds; from rest, the swirl builds over it.',
     drumInertia: 'How long the heavier bass drum takes to spin up to its speed, in seconds.',
-    micSpread: 'The angle between the two virtual microphones that listen to the speaker, in radians. Wider spreads the swirl further between left and right; 1.57 is a quarter turn.'
+    micSpread: 'Angle between the two mics, in radians: wider spreads the swirl; 1.57 is a quarter turn.'
   },
   ringmod: {
-    fc: 'Frequency of the tone the sound is multiplied by, in Hz. A few Hz pulse like a tremolo; higher gives a metallic, bell-like, robotic sound.'
+    fc: 'The tone it is multiplied by, in Hz: a few Hz pulse, a tremolo; higher bell-like, robotic.'
   },
   freqshift: {
-    shift: 'Moves every frequency up (positive) or down (negative) by this many Hz. Unlike a pitch shift it breaks harmonic relations, so voices turn metallic and strange.',
-    taps: 'Length of the filter that does the shifting. More follows low frequencies more accurately; fewer is faster. Few need to change it.'
+    shift: 'Every frequency moved by this many Hz, up or down; harmonics break, voices turn metallic.',
+    taps: 'The shifting filter\'s length: more follows the lows more truly, fewer is faster.'
   },
   graindelay: {
     time: 'Base delay before the grains play, in seconds.',
-    spray: 'Random extra delay added to each grain, up to this many seconds. More scatters the echoes in time and blurs them.',
-    pitch: 'Transposes each grain, in semitones: 12 is an octave up. Through feedback, echoes climb or fall in steps.',
-    jitter: 'Random pitch change on each grain, in semitones either way. More sounds shimmery and out of tune.',
-    grain: 'Length of each grain, in seconds. Short is grainy and textured; long keeps more of the sound\'s shape.',
+    spray: 'Random extra delay on each grain, in seconds, up to this; more scatters and blurs echoes.',
+    pitch: 'Each grain transposed, in semitones; through feedback, echoes climb or fall in steps.',
+    jitter: 'Random pitch on each grain, in semitones either way; more is shimmery, out of tune.',
+    grain: 'Length of each grain, in seconds: short is grainy, long keeps the sound\'s shape.',
     feedback: 'How much of the grains feeds back to make more. Higher gives a longer, smeared trail.'
   },
   stutter: {
@@ -643,52 +645,52 @@ export const texts = {
   tapestop: {
     at: 'When the tape starts to stop (or start), in seconds from the beginning.',
     time: 'How long the slowdown (or speed-up) takes, in seconds.',
-    curve: 'Shape of the slowdown. 1 is steady, like a real brake; above 1 it slows quickly at first and crawls to a stop; below 1 it holds speed, then falls away at the end.',
+    curve: 'Its shape. 1 is steady, a brake; above 1 quick, then crawling; below 1 held, then falling.',
     direction: 'stop slows the sound to a halt; start winds it up from a standstill.',
     flutter: 'Random wobble in speed while it changes, 0 to 1, for a worn, unsteady tape.'
   },
   bitcrusher: {
-    bits: 'How many bits describe each sample. Fewer is grittier and noisier; 8 is old-console crunch. At 1, only what passes half of full scale gets through.',
-    rate: 'Share of the sample rate kept, 0.01 to 1. Lower holds each sample longer, giving a harsh, aliased, lo-fi sound; 0.25 keeps one in four. 1 changes nothing.'
+    bits: 'Bits per sample. Fewer is grittier, 8 an old console\'s crunch; 1 passes only over half.',
+    rate: 'Share of the rate kept. Lower holds each sample longer, aliased and lo-fi; 1 is all.'
   },
   lofi: {
     wow: 'Slow drift in pitch, as from an uneven tape or record, 0 to 1.',
     flutter: 'Fast, small wobble in pitch, 0 to 1.',
     noise: 'Level of the hiss in the background, 0 to 1.',
     crackle: 'How much vinyl crackle there is, in pops and ticks, 0 to 1.',
-    lowpass: 'Top of the sound, in Hz: highs above it are rolled off, as in old tape or radio. Lower sounds duller.',
-    highpass: 'Bottom of the sound, in Hz: lows under it are cut, as in a small speaker. Higher sounds thinner.',
+    lowpass: 'Top of the sound, in Hz, as old tape or radio rolls off its highs; lower is duller.',
+    highpass: 'Bottom of the sound, in Hz, as a small speaker cuts its lows; higher is thinner.',
     drive: 'Tape saturation, 0 to 1. More rounds and warms the peaks.'
   },
   slew: {
-    rise: 'Steepest upward slope allowed, in full-scale units per second. Lower rounds off sharp rises and dulls the sound.',
-    fall: 'Steepest downward slope allowed, in full-scale units per second. Lower rounds off sharp falls and dulls the sound.'
+    rise: 'Steepest rise allowed, in full scale per second; lower rounds sharp rises, duller.',
+    fall: 'Steepest fall allowed, in full scale per second; lower rounds sharp falls, duller.'
   },
   noiseshaper: {
-    bits: 'The bit depth to round down to. The rounding noise is pushed toward the highest frequencies, where it is least audible; fewer bits is coarser and louder.'
+    bits: 'The bit depth rounded to; its noise pushed up to the highs, where it is least heard.'
   },
   codec: {
-    format: 'The codec heard: mp3, aac, opus or vorbis. Apple Music streams aac, Spotify\'s apps vorbis, YouTube opus and aac.',
-    bitrate: 'Data per second, in kbps. Lower sounds worse: smeared attacks, swirling highs, the top cut off. 128 is a common stream; 256 and up is near the original.'
+    format: 'The codec heard. Apple Music streams aac, Spotify\'s apps vorbis, YouTube opus and aac.',
+    bitrate: 'Data per second, in kbps; lower smears attacks, cuts the top. 256 is near the original.'
   },
   // Color
   distortion: {
     drive: 'How hard the sound is pushed into the distortion, 0 to 1. More is grittier and louder.',
-    type: 'The character. soft and tanh round the peaks warmly; hard flattens them harshly; foldback bends loud peaks back on themselves for a metallic buzz.'
+    type: 'soft and tanh round the peaks, hard flattens them, foldback bends them back, a buzz.'
   },
   tube: {
     drive: 'How hard the sound is pushed into the tube. More adds warmth, then crunch.',
-    bias: 'Lopsidedness of the tube, 0 to 1. More adds even harmonics, the warm tube sound; 0 is even-handed, with odd harmonics only.'
+    bias: 'Lopsidedness, 0 to 1. More adds even harmonics, the warm tube sound; 0 odd ones only.'
   },
   tape: {
-    drive: 'How hard the sound is pushed into the tape. More adds warmth, then compression and crunch.',
+    drive: 'How hard it is pushed into the tape: more adds warmth, then compression and crunch.',
     warmth: 'Softening of the highs, like the loss at a tape head, 0 to 1. More is darker and warmer.'
   },
   transistor: {
     drive: 'How hard the sound is pushed into the console stage. More adds firm, punchy odd harmonics.'
   },
   waveshaper: {
-    drive: 'How hard the sound is pushed into a smooth clipping curve. More is more saturated, ending near hard clipping.'
+    drive: 'How hard it is pushed into a smooth clipping curve; more nears hard clipping.'
   },
   multisat: {
     low: 'Where the low band ends, in Hz. Each of the three bands is saturated on its own.',
@@ -696,20 +698,20 @@ export const texts = {
     drive: 'How hard each band is pushed into the tube saturation. More adds warmth, then crunch.'
   },
   exciter: {
-    fc: 'The frequency above which new harmonics are made, in Hz. Higher adds only air; lower adds presence too.',
+    fc: 'New harmonics are made above this, in Hz: higher adds only air, lower presence too.',
     drive: 'How hard the highs are pushed to make harmonics, 0 to 1. More is brighter and edgier.',
     amount: 'How much of the added harmonics is mixed in, 0 to 1. The original sound stays at full level.'
   },
   subbass: {
-    fc: 'Top of the bass to build from, in Hz. Bass under it is turned into higher harmonics that small speakers can play.',
+    fc: 'Top of the bass built from, in Hz, turned into harmonics small speakers can play.',
     amount: 'How much of the added harmonics is mixed in, 0 to 1.',
     drive: 'How hard the bass is pushed to make harmonics, 0 to 1. More is stronger and grittier.',
-    keep: 'How much of the original deep bass is kept: 1 keeps it all, 0 replaces it with the harmonics alone, for speakers that cannot play it.'
+    keep: 'Deep bass kept. 1 all of it, 0 the harmonics alone, for speakers that cannot play it.'
   },
   sbr: {
-    fc: 'Where the real sound runs out, in Hz, for example 16 kHz in a low-bitrate MP3. The highs are rebuilt above it from the band just below.',
+    fc: 'Where the real sound ends, in Hz, as 16 kHz in a low-bitrate MP3; highs rebuilt above.',
     amount: 'How much of the rebuilt highs is added, 0 to 1.',
-    drive: 'How hard the band is pushed to make the highs, 0 to 1. More makes more of them, brighter and rougher.'
+    drive: 'How hard the band is pushed to make the highs, 0 to 1: more is brighter, rougher.'
   },
   amp: {
     gain: 'How hard the preamp is driven, 0 to 1. More is a harder, more distorted tone.',
@@ -724,62 +726,62 @@ export const texts = {
   // Reverb
   freeverb: {
     room: 'Room size, 0 to 1. Higher is a bigger room with a longer tail.',
-    damp: 'How quickly the highs die away in the tail, 0 to 1. Higher is darker and softer; lower is brighter and more metallic.'
+    damp: 'How fast the highs die in the tail, 0 to 1: higher darker, lower brighter and metallic.'
   },
   plate: {
     decay: 'How long the reverb rings, 0 to 1. Higher is a longer tail.',
-    damping: 'How quickly the highs die away in the tail, 0 to 1. Higher is darker and softer; lower is brighter and more metallic.'
+    damping: 'How fast the highs die in the tail, 0 to 1: higher darker, lower brighter and metallic.'
   },
   fdn: {
     decay: 'How long the reverb rings, from about 0.3 seconds at 0 to over 5 seconds at 1.',
-    damping: 'How quickly the highs die away in the tail, 0 to 1. Higher is darker and softer; lower is brighter and more metallic.'
+    damping: 'How fast the highs die in the tail, 0 to 1: higher darker, lower brighter and metallic.'
   },
   spring: {
     decay: 'How long the reverb rings, 0 to 1. Higher is a longer tail.',
-    tension: 'How strong the spring\'s boing is, 0 to 1. Higher spreads the highs and lows apart in time, a more pronounced chirp on every sound.',
-    damping: 'How quickly the highs die away in the tail, 0 to 1. Higher is darker and softer; lower is brighter and more metallic.'
+    tension: 'The boing, 0 to 1. Higher parts highs from lows in time, a chirp on every sound.',
+    damping: 'How fast the highs die in the tail, 0 to 1: higher darker, lower brighter and metallic.'
   },
   shimmer: {
     decay: 'How long the reverb rings, 0 to 1. Higher is a longer tail.',
-    shimmer: 'How much of the tail climbs an octave each time it goes round, 0 to 1. More is a brighter, rising, choir-like tail; 0 is a plain reverb.',
-    damping: 'How quickly the highs die away in the tail, 0 to 1. Higher is darker and softer; lower is brighter and more metallic.'
+    shimmer: 'How much of the tail climbs an octave each pass, 0 to 1: more rises, a choir; 0 is plain.',
+    damping: 'How fast the highs die in the tail, 0 to 1: higher darker, lower brighter and metallic.'
   },
   schroeder: {
     decay: 'How long the reverb rings. Near the top it rings for a very long time.',
-    damping: 'How quickly the highs die away in the tail, 0 to 1. Higher is darker and softer; lower is brighter and more metallic.'
+    damping: 'How fast the highs die in the tail, 0 to 1: higher darker, lower brighter and metallic.'
   },
   // Space
   vocals: {
     mode: 'isolate keeps the centre of a stereo mix, where vocals usually sit; remove takes the centre out.'
   },
   widener: {
-    width: 'How wide the stereo is: 0 is mono, 1 leaves it as it is, higher exaggerates the difference between left and right. Very high values sound hollow in mono.'
+    width: 'Stereo width. 0 is mono, 1 as it is, higher wider; very high sounds hollow in mono.'
   },
   haas: {
-    time: 'How long one side is delayed, in ms. Under about 35 ms the ear hears one wider sound, not an echo.',
+    time: 'How long one side is delayed, in ms; under 35 ms it is heard as one wider sound.',
     channel: 'Which side is delayed. The sound seems to lean toward the other side.'
   },
   panner: {
-    pan: 'Position between the speakers: -1 is full left, 0 centre, 1 full right. The sound is first summed to mono.'
+    pan: 'Where between the speakers: -1 left, 0 centre, 1 right; it is first summed to mono.'
   },
   autopan: {
-    rate: 'How fast the sound sweeps between left and right, in cycles per second. The sound is first summed to mono.',
+    rate: 'How fast it sweeps left and right, in cycles per second; it is first summed to mono.',
     depth: 'How far it sweeps: 0 stays in the centre, 1 goes right out to each side.'
   },
   midside: {
-    mode: 'encode turns left and right into mid (what they share) and side (how they differ), to be processed apart. decode turns them back.',
-    width: 'Used in decode mode: how wide the stereo is. 1 leaves it, 0 is mono, higher is wider.'
+    mode: 'encode turns left and right into mid and side, to process apart; decode turns them back.',
+    width: 'In decode mode, how wide the stereo is. 1 leaves it, 0 is mono, higher is wider.'
   },
   microshift: {
-    cents: 'How far the left copy is shifted up and the right copy down, in cents (hundredths of a semitone). A few cents widen the sound without it going out of tune.'
+    cents: 'Left shifted up and right down, in cents; a few widen it without going out of tune.'
   },
   binaural: {
-    azimuth: 'The direction the sound comes from, in degrees: 0 is straight ahead, 90 to the right, -90 to the left. It has no front or behind, so 180 sounds the same as 0. Best heard on headphones.',
+    azimuth: 'Direction, in degrees. 0 ahead, 90 right, -90 left, 180 as 0. Best on headphones.',
     distance: 'How far away the sound is, in metres. It only turns the level down: 2 m is half as loud as 1 m.',
-    headRadius: 'Size of the virtual head, in metres. A larger head puts more delay between the ears. 0.0875 is an average adult.'
+    headRadius: 'Size of the head, in metres. Larger puts more delay between the ears; 0.0875 an adult.'
   },
   surround: {
-    delay: 'How long the rear speakers lag behind the front, in ms. The lag keeps the rear sound as ambience, behind the front image.',
+    delay: 'How far the rears lag the front, in ms, so they stay ambience behind the front image.',
     lfeCut: 'Top of the subwoofer channel, in Hz. Bass under it is sent there.'
   },
   crossfeed: {
@@ -791,31 +793,31 @@ export const texts = {
     freq: 'Pitch of the tone, in Hz. 440 is the note A.',
     detune: 'Moves the pitch off by this many cents (hundredths of a semitone). 100 is one semitone.',
     gain: 'How loud it plays, from silent (0) to full scale (1).',
-    type: 'The shape of the wave. sine is pure, triangle is soft, square is hollow and buzzy, sawtooth is bright and full.'
+    type: 'sine is pure, triangle soft, square hollow and buzzy, sawtooth bright and full.'
   },
   noise: {
-    color: 'The kind of noise. white is a bright hiss, pink is more natural like rain, brown is a deep rumble, blue and violet are thinner and brighter than white.',
+    color: 'white is a bright hiss, pink like rain, brown a deep rumble; blue and violet thinner.',
     gain: 'How loud it plays, from silent (0) to full scale (1).'
   },
   chirp: {
     f0: 'Where the sweep starts, in Hz.',
     f1: 'Where the sweep ends, in Hz.',
-    method: 'exp spends equal time in each octave, which sounds like an even rise. linear spends most of its time in the highest octaves.'
+    method: 'exp spends equal time in each octave, an even rise; linear most of it in the highest.'
   },
   pluck: {
     freq: 'Pitch of the string, in Hz.',
     damp: 'How slowly the string dies away. Closer to 1 rings longer; lower is a short, dull pluck.',
-    seed: 'The starting point of the noise that plucks it, so the same number always sounds the same. Another is another pluck.'
+    seed: 'The start of the noise that plucks it: the same number always sounds the same.'
   },
   kick: {
     freq: 'The pitch the kick settles to, in Hz. Lower is a deeper boom.',
-    drop: 'How far above that pitch the kick starts, as a multiple of it: at 3 it starts four times higher and falls. More is a harder, clickier thump.'
+    drop: 'Where it starts over its pitch: at 3, four times higher, then falls; more is clickier.'
   },
   cymbal: {
     freq: 'Base pitch of the metallic tones, in Hz. Lower is a bigger, deeper crash; higher is a thinner ping.'
   },
   risset: {
-    freq: 'Base pitch of the drum, in Hz. Its other partials ring above it at inharmonic multiples, with a soft tone an octave below.'
+    freq: 'Base pitch, in Hz; inharmonic partials ring above it, a soft tone an octave below.'
   },
   rhythm: {
     bpm: 'Tempo, in beats per minute.',
@@ -824,46 +826,46 @@ export const texts = {
     accentFreq: 'Pitch of the accented click on the first beat of each bar, in Hz.'
   },
   sfx: {
-    preset: 'Which game sound: pickup, laser, explosion, powerup, hit, jump, blip or coin.'
+    preset: 'Which game sound, from a pickup or a coin to a laser or an explosion.'
   },
   fm: {
     freq: 'Pitch of the tone, in Hz. 440 is the note A.',
-    ratio: 'Speed of the modulating tone against the main one. Whole numbers (1, 2, 3) give clear, musical tones; other values give bells and metallic sounds.',
-    index: 'How strongly the modulator bends the main tone, in radians. 0 is a plain sine; more adds brighter, richer overtones.',
-    indexDecay: 'How quickly the brightness fades after the start, in seconds. 0 keeps it constant; a few seconds fades from bright to soft, like a struck bell.',
+    ratio: 'The modulator\'s speed against the main tone: whole numbers musical, others bells, metal.',
+    index: 'How hard the modulator bends the tone, in radians: 0 a sine; more, brighter overtones.',
+    indexDecay: 'How fast the brightness fades, in seconds: 0 holds it; a few seconds, a struck bell.',
     indexFloor: 'The index the brightness fades down to, in radians. Has no effect while indexDecay is 0.',
-    feedback: 'How much the modulator feeds back into itself, in radians. A little adds a saw-like edge; high values turn noisy.',
+    feedback: 'The modulator fed back into itself, in radians: a little adds a saw\'s edge; much is noise.',
     attack: 'How long the tone takes to fade in at the start, in seconds.',
     release: 'How long the tone takes to fade out at the end, in seconds.'
   },
   modal: {
     freq: 'Pitch of the lowest ringing mode, in Hz.',
-    model: 'What is struck: a string, a bar (xylophone, marimba), a membrane (drum skin), a plate (cymbal, gong), or a tube open at both ends or closed at one.',
+    model: 'What is struck. A string, bar (marimba), membrane (drum), plate (gong) or a tube.',
     nmodes: 'How many overtones ring together. More makes a richer, more complex tone.',
     t60: 'How long the lowest tone rings, in seconds, until it has faded by 60 dB.',
-    damping: 'How much sooner the high overtones die than the low ones. 0 lets them ring as long as the lowest; higher makes the sound mellow as it fades.',
-    inharmonicity: 'Stiffness of a string, which pushes its overtones out of tune, as in a piano. 0 is a perfect string. String model only.',
-    strike: 'Where along its length it is struck, 0 to 1. The middle gives a fuller tone, near an end a thinner one, and at an end nothing sounds. Not used by membrane and plate.',
-    exciter: 'What strikes it: impulse is a single sharp hit, noise a short burst of noise, a rougher, brushed attack.',
-    seed: 'The starting point of the noise burst, so the same number always gives the same hit. Used with the noise exciter only.'
+    damping: 'How much sooner high overtones die than low: 0 as long as the lowest; higher, mellower.',
+    inharmonicity: 'String stiffness, overtones out of tune as a piano\'s; 0 a perfect string. String only.',
+    strike: 'Where it is struck, 0 to 1. The middle full, near an end thin; not for membrane or plate.',
+    exciter: 'What strikes it. impulse is a single sharp hit; noise a short burst, rougher and brushed.',
+    seed: 'The start of the noise burst, with the noise exciter: the same number, the same hit.'
   },
   voice: {
-    type: 'The shape of the wave. sine is pure, triangle is soft, square is hollow and buzzy, sawtooth is bright and full.',
+    type: 'sine is pure, triangle soft, square hollow and buzzy, sawtooth bright and full.',
     attack: 'How long the sound takes to rise from silence to full level, in seconds.',
     decay: 'How long it then takes to fall to the sustain level, in seconds.',
-    sustain: 'The level it holds at while the note lasts, as a share of full level: 1 is full, 0 dies away after the decay.',
+    sustain: 'The level held while the note lasts, a share of full: 1 full, 0 dies after the decay.',
     release: 'How long the sound takes to fade out at the end, in seconds.',
-    fc: 'Cutoff of the voice\'s low-pass filter, in Hz: how bright it sounds. Lower is duller, higher is brighter.',
-    envAmount: 'How much each note\'s envelope moves the filter. 0 keeps it still at the cutoff; 1 opens it as the note starts and closes it as it dies away.'
+    fc: 'Cutoff of its low-pass filter, in Hz: how bright it sounds; lower is duller.',
+    envAmount: 'How much each note\'s envelope moves the filter: 0 still; 1 opens it at the note\'s start.'
   },
   poly: {
     voices: 'The most notes that can sound at once. When all are in use, the oldest is cut off for a new one.',
-    type: 'The shape of the wave. sine is pure, triangle is soft, square is hollow and buzzy, sawtooth is bright and full.'
+    type: 'sine is pure, triangle soft, square hollow and buzzy, sawtooth bright and full.'
   },
   adsr: {
     attack: 'How long the sound takes to rise from silence to full level, in seconds.',
     decay: 'How long it then takes to fall to the sustain level, in seconds.',
-    sustain: 'The level it holds at while the note lasts, as a share of full level: 1 is full, 0 dies away after the decay.',
+    sustain: 'The level held while the note lasts, a share of full: 1 full, 0 dies after the decay.',
     release: 'How long the sound takes to fade out at the end, in seconds.'
   }
 }

@@ -4,6 +4,7 @@ import { ownMarks, snappedTo, SIDES, unwritten } from './data.js'
 import { frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, hotBand, pointedBand, plot, merged, spare, lanes, extent, own, through, banded, footH, veils, placeFrozen, roomLane, rowTop } from './geometry.js'
 import { ONTO, INSET, midiOf, noteOf, STRETCH, root, scaled, within, ruler, hint, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, LEVEL_STEP, picked, tracks, focus, across, scroll, noted, held, assign } from './model.js'
 import { pitchRange, semis, pitchSays, intonationSays, median, pitched, clampY, paintGuide, BLACK, paintRoll, paintLine, bent, toneAt, paintContour, labelled } from './notes.js'
+import { copied } from './gestures.js'
 import { drag, touch, hot, opening } from './pointer.js'
 import { decibels, drawn, W, H, dpr, half, invalidate, tape, rolled, onTape, running, wash, caretColour, rgba, shades } from './render.js'
 import { paintRuler, layHead, awayOf, onAway, paintAway, paintBar, barLight } from './ruler.js'
@@ -27,6 +28,7 @@ export function say(text, px, py, align = 'left', icon = '') {
 // then the overlay, in the view's
 export function paint(L) {
   said = false
+  crosses.length = 0
   layout(L)
   hotBand(L)
   const s = scene(L)
@@ -149,7 +151,9 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
     ].map(m => ends.has(m.t) ? { ...m, fill: gauge(), keep: true } : m), measure?.spans, true)
     paintClipped()
   })
-  const hints = paintCues(mine, measure ? [...lit, measure.t] : lit, aiming)
+  // (audio carried into another track's lane, or under them, its lines there too, where it lands)
+  const lands = drag?.carry && drag.moved && drag.into != null ? [drag.into === 'room' ? roomLane(L) : all[drag.into]].filter(Boolean) : []
+  const hints = paintCues([...mine, ...lands], measure ? [...lit, measure.t] : lit, aiming)
   paintMarkers(L, lit, pointedAt, hints)
   paintStrips(L, pointedAt, already)
   paintOvers(L)
@@ -194,17 +198,19 @@ function marksOf(L, { sel, pointed, aiming, measure, ends, lit }) {
   // side the sound it went onto is, a faint wash fading from it. In the accent, as the cues' lines are: hints
   const onto = dragged(), stuckTo = onto != null && stick(onto)
   if (stuckTo?.d < .5) {
-    const rects = S.all, px = X(onto), here = t => Math.abs(X(t) - px) < 1, { side } = snappedTo(stuckTo.t)
-    const cue = seen().find(i => Math.abs(X(cues[i]) - px) <= ONTO), head = ownMarks().some(here) ? heads(L).find(s => s.i === (tracks ? focus : null))?.edge : null
-    // a clip's cross alike (paintOvers): a line a pixel wide, on pixels' middles
+    const rects = S.all, px = X(onto), { side } = snappedTo(stuckTo.t)
+    const cue = seen().find(i => Math.abs(X(cues[i]) - px) <= ONTO)
+    crossesOnto(L, onto, rects, ownMarks(), cue != null)
+    washFrom(px, cue != null ? SIDES[cueKinds[cue]] : side, rects, WASHED)
+  }
+  // audio carried onto a place (scales.js land): a small cross at the top and the foot of each edge of it that took
+  // hold, on the line it went onto (paintCues), as a snap's, in the lanes it lands in
+  const took = new Set(drag?.held?.map(l => X(l.at)))
+  if (took.size) {
+    const [top, foot] = extent(lands.length ? lands : S.all)
     c.strokeStyle = accent()
     c.lineWidth = 1
-    if (head != null) crossAt(px + .5, Math.round(head) + .5)
-    if (cue != null || head == null) for (const rect of rects) {
-      const [, y, , lh] = rect, top = waveAt(rect, onto, y), low = top && waveAt(rect, onto, y + lh)
-      for (const py of low ? [top.y, low.y] : [y + 3, y + lh - 3]) crossAt(px + .5, Math.round(py) + .5)
-    }
-    washFrom(px, cue != null ? SIDES[cueKinds[cue]] : side, rects, WASHED)
+    for (const px of took) for (const py of [top + 3, foot - 3]) crossAt(px + .5, Math.round(py) + .5)
   }
 }
 // to the side the sound is of a line at `px` (`side`: 1 after it, -1 before, none: no wash), a wash of the accent
@@ -226,11 +232,30 @@ export function washFrom(px, side, rects, a) {
   c.fillStyle = g
   for (const [, y, , lh] of rects) c.fillRect(Math.min(from, to), y, WASH, lh)
 }
-// a small cross, 4 px across (from one pixel's middle to another's, at a pixel's middle: crisp), in the stroke's colour
+// The crosses of a snap, of what went onto the time `t` in the lanes `rects` of band `i`: a marker of its `marks` there
+// (or the takes' place), one centred on the lanes' edge in the band's head; a cue there (`cue`), or no marker, where
+// the line meets the waveform in each lane, at its top and its foot, a lane with no waveform at its own. A dragged
+// edge's, and the caret's ghost's, gone onto what it is by (strips.js paintMarkers). A clip's cross alike
+// (paintOvers): a line a pixel wide, on pixels' middles
+export function crossesOnto(L, t, rects, marks, cue, i = tracks ? focus : null) {
+  const px = X(t), head = marks.some(m => Math.abs(X(m) - px) < 1) ? heads(L).find(s => s.i === i)?.edge : null
+  c.strokeStyle = accent()
+  c.lineWidth = 1
+  if (head != null) crossAt(px + .5, Math.round(head) + .5)
+  if (cue || head == null) for (const rect of rects) {
+    const [, y, , lh] = rect, top = waveAt(rect, t, y), low = top && waveAt(rect, t, y + lh)
+    for (const py of low ? [top.y, low.y] : [y + 3, y + lh - 3]) crossAt(px + .5, Math.round(py) + .5)
+  }
+}
+// a small cross, 4 px across (from one pixel's middle to another's, at a pixel's middle: crisp), in the stroke's colour;
+// where each stands this frame, in the view's geometry (on the reel, less how far it has rolled), so no mark of the
+// overlay covers one (overlayOf)
+const crosses = []
 export function crossAt(px, py) {
   c.beginPath()
   c.moveTo(px - 2, py - 2); c.lineTo(px + 2, py + 2); c.moveTo(px - 2, py + 2); c.lineTo(px + 2, py - 2)
   c.stroke()
+  crosses.push([px - (c === mc ? rolled / dpr : 0), py])
 }
 // What stays as the reel moves, in the view's geometry: the pointer's time and what it measures on the time row, the
 // playhead's time, a file held over the picture, what is out of sight, the meters, the axes and the
@@ -271,8 +296,9 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
     // (the pointer over the bar is past the picture's width, where `at` stops)
     paintLift(!drag && hovered)
     // held ⌘, the pointer's guides out to the axes, at once, wherever it is over a lane: with what it measures, or on
-    // the caret with nothing to; and as a drag sets a time, the caret held, an edge, a range Shift goes on with
-    const guide = measure ?? (at && editing(held) ? dragged() != null ? { t: dragged() } : li >= 0 ? { t: pointed } : null : null)
+    // the caret with nothing to; and as a drag sets a time, the caret held, an edge, a range Shift goes on with (audio
+    // carried, none: ⌘ there lays it over what is there, the pointer hidden)
+    const guide = measure ?? (at && editing(held) && !drag?.carry ? dragged() != null ? { t: dragged() } : li >= 0 ? { t: pointed } : null : null)
     // over a waveform, the level read is the waveform's at the pointer's time (waveAt); held ⌘ or Ctrl, aiming, the
     // pointer's own, where its guide runs across
     const read = lane && !editing(held) && !held.ctrlKey ? waveAt(lane, time(at[0]), at[1]) : null
@@ -302,12 +328,17 @@ function overlayOf(L, { at, lane: li, measure, ends, pointed }) {
     if (doing) say(doing, hovered[0] + 12, hovered[1] - 16)
     // the pointer's frequency or level by its mark, as the axis has them: a small rhombus at the value, in the caret's
     // ink, at the scale (within the sheet, at its right edge over the lanes, where the values are written: scales.js
-    // ticks); on a waveform showing both halves zoomed out, two, at the level and its mirror (waveAt), as its columns
-    // stand on both sides of the centre
+    // ticks); on a waveform, one, on the wave at the pointer, its end on the pointer's side of the centre line (waveAt)
     if (at && lane) {
       const ly = Math.round(read?.y ?? at[1]), text = read?.text ?? (lane.keys ? noteOf(yf(lane, at[1]), 5) : pitched(lane, L) ? reads(snapF(lane, at[1])) : level(lane, at[1]))
-      // (the marks over the tags, whole)
-      const marks = () => { c.fillStyle = caret; for (const y of [ly, ...read?.mirror != null ? [Math.round(read.mirror)] : []]) rhombus(within ? W - INTO - RHOMB : w + 1 + RHOMB, y + .5) }
+      // (the mark over the tags, whole)
+      // (on a waveform, over the wave at the pointer, where the level is, whole within its lane, so a wave to the lane's
+      // edge has it on its end there, not half past it; on another scale, at its edge)
+      const mx = read ? Math.round(at[0]) + .5 : within ? W - INTO - RHOMB : w + 1 + RHOMB, my = read ? Math.max(Math.round(lane[1]) + 4, Math.min(Math.round(lane[1] + lane[3]) - 5, ly)) : ly
+      // (none over a snap's cross, which says more: the level is written by the axis all the same, and a mark moved
+      // aside would stand over a time whose level it is not; back as the snap lets go)
+      const clear = y => !crosses.some(([px, py]) => Math.abs(px - mx) < RHOMB + 3 && Math.abs(py - y) < RHOMB + 3)
+      const marks = () => { c.fillStyle = caret; if (clear(my + .5)) rhombus(mx, my + .5) }
       const axis = (text, ty) => { if (within) return tag(text, W - INTO - c.measureText(text).width, ty, 'right-of'); c.save(); c.beginPath(); c.rect(w + 1, 0, W, H); c.clip(); tag(text, w + 1, ty, 'right-of'); c.restore() }
       const ty = beside(lane, ly), down = ty > ly
       axis(text, ty)
@@ -396,7 +427,8 @@ export function handled() {
 }
 function grips(L) {
   const all = L.all, [top, bottom] = extent(all), h = BOX / 2
-  // each square on whole pixels, so crisp at any pixel ratio, notched: flush with the top and with the edge it sits by,
+  // each square on whole pixels, so crisp at any pixel ratio, notched: a pixel under the top, so the grid's top line
+  // runs on whole over it, and flush with the edge it sits by,
   // never over the caret's line (a pixel wide: on a range's start, its first; on its end, the one after its last, where
   // a drag leaves it); a range's end, its last pixel, lit only as it would move, then drawn over the square (paintEdge)
   const [a, b] = handled() ?? []
@@ -409,7 +441,7 @@ function grips(L) {
   // its intonation and formants, no fades; over a waveform or a spectrogram, its fades and level alone
   const fade = kind => drag?.fade === kind && drag.span ? X(drag.p) : kind === 'in' ? xa : xb, voiced = L.notes.length === all.length
   const tools = voiced ? TOOLS : []
-  if (!voiced && xb - xa >= 2 * (BOX + INSET) + 8) out.push(['in', fade('in') + (cursor === a) + h, top + h], ['out', fade('out') - h, top + h])
+  if (!voiced && xb - xa >= 2 * (BOX + INSET) + 8) out.push(['in', fade('in') + (cursor === a) + h, top + 1 + h], ['out', fade('out') - h, top + 1 + h])
   if (xb - xa >= 72 && !drag?.fade) out.push(['level', (xa + xb) / 2, top + 4], ...tools.map((kind, i) => [kind, Math.round((xa + xb) / 2 + (i - (tools.length - 1) / 2) * (BOX + 2)), bottom - h]))
   // each with the edge it works from (the level and the tools, the middle): none from one out of sight past the lanes'
   // end, under the meters
@@ -568,9 +600,11 @@ function paintKeys(rect, left) {
   c.restore()
 }
 // What a drag does, in a few words by the pointer
+// audio carried in its own lane, how it goes in (gestures.js carried)
+const CARRIED = { move: 'overwrite at', shuffle: 'insert at', copy: 'insert a copy at', stamp: 'overwrite with a copy at' }
 function acting() {
-  const d = drag, st = v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)}`
-  if (d.carry && d.moved) return d.out ? `${d.carry} to a tab of its own` : d.into === 'room' ? `${d.carry} to a new track at ${stamp(d.to)}` : d.into != null ? `${d.carry} to ${tracks[d.into]?.name} at ${stamp(d.to)}` : `${d.carry} to ${stamp(d.to)}`
+  const d = drag, st = v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)}`, verb = copied(d.carry) ? 'copy' : 'move'
+  if (d.carry && d.moved) return d.out ? `${verb} to a tab of its own` : d.into === 'room' ? `${verb} to a new track at ${stamp(d.to)}` : d.into != null ? `${verb} to ${tracks[d.into]?.name} at ${stamp(d.to)}` : `${CARRIED[d.carry]} ${stamp(d.to)}`
   if (d.stretch && d.mode === 'trim') return d.to < d.b ? `trim ${stamp(d.b - d.to)}` : `silence ${stamp(d.to - d.b)}`
   if (d.stretch) return `${d.mode} ×${((d.to - d.a) / (d.b - d.a)).toFixed(3)}, ${stamp(d.to - d.a)}`
   if (d.gap) return `silence ${stamp(d.to - d.at)}`

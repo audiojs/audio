@@ -15,14 +15,14 @@ import { editing } from './strips.js'
 // any of them, drags it, the others staying, on past the range's other edge turning it over from there; anywhere
 // else, at once, the caret there and all else gone, and a drag from it a range. Shift sums: at once the selection, or
 // the caret, out to the press from where it was begun (`origin`), as Shift and a click in a text, a drag going on with
-// it. A drag inside the selection moves its audio, as selected text is dragged; clicked there, the caret there alone.
-// Alt adds: another caret, or dragged another range (on the spectrogram with a band, another box); dragged inside the
-// selection, a copy of its audio (Finder's and Figma's Alt-drag). ⌘ (Ctrl) on the spectrogram, a box of time and
-// frequency, a band. Each keeps its distance from the pointer. `hear` is the time a drag sounds.
+// it. A drag inside the selection moves its audio, as selected text is dragged, put in where it lands; clicked there,
+// the caret there alone. Alt adds: another caret, or dragged another range (on the spectrogram with a band, another
+// box); dragged inside the selection, a copy of its audio (carried). ⌘ (Ctrl) on the spectrogram, a box of time and
+// frequency, a band; dragged inside the selection, its audio over what is there. Each keeps its distance from the
+// pointer. `hear` is the time a drag sounds.
 export function selectDown(event, px, py, t, L) {
   const row = rulerAt(py), spec = !row && L.spec.find(rect => inside(rect, px, py))
-  // inside the selection, but on a caret's line there (the time row put it there), the caret's
-  const within = selection && !band && !row && onOwn(py) && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE && !caretAt(px, py) && !thirdAt(px, py)
+  const within = !row && amid(px, py)
   const box = spec && !within && (editing(event) || event.altKey && band) ? spec : null
   if (event.shiftKey && !event.altKey) {
     if (!again(before, px, py)) before = { at: performance.now(), px, py, range: selection && !band ? [...selection] : [cursor, cursor] }
@@ -32,7 +32,7 @@ export function selectDown(event, px, py, t, L) {
     return { anchor: o, offset: 0, moved: true, keep: true, hear: t }
   }
   const [a, b] = selection ?? []
-  if (within) return { carry: event.altKey ? 'copy' : 'move', a, b, x: px, y: py, to: a, moved: false, alt: event.altKey }
+  if (within) return { carry: carried(event), a, b, x: px, y: py, to: a, moved: false, alt: event.altKey }
   // a range's edge, Alt held or not, its own: dragged as the caret held is, Alt showing every cue meanwhile
   const e = !row && !box && onOwn(py) && edgeAt(px)
   if (e) {
@@ -67,6 +67,17 @@ export function selectDown(event, px, py, t, L) {
   setCursor(t)
   return { anchor: t, x: px, y: py, offset: 0, moved: false, hear: t, spec }
 }
+// Inside the selection, where a press takes its audio: off its edges, its caret's line (the time row put it there) and
+// a triple-click's third press
+export const amid = (px, py) => !!selection && !band && onOwn(py) && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE && !caretAt(px, py) && !thirdAt(px, py)
+// How the selection's audio dragged goes, by the keys held as it goes, before the press or after it: taken out and put
+// in where it lands, what follows moving on ('shuffle', cut() then paste(), a DAW's shuffle mode); held ⌘ (Ctrl), over
+// what is there, silence where it was ('move', move(), its slip mode); held Alt, a copy put in ('copy', copy() then
+// paste()), and with ⌘ too, a copy over what is there, as Photoshop's clone stamp ('stamp', copy(), paste(), then as
+// much taken out after it: what was there replaced, the length kept)
+export const carried = keys => keys.altKey ? editing(keys) ? 'stamp' : 'copy' : editing(keys) ? 'move' : 'shuffle'
+// a copy carried, put in or over what is there: the place it came from staying as it is
+export const copied = how => how === 'copy' || how === 'stamp'
 // Where the selection was begun, the end Shift keeps: the edge its drag started from, else its start; with none, the
 // caret
 export const origin = () => !selection ? cursor : anchor === selection[1] ? selection[1] : selection[0]
@@ -148,10 +159,13 @@ export function aimed(event, px, py) {
   const a = drag.aim, on = editing(event), ex = a.ex + (px - a.px) * a.k, ey = a.ey + (py - a.py) * a.k
   if (on !== a.on) {
     if (on && drag.spec && !drag.box) Object.assign(drag, { box: drag.spec, f: snapF(drag.spec, drag.y) })
-    Object.assign(a, { px, py, ex, ey, on, k: on && !drag.box ? FINE : 1 })
+    Object.assign(a, { px, py, ex, ey, on, k: on && aims(drag) ? FINE : 1 })
   }
   return [ex, ey]
 }
+// what ⌘ aims finely, held as it is pressed or after: not what a press took hold of, a box, audio carried, an end
+// stretched, a cue (audio carried, ⌘ lays it over what is there: carried)
+export const aims = d => !d.box && !d.carry && !d.end && d.cue == null
 export const fine = () => drag?.aim?.k < 1
 // The moment a drag is at sounds, a band of it for a box; from the press on, every move sounds
 export function scrub(d) {
@@ -163,8 +177,9 @@ export function unscrub() {
   if (drag?.scrubbing) { drag.scrubbing = false; onscrub(null) }
 }
 // A cue's line, held ⌘ (Ctrl): pressed and let go, the caret on the cue; dragged, the cue moves, the audio either side
-// stretching to meet it. Not the sound's own start or end (bounds), which warp holds
-export const nearCue = (px, py, keys) => editing(keys) && onOwn(py) && !lanes().spec.some(r => inside(r, px, py)) ? seen().find(i => !bounds.has(cues[i]) && Math.abs(x(cues[i]) - px) <= STICK) ?? -1 : -1
+// stretching to meet it. Not the sound's own start or end (bounds), which warp holds; nor inside the selection, where ⌘
+// carries its audio over what is there (carried)
+export const nearCue = (px, py, keys) => editing(keys) && onOwn(py) && !amid(px, py) && !lanes().spec.some(r => inside(r, px, py)) ? seen().find(i => !bounds.has(cues[i]) && Math.abs(x(cues[i]) - px) <= STICK) ?? -1 : -1
 export function cueDown(px, py, keys) {
   const i = nearCue(px, py, keys)
   if (i < 0) return null

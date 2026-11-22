@@ -8,7 +8,7 @@ import { root, onsamples, onheard, color, reel, selectCanvas, specCanvas, waveCa
 import { labelled } from './notes.js'
 import { paint, lanesEnd, fitTo } from './overlay.js'
 import { barOn, moveOn } from './ruler.js'
-import { scale, gutter, X, freqs, room, fitAxis, axisMarks, levelTicks, setRange, whole } from './scales.js'
+import { scale, gutter, x, X, freqs, room, fitAxis, axisMarks, levelTicks, setRange, whole } from './scales.js'
 import { told } from './select.js'
 import { ground } from './strips.js'
 
@@ -47,7 +47,9 @@ export function resize() {
   render()
 }
 // The output's pieces after an edit of [a, b]: moved to start at `to` over what is there, silence where it was
-// (fn/move.js), a copy put in at `to` (what was there after it), stretched to end at `to` (what follows moving with
+// (fn/move.js), a copy put in at `to` (what was there after it), taken out and put in at `to` of what is left (shuffle:
+// cut, then paste; what is between closing up behind it), a copy over what is there from `to` (stamp: what was there
+// replaced, the sound longer only where it runs past the end), stretched to end at `to` (what follows moving with
 // it), `db` louder, silence (gone to another track); or gone (remove, cut), or all that stays (crop); or, silence opened
 // at a until `to` (insert), what was after it after that. Silence an edit opens is drawn by the pictures from samples
 // there are at this level: as a waveform draws silence, its centre line; as a spectrogram does, nothing
@@ -58,6 +60,8 @@ export function arrange(kind, a, b, to = a, db = 0) {
   const silent = (d0, d1) => ({ s0: 0, s1: Math.min(T, d1 - d0), d0, d1, gain: SILENT, silent: true })
   if (kind === 'move') return [...carve([...run([[0, a]]), silent(a, b), ...run([[b, T]], b), ...to > T ? [silent(T, to)] : []], to, to + d), { s0: a, s1: b, d0: to, d1: to + d, gain: 1 }]
   if (kind === 'copy') return run([[0, to], [a, b], [to, T]])
+  if (kind === 'shuffle') return run(to <= a ? [[0, to], [a, b], [to, a], [b, T]] : [[0, a], [b, to + d], [a, b], [to + d, T]])
+  if (kind === 'stamp') return run([[0, to], [a, b], [to + d, T]])
   if (kind === 'stretch') return [...run([[0, a]]), { s0: a, s1: b, d0: a, d1: to, gain: g }, ...run([[b, T]], to)]
   if (kind === 'gain') return run([[0, a], [a, b, g], [b, T]])
   if (kind === 'silence') return [...run([[0, a]]), silent(a, b), ...run([[b, T]], b)]
@@ -200,13 +204,13 @@ function draw() {
     waves.forEach((wave, i) => {
       const rect = laneOf(L.wave, merged() ? 0 : i)
       if (!rect) return
-      if (guest?.lane === i) { for (const p of carried(i)) drawWave(waves[p.k], p.k, rect, p.from, p.to, p.x0, p.x1, aview, ratio, undefined, p.k === i && tracks?.[i] ? X(tracks[i].end) : Infinity); return }
+      if (guest?.lane === i) { for (const p of carried(i).map(p => steady(p, rect, ratio))) drawWave(waves[p.k], p.k, rect, p.from, p.to, p.x0, p.x1, aview, ratio, undefined, p.k === i && tracks?.[i] ? X(tracks[i].end) : Infinity); return }
       if (!pieces || tracks && i !== (pieces.lane ?? focus)) return drawWave(wave, i, rect, from, to, 0, rect[2], aview, ratio, undefined, tracks?.[i] ? X(tracks[i].end) : Infinity)
-      for (const p of spans()) drawWave(wave, i, rect, p.from, p.to, p.x0, p.x1, aview.map(v => v / p.gain), ratio)
+      for (const p of spans().map(p => steady(p, rect, ratio))) drawWave(wave, i, rect, p.from, p.to, p.x0, p.x1, aview.map(v => v / p.gain), ratio)
     })
     // a piece carried into a new track: in the room, where its lane will be
     const room = guest?.lane === 'room' && roomLane(L)
-    if (room) for (const p of carried('room')) drawWave(waves[p.k], p.k, room, p.from, p.to, p.x0, p.x1, aview, ratio)
+    if (room) for (const p of carried('room').map(p => steady(p, room, ratio))) drawWave(waves[p.k], p.k, room, p.from, p.to, p.x0, p.x1, aview, ratio)
     // a take being recorded, where it goes: its own waveform over what it replaces, drawn as the output's is (over a
     // notes lane too, whose notes are found once it is done), standing still as it grows (taken)
     if (recording?.length) waves.forEach((_, i) => {
@@ -290,6 +294,27 @@ export const tone = u => paletted().tones[Math.round(u * 255)]
 const LEAF = 256, heardShare = spp => Math.max(0, Math.min(1, Math.log2(spp / LEAF) / 2 + 1))
 // `stop`: the px a track's sound ends at, its centre line with it
 const MUTED = .4
+// A piece of the output drawn where an edit takes it ({ from, to } samples across { x0, x1 } CSS px of `rect`), held
+// steady as it moves. gl-waveform bins each column on whole multiples of its samples per device pixel, counted from
+// sample 0, and takes those from the range over the viewport's width, each edge of it rounded to a device pixel: a piece
+// at another fraction of a pixel each frame (carried, what moves on with it, what it leaves, cut where it begins) was a
+// pixel wider or narrower, so its samples per pixel other, so its samples in other columns, its shape wobbling as it
+// went. Here its range is whole columns of the view's own samples per pixel from its own first sample, and its left edge
+// the device pixel the view's columns put that first column on (`u0`, where they begin). Zoomed in past a sample a
+// pixel, where gl-waveform lays the samples out from its range's start, a piece moved (its first sample not drawn at its
+// own time) goes by whole device pixels, its samples laid out from its own first; one where it was, its range's start
+// taken back to the device pixel under it, its samples where the view lays them with none. So a piece moves by whole
+// pixels, the same samples in each column, and what an edit leaves where it was lies on the very columns it has with none
+function steady(p, rect, pr) {
+  const S = (p.to - p.from) / ((p.x1 - p.x0) * pr), R = rect[0] * pr, P = R + p.x0 * pr
+  if (!(S > 0 && S < Infinity)) return p
+  if (S <= 1) {
+    const moved = Math.abs(x(p.from / rate) - p.x0) > 1e-3, X = moved ? Math.round(P) : Math.floor(P), from = moved ? p.from : p.from - (P - X) * S, n = Math.ceil((p.to - from) / S - 1e-6)
+    return { ...p, from, to: from + n * S, x0: (X - R) / pr, x1: (X - R + n) / pr }
+  }
+  const u0 = start * rate / S, X = R + Math.floor(u0 + P - R - p.from / S % 1 + 1e-6) - Math.floor(u0), n = Math.ceil(p.to / S - 1e-6) - Math.floor(p.from / S)
+  return { ...p, to: p.from + n * S, x0: (X - R) / pr, x1: (X - R + n) / pr }
+}
 function drawWave(wave, i, rect, from, to, x0, x1, amplitude, pixelRatio, src = { x: data[i], rate, id: i }, stop = Infinity) {
   const t = twinOf.has(wave) && x1 > x0 ? heardShare((to - from) / (x1 - x0)) : 0
   const both = [[wave, 1 - t * t], [twinOf.get(wave), 1 - (1 - t) ** 2]].filter(([w, k]) => w && k > 0)

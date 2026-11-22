@@ -37,6 +37,25 @@ button:disabled { cursor: default; opacity: .4; }
 svg { flex: none; }
 
 .app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--bar) minmax(0, 1fr); height: 100dvh; }
+/* The strip along the page's top while the engine works (run.js strip), as the site's tools draw their progress: a tick
+   each 6 px in the page's rule, filled from the left in its ink as far as the work has come, the cells a step crosses
+   filling one after another on the links' sine; busy with no figure, the ticks thickening in a wave along it, nothing
+   filled. Idle, nothing: the page's top is the paper over the bar, which a standing line would only rule off. Embedded,
+   the page draws its own (embed.js progress) */
+.progress { position: fixed; inset: 0 0 auto; z-index: var(--z-drag); display: flex; height: var(--space-xs); pointer-events: none; opacity: 0; visibility: hidden; transition: opacity var(--dur-short) var(--ease-out), visibility 0s linear var(--dur-short); }
+.progress[data-on] { opacity: 1; visibility: visible; transition: opacity var(--dur-short) var(--ease-out); }
+.progress i { position: relative; flex: 1; }
+.progress i::before, .progress i::after { content: ''; position: absolute; inset: 0 auto 0 0; transform-origin: left; }
+.progress i::before { width: 2px; background: var(--color-rule); }
+.progress i::after { width: 100%; background: var(--color-ink); scale: var(--f, 0) 1; transition: scale var(--dur-short) cubic-bezier(.37, 0, .63, 1) calc(var(--d, 0) * var(--dur-short)); }
+.progress[data-busy] i::after { scale: 0 1; transition: none; }
+.progress[data-busy] i::before { animation: ticking 1.8s cubic-bezier(.37, 0, .63, 1) calc((var(--p) / 2 - 1.5) * 1.8s) infinite; }
+@keyframes ticking { 0%, 100% { transform: none; } 50% { transform: scaleX(2); } }
+@media (prefers-reduced-motion: reduce) { .progress i::after { transition: none; } .progress[data-busy] i::before { animation: none; } }
+html.embed .progress { display: none; }
+/* (the Mac app's ground the screen's dark: its inks) */
+html.desktop .progress i::before { background: var(--color-screen-rule); }
+html.desktop .progress i::after { background: var(--color-screen-bright); }
 
 /* Bar: the mark, where to start, and the page's actions */
 .bar { display: flex; align-items: center; gap: 20px; padding-inline: calc(var(--gutter) + 6px); min-width: 0; }
@@ -218,6 +237,8 @@ svg { flex: none; }
 .step.delta { box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-screen-accent) 70%, transparent); }
 /* bypassed, its card dimmed, its settings, open, still in reach; after the card chosen, the steps the output leaves out */
 .step.off .step-toggle, .step.rolled { opacity: .42; }
+/* skipped as it threw (stack.js failure): its name and values in the problem's red */
+.step.failed :is(.step-name, .step-args, .step-icon) { color: var(--color-screen-error); }
 .step-head { position: relative; display: flex; align-items: center; min-height: 28px; }
 .step-toggle { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 28px; padding: 0 8px; border: 0; background: none; text-align: left; }
 /* its chevron, small, before its icon: turned down while it is open (a step's settings shown, a group unfolded); the
@@ -391,15 +412,16 @@ html.embed[data-wheel="across"] .plot { touch-action: pan-y; }
 .record, .busy { width: 36px; height: 36px; }
 .record:hover { background: var(--color-screen-hover); }
 /* the loop by the length, a mode of what plays, a small round key on its line */
-.status .loop { flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 24px; height: 24px; margin-left: -4px; border-radius: 6px; color: var(--color-screen-muted); }
+/* a toggle as Before is: on, a quiet lit ground behind it, its ink bright (.icon-button pressed, above); off, none, its
+   ink the bar's soft; no accent for either */
+.status .loop { flex: none; position: relative; top: calc(var(--line) - 4.5px); width: 24px; height: 24px; margin-left: -4px; border-radius: 6px; color: var(--color-screen-soft); }
 .status .loop svg { width: 16px; height: 16px; }
 .status .loop:hover:not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
-.status .loop[aria-pressed="true"] { color: var(--color-screen-accent); }
-/* before the edits, a key at the bar's right end: lit while the file as it opened is heard */
-.before { flex: none; min-height: 22px; margin-left: 12px; padding: 0 8px; border: 0; border-radius: 11px; background: var(--color-quiet); color: var(--color-screen-muted); font: 11px var(--font-mono); }
-.before:hover:not(:disabled) { background: var(--color-quiet-hover); color: var(--color-screen-ink); }
-.before[aria-pressed="true"]:not(:disabled) { background: var(--color-screen-accent); color: var(--color-screen); }
-.before:disabled { opacity: .4; }
+/* before the edits, a key at the bar's right end: lit while the sound before them is heard */
+.status .before { flex: none; min-height: 22px; margin-left: 12px; padding: 0 8px; border: 0; border-radius: 11px; background: var(--color-quiet); color: var(--color-screen-muted); font: 11px var(--font-mono); }
+.status .before:hover:not(:disabled) { background: var(--color-quiet-hover); color: var(--color-screen-ink); }
+.status .before[aria-pressed="true"]:not(:disabled) { background: var(--color-screen-accent); color: var(--color-screen); }
+.status .before:disabled { opacity: .4; }
 /* the spec checked against, its verdict by its name, before Before: Check alone, faint, with none; its rules pointed at,
    a table over it, its verdict an icon (an SVG, not a font's ✓, which no mono face here draws well) */
 .checked { display: flex; flex: none; align-items: center; gap: 3px; margin-left: 12px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); white-space: nowrap; }
@@ -475,7 +497,8 @@ html.embed[data-wheel="across"] .plot { touch-action: pan-y; }
 .shuttling, .shuttling * { cursor: none !important; }
 /* the clock's time: dragged across, the caret moves from where it stands (play.js timePress): under the pointer and
    pressed, the scrub's arrows, what a drag across it does; gone, the pointer locked, once the drag has gone SCRUB px */
-.clock .time { cursor: ew-resize; touch-action: pan-y; }
+.clock .time { cursor: pointer; touch-action: pan-y; }
+.clock .time[data-held] { cursor: ew-resize; }
 .timing, .timing * { cursor: ew-resize !important; }
 .play-icon { display: block; width: 0; height: 0; margin-left: 2px; border-top: 7px solid transparent; border-bottom: 7px solid transparent; border-left: 11px solid currentColor; }
 .play-icon.paused { width: 11px; height: 14px; margin-left: 0; border: 0; border-inline: 3px solid currentColor; }
@@ -926,7 +949,7 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
 @container bar (max-width: 670px) { .facts { display: none; } }
 @container bar (max-width: 870px) { .checked > span { display: none; } .checked:not(:has(svg)) { display: none; } }
 @container bar (max-width: 515px) { .length { display: none; } }
-@container bar (max-width: 570px) { .before { display: none; } }
+@container bar (max-width: 570px) { .status .before { display: none; } }
 @container bar (max-width: 380px) { .status .loop { display: none; } }
 @container picture (max-width: 744px) { .heard { display: none; } }
 @container picture (max-width: 790px) { .clock { --time-size: 28px; } .deck-slot { translate: 0 calc(40px * .3 - 28px * .3); } }
@@ -1006,6 +1029,17 @@ html.embed .app .panes { --panel: clamp(320px, 46vw, 560px); margin: 0; border-r
    the first; its own place kept, empty: chain.js) */
 .embed-chain[data-carry] .chain-step[data-lead]::before { display: none; }
 .chain-step.carried > .chain-edit { visibility: hidden; }
+/* its icon (its own, else its kind's) shown only compact: where the names do not stand on one row (menus.js fitChain)
+   or the frame is a phone's, each edit its icon alone, its name and values its tooltip's and a screen reader's */
+.chain-edit .edit-icon { display: none; flex: none; width: 16px; height: 16px; }
+.embed-chain[data-compact] .chain-edit .edit-icon { display: block; }
+.embed-chain[data-compact] .chain-edit :is(.edit-name, .edit-values) { display: none; }
+.embed-chain[data-compact] .chain-edit[data-off] .edit-icon { color: var(--color-screen-muted); opacity: .6; }
+@container bar (max-width: 480px) {
+  .chain-edit .edit-icon { display: block; }
+  .chain-edit :is(.edit-name, .edit-values) { display: none; }
+  .chain-edit[data-off] .edit-icon { color: var(--color-screen-muted); opacity: .6; }
+}
 .chain-edit { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; min-width: 0; height: var(--cell); padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-screen-ink); font: inherit; white-space: nowrap; cursor: grab; touch-action: pan-y; }
 :is(.embed-chain, .step-tab) .edit-name { font-weight: 500; }
 :is(.embed-chain, .step-tab) .edit-values { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--color-screen-soft); font-variant-numeric: tabular-nums; }
@@ -1013,6 +1047,9 @@ html.embed .app .panes { --panel: clamp(320px, 46vw, 560px); margin: 0; border-r
    bypassEdit) */
 :is(.chain-edit, .step-tab)[data-off] :is(.edit-name, .edit-values) { color: var(--color-screen-muted); }
 :is(.chain-edit, .step-tab)[data-off] .edit-name { text-decoration: line-through; text-decoration-thickness: 1px; }
+/* (skipped as it threw, the rest of the chain made without it: in the problem's red, as the status line says it,
+   its error its tooltip: menus.js failure) */
+:is(.chain-edit, .step-tab)[data-failed] :is(.edit-name, .edit-values, .edit-icon) { color: var(--color-screen-error); }
 /* (carried: a copy of it under the pointer, lifted off the row onto the settings' ground: chain.js) */
 .chain-carried { position: fixed; top: 0; left: 0; z-index: var(--z-drag); margin: 0; background: var(--color-menu); color: var(--color-screen-bright); box-shadow: var(--shadow-lifted); pointer-events: none; }
 .embed-chain[data-carry], .embed-chain[data-carry] .chain-edit { cursor: grabbing; }
@@ -1051,9 +1088,31 @@ html.embed .app .panes { --panel: clamp(320px, 46vw, 560px); margin: 0; border-r
 .head-end .icon-button svg { width: 16px; height: 16px; }
 .head-end .embed-save { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 6px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-screen-soft); font: inherit; font-size: 12px; white-space: nowrap; }
 .head-end .embed-save svg { flex: none; width: 16px; height: 16px; }
-.head-end :is(.icon-button, .embed-save):hover:not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
-.head-end :is(.icon-button, .embed-save):disabled { opacity: .35; }
-.head-end :is(.icon-button, .embed-save):focus-visible { outline: 2px solid var(--color-screen-accent); outline-offset: -2px; }
+/* Before, the bar's in its place, as Save is made: its icon and its word; pressed, the ground lit and the word bright,
+   while the sound before the edits is shown (play.js toggleAB) */
+.head-end .before { display: inline-flex; align-items: center; gap: 6px; height: 28px; margin-right: 2px; padding: 0 8px 0 6px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-screen-soft); font: inherit; font-size: 12px; white-space: nowrap; }
+.head-end .before svg { flex: none; width: 16px; height: 16px; }
+.head-end .before[aria-pressed="true"] { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.head-end .before[hidden] { display: none; }
+/* the sound before the edits, a ghost over the picture, taking no press (play.js beforeGhost) */
+.view > .before-ghost { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.head-end .embed-code[aria-expanded="true"], .head-end .embed-code:has(+ :popover-open) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+/* the code, a popover as the menus are (their ground, corners and shadow), under its button at the row's right end:
+   the script editor in it, the code pane's (editor.js codeToggle), its long lines wrapped. A card's width, between the
+   menus' 360 px and the picture's (a credit line in two or three lines), as tall as its lines up to 420 px, then
+   scrolled down */
+.code-view { position: fixed; inset: auto; box-sizing: border-box; width: min(560px, calc(100vw - 16px)); max-height: min(420px, calc(100vh - 64px)); margin: 0; padding: 0; border: 0; border-radius: 10px; background: var(--color-menu); color: var(--color-screen-ink); box-shadow: var(--shadow-menu); overflow: hidden; flex-direction: column; }
+.code-view:popover-open { display: flex; }
+.code-view .script-editor { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.code-view .script-editor .cm-content { padding-bottom: 10px; }
+/* where the script editor wraps (embedded, or where the code is a popover: editor.js wrap), a wrapped line's rest
+   stands 4 ch in from where the line starts, past a chain's own 2: the calls still read down the left as a chain */
+.script-editor .cm-lineWrapping .cm-line { padding-left: calc(6px + 4ch); text-indent: -4ch; }
+.code-view .code-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin: 0; padding: 6px 8px; border-top: 1px solid var(--color-screen-rule); color: var(--color-screen-muted); font-size: 12px; }
+.code-view .code-copy { height: 26px; padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: var(--color-screen-hover); color: var(--color-screen-bright); font: inherit; cursor: pointer; }
+.head-end :is(.icon-button, .embed-save, .before):hover:not(:disabled, [aria-disabled="true"]) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.head-end :is(.icon-button, .embed-save, .before):disabled { opacity: .35; }
+.head-end :is(.icon-button, .embed-save, .before):focus-visible { outline: 2px solid var(--color-screen-accent); outline-offset: -2px; }
 /* what the field finds, under it (menus.js findOpen), laid as the page's menus are (menu.js: .menu, .menu-row), one
    family: their ground, corners, shadow and inset, a row as tall, its icon in their column, its words where theirs
    are; a row an edit, its name and its values, what it does its title; its groups unnamed, a hairline between them, as
@@ -1132,7 +1191,7 @@ html.embed .app .panes { --panel: clamp(320px, 46vw, 560px); margin: 0; border-r
    edit is off, lit as a pressed key is) */
 .step-settings-body:has(> .params.none) { display: none; }
 .step-foot { display: flex; gap: 2px; margin: 0 -12px; padding: 4px 6px 0; border-top: 1px solid var(--color-screen-rule); }
-:is(.step-bypass, .step-remove) { display: flex; flex: 1 1 0; align-items: center; gap: 8px; min-width: 0; min-height: 28px; padding: 0 6px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-soft); font: 11.5px var(--font-body); text-align: left; white-space: nowrap; }
+:is(.step-bypass, .step-remove) { display: flex; flex: 1 1 0; align-items: center; justify-content: center; gap: 8px; min-width: 0; min-height: 28px; padding: 0 6px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-soft); font: 11.5px var(--font-body); text-align: center; white-space: nowrap; }
 :is(.step-bypass, .step-remove) svg { flex: none; width: 15px; height: 15px; }
 :is(.step-bypass, .step-remove):hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .step-bypass[aria-pressed="true"] { background: var(--color-screen-hover); color: var(--color-screen-bright); }
@@ -1174,6 +1233,13 @@ html.embed .status .facts .embed-view::before { left: calc(3px - var(--sep) - 1p
   .embed-chain::before { display: none; }
   .view-head > .embed-sound:has(~ .embed-chain) { flex: 1 1 0; max-width: max-content; }
 }
+/* a page of its own (View › Edit chain): the tabs and the row's right end on one line, the chain on a row of its own
+   under them, no bar before it */
+html:not(.embed) .view-head:has(> .embed-chain) { flex-wrap: wrap; align-items: center; row-gap: 0; }
+html:not(.embed) .view-head > .files { order: -1; }
+html:not(.embed) .view-head > .embed-chain { order: 1; flex-basis: 100%; }
+html:not(.embed) .embed-chain::before { display: none; }
+html:not(.embed) .panes:has(> .view-head > .embed-chain) > .side-head { align-items: flex-start; }
 /* the page's own ground (background, its colour read off the page by embed.js): the slab in it, no corners, the
    picture's edges fading into it */
 html.embed[data-ground] .app .panes { background: var(--ground); border-radius: 0; }
@@ -1187,7 +1253,7 @@ html.embed[data-ground] :is(.view-head, .view-slab, .status) { --color-screen-so
 /* but an edit's values in the chain: the soft ink still, as its tab has them while its settings are open, so what a
    press sets reads apart from the name, at rest, under the hand and focused */
 html.embed[data-ground] { --values-ink: var(--color-screen-soft); }
-html.embed[data-ground] .embed-chain .chain-edit:not([data-off]) .edit-values { color: var(--values-ink); }
+html.embed[data-ground] .embed-chain .chain-edit:not([data-off], [data-failed]) .edit-values { color: var(--values-ink); }
 html.embed[data-ground] .embed-open:hover { background: var(--color-screen-hover); }
 /* and in one face at two sizes, where the page asks (?ui= font sans): the display's, the time's own. Its words (the
    sound's name, the edits, the bar's small words and figures, each digit as wide as another still) at the tokens' text
@@ -1197,7 +1263,7 @@ html.embed[data-ground] .embed-open:hover { background: var(--color-screen-hover
 @property --font-size-label { syntax: '<length>'; inherits: true; initial-value: 10px; }
 html[data-font="sans"] { --font-size-label: 11px; }
 html[data-font="sans"] :is(.view-head, .view-slab, .status, .step-settings, .edits-found) { --font-mono: var(--font-display); }
-html[data-font="sans"] :is(.embed-sound, .embed-chain, .step-tab, .head-end .embed-save, .embed-open, .status :is(.message, .facts, .readout, .heard, .bar-kind)) { font-size: var(--text-md); }
+html[data-font="sans"] :is(.embed-sound, .embed-chain, .step-tab, .head-end :is(.embed-save, .before), .embed-open, .status :is(.message, .facts, .readout, .heard, .bar-kind)) { font-size: var(--text-md); }
 /* (what the field finds, as the field is set: an edit's name at the words' size, what it does and its group's name at
    the tokens' small text's; an edit's settings so too: its tab, the edit, at the words' size, all under it, what it
    does, its settings' names, values and choices, and Remove, at the small text's) */
@@ -1218,6 +1284,10 @@ html[data-font="sans"] .step-body :is(.step-about, .param label, .param output, 
    that line and the last on the other (a button's own room about its mark taken back, never past the frame's edge) */
 html.embed[data-inset] .app .panes > :is(.view-head, .status) { padding-inline: var(--inset) var(--inset-end); }
 html.embed[data-inset] .app .status-end { padding-right: 0; }
+/* the room under the picture the page gives (?ui= foot), from the picture's foot to the frame's; the bar's time in the
+   middle of all under the grid's last line, the strip of times counted in: padded at its foot by that strip (--strip,
+   editor.js underGrid), its parts centred in what is left; the picture takes the rest */
+html.embed[data-foot] .app .panes > .status { min-height: max(60px, var(--under)); padding-bottom: var(--strip, 0px); }
 html.embed[data-inset] .view { margin-left: 0; }
 html.embed[data-inset] .embed-sound { margin-left: calc(-1 * min(8px, var(--inset))); }
 html.embed[data-inset] .embed-open { margin-right: calc(-1 * min(6px, var(--inset-end))); }

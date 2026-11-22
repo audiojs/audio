@@ -300,7 +300,9 @@ test('editor: the record button records over the sound from the caret, into the 
   await page.keyboard.press('ControlOrMeta+Z')
   await page.keyboard.press('ControlOrMeta+Z')
   await lengthIs('0:08.000')
-  // into a selection: it stops at its end by itself, the length kept
+  // into a selection, the loop off (it is on as the editor opens): it stops at its end by itself, the length kept
+  await page.getByRole('button', { name: 'Loop' }).click()
+  assert.equal(await page.getByRole('button', { name: 'Loop' }).getAttribute('aria-pressed'), 'false')
   await page.mouse.click(x(6), y)
   await drag([x(2), y], [x(2.5) - x(2), 0])
   await page.getByRole('button', { name: 'Record', exact: true }).click()
@@ -391,6 +393,9 @@ test('editor: Alt and Record make a take as they are pressed, one take or more, 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
+  // the loop off (on as the editor opens), so a take over a selection stops at its end
+  await page.getByRole('button', { name: 'Loop' }).click()
+  assert.equal(await page.getByRole('button', { name: 'Loop' }).getAttribute('aria-pressed'), 'false')
   const { box, x } = await axis(8), y = box.y + TOP + TRACK * .5, button = page.locator('button.record'), mark = page.locator('button.record .record-how')
   const shown = () => page.locator('.plot .takes:not([hidden]) button').evaluateAll(b => b.map(x => x.value === 'add' ? 'fork' : x.textContent + (x.getAttribute('aria-pressed') === 'true' ? '*' : '')))
   await button.hover()
@@ -927,7 +932,8 @@ test('editor: recorded into a track over a selection, the loop on, pass after pa
   await page.mouse.click(x(1), lane)
   await drag([x(6), lane], [x(7) - x(6), 0])
   assert.equal(await selected(), '0:06.000–0:07.000')
-  await page.getByRole('button', { name: 'Loop' }).click()
+  // (the loop on as the editor opens)
+  assert.equal(await page.getByRole('button', { name: 'Loop' }).getAttribute('aria-pressed'), 'true')
   await page.keyboard.press('r')
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
   // the second pass under way: the first a take there, the one recording lit, nothing to switch to yet

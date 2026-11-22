@@ -8,6 +8,7 @@
      loads the engine till a part is pressed. The recordings are the site's (audiojs.github.io samples/), each credited
      on the line over the call that opens it -->
 <script type="module" src="index.js"></script>
+<script type="module" src="../repl/embed.js"></script>
 <style>
   body { margin: 0 auto; max-width: 720px; padding: 32px 16px 64px; background: #ebebeb; color: #141414; font: 15px/1.5 system-ui, sans-serif; }
   h1, h2 { font-weight: 600; letter-spacing: -.01em; }
@@ -71,4 +72,21 @@ audio('song.mp3')
   <div class="bar"><audio-play></audio-play><audio-seek></audio-seek><audio-time></audio-time></div>
 </audio-sound>
 
+<h2>An editor as the sound</h2>
+<p>An embedded editor is a sound too: the page's parts name it, and a code block kept in step with its script by two listeners.</p>
+<audio-repl id="edited" panel="none" height="260">
+<pre><code>audio('chime.wav')
+  .gain(-3)</code></pre>
+</audio-repl>
+<div class="bar"><audio-play for="edited"></audio-play><audio-seek for="edited"></audio-seek><audio-time for="edited"></audio-time><audio-status for="edited"></audio-status><audio-save for="edited"></audio-save></div>
+<audio-code id="mirror" for="edited">
+<pre><code>audio('chime.wav')
+  .gain(-3)</code></pre>
+</audio-code>
+<script type="module">
+  // the editor's script and the code block, one text: an edit made in either is the other's
+  const edited = document.getElementById('edited'), mirror = document.getElementById('mirror')
+  edited.addEventListener('input', () => { if (mirror.value !== edited.code) mirror.value = edited.code })
+  mirror.addEventListener('input', () => { edited.code = mirror.value })
+</script>
 </html>

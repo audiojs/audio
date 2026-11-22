@@ -290,8 +290,6 @@ export default function engine(url = WORKER) {
     // A prepared script's sound whole, as the edits make it (the chain flattened up to a step): { channels, sampleRate,
     // markers, regions } or { error }
     bake: script => call({ type: 'bake', ...script }),
-    // The source it opened, level-matched to `loudness` (LUFS), for A/B listening.
-    original: (source, loudness) => call({ type: 'original', source, loudness, hold: self.peaks || undefined }),
     // What plays, made and rendered as it plays (worker.js voice): { voice }, a facade of the library's (audio/worker) the
     // page plays as an instance, or null when there is none (the output gone, the engine stopped). Boxed: a voice of a
     // sound still arriving is thenable, waiting for it to be whole, and a promise resolved with it would wait as long. Of

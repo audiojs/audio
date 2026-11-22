@@ -84,7 +84,7 @@ const recipes = [
   // Auphonic's multitrack order: each mic's level, the bleed of the other cut between turns (an expander for its gate),
   // the voices leveled, mixed, the loudness last; −20 LUFS a mic, the expander's and the leveler's values ours. Two
   // channels, a mic each (`channels`): offered to such a sound alone
-  ['Clean up', 'Interview, two mics', 'One mic per channel: both voices level, each mic\'s bleed of the other cut between turns, podcast loudness', `let a = $src.highpass(80)
+  ['Clean up', 'Interview, two mics', 'One mic per channel: voices level, bleed cut, podcast loudness', `let a = $src.highpass(80)
 let [l, r] = await a.stat('loudness', { channel: [0, 1] })
 a.gain(-20 - l, { channel: 0 })
   .gain(-20 - r, { channel: 1 })
@@ -105,7 +105,7 @@ a.gain(-20 - l, { channel: 0 })
 let [lufs, peak, range] = await a.stat(['loudness', 'db', 'lra'])
 console.log(\`\${lufs.toFixed(1)} LUFS · peak \${peak.toFixed(1)} dBFS · range \${range.toFixed(1)} LU\`)
 a`],
-  ['Deliver', 'Audiobook chapter', 'ACX: RMS −23 to −18 dB, peaks under −3 dB, room tone at each end, 44.1 kHz', steps(
+  ['Deliver', 'Audiobook chapter', 'ACX: RMS −23 to −18 dB, peaks under −3 dB, room tone', steps(
     'declick()',                                 // ACX rejects "mouse clicks, excessive mouth noise"
     'deplosive()',                               // and "plosives, microphone pops"; before the high-pass
     'highpass(80)',                              // ACX's route begins with a low roll-off for speech (Audacity's manual)

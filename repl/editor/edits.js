@@ -196,13 +196,18 @@ export function warp({ from, to, prev, next }) {
   if (last) ed.change({ from: last.call.list.from + 1, to: last.call.list.to - 1, insert: text })
   else write(`warp(${text})`)
 }
-// A selection's audio dragged elsewhere: moved over what is where it lands, silence where it was, as a graphic
-// editor's object or a DAW's clip slides (fn/move.js); with Alt, a copy of it put in where it lands, what was there
-// moving on after it, as a text's dragged copy goes in. One step, so one undo.
-export function carry({ at, duration, to, copy, into }) {
-  const s = t => number(t, v.unit)
+// A selection's audio dragged elsewhere (view/gestures.js carried), `to` where its start lands in what it leaves:
+// taken out and put in there, what follows moving on (`shuffle`: cut, then paste on what the cut left); held ⌘, moved
+// over what is there, silence where it was, as a graphic editor's object or a DAW's clip slides (fn/move.js); held Alt,
+// a copy put in there, what was there moving on after it, as a text's dragged copy goes in (`copy`); with ⌘ too, a copy
+// over what is there (`over`: put in, then as much taken out after it, so what was there is replaced and the length
+// kept, longer only where it runs past the end; its seams hard, as a crossfade of paste's own would fade into what the
+// remove then takes). One step, so one undo.
+export function carry({ at, duration, to, copy, shuffle, over, into }) {
+  const s = t => number(t, v.unit), range = `at: ${s(at)}, d: ${s(duration)}`
   if (into != null) return carryInto({ at, duration, to, copy, into })
-  return write(copy ? `copy({ at: ${s(at)}, d: ${s(duration)} }).paste(${s(to)}${seam()})` : `move({ at: ${s(at)}, d: ${s(duration)}, to: ${s(to)}${splice()} })`)
+  if (over) return write(`copy({ ${range} }).paste(${s(to)}).remove({ at: ${s(to + duration)}, d: ${s(duration)} })`)
+  return write(copy ? `copy({ ${range} }).paste(${s(to)}${seam()})` : shuffle ? `cut({ ${range}${splice()} }).paste(${s(to)}${seam()})` : `move({ ${range}, to: ${s(to)}${splice()} })`)
 }
 // ... dragged into another track's lane (`into`, its index): written over what is there in that track where it lands
 // (write(), as move() lands it in its own), silence where it was (gain −∞ dB over it, as Move to a new track leaves),

@@ -36,6 +36,9 @@ before(async () => {
   server = createServer(async (req, res) => {
     const url = req.url.split('?')[0]
     if (url === '/blank.html') { res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>blank</title>'); return }
+    // the catalogue of recordings the sound menus ask for (repl/library.js) is the site's, not in this repository: here
+    // an empty one, the synthesized samples alone listed; a test of it routes its own (library.test.js)
+    if (url === '/samples/index.json') { res.writeHead(200, { 'content-type': 'application/json' }).end('[]'); return }
     // a file over a slow connection: 8 KB every 120 ms (?ms=), its length said up front; the repository's, or one a test made
     if (url.startsWith('/slow/')) {
       const data = made.get(url.slice(6)) ?? await readFile(resolve(root, '.' + url.slice(5))), ms = +(req.url.match(/[?&]ms=(\d+)/)?.[1] ?? 120)

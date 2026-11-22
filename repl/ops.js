@@ -6,7 +6,8 @@ import { FADES as CURVES, CROSSFADES } from '../fn/curves.js'
 
 // A parameter: { name, min, max, default, unit, step, log, values }. `values` makes it a choice; `selection` (what to
 // select) makes it the selected range, or ranges, set from the picture, not a slider; `required`, the library has no
-// default for it, so a new call writes this one; `option`, the library takes it only by its name, in the options.
+// default for it, so a new call writes this one; `option`, the library takes it only by its name, in the options;
+// `past`, the value at its slider's last place, past `max` (Infinity: a limit lifted).
 const p = (name, min, max, def, unit = '', more) => ({ name, min, max, default: def, unit, ...more })
 const hz = (name = 'freq', def = 1000, min = 20, max = 20000) => p(name, min, max, def, 'Hz', { log: true })
 const db = (name, min, max, def) => p(name, min, max, def, 'dB', { step: .1 })
@@ -74,7 +75,7 @@ const table = {
   highshelf: ['Filter', 'Boost or cut the highs', [hz('freq', 8000), db('gain', -24, 24, 0), Q()]],
   eq: ['Filter', 'Boost or cut a band', [hz(), db('gain', -24, 24, 0), Q(1)]],
   match: ['Filter', 'Match the tone of a reference', [{ name: 'source' }, p('amount', 0, 1, 1, '', { step: .01 })]],
-  master: ['Filter', 'Master to a reference: its tone, width and loudness', [{ name: 'source' }]],
+  master: ['Filter', 'Match a reference\'s tone, width and loudness', [{ name: 'source' }]],
   crossover: ['Filter', 'Split into frequency bands', [hz('freq', 1000)]],
   geq: ['Filter', 'Ten-band graphic EQ'],
   tilt: ['Filter', 'Tilt the tone darker or brighter'],
@@ -87,9 +88,9 @@ const table = {
   oberheim: ['Filter', 'Oberheim SEM multimode filter'],
   variable: ['Filter', 'Smooth variable filter'],
   resonator: ['Filter', 'Ring at one frequency'],
-  comb: ['Filter', 'Add a delayed copy: peaks and dips along the harmonics of one pitch'],
+  comb: ['Filter', 'Peaks and dips along one pitch\'s harmonics'],
   dcblocker: ['Filter', 'Remove DC offset'],
-  emphasis: ['Filter', 'Boost the highs before coding or sending, undone by de-emphasis'],
+  emphasis: ['Filter', 'Boost the highs, for de-emphasis to undo'],
   deemphasis: ['Filter', 'Undo pre-emphasis after decoding'],
   derivative: ['Filter', 'First difference'],
   integral: ['Filter', 'Running sum'],
@@ -113,11 +114,12 @@ const table = {
   auto: ['Dynamics', 'Measure and build a chain automatically'],
   // Repair
   // the noise learned where it plays alone (the selection, set as `noise`), taken `reduction` dB down everywhere (fn/denoise.js)
-  denoise: ['Repair', 'Remove a noise learned from where it plays alone', [db('reduction', 0, 40, 12), db('threshold', -10, 10, 0), { name: 'noise', selection: 'where the noise plays alone' }]],
+  denoise: ['Repair', 'Remove a noise learned where it plays alone', [db('reduction', 0, 40, 12), db('threshold', -10, 10, 0), { name: 'noise', selection: 'where the noise plays alone' }]],
   omlsa: ['Repair', 'Reduce background noise that changes'],
-  // the noise `limit` dB down at most; 0 lets pauses fall to silence (fn/deepfilter.js)
-  deepfilter: ['Repair', 'Clean speech with a neural model', [db('limit', 0, 40, 18), choice('music', ['pass', 'enhance']), db('floor', 0, 60, 40)]],
-  rnnoise: ['Repair', 'Clean speech with a small neural model, as it streams'],
+  // the noise `limit` dB down at most; with none (Infinity, its slider's last place) pauses can fall to silence
+  // (fn/deepfilter.js)
+  deepfilter: ['Repair', 'Take the noise off speech with a neural model', [{ ...db('limit', 0, 40, 18), past: Infinity }, { ...choice('music', ['pass', 'enhance']), option: true }, { ...db('floor', 0, 60, 40), option: true }]],
+  rnnoise: ['Repair', 'Take the noise off speech as it streams'],
   wiener: ['Repair', 'Reduce noise, gentle'],
   specsub: ['Repair', 'Reduce noise by spectral subtraction'],
   dehum: ['Repair', 'Remove mains hum'],
@@ -126,29 +128,29 @@ const table = {
   azimuth: ['Repair', 'Line up a stereo pair in time and polarity', [p('delay', -2, 2, 0, 'ms', { step: .001 })]],
   dewow: ['Repair', 'Correct wow and flutter'],
   // a song's four stems, each at its own level, by a separation model (fn/rebalance.js)
-  rebalance: ['Repair', 'Turn a song\'s vocals, bass, drums or the rest up or down', [db('vocals', -60, 12, 0), db('bass', -60, 12, 0), db('drums', -60, 12, 0), db('other', -60, 12, 0)]],
+  rebalance: ['Repair', 'Vocals, bass, drums or the rest up or down', [db('vocals', -60, 12, 0), db('bass', -60, 12, 0), db('drums', -60, 12, 0), db('other', -60, 12, 0)]],
   // a soundtrack's dialogue, music and effects, each at its own level, by a separation model (fn/rebalance.js)
-  scene: ['Repair', 'Turn a film\'s dialogue, music or effects up or down', [db('dialogue', -60, 12, 0), db('music', -60, 12, 0), db('effects', -60, 12, 0), choice('model', ['mrx', 'tiger'])]],
+  scene: ['Repair', 'Turn dialogue, music or effects up or down', [db('dialogue', -60, 12, 0), db('music', -60, 12, 0), db('effects', -60, 12, 0), { ...choice('model', ['mrx', 'tiger']), option: true }]],
   // the tonal, noisy and transient parts, each at its own level (fn/deconstruct.js)
-  deconstruct: ['Repair', 'Rebalance tones, noise and attacks', [db('tonal', -60, 12, 0), db('noise', -60, 12, 0), db('transient', -60, 12, 0), p('separation', 1, 8, 2, '×', { step: .1 })]],
+  deconstruct: ['Repair', 'Rebalance tones, noise and attacks', [db('tonal', -60, 12, 0), db('noise', -60, 12, 0), db('transient', -60, 12, 0), p('separation', 1, 8, 2, '×', { step: .1, option: true })]],
   // the clicks found everywhere, or in the selection alone, each rebuilt from around it (fn/declick.js)
   declick: ['Repair', 'Remove clicks', [p('threshold', 2, 30, 8, '×', { step: .5 }), p('longest', .5, 20, 6, 'ms', { step: .5 }), p('order', 8, 100, 32, '', { step: 1 })]],
   decrackle: ['Repair', 'Remove vinyl crackle'],
   declip: ['Repair', 'Rebuild clipped peaks'],
   // a voice's band lost above a cutoff, rebuilt from its own harmonics (fn/recover.js)
-  recover: ['Repair', 'Rebuild a voice\'s lost highs from its own harmonics', [hz('cutoff', 4000, 1000, 20000)]],
+  recover: ['Repair', 'Rebuild lost highs from a voice\'s harmonics', [hz('cutoff', 4000, 1000, 20000)]],
   // the room `reduction` dB down by a trained model, music passed; or the classical kernel (fn/dereverb.js)
-  dereverb: ['Repair', 'Remove room echo from a voice', [db('reduction', 0, 60, 60), choice('music', ['pass', 'enhance']), choice('method', ['roformer', 'wpe'])]],
+  dereverb: ['Repair', 'Remove room echo from a voice', [db('reduction', 0, 60, 60), { ...choice('music', ['pass', 'enhance']), option: true }, { ...choice('method', ['roformer', 'wpe']), option: true }]],
   // a voice made again by a neural vocoder, the input kept above the crossover (fn/vocos.js)
-  vocos: ['Repair', 'Rebuild a synthetic voice with a neural vocoder', [hz('crossover', 11000, 2000, 12000)]],
+  vocos: ['Repair', 'Rebuild a synthetic voice with a neural vocoder', [{ ...hz('crossover', 11000, 2000, 12000), option: true }]],
   // a voice back to a studio take by a neural model, the input mixed back by 1 − strength (fn/restore.js)
-  restore: ['Repair', 'Restore a voice to a studio take with a neural model', [p('strength', 0, 1, 1, '', { step: .01 })]],
+  restore: ['Repair', 'A voice to a studio take, by a neural model', [p('strength', 0, 1, 1, '', { step: .01 })]],
   deplosive: ['Repair', 'Soften p and b pops'],
   dewind: ['Repair', 'Reduce wind rumble'],
   debreath: ['Repair', 'Lower breaths between words'],
   // a clip-on mic's clothing rustle off the voice, the room's steady tone kept (fn/derustle.js)
-  derustle: ['Repair', 'Remove clothing rustle from a clip-on mic', [db('reduction', 0, 60, 45), choice('ambience', [true, false])]],
-  desqueak: ['Repair', 'Lower a guitar\'s string squeaks, harsh picks, amp hiss'],
+  derustle: ['Repair', 'Remove clothing rustle from a clip-on mic', [db('reduction', 0, 60, 45), { ...choice('ambience', [true, false]), option: true }]],
+  desqueak: ['Repair', 'Lower string squeaks, harsh picks, amp hiss'],
   defeedback: ['Repair', 'Suppress feedback howl'],
   debleed: ['Repair', 'Take a source\'s bleed out of a mic, given its track'],
   spectral: ['Repair', 'Change a band over a time range', [p('band', 20, 20000, [1000, 4000], 'Hz', { log: true }), db('gain', -60, 12, -60)]],
@@ -163,7 +165,7 @@ const table = {
   // each note's layer (fn/intonation.js): its vibrato about its line, its line about its centre, its centre about its note
   modulation: ['Time & pitch', 'A voice\'s vibrato in each note, deeper or flatter', [p('factor', -1, 3, 1, '×', { step: .05 })]],
   drift: ['Time & pitch', 'A voice\'s slow wander in each note, more or less', [p('factor', 0, 3, 1, '×', { step: .05 })]],
-  center: ['Time & pitch', 'Each note\'s centre onto its note, its movement kept', [p('factor', 0, 2, 1, '×', { step: .05 }), { ...choice('scale', Object.keys(SCALES)), option: true }, p('root', 0, 11, 0, '', { step: 1, option: true })]],
+  center: ['Time & pitch', 'Each note centred on its note, vibrato kept', [p('factor', 0, 2, 1, '×', { step: .05 }), { ...choice('scale', Object.keys(SCALES)), option: true }, p('root', 0, 11, 0, '', { step: 1, option: true })]],
   formant: ['Time & pitch', 'Move a voice\'s formants, pitch kept', [p('semitones', -12, 12, 0, 'st', { step: .5 })]],
   tune: ['Time & pitch', 'Snap pitch to a scale'],
   resample: ['Time & pitch', 'Change the sample rate', [need(choice('rate', [8000, 16000, 22050, 32000, 44100, 48000, 96000], 48000))]],
@@ -195,7 +197,7 @@ const table = {
   tube: ['Color', 'Warm tube saturation'],
   tape: ['Color', 'Tape saturation'],
   transistor: ['Color', 'Console saturation'],
-  waveshaper: ['Color', 'Bend the wave through a tanh or your own curve, oversampled'],
+  waveshaper: ['Color', 'Bend the wave through tanh or your own curve'],
   multisat: ['Color', 'Saturate bands apart'],
   exciter: ['Color', 'Add presence and air'],
   subbass: ['Color', 'Add perceived bass'],
@@ -211,7 +213,7 @@ const table = {
   schroeder: ['Reverb', 'Classic Schroeder reverb'],
   // Space
   vocals: ['Space', 'Keep or remove the centre voice', [choice('mode', ['isolate', 'remove'])]],
-  isolate: ['Space', 'Keep what is panned to the centre, drop the sides'],
+  isolate: ['Space', 'Keep the centre of the mix, drop the sides'],
   widener: ['Space', 'Widen the stereo image'],
   haas: ['Space', 'Stereo from a short delay'],
   panner: ['Space', 'Constant-power panner'],
@@ -314,7 +316,8 @@ function fading({ in: a = .5, out, curve }, T) {
   return t => (fin && t < fin ? c(t / fin) : 1) * (fout && t > T - fout ? c((T - t) / fout) : 1)
 }
 export const previews = {
-  gain: (was, is) => typeof was.value === 'number' && typeof is.value === 'number' ? within(is, () => 10 ** ((is.value - was.value) / 20)) : null,
+  // (from silence, a value of −Infinity, no factor says it)
+  gain: (was, is) => Number.isFinite(was.value) && typeof is.value === 'number' ? within(is, () => 10 ** ((is.value - was.value) / 20)) : null,
   normalize: (was, is) => typeof is.target === 'number' && (was.mode ?? 'peak') === (is.mode ?? 'peak') ? () => 10 ** ((is.target - (was.target ?? 0)) / 20) : null,
   fade(was, is, T) {
     if (was.at != null || is.at != null) return null
@@ -322,10 +325,23 @@ export const previews = {
     return t => { const g = a(t), h = b(t); return g > 1e-3 ? h / g : h > 1e-3 ? 1e3 : 1 }
   }
 }
+// What a step's new settings do to time where they scale it, a stretch's or a speed's: where that begins, s, the start
+// of its range (0, all of it; the earlier of the two where the range moves), from settings `was` to `is` on an output
+// `T` long. What is before it keeps its times; what is after it scales as the output's length comes to be, a method's
+// own limit in it (of stretch(8), wsola stretches 4× at most: its factor's max), so each time keeps to the moment of the
+// sound it marked (editor/run.js carry). None for a step that keeps time, or moves it otherwise (a cut, silence added):
+// those times stay as they are
+const begun = ({ at }, T) => typeof at === 'number' ? Math.max(0, at < 0 ? T + at : at) : 0
+const scaled = (was, is, T) => Math.min(begun(was, T), begun(is, T))
+export const retimes = { stretch: scaled, speed: scaled }
+// A time on an output `T0` s long to the same moment of the sound on one `T1` s long, scaled from `at` on (retimes);
+// none where the two are as long, or nothing follows `at` to scale
+export const retimer = (at, T0, T1) => !(T0 > at && T1 > at) || Math.abs(T1 - T0) < 1e-9 ? null : t => t <= at ? t : at + (t - at) * (T1 - at) / (T0 - at)
 
 // The value of a numeric parameter as the slider shows it, its unit right after it (−1dB, 8kHz, 0.5s).
 export function format(value, { unit = '', step } = {}) {
   if (typeof value !== 'number') return String(value)
+  if (value === Infinity || value === -Infinity) return (value < 0 ? '−∞' : '∞') + unit
   const digits = step >= 1 ? 0 : Math.abs(value) >= 100 ? 0 : Math.abs(value) >= 10 ? 1 : 2
   const text = unit === 'Hz' && Math.abs(value) >= 1000 ? +(value / 1000).toFixed(2) + 'kHz' : +value.toFixed(digits) + unit
   return value < 0 ? '−' + text.slice(1) : text
@@ -334,9 +350,11 @@ export function format(value, { unit = '', step } = {}) {
 // A number's place on its slider, 0..1000: linear, or logarithmic for frequencies and ratios (`log`); and the value at
 // a place, rounded to its step (a log one's to three figures, a linear one's with none to a thousandth of its range),
 // written short: one mapping for an edit's settings (settings.js) and a value dragged on a row of the edits' list
-// (editor/menus.js findHold)
-export const toSlider = (s, v) => s.log && s.min > 0 ? Math.log(v / s.min) / Math.log(s.max / s.min) * 1000 : (v - s.min) / (s.max - s.min) * 1000
+// (editor/menus.js findHold). An infinite value stands at its end of the slider, and the last place is `past` where a
+// setting has one
+export const toSlider = (s, v) => v === Infinity ? 1000 : v === -Infinity ? 0 : s.log && s.min > 0 ? Math.log(v / s.min) / Math.log(s.max / s.min) * 1000 : (v - s.min) / (s.max - s.min) * 1000
 export function fromSlider(s, x) {
+  if (s.past !== undefined && x >= 1000) return s.past
   const at = Math.max(0, Math.min(1000, x)), raw = s.log && s.min > 0 ? s.min * (s.max / s.min) ** (at / 1000) : s.min + at / 1000 * (s.max - s.min)
   const step = s.step ?? (s.log ? Math.max(.01, 10 ** (Math.floor(Math.log10(Math.max(raw, 1e-9))) - 2)) : (s.max - s.min) / 1000)
   return +(Math.round(raw / step) * step).toFixed(Math.max(0, Math.min(6, Math.ceil(-Math.log10(step)))))

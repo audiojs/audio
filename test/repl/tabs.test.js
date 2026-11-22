@@ -274,7 +274,8 @@ test('editor: a second tab asks to be the editor; the first stores and steps asi
 test('editor: tabs play at once, each playing its speaker on its tab, a press on it muting it', async () => {
   await open()
   const speakers = () => page.evaluate(() => [...document.querySelectorAll('.files .file')].map(f => f.querySelector('.file-sound')?.getAttribute('aria-pressed') ?? null))
-  await page.getByRole('button', { name: 'Loop', exact: true }).click()
+  // (the loop on as the editor opens: the chime plays on till it is stopped)
+  assert.equal(await page.getByRole('button', { name: 'Loop', exact: true }).getAttribute('aria-pressed'), 'true')
   await page.getByRole('button', { name: 'Play', exact: true }).click()
   await page.waitForFunction(() => document.querySelector('.file.current .file-sound'))
   await page.getByRole('button', { name: 'New tab', exact: true }).click()

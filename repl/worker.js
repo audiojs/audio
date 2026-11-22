@@ -254,11 +254,13 @@ function silent(seconds, opts) {
 const api = scoped(a => (run?.created.push(a), a))
 // A copy a script makes of a sound (`take.clone()`, the sound tracks copy, their shared steps in it) knows the source
 // that sound was copied from (rootOf), so it is kept by its edits as that sound is (keysOf): a track split from another
-// starts from what is kept of the one it was. One made while its sound's run runs goes with that run
+// starts from what is kept of the one it was. One made while its sound's run runs goes with that run; its edits made by
+// the calls that made those it copies (sites)
 const cloning = audio.fn.clone
 audio.fn.clone = function () {
   const b = cloning.call(this)
   if (run?.created.includes(this)) run.created.push(b)
+  this.edits.forEach((e, i) => { if (sites.has(e)) sites.set(b.edits[i], sites.get(e)) })
   return b
 }
 
@@ -276,13 +278,26 @@ function inspect(value, depth = 0) {
   return `{ ${Object.entries(value).slice(0, 20).map(([k, v]) => `${k}: ${inspect(v, depth + 1)}`).join(', ')} }`
 }
 
-// Where in the script an error happened: the line of its first frame in the script's own source.
+// Where in the script something happened: the line and column of the first frame in the script's own source a stack
+// names, or null
 let lineOffset = 0
 try { new AsyncFunction('throw new Error()\n//# sourceURL=repl-probe.js')().catch(e => { lineOffset = +(e.stack?.match(/repl-probe\.js:(\d+)/)?.[1] ?? 1) - 1 }) } catch {}
-const failure = error => {
-  const at = error?.stack?.match(/repl\.js:(\d+):(\d+)/)
-  return { message: error?.message ?? String(error), name: error?.name, ...(error?.missing && { missing: error.missing }), ...(at && { line: +at[1] - lineOffset, column: +at[2] }) }
+const placeIn = stack => { const at = stack?.match(/repl\.js:(\d+):(\d+)/); return at && { line: +at[1] - lineOffset, column: +at[2] } }
+// What the page gets of an error: its words; where in the script it happened, its own first frame there, or `at`, the
+// call that made the step that raised it as the chain rendered (rendering); the op that raised it (core.js blame); a
+// file the page never had
+const failure = (error, at = placeIn(error?.stack)) => ({ message: error?.message ?? String(error), name: error?.name, ...(error?.missing ? { missing: error.missing } : typeof error?.op === 'string' && { op: error.op }), ...at })
+// Each edit a script makes, by where in it the call that made it is (placeIn, of the stack the edit is pushed on), a
+// copy's by its original's (clone): an error the edit raises as the chain renders, after the script has run (core.js
+// blame), is said at that call, as one it throws as it is called is
+const sites = new WeakMap()    // an edit → { line, column }
+const pushing = audio.fn.run
+audio.fn.run = function (...edits) {
+  const from = this.edits.length, at = run && placeIn(new Error().stack), out = pushing.apply(this, edits)
+  if (at) for (const e of this.edits.slice(from)) sites.set(e, at)
+  return out
 }
+const sitesOf = a => a.edits.map(e => sites.get(e) ?? null)
 
 // The script's last expression comes back boxed (code.js prepare), so a sound still arriving, which is thenable,
 // is not waited out: its output streams instead. A script with tracks returns them by name (`tracks`), and its master
@@ -307,8 +322,8 @@ async function execute({ id, code, names = [], tab = null, peaks = 0, preview = 
     // tracks, each a sound by its name; one alone is the output as any value is
     if (value instanceof Out) {
       const sounds = value.tracks ? Object.entries(value.value).filter(([, a]) => isAudio(a)) : []
-      if (sounds.length > 1) layers = sounds.map(([name, instance]) => ({ name, instance }))
-      if (layers && isAudio(value.master?.value)) layers.push({ name: value.master.name, instance: value.master.value, master: true })
+      if (sounds.length > 1) layers = sounds.map(([name, instance]) => ({ name, instance, sites: sitesOf(instance) }))
+      if (layers && isAudio(value.master?.value)) layers.push({ name: value.master.name, instance: value.master.value, master: true, sites: sitesOf(value.master.value) })
       value = layers ? undefined : value.tracks ? sounds[0]?.[1] : value.value
     }
     if (value && typeof value.then === 'function' && !isAudio(value)) value = await value
@@ -326,7 +341,9 @@ async function execute({ id, code, names = [], tab = null, peaks = 0, preview = 
     // worker replaced (orphaned)
     if (orphaned(layers ? layers.map(t => t.instance) : output ? [output] : [], tab)) post({ id, event: 'held' })
     if (!output) { for (const r of outputs.values()) if (r.tab === tab) drop(r); dispose(run.created); return result }
-    const record = { id, tab, peaks, preview, instance: output, tracks: layers, muted: new Set(muted), created: run.created, saves: run.saves, names, tape: null, sound: null, length: 0, sampleRate: 0, done: false }
+    // (`sites`: where in this script the call that made each of its output's edits is, read now: a paused run taken up
+    // in its place, adopt, brings the same edits, made by an older script whose lines may stand elsewhere)
+    const record = { id, tab, peaks, preview, instance: output, tracks: layers, muted: new Set(muted), created: run.created, saves: run.saves, names, sites: layers ? null : sitesOf(output), tape: null, sound: null, length: 0, sampleRate: 0, done: false }
     record.finished = new Promise(resolve => { record.finish = resolve })
     // a mix is kept as its tracks are, each by its own edits
     record.keys = layers ? Object.assign([], { marked: true }) : keysOf(output, sourceId)
@@ -386,13 +403,14 @@ function unpause(key) {
   r.made?.dispose()
 }
 // what a paused run made, its tape stopped; and taken up again: a tape anew, what it made on it first, sent on as it goes
-// (`send`, where it is shown)
+// (`send`, where it is shown); only for a run that made something (a run paused before its first block has no tape, and
+// makes one at that block, keep()), so its rate and width are what it made's, a rendered sound's, never asked of the
+// chain, whose width is not known before its ops have loaded
 function stopTape(r) { if (r.tape) { r.made = r.tape.stop(); r.tape = null } }
 async function retape(r, send = () => {}) {
   const made = r.made
   r.made = null
-  r.tape = tape(r.sampleRate || r.instance.sampleRate, made?.channels ?? r.instance.channels)
-  if (!made) return
+  r.tape = tape(made.sampleRate, made.channels)
   await relay(made.stream(), () => true, (at, channels) => { r.tape.push(channels); send(at, channels) }, () => made.sampleRate)
   made.dispose()
 }
@@ -476,8 +494,9 @@ async function render(r) {
   }
   if (!alive()) return
   if (hit) return replay(r, hit)
-  // a run paused, taken up again: what it made so far, once its stream has given what it had when it paused
-  if (r.from) { await r.from.going?.catch(() => {}); Object.assign(r, { made: r.from.made, length: r.from.length, sampleRate: r.from.sampleRate }); r.from = null }
+  // a run paused, taken up again: what it made so far, once its stream has given what it had when it paused; the sound
+  // its stream renders (streamed, below)
+  if (r.from) { await r.from.going?.catch(() => {}); Object.assign(r, { made: r.from.made, length: r.from.length, sampleRate: r.from.sampleRate, streamed: r.from.streamed }); r.from = null }
   const patched = r.blocks ? null : await fragment(r)
   if (!alive()) return
   if (patched) {
@@ -491,7 +510,8 @@ async function render(r) {
   const a = r.based?.instance ?? r.instance
   inputs.set(a, r.keys.slice(r.based?.at ?? 0))
   owners.set(a, r)
-  r.streamed = { a, at: r.based?.at ?? 0 }
+  // the sound its stream renders, holding the output's edits from the `at`-th on
+  r.streamed ??= { a, at: r.based?.at ?? 0 }
   // a registry plugin's op first loaded, as rendering would load it: what it is (its prepare) known before
   for (const [type] of a.edits) if (!audio.op(type) && audio.plugins?.[type]) await audio.use(type).catch(() => {})
   if (!alive()) return
@@ -515,7 +535,9 @@ async function render(r) {
     if (!alive()) return
     out.end()
     r.sampleRate ||= r.instance.sampleRate
-    r.sound = (r.tape ??= tape(r.sampleRate, r.instance.channels)).stop()
+    // no block came: as wide as the sound that streamed, its ops loaded above (the run's whole chain, r.instance, may
+    // hold one from a recalled start that never loaded in this worker, its width not known)
+    r.sound = (r.tape ??= tape(r.sampleRate, a.channels)).stop()
     const figures = await figuresOf(r.sound), end = r.length / r.sampleRate
     if (!alive()) return
     // its markers and its ranges (mark()), where its edits put them
@@ -527,11 +549,27 @@ async function render(r) {
     finish(r, e)
   } catch (error) {
     if (!alive()) return
-    const failed = r.names.find(n => !sources.has(n))
-    post({ id: r.id, event: 'error', error: failure(failed ? opening(failed, error) : error) })
+    post({ id: r.id, event: 'error', error: rendering(r, error, r.sites[culprit(error, r.instance, r.streamed)]) })
     drop(r)
   }
 }
+// The step of `a`, a sound the script made (its output, a track), an error raised as `s.a` rendered is. The engine says
+// which edit raised it as it loaded, prepared or rendered (core.js blame: `edit`, its index in s.a's edits, `op` its
+// name), and s.a holds a's edits from the `s.at`-th on (recall: what comes before them kept), so it is a's s.at + edit;
+// taken only where that edit has that name in both, never on the index alone, as an error two sounds share carries the
+// last one's index and an inner sound's may stay on it. -1 for none
+const culprit = (e, a, s) => Number.isInteger(e?.edit) && s?.a.edits[e.edit]?.[0] === e.op && a.edits[s.at + e.edit]?.[0] === e.op ? s.at + e.edit : -1
+// What the page gets of an error rendering run `r`'s output: a file that did not open said as that (opening), never as
+// a step; else said at `site`, the call that made the step that raised it (culprit), where there is one, so the page
+// skips that step as it skips one that throws as it is called (editor/run.js skip)
+function rendering(r, error, site) {
+  const failed = r.names.find(n => !sources.has(n))
+  if (failed || error?.missing) return failure(failed ? opening(failed, error) : error)
+  return site ? failure(error, site) : failure(error)
+}
+// An error raised as made() rendered a sound the script made (a track, a stage): where it rendered, { a, at } as
+// streamed has it, and `of`, that sound
+const raised = new WeakMap()
 // Tracks (code.js tracks): each made as an output is, from what is kept of it (made: a track edited renders alone, the
 // others are kept, here and in the browser's files, so a reload makes none of them again), then summed from their
 // starts into the output, but those the page mutes (`muted`, by name): as long
@@ -604,8 +642,9 @@ async function mixTracks(r, alive) {
     replay(r, { sound, sampleRate: rate, markers: r.tracks.flatMap(t => own(t).map(m => ({ ...m, track: t.name }))).sort(at), regions: r.tracks.filter(t => !t.master).flatMap(t => t.regions.map(g => ({ ...g, track: t.name }))).sort((p, q) => p.at - q.at), bitDepth: depths.length ? Math.max(...depths) : null })
   } catch (error) {
     if (!alive()) return
-    const failed = r.names.find(n => !sources.has(n))
-    post({ id: r.id, event: 'error', error: failure(failed ? opening(failed, error) : error) })
+    // one a track's own steps raised: which track, and the call that made the step
+    const s = raised.get(error), t = s && r.tracks.find(t => t.instance === s.of)
+    post({ id: r.id, event: 'error', error: { ...rendering(r, error, t?.sites[culprit(error, t.instance, s)]), ...t && { track: t.name } } })
     drop(r)
   }
 }
@@ -747,14 +786,19 @@ function rendered(r, k) {
 }
 // An instance's sound, rendered a block at a time onto a tape, giving way to whatever the page asks (turns); null once
 // `going()` says to stop, at the end too: an instance let go as its run gave way (a model still reading it) streams
-// nothing, which kept would be the sound for the run taking its place
+// nothing, which kept would be the sound for the run taking its place. The tape is as wide as the blocks that come, as
+// an output's is (keep), not as the instance says before it is read: asked before its ops have loaded, a sound says its
+// input's width (plan.js deriveFormat passes an op not yet loaded), and a tape made to that refused the first block
+// of one an op widens (a bed ducked under a key: "push: expected 1 channels, got 2"); with no block, as wide as it says
 async function collect(a, going, blocks = a.stream()) {
-  const t = tape(a.sampleRate, a.channels), turn = turns()
+  const turn = turns()
+  let t = null
   for await (const block of blocks) {
-    t.push(block)
+    ;(t ??= tape(a.sampleRate, block.length)).push(block)
     await turn()
     if (!going()) { t.dispose(); return null }
   }
+  t ??= tape(a.sampleRate, a.channels)
   if (!going()) { t.dispose(); return null }
   return t.stop()
 }
@@ -781,6 +825,9 @@ async function made(a, keys = keysOf(a, sourceId), going = () => true, owner = n
     if (whole) store(keys[n], e)
     shelve(content, e)
     return e
+  } catch (e) {
+    if (Object(e) === e) raised.set(e, { a: b, at: n - b.edits.length, of: a })
+    throw e
   } finally { if (b !== a) b.dispose?.() }
 }
 // Its markers and ranges, read, as the page has them
@@ -843,7 +890,10 @@ async function fragment(r) {
     // the last output with what changed written over it: its pages shared, the range the edit's
     const sound = o.sound.clone().write(got.map(c => c.slice(s0 - lead, end - lead)), { at: s0 / rate })
     return { sound, sampleRate: rate, markers: o.markers, regions: o.regions, bitDepth: r.instance.bitDepth ?? null }
-  } finally { a.dispose?.() }
+  }
+  // a step that fails here: the output renders whole, which says which (render)
+  catch { return null }
+  finally { a.dispose?.() }
 }
 // A step reading its input whole first (its op's prepare: deepfilter's model over it, vocals' separation) is said by
 // its name to the run whose sound it reads (owners), while it does; with the part of it running, where it says (auto's
@@ -1303,22 +1353,6 @@ async function checking({ spec, tab }) {
   catch (error) { delete checks[spec]; throw error }
 }
 
-// The source as it opened, for listening against the output at the same place: a copy, at the output's loudness
-// (BS.1770), so the comparison hears what the chain did, not that it is louder.
-// Its samples only where the page holds them (`hold` channel samples, engine.js peaks): played by the engine either way
-// (voice), the page's meters and scrub read them.
-async function original({ source, loudness, hold = PREVIEW_LIMIT }) {
-  const src = sources.get(source)
-  if (!src) return { channels: null }
-  await src.ready
-  const own = await loudnessOf(src), gain = Number.isFinite(loudness) && Number.isFinite(own) ? loudness - own : 0, k = 10 ** (gain / 20)
-  const length = src.length, channels = length * src.channels > hold ? null : (await src.read()).map(c => c.map(v => v * k))
-  return { channels, length, sampleRate: src.sampleRate, gain }
-}
-// A file's loudness, read once
-const levels = new WeakMap()
-const loudnessOf = src => { if (!levels.has(src)) levels.set(src, src.stat('loudness')); return levels.get(src) }
-
 // Samples [from, to) of an output, for the page to draw where it is zoomed in on one it holds only the peaks of, or to
 // hear there (`mix`: with tracks, their mix)
 async function samples({ output, from, to, mix = false }) {
@@ -1363,24 +1397,16 @@ async function weighed(sound, weigh, rate, mono = false) {
 }
 
 // What plays (player.js) of a sound the page holds none of, or whose deck failed (a sound it holds plays from the deck's
-// worker, voices.js): an output (`output`, the run that made it) or the file it opened (`source`, at the output's
-// `loudness`, as original() has it), as the page asks to hear it (heard.js): a band of it, its boxes, or a moment of it
-// [from, to] through an edit, [type, ...args] (a pitch dragged). The page adopts it (audio/worker) and plays it, rendered
-// here into the page's deck as it plays; it lets it go when done. Each a copy of one kept, sharing its samples
-async function voice({ output, source, loudness, muted, ...as }) {
-  let a
-  if (source != null) {
-    const src = sources.get(source)
-    if (!src) return { inst: null }
-    const own = await loudnessOf(src)
-    a = src.clone().gain(Number.isFinite(loudness) && Number.isFinite(own) ? loudness - own : 0)
-  } else {
-    const r = await whole(output)
-    if (!r) return { inst: null }
-    // with tracks, their sum but those `muted` (by name), made as it plays: a mute heard at once, the mix made again
-    // without them coming after
-    a = muted && r.tracks && !r.tracks.some(t => t.master) ? mixOf(r.tracks, t => !muted.includes(t.name)) : r.sound.clone()
-  }
+// worker, voices.js): an output (`output`, the run that made it), as the page asks to hear it (heard.js): a band of it,
+// its boxes, or a moment of it [from, to], through an edit, [type, ...args] (a pitch dragged; the sound before the edits
+// at their loudness, a gain). The page adopts it (audio/worker) and plays it, rendered here into the page's deck as it
+// plays; it lets it go when done. Each a copy of one kept, sharing its samples
+async function voice({ output, muted, ...as }) {
+  const r = await whole(output)
+  if (!r) return { inst: null }
+  // with tracks, their sum but those `muted` (by name), made as it plays: a mute heard at once, the mix made again
+  // without them coming after
+  const a = muted && r.tracks && !r.tracks.some(t => t.master) ? mixOf(r.tracks, t => !muted.includes(t.name)) : r.sound.clone()
   if (as.edit && !audio.op(as.edit[0])) await audio.use(as.edit[0])
   const { expose } = await host()
   return { inst: expose(heard(a, as)) }
@@ -1634,7 +1660,7 @@ const handlers = {
     for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k)
     return { held: [...passes].some(p => p.tab === tab) }
   },
-  run: execute, cues, contour: curve, notes, listen, facts, threshold, kind, chords, wav, export: exporting, describe, check: checking, original, voice, samples, heard: levelsHeard, eval: evaluate,
+  run: execute, cues, contour: curve, notes, listen, facts, threshold, kind, chords, wav, export: exporting, describe, check: checking, voice, samples, heard: levelsHeard, eval: evaluate,
   // a tab closed: its output goes
   close: ({ tab }) => { newest.delete(tab); stopped.delete(tab); for (const r of outputs.values()) if (r.tab === tab) drop(r); for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k); return {} },
   // a script's sound whole, as the edits make it there (the chain flattened up to a step): from the renders kept, as a
@@ -1655,6 +1681,6 @@ self.onmessage = async ({ data }) => {
   let reply
   try { reply = await handlers[data.type](data) }
   catch (error) { reply = { error: failure(error) } }
-  const transfer = data.type === 'original' || data.type === 'bake' || data.type === 'samples' ? reply.channels?.map(c => c.buffer) : data.type === 'heard' ? reply.leaves?.map(l => l.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : data.type === 'wav' && reply.bytes ? [reply.bytes.buffer] : []
+  const transfer = data.type === 'bake' || data.type === 'samples' ? reply.channels?.map(c => c.buffer) : data.type === 'heard' ? reply.leaves?.map(l => l.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : data.type === 'wav' && reply.bytes ? [reply.bytes.buffer] : []
   post({ id: data.id, ...reply }, transfer || [])
 }

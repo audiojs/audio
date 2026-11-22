@@ -336,6 +336,66 @@ test('editor: embedded, a figure\'s two insets, the page\'s custom properties in
   assert.deepEqual(errors, [])
 })
 
+// A room under the picture, as a page asks for it (ui foot: a length, the page's custom properties in it): from the
+// picture's foot to the frame's, the bar's one row that tall, the picture taking the rest; the time's digits (their ink)
+// midway between the grid's last line and the frame's foot, within a pixel, the strip of times under the grid counted
+// in, at two heights of the frame; play on the time's line; the skeleton before it lays the bar there too
+test('editor: embedded, the bar in the room the page gives under the picture, the time midway under the grid', async () => {
+  await page.goto(origin + '/blank.html')
+  let release
+  const held = new Promise(r => release = r)
+  await page.route('**/repl/?embed*', async route => { await held; await route.continue() })
+  await page.evaluate(async () => {
+    await import('/repl/embed.js')
+    document.body.style.margin = '0'
+    document.documentElement.style.setProperty('--room', '150px')
+    const ui = { grid: 'paper', axis: 'inside', font: 'sans', inset: '5vw', foot: 'var(--room)' }
+    document.body.innerHTML = `<audio-repl panel="none" height="480" background="rgb(40, 40, 40)" controls="sound play clock loudness rate channels" ui='${JSON.stringify(ui)}'><pre><code>audio('chime.wav')</code></pre></audio-repl>`
+  })
+  // the skeleton: the play block's middle midway between the grid's last line, the strip of times (26 px) over the
+  // last 150 px, and the frame's foot
+  await page.waitForFunction(() => document.querySelector('audio-repl .wait')?.childElementCount)
+  const wait = await page.evaluate(() => { const el = document.querySelector('audio-repl'), box = el.getBoundingClientRect(), play = [...el.querySelectorAll('.wait i')].find(i => i.style.width === '24px').getBoundingClientRect(); return { mid: play.top + play.height / 2 - box.top, H: box.height } })
+  assert.ok(Math.abs(wait.mid - (wait.H - (150 + 26) / 2)) <= 1, `the skeleton's play midway under the grid: ${wait.mid} of ${wait.H}`)
+  release()
+  const f = page.frameLocator('audio-repl iframe')
+  await f.locator('.clock .length', { hasText: '0:08.000' }).waitFor()
+  await page.unroute('**/repl/?embed*')
+  assert.equal(await page.$eval('audio-repl iframe', i => JSON.parse(new URL(i.src).searchParams.get('ui')).foot), '150px', 'the page\'s custom property given its value')
+  // (the time's digits' ink, its rows far from the bar's ground, in the frame's px)
+  const inkOf = async () => {
+    const box = await f.locator('.status .clock').boundingBox(), frame = await page.locator('audio-repl iframe').boundingBox(), png = await f.locator('.status .clock').screenshot()
+    const [a, b] = await page.evaluate(async b64 => {
+      const img = new Image()
+      img.src = 'data:image/png;base64,' + b64
+      await img.decode()
+      const g = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height }).getContext('2d')
+      g.drawImage(img, 0, 0)
+      const d = g.getImageData(0, 0, img.width, img.height).data, rows = []
+      for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) { const k = (y * img.width + x) * 4; if (Math.abs(d[k] - d[0]) + Math.abs(d[k + 1] - d[1]) + Math.abs(d[k + 2] - d[2]) > 120) { rows.push(y); break } }
+      return [rows[0], rows.at(-1) + 1]
+    }, png.toString('base64'))
+    return box.y - frame.y + (a + b) / 2
+  }
+  for (const height of [480, 700]) {
+    if (height !== 480) {
+      await page.evaluate(h => document.querySelector('audio-repl').style.setProperty('--audio-repl-height', `${h}px`), height)
+      await page.waitForFunction(h => Math.abs(document.querySelector('audio-repl iframe').getBoundingClientRect().height - h) <= 1, height)
+    }
+    const read = () => f.locator('body').evaluate(async () => {
+      const { state } = await import('/repl/editor/context.js'), L = state.layout, box = s => document.querySelector(s).getBoundingClientRect(), status = box('.status'), play = box('.play')
+      return { H: innerHeight, plot: box('.plot').bottom, grid: box('.plot').top + Math.min(L.h, Math.max(...L.rows.map(r => r.bottom))), status: [status.top, status.height], play: play.top + play.height / 2 }
+    })
+    const p = await poll(read, p => assert.ok(Math.abs(p.status[1] - 150) <= 1 && Math.abs(p.status[0] + p.status[1] - p.H) <= 1, `the room the frame's last 150 px: ${JSON.stringify(p)}`))
+    assert.ok(p.plot <= p.status[0] + 1 && p.plot >= p.status[0] - 12, `the picture down to the room: ${p.plot} for ${p.status[0]}`)
+    // (the picture's lanes follow the frame a frame after the bar's row does: read until they have, the grid's last line
+    // read off a layout a frame old stood where the lower frame had it, 304 px for 524)
+    const q = await poll(async () => ({ ...await read(), digits: await inkOf() }), q => assert.ok(Math.abs(q.digits - (q.grid + q.H) / 2) <= 1, `${height} px: the time's digits ${q.digits.toFixed(1)}, ${(q.digits - q.grid).toFixed(1)} under the grid and ${(q.H - q.digits).toFixed(1)} over the foot`))
+    assert.ok(Math.abs(q.play - q.digits) <= 3, `play on the time's line: ${q.play} for ${q.digits}`)
+  }
+  assert.deepEqual(errors, [])
+})
+
 // A figure's scales lie within its sheet (axis inside), no scale apart: the lanes and the grid that rules them run
 // from the frame's left edge to its right one, the grid ruling the lanes' values alone and ending on the last lane's
 // foot, a labelled line. Under it the times stand plain in a strip as low as their line: each flush under its own

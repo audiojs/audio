@@ -371,9 +371,11 @@ test('editor: markers: a named range\'s fork starts takes there; the take heard,
   await chip.locator('button[value="0"]').click()
   await page.waitForFunction(() => scriptText().endsWith(`// .write(audio.from(2), { at: 3 })`))
   // its place selected (pressed in the strip), Record records into the empty take, heard from then on, stopping at the
-  // place's end by itself
+  // place's end by itself, the loop off (it is on as the editor opens)
   await page.mouse.click(x(4.5), strip)
   assert.equal(await selected(), '0:03.000–0:05.000')
+  await page.getByRole('button', { name: 'Loop' }).click()
+  assert.equal(await page.getByRole('button', { name: 'Loop' }).getAttribute('aria-pressed'), 'false')
   await page.getByRole('button', { name: 'Record', exact: true }).click()
   await page.getByRole('button', { name: 'Record', exact: true }).waitFor({ timeout: 15000 })
   await page.waitForFunction(() => /\n {2}\.write\(audio\('take(-\d)?\.wav'\), \{ at: 3[^)]*\)$/.test(scriptText()) && !scriptText().includes('audio.from(2)'))

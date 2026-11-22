@@ -19,15 +19,17 @@ import { lengthOf, pickFiles, openFiles, taken, recover, useSample, useCode, use
 import { bytes, mac, keys, clock, stamp, ruled, label, note } from './editor/format.js'
 import { wire as wireKeys } from './editor/keys.js'
 import { paint, setDisplay, laneGroups, setScale, setLevels, setLook, resizePanel, flipView, wire as wireLook } from './editor/look.js'
-import { bar, openDropdown, dropToggle, placeList, contextMenu, openTools, closePalette, quick, toolKey, soundMenu, opsMenu, quicken, saveMenu, openStep, stepToggle, findable, findOpen, findShut, findToggle, findButtonKey, findBlur, findClear, findInput, findKey, findMake, findPress, findPoint, findHold, findBack, closeMenus, wire as wireMenus } from './editor/menus.js'
+import { bar, openDropdown, dropToggle, placeList, contextMenu, openTools, closePalette, quick, toolKey, soundMenu, opsMenu, quicken, saveMenu, openStep, followStep, stepToggle, findable, findOpen, findShut, findToggle, findButtonKey, findBlur, findClear, findInput, findKey, findMake, findPress, findPoint, findHold, findBack, findLeave, closeStep, watchChain, fragment, closeMenus, failure, callFailure, wire as wireMenus } from './editor/menus.js'
 import { carryEdit, editKey, dropEdit, bypassEdit } from './editor/chain.js'
 import { writing, store, later, wire as wirePersist } from './editor/persist.js'
-import { playerOf, toggleAB, toggleLoop, plays, playPress, playClick, timePress, togglePlay, toggleTabMute, onscrub, wire as wirePlay } from './editor/play.js'
+import { playerOf, toggleAB, after, beforeGhost, toggleLoop, plays, playPress, playClick, timePress, togglePlay, toggleTabMute, onscrub, wire as wirePlay } from './editor/play.js'
 import { meter, describe, pageKind, kindOf, kindTip, kindShown, pickKind, markLevel, unmarkLevel, pickReading, pickSpec, seekTo, listen } from './editor/readouts.js'
 import { placed, toggleRecording, take, recorder, armRecording, startRecording, stopRecording, reach, span, useTakeOf, forkRange, takeList, wire as wireRecording } from './editor/recording.js'
-import { schedule, evaluate, stop, standIn, scheduleCheck, wire as wireRun } from './editor/run.js'
+import { schedule, evaluate, stop, standIn, scheduleCheck, retime, wire as wireRun } from './editor/run.js'
 import { docOf, initialDocs, retitle, tabPress, tabOver, tabRenamed, switchTab, scrollTabs, inSight, newTab, dragTab, closeTab, wire as wireTabs } from './editor/tabs.js'
 import { guidesOf } from './editor/tools.js'
+// (embedded: the sound said to the page that holds the frame, and what that page asks of it)
+import './editor/host.js'
 import { trackMenu, layerLook, toggleLock, fitField, roomMenu, toggleMute, focusOn, trackOf, laneName, untrack, wire as wireTracks } from './editor/tracks.js'
 import { resampleTo, remixTo, channelActions, silence, stretch, trim, crossfade, lift, unmark, nameMarker, relabel, remark, fade, setGrip, setCurve, envelope, pitchline, envelopeShown, shiftOf, shift, tone, formant } from './editor/writers.js'
 
@@ -75,8 +77,22 @@ const state = sprae(root, {
   display: oneOf(stored.display, displays.map(d => d.name), 'wave'), scale: scales[stored.scale] ? stored.scale : 'log', rates, layouts, sound: null, viewing: '',
   show: { meters: true, spectrum: true, keys: true, gain: true, guides: true }, units: oneOf(UI.units, UNITS.map(u => u[0]), 'clock'),
   embed: EMBED, playStops: PLAY_STOPS, stacked: STACKED, agented: AGENTED, quick: QUICK, madeList: [], restList: [], made: 0, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
-  // the chain's edits dragged, moved and taken away, by the pointer and the keys, and what that did, said (chain.js)
-  carryEdit, editKey, dropEdit, bypassEdit, chainSaid: '',
+  // the chain's edits dragged, moved and taken away, by the pointer and the keys, and what that did, said (chain.js);
+  // the steps the last run skipped as they threw, by their line (run.js show), and the error of one (menus.js failure)
+  carryEdit, editKey, dropEdit, bypassEdit, alt: /Mac|iP/.test(navigator.platform) ? '⌥' : 'Alt', chainSaid: '', failed: [], failure,
+  // the code as a popover (?ui= controls code): the script editor itself, the code pane's (script.js: CodeMirror, its
+  // words painted, its numbers dragged, written in as the pane is), taken into it as it opens, under its button at the
+  // row's right end, and back into the pane as it shuts; Copy puts the script on the clipboard
+  codes: SHOWN.includes('code'), codeSaid: '',
+  codeToggle(event) {
+    const view = event.currentTarget, script = root.querySelector('.script-editor')
+    if (event.newState !== 'open') return root.querySelector('.script').prepend(script)
+    this.codeSaid = ''
+    view.prepend(script)
+    const b = root.querySelector('.embed-code')?.getBoundingClientRect()
+    if (b) Object.assign(view.style, { top: `${b.bottom + 4}px`, right: `${Math.max(8, innerWidth - b.right)}px` })
+  },
+  async codeCopy() { try { await navigator.clipboard.writeText(ed.code); this.codeSaid = 'Copied' } catch { this.codeSaid = 'Select it and copy' } },
   // what each sound is, in a word, by its name (readouts.js): what each was heard to be; a tab's, and the one shown's
   heardKinds: {}, kindOf, get kind() { return pageKind(this.name) || kindOf(this.name, this.heardKinds) },
   // what the listeners heard of each sound, what more is known of a sound than its word (readouts.js kindTip: the
@@ -86,18 +102,27 @@ const state = sprae(root, {
   get kindText() { return kindShown(this.kindReads, this.kind, this.heard) },
   get kindTitle() { return this.kindReads === 'kind' ? kindTip(this.name, this.kind, this.heardFacts) : this.heard?.rows?.find(r => r[0].toLowerCase() === this.kindReads || this.kindReads === 'note' && r[0] === 'Chord')?.filter(Boolean).slice(0, 3).join(' ') || 'Nothing clear yet' },
   // how the edits a press away are laid (config.js EDITS: menu, chain); the menu's plus only where the page names its
-  // own (quick), the history in the bar
-  laid: EDITS,
+  // own (quick), the history in the bar. A page of its own: as the link names it, else as View › Edit chain left it
+  laid: EDITS === 'chain' || !EMBED && typeof UI.edits !== 'string' && stored.edits === 'chain' ? 'chain' : 'menu',
+  toggleChain() {
+    closeStep(false)
+    findShut()
+    state.laid = state.laid === 'chain' ? 'menu' : 'chain'
+    quicken()
+    requestAnimationFrame(watchChain)
+    store()
+  },
   // the chain's edit whose settings are open, by its place among those made (-1, none), what it is and what it does
   // (menus.js openStep)
-  stepOpen: -1, stepTitle: '', stepAbout: '', openStep, stepToggle,
+  stepOpen: -1, stepTitle: '', stepAbout: '', openStep, followStep, stepToggle,
   // the chain's field, Add edit (menus.js findKey): what is typed in it, whether its list is open, what it finds (the
   // suggested not made, then each kind's, those that hold what is typed), in its groups; the rows the keys go through
   // (with nothing typed, a tree: the first level's, or the open kind's edits, `findDeep`) and the one lit, by its place
   // among them and by its id; a row's value being dragged (`findHeld`), and those a drag set, not made yet (`findSet`)
-  findQuery: '', finding: false, findAt: 0, findKind: '', findDeep: false, findHeld: null, findSet: {}, findOpen, findShut, findToggle, findButtonKey, findBlur, findClear, findInput, findKey, findMake, findPress, findPoint, findHold, findBack,
+  findQuery: '', finding: false, findAt: 0, findKind: '', findDeep: false, findHeld: null, findSet: {}, findOpen, findShut, findToggle, findButtonKey, findBlur, findClear, findInput, findKey, findMake, findPress, findPoint, findHold, findBack, findLeave,
   get findTree() { return !this.findQuery.trim() },
-  get foundGroups() { return findable(this.findQuery, this.restList, this.findKind, this.kind, this.findSet, this.sound?.count) },
+  // (what is selected: a fragment's own Suggested, menus.js fragment)
+  get foundGroups() { return findable(this.findQuery, this.restList, this.findKind, this.kind, this.findSet, this.sound?.count, { any: !!this.selection || this.ranges > 0, rows: fragment(this.selection, this.band, this.ranges, this.kind) }) },
   get found() { return this.foundGroups.flatMap(g => g.items).filter(e => !this.findTree || e.level === (this.findDeep ? 2 : 1)) },
   get lit() { return Math.min(this.findAt, Math.max(0, this.found.length - 1)) },
   get litAt() { return this.found[this.lit]?.at ?? -1 },
@@ -105,7 +130,9 @@ const state = sprae(root, {
   shortcut, tip,
   tabs: [], tabFacts: {}, marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, hotBand: -1, trackRows: null, ghost: false, renamingTab: null,
   progress: '', figure: '', arrived: null, working: false, loading: false, arriving: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
-  time: '0:00.000', held: null, span: 0, readout: '', reading: { of: '', head: '', rows: [] }, heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
+  // (the loop on as the editor opens, embedded or not: what plays, the selection or all of it, played round till it is
+  // turned off; kept nowhere, so each visit begins with it on)
+  time: '0:00.000', held: null, span: 0, readout: '', reading: { of: '', head: '', rows: [] }, heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: true, recording: null,
   // the ring in Play's place (status), unless it plays or records
   get halting() { return this.working && !this.playing && !this.recording },
   specs, spec: oneOf(stored.spec, specs.map(s => s.key), ''), report: null, checking: false, ab: false, abGain: 0, canCompare: false,
@@ -130,7 +157,7 @@ const state = sprae(root, {
   // The check, rule by rule, pointed at in the bar (its spec's name there): each rule, the output's value and mark, its limit
   get checkRows() { return (this.report?.rules || []).map(ruled) },
   setSpec(key) { state.spec = key; store(); scheduleCheck(0) },
-  toggleAB,
+  toggleAB, beforeGhost,
   // The clock, in the config's units: the playhead, or the caret, one time always, the ranges being on the
   // time row; after it how long all that is selected is, between bars as a length is marked. What is selected, in full, when
   // pointed at
@@ -260,8 +287,9 @@ assign({ pl: playerOf(first) })
 wireFiles()
 assign({ ed: codeEditor(root.querySelector('.script-editor'), {
   hint: hints,
-  wrap: EMBED,
-  // embedded, CodeMirror comes with the code pane, if the page asks for one, or with an undo
+  // long lines wrapped, embedded or where the code is a popover (?ui= controls code), never scrolled sideways
+  wrap: EMBED || SHOWN.includes('code'),
+  // embedded, CodeMirror comes with the code pane or the code's popover, if the page asks for one, or with an undo
   lazy: EMBED,
   doc: first.code,
   onchange(code, update) {
@@ -270,6 +298,8 @@ assign({ ed: codeEditor(root.querySelector('.script-editor'), {
     // runs at once
     const typed = !!update?.transactions.some(tr => tr.isUserEvent('input.type') || tr.isUserEvent('delete'))
     undoable()
+    // (heard before the edits: after them again, play.js toggleAB)
+    after(code)
     quicken(code)
     focusOn(state.track)
     remember(code, slider)
@@ -299,6 +329,18 @@ store()
 
 // The theme worn, VS Code's followed in its webview (look.js)
 wireLook()
+
+// Embedded with a room under the picture (ui foot: index.html), the bar's time in the middle of all under the grid's
+// last line, its strip of times counted in, not stood over: the bar padded at its foot by that strip (editor.css
+// --strip), measured as the bands are laid (`layout`: the lanes' foot, where the sheet's grid ends, axis inside)
+const html = document.documentElement
+function underGrid({ rows, h }) {
+  const status = html.hasAttribute('data-foot') && root.querySelector('.panes > .status')
+  if (!status) return
+  const grid = UI.axis === 'inside' && rows.length ? Math.min(h, Math.max(...rows.map(r => r.bottom))) : h
+  const strip = `${Math.max(0, Math.round(status.getBoundingClientRect().top - root.querySelector('.plot').getBoundingClientRect().top - grid))}px`
+  if (html.style.getPropertyValue('--strip') !== strip) html.style.setProperty('--strip', strip)
+}
 
 // The output view
 v = view(root.querySelector('.plot'), {
@@ -340,7 +382,7 @@ v = view(root.querySelector('.plot'), {
     store()
   },
   // the bands laid out anew: the layers line up with them
-  onlayout(layout) { state.layout = layout },
+  onlayout(layout) { state.layout = layout; underGrid(layout) },
   // the band pointed at, its look shown
   onband(i) { state.hotBand = i },
   // a take's number pressed on its place, it heard; its …, all of them as a menu under it; its +, an empty take added
@@ -456,14 +498,17 @@ if (stack) assign({ rk: stack(root.querySelector('.steps'), {
   ontake: switchTake,
   describe: name => eng.describe(name),
   duration: () => v.duration,
+  // the error a step threw as the last run made the chain without it (menus.js callFailure), or ''
+  failure: callFailure,
   // the sound the chain starts from; with tracks, the track's name before it
   source: () => { const s = source(ed.code), files = s?.strings.length ? s.strings.map(x => label(x.name)).join(' + ') : null; return files && state.track ? `${state.track} · ${files}` : files },
   oncall(call, spec, values) { assign({ carded: !!(call && spec) }); v.guides = carded ? guidesOf(call, spec, values) : shown?.guides ?? [] },
   onview(next) { assign({ viewing: next }); schedule(0) },
   // a gain() curve chosen, its line on the picture, to edit; none else (envelopeShown)
   onchoose: () => { v.envelope = envelopeShown() },
-  // a slider's move shows on the picture at once, where a level says it (ops.js previews), until its output comes
-  onpreview(name, was, is) { v.preview(previews[name]?.(was, is, v.duration) ?? null) },
+  // a slider's move shows on the picture at once, where a level says it (ops.js previews), until its output comes; one
+  // that scales time takes what is selected with the sound once it does (ops.js retimes)
+  onpreview(name, was, is) { v.preview(previews[name]?.(was, is, v.duration) ?? null); retime(name, was, is) },
   // a row's own menu, right-clicked; the chain up to a row made one sound
   oncontext({ x, y, items }) { bar.at(items, x, y) },
   onflatten: to => flatten(to),
@@ -493,9 +538,9 @@ wireChat()
 wireTabs()
 // the page's keys, and the focus and audio device a first press brings (keys.js)
 wireKeys()
-// and the keys in the row over the picture, where the page lays its edits there (?ui= edits chain): pressed, they act
-// without taking the keys, as the bar's do (keys.js), so Space stays play
-if (EMBED) root.addEventListener('mousedown', event => { if (event.target.closest('.view-head :is(.embed-chain, .head-end) button')) event.preventDefault() })
+// and the keys in the row over the picture, where the edits are laid there (?ui= edits chain, View › Edit chain):
+// pressed, they act without taking the keys, as the bar's do (keys.js), so Space stays play
+root.addEventListener('mousedown', event => { if (event.target.closest('.view-head :is(.embed-chain, .head-end) button')) event.preventDefault() })
 // Leaving: the tabs stored, a take's last part written as it can be; while a take records, or a file is still being
 // written, the browser asks first. Hidden (a phone's app switched away, a laptop's lid), stored too, as it may not come back
 addEventListener('pagehide', () => { store(); take?.tape?.flush(); pl.close(); recorder?.cancel() })

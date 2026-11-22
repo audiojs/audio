@@ -22,9 +22,11 @@ export const DESKTOP = params.has('desktop')
 // up and down left to the page, or `both`), grid (how the lanes are ruled: `none`, `lines`, `paper`), axis (false: no
 // scale at the lanes' right; `inside`: the values and the time row written in the sheet the grid rules), kind (what the
 // page's own sound is, in a word, said where a kind is said; another sound's is heard: readouts.js), about (what more
-// the page says of its own sound, its word's tooltip: ABOUT, below), inset (embedded, how
-// far the sound's name and the bar stand in from the frame's sides, the picture its whole width) and font (`sans`: its
-// words in one face, its picture's labels smaller; both set before the first paint, index.html), edits (how the quick edits are laid:
+// the page says of its own sound, its word's tooltip: ABOUT, below), samples (the catalogue of recordings the sound
+// menus list: SAMPLES, below), inset (embedded, how
+// far the sound's name and the bar stand in from the frame's sides, the picture its whole width), foot (embedded, the
+// room under the picture the bar stands in, its time midway under the grid: editor.js underGrid) and font (`sans`: its words in one face, its picture's labels
+// smaller; all set before the first paint, index.html), edits (how the quick edits are laid:
 // `menu` or `chain`, EDITS, below),
 // cues (what shows first where they crowd),
 // units (how time reads: time.js UNITS), splice (the ms an edit's seams crossfade over), channels (of a take over
@@ -44,12 +46,16 @@ export const quickOf = call => {
 export const QUICK = (Array.isArray(UI.ops) ? UI.ops : []).map(quickOf).filter(Boolean)
 // the edits suggested for each kind of sound (kind.js NEXT), as the quick edits are
 export const NEXT_EDITS = Object.fromEntries(Object.entries(NEXT).map(([kind, calls]) => [kind, calls.map(quickOf).filter(Boolean)]))
-// how they are laid: under one button, a menu of them (`menu`); or the row over the picture as the chain itself
-// (`chain`): the sound's name, those made after it in their order, a field to add one (its list: Suggested, the recipe
-// for the sound's kind and these edits, then every edit by kind and the recipes), the history, the save at its end
+// how they are laid, embedded or not: as the chain itself (`chain`), a row over the picture: the sound's name (a page of
+// its own: its tabs over it), those made after it in their order, a field to add one (its list: Suggested, the recipe
+// for the sound's kind and these edits, then every edit by kind and the recipes), at its right end Before and the
+// history (embedded, the save too); else (`menu`) embedded, under one button, a menu of them, and a page of its own none,
+// its menus and palette holding every edit. A page of its own lays them as View › Edit chain left it, where the link
+// names no layout (editor.js laid)
 export const EDITS = UI.edits === 'chain' ? 'chain' : 'menu'
-// whether the page has a place for what a sound is offered: embedded, the chain (its list's recipes), or the menu
-// behind a plus where the page names its own edits; a page of its own has none (its menus and palette hold every edit)
+// whether the page has a place for what a sound is offered, as it is given: embedded, the chain (its list's recipes),
+// or the menu behind a plus where the page names its own edits (a page of its own, the chain once it is laid so:
+// menus.js quicken)
 export const SUGGESTS = EMBED && (EDITS === 'chain' || QUICK.length > 0)
 // What the page says its own sound is, in a word (`birdsong`, `speech`): said while that sound is the one shown, where
 // there is a place for it. A sound of the reader's is listened to instead (readouts.js hearKind, worker.js kind)
@@ -57,6 +63,9 @@ export const KIND = typeof UI.kind === 'string' ? UI.kind.trim().slice(0, 40) : 
 // What more the page says of its own sound, who made it, where, when (`A blackbird\nDiana Tudor, xeno-canto 1059970`):
 // the first of its word's tooltip, for as long as that sound is the one shown (readouts.js kindTip)
 export const ABOUT = typeof UI.about === 'string' ? UI.about.trim() : ''
+// The catalogue of recordings the sound menus list by category (library.js): the site's, beside the playground on its
+// origin; another where the page points it (?ui= samples, an address); false, none, the synthesized samples alone
+export const SAMPLES = UI.samples === false ? '' : typeof UI.samples === 'string' && UI.samples.trim() ? UI.samples.trim() : '/samples/index.json'
 // whether the page has a place where a sound's kind is said: as a page of its own, by each sound's name in its tab,
 // after a thin rule; embedded, with the edits the chain, by the level in the bar, not with the menu behind a plus
 export const SAYS_KIND = !EMBED || EDITS === 'chain'

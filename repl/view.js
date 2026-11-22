@@ -35,10 +35,13 @@ export { KINDS, NOTES, noteOf, stylize, HOLD, SLOP } from './view/model.js'
 // selection puts the caret at its start, the pointer an I-beam: a range is of time, no box. What there is stays when a
 // press takes it: a caret's line, any of them, drags the caret; a range's edge, any of them, drags it, lighting when a
 // press would take it, and meeting the other edge leaves a caret; inside it, a drag moves its audio, as selected text
-// is dragged, the pointer a hand. The time row is a ruler, as a DAW's: pressed, the
-// caret goes there alone, what is selected staying (Reaper's); dragged, a range; held still, the caret, dragged. The
-// keys say how, the same everywhere, each its pointer: Shift sums (the selection, or the caret, extended to the press
-// at once from where it was begun, as in a text, a drag going on with it; the I-beam with a chevron the way it goes).
+// is dragged, the pointer a hand: put in where it lands, what follows moving on, a DAW's shuffle mode, every place it
+// may go onto showing, faint, its start or its end going onto where it came from, a marker or a cue near it, the line
+// it went onto whole and a cross at its top and foot by the edge that took hold. The time row is a ruler, as a DAW's:
+// pressed, the caret goes there alone, what is selected staying (Reaper's); dragged, a range; held still, the caret,
+// dragged. The keys say how, the same everywhere, each its pointer, each held before a press or pressed on the way:
+// Shift sums (the selection, or the caret, extended to the press at once from where it was begun, as in a text, a drag
+// going on with it; the I-beam with a chevron the way it goes).
 // Alt adds (another caret, VS Code's, the one Shift then extends, or another range; dragged inside the selection, a
 // copy of its audio, Finder's and Figma's Alt-drag; the I-beam with a plus), and goes the other way: at a range's end,
 // its length (trimmed, stretched, sped: an Alt-click there the next way), as Logic's Option and REAPER's Alt stretch a
@@ -47,8 +50,10 @@ export { KINDS, NOTES, noteOf, stylize, HOLD, SLOP } from './view/model.js'
 // either side stretching; the pointer's place dashed out to the axes in the measuring red, its own value read, and how
 // far it is from what is selected, a line along the time row, its length on it; on the spectrogram a press makes a box
 // of time and frequency, a band, as Photoshop's selections; and any drag aims finely (its moves a quarter as far,
-// nothing snapping). Over a band's lanes, any band's, where a press would put the caret, its ghost, grey, gone onto
-// what is by it (caretTo).
+// nothing snapping, every place it would snap to showing), but the selection's audio, which ⌘ lays over what is
+// there, silence where it was, a DAW's slip mode (with Alt too, a copy over what is there, Photoshop's clone stamp).
+// Over a band's lanes, any band's, where a press would put the caret, its ghost, grey, gone onto what is by it
+// (caretTo).
 // A pressed or dragged time goes onto a cue (shown or not) or a marker within a few pixels of it, which lights, as
 // Figma's objects snap (`snapping`). A range's handles, shown with the pointer on or by it, each do one thing, the
 // range under the pointer's among several, say what when the pointer is on one, and a click on one turns it to its next way (`onmode`), as a
@@ -304,6 +309,20 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       assign({ cursor: s.cursor, anchor: s.anchor })
       assign({ selection: s.selection && [...s.selection] }); assign({ band: s.band && [...s.band] }); assign({ more: s.more.map(r => [...r]) }); assign({ across: Array.isArray(s.across) ? [...s.across] : s.across && tracks ? tracks.map((_, i) => i) : null })
       if (!selection) oncursor(cursor)
+      told()
+      invalidate()
+    },
+    // The sound moved in time under what is selected, a step's new settings scaling it (editor/run.js carry), as the
+    // output that comes in place of this one has it: the selection, the others beside it, the caret, where the selection
+    // was begun and the view each taken from time `t` to `to(t)`, where that moment of the sound is then, and kept within
+    // that output once its length is (renew). The caret's time told while nothing plays; what plays is the player's to aim
+    retime(to) {
+      if (!to || !duration) return
+      if (selection) assign({ selection: selection.map(to) })
+      assign({ more: more.map(([a, b, ...f]) => [to(a), to(b), ...f]) })
+      assign({ cursor: to(cursor), anchor: anchor == null ? null : to(anchor) })
+      assign({ start: to(start) }); assign({ end: to(end) })
+      if (!selection && playhead == null) oncursor(cursor)
       told()
       invalidate()
     },

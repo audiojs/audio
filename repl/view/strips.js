@@ -1,10 +1,10 @@
 import clock from '../time.js'
 import { markLane, marksOf, ownMarks, snappedTo, placed } from './data.js'
-import { ghost, CHUNK, pointedBand, plot, spare, lanes, floor, inRoom, inLanes, roomLane, banded, rowEdge } from './geometry.js'
+import { ghost, CHUNK, pointedBand, plot, spare, lanes, floor, inRoom, inLanes, roomLane, banded, rowEdge, merged } from './geometry.js'
 import { fine, nearCue } from './gestures.js'
-import { EDGE, ONTO, HEAD, KINDS, mac, root, within as inSheet, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, selection, band, cursor, playhead, cues, cueKinds, bounds, snapping, clips, aview, levelUnits, data, tracks, focus, across, sections, windows, lift, chosen, held, assign, ruler } from './model.js'
+import { EDGE, ONTO, HEAD, KINDS, mac, root, within as inSheet, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, selection, band, cursor, playhead, cues, cueKinds, bounds, snapping, clips, aview, levelUnits, data, pieces, tracks, focus, across, sections, windows, lift, chosen, held, assign, ruler } from './model.js'
 import { clipMarks } from './notes.js'
-import { say, crossAt, washFrom, WASHED, lanesEnd, seenTo } from './overlay.js'
+import { say, crossAt, crossesOnto, washFrom, WASHED, lanesEnd, seenTo } from './overlay.js'
 import { drag, hot, caretGhost, lined } from './pointer.js'
 import { W, moved, invalidate, wash } from './render.js'
 import { THIN } from './ruler.js'
@@ -25,22 +25,30 @@ export function paintMeasure({ t }, py, rects) {
   for (let k = y0; k < y1; k += DASHED[0] + DASHED[1]) c.fillRect(px, k, 1, Math.min(DASHED[0], y1 - k))
   if (rects.some(r => inside(r, px, py))) for (let k = px; k < w; k += DASHED[0] + DASHED[1]) c.fillRect(k, y, Math.min(DASHED[0], w - k), 1)
 }
-// Over a waveform lane, the level read: the waveform's at time `t`, the peak of its samples under the
-// pixel on the pointer's side of the centre line, so a clip past the levels shown reads as it is: { y, text } (y
-// within the lane); null where the lane is no waveform's, or the page holds no samples there (a long sound's let go),
-// the pointer's then
+// Over a waveform lane, the level read where time `t` is drawn, as the picture draws it: of the pixel column a mark at
+// `t` stands on, the wave's end on the pointer's side of the centre line, its highest with `py` over the line or on
+// it, its lowest under it, so the mark stands on the wave there, never past it, and a clip past the levels shown reads
+// as it is. The column's samples and, where it falls between two (zoomed in, a line), the line at its edges; in one
+// lane, every channel it holds; under an edit drawn ahead, the piece the column is drawn from, at its level. { y, text }
+// (y within the lane); null where the lane is no waveform's, nothing is drawn there, or the page holds no samples
+// there (a long sound's let go), the pointer's then
 export function waveAt(rect, t, py) {
-  const x = data[rect.i]
-  if (rect.kind !== 'wave' || !x || t == null) return null
-  const k = (end - start) / plot().w * rate, i0 = Math.max(0, Math.floor(t * rate - k / 2)), i1 = Math.min(x.length, Math.ceil(t * rate + k / 2) + 1)
-  if (i1 <= i0 || windows && Array.from({ length: Math.floor((i1 - 1) / CHUNK) - Math.floor(i0 / CHUNK) + 1 }, (_, j) => Math.floor(i0 / CHUNK) + j).some(j => windows.get(j) !== true)) return null
-  const [, top, , lh] = rect, up = py < top + lh / 2
-  let v = 0
-  for (let i = i0; i < i1; i++) if (up ? x[i] > v : x[i] < v) v = x[i]
-  const at = u => Math.max(top, Math.min(top + lh - 1, top + (aview[1] - u) / (aview[1] - aview[0]) * lh))
-  // (`mirror`, the same level on the other side of the centre, where the lane shows both halves zoomed out, a column
-  // standing on both sides of it)
-  return { y: at(v), mirror: k > 1 && v && aview[0] < 0 && aview[1] > 0 ? at(-v) : null, text: levelUnits === 'linear' ? sampled(v) : decibel(20 * Math.log10(Math.abs(v)), 1, -99) }
+  if (rect.kind !== 'wave' || t == null) return null
+  const col = Math.round(x(t)), t0 = time(col), t1 = time(col + 1), mid = (t0 + t1) / 2, ours = !!pieces && (!tracks || rect.i === (pieces.lane ?? focus))
+  const p = ours ? pieces.find(p => mid >= p.d0 && mid < p.d1) : null
+  if (ours && !p) return null
+  const k = p ? (p.s1 - p.s0) / (p.d1 - p.d0 || 1) : 1, s0 = (p ? p.s0 + (t0 - p.d0) * k : t0) * rate, s1 = (p ? p.s0 + (t1 - p.d0) * k : t1) * rate
+  const chs = (merged() ? data : [data[rect.i]]).filter(ch => ch?.length), n = Math.min(...chs.map(ch => ch.length)), i0 = Math.max(0, Math.floor(s0)), i1 = Math.min(n, Math.ceil(s1) + 1)
+  if (!chs.length || i1 <= i0 || windows && Array.from({ length: Math.floor((i1 - 1) / CHUNK) - Math.floor(i0 / CHUNK) + 1 }, (_, j) => Math.floor(i0 / CHUNK) + j).some(j => windows.get(j) !== true)) return null
+  let hi = -Infinity, lo = Infinity
+  const take = v => { if (v > hi) hi = v; if (v < lo) lo = v }
+  for (const ch of chs) {
+    const line = u => { const i = Math.min(Math.floor(u), n - 1), f = Math.min(1, u - i); return i + 1 < n ? ch[i] * (1 - f) + ch[i + 1] * f : ch[i] }
+    take(line(Math.max(0, s0))); take(line(Math.max(0, s1)))
+    for (let i = Math.max(0, Math.ceil(s0)); i < Math.min(n, s1); i++) take(ch[i])
+  }
+  const g = p?.silent ? 0 : p?.gain ?? 1, [, top, , lh] = rect, y = u => top + (aview[1] - u) / (aview[1] - aview[0]) * lh, v = (py <= y(0) ? hi : lo) * g || 0
+  return { y: Math.max(top, Math.min(top + lh - 1, y(v))), text: levelUnits === 'linear' ? sampled(v) : decibel(20 * Math.log10(Math.abs(v)), 1, -99) }
 }
 // The lanes faded at an edge the sound runs on past, out of the view (fades): from their start, scrolled on from its
 // start; before their end, short of its end; each FADE px wide, as tall as the caret, over the pictures, under what is
@@ -167,8 +175,9 @@ export function paintEdge(L, sel) {
 // a time as the whole page writes it, in the units chosen (time.js): 0:05, 5.0s, 240000
 export const stamp = (t, d = digits()) => clock(t, units, { digits: d, rate })
 // Cues: shown only where they matter, never a forest over the sound, as Figma shows its guides only as a thing is
-// dragged: dragged (the caret held, an edge, a range dragged out, a marker's name), what it snaps to either side of
-// where it is, faint: the cues, the markers' and the takes' ends; nothing on a plain hover; held ⌘ (Ctrl, `all`), all
+// dragged: dragged (the caret held, an edge, a range dragged out, a marker's name, audio carried), what it snaps to
+// either side of where it is, faint: the cues, the markers' and the takes' ends; nothing on a plain hover; held ⌘
+// (Ctrl, `all`), all
 // of them, faint, the one under the pointer a press would take brighter; the one dragged, bright where it will land;
 // those an end measured to sits on (`lit`), lit. No words by them: where the sound is, a soft wash says (washFrom).
 // The primary ones, where sounds and ranges start and end, the markers' and the takes', plainer than the secondary,
@@ -183,14 +192,21 @@ export const editing = (keys = held) => !!(mac ? keys.metaKey : keys.ctrlKey)
 export function paintCues(rects, lit, all = false) {
   const t0 = dragged(), times = seen().map(i => cues[i]), marks = ownMarks(), lines = new Map()
   const pool = (all || dragged() != null ? [...times, ...marks] : [...times.filter(t => bounds.has(t)), ...marks]).sort((p, q) => p - q)
-  // a line at a time, as it is drawn (moved), the brightest asked for it; none on a dragged line (that line alone, white,
-  // the crosses saying it snapped)
-  const put = (t, a) => {
-    const at = t == null ? null : moved(t), px = at == null ? null : X(at)
+  // a line at a time, as it is drawn (moved, or `at`), the brightest asked for it; none on a dragged line (that line
+  // alone, white, the crosses saying it snapped)
+  const put = (t, a, at = t == null ? null : moved(t)) => {
+    const px = at == null ? null : X(at)
     if (px != null && px >= 0 && px <= plot().w && !(drag && on(lit, px)) && !(lines.get(px)?.a >= a)) lines.set(px, { t, a })
   }
   const faint = t => cueKinds[cues?.indexOf(t) ?? -1] === 'hit' ? .25 : .4
-  if (all) for (const t of pool) put(t, faint(t))
+  // audio carried (pointer.js): every place it may go onto, each where its edge would be on it (scales.js landings), a
+  // hit fainter, no key needed (⌘ there sets how it goes); the one it is on whole, its crosses saying so
+  const go = drag?.landings
+  if (go) {
+    for (const l of go) put(l.at, l.rank > 2 ? .25 : .4, l.at)
+    for (const l of drag.held) lines.set(X(l.at), { t: l.at, a: 1 })
+  }
+  else if (all) for (const t of pool) put(t, faint(t))
   if (t0 != null && snapping) { const p = X(t0), was = pool.findLast(t => X(t) < p - .5), next = pool.find(t => X(t) > p + .5); put(was, faint(was)); put(next, faint(next)) }
   const near = !drag && hovered ? nearCue(...hovered, held) : -1
   if (near >= 0) put(cues[near], .7)
@@ -247,6 +263,9 @@ export function paintMarkers(L, lit, pointedAt, hints = []) {
   if (!to) return
   const { side } = snappedTo(to.t, to.i), end = tracks ? tracks[to.i]?.end ?? duration : duration
   washFrom(X(to.t), side ?? (to.t <= 1e-9 ? 1 : Math.abs(to.t - end) < 1e-9 ? -1 : 0), bandOf(to.i), WASHED / 2)
+  // the caret's ghost gone onto a marker, a sound's end or a cue, off where the pointer is: the crosses of a snap, as
+  // what is dragged onto one has them (overlay.js crossesOnto)
+  if (g && g.t !== snap(time(hovered[0]))) crossesOnto(L, g.t, bandOf(g.i), marksOf(g.i).filter(t => t != null), seen().some(k => Math.abs(X(cues[k]) - X(g.t)) < 1), g.i)
 }
 // two markers one: the same track's, of the same kind at the same time, to half a millisecond (an output's, from the
 // time written)

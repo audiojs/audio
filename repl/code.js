@@ -198,12 +198,14 @@ function args(code, list) {
     return arg
   })
 }
-// A literal's value: numbers (with a sign), strings, booleans, arrays of numbers or of such arrays, ranges ({ at, duration })
-// and arrays of them, curves ({ t, v }); undefined for expressions.
+// A literal's value: numbers (with a sign; Infinity, the one name that is a number: a range silenced, a stem muted, no
+// limit), strings, booleans, arrays of numbers or of such arrays, ranges ({ at, duration }) and arrays of them, curves
+// ({ t, v }); undefined for expressions.
 function literal(code, node) {
   const t = text(code, node)
   if (node.name === 'Number') return +t.replace(/_/g, '')
   if (node.name === 'UnaryExpression' && /^[-+]\s*[\d.]/.test(t) && node.lastChild?.name === 'Number') return +t.replace(/\s|_/g, '')
+  if (/^[-+]?\s*Infinity$/.test(t) && (node.name === 'VariableName' || node.name === 'UnaryExpression' && node.lastChild?.name === 'VariableName')) return t[0] === '-' ? -Infinity : Infinity
   if (node.name === 'String') return unquote(t)
   if (node.name === 'BooleanLiteral') return t === 'true'
   if (node.name === 'ArrayExpression') {
@@ -931,7 +933,8 @@ export function cli(code, spec = () => null) {
       if (Array.isArray(a.value)) { words.push(a.value.join('..') + 'hz'); return }
       const unit = UNITS[params[i]?.unit] ?? ''
       const value = call.name === 'fade' && i === 1 ? -Math.abs(a.value) : a.value
-      words.push(typeof value === 'number' ? `${value}${unit}` : quote(String(value)))
+      // (Infinity bare, as the command line reads it: no unit after it)
+      words.push(typeof value === 'number' ? `${value}${Number.isFinite(value) ? unit : ''}` : quote(String(value)))
     })
     if (range) words.push(span(Object.fromEntries(range.props.filter(own).map(p => [p.name, p.value]))))
     out.push(...words)

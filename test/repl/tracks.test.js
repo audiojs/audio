@@ -709,7 +709,10 @@ test('editor: the layers over each band lock the tracks; a foot dragged, its hei
   await write(Array.from({ length: 4 }, (_, i) => `let t${i} = audio.from(t => Math.sin(2 * Math.PI * ${220 + 20 * i} * t) * .2, { duration: 2 })`).join('\n\n'))
   await page.locator('.layer').nth(3).waitFor({ state: 'attached' })
   const time = box.y + box.height - 10, last = async () => (await tracksAt())[3]
-  assert.ok((r => r.y + r.h > time)(await last()), 'the last out of sight')
+  // (read until it holds, not once: the fourth's layer can be in the page before the tracks have their places for
+  // four. Read once, this failed in four of five runs of this file on 18 Nov and never alone; settled, the four stand
+  // 160 px tall each, the last from 646 px for a time row at 636)
+  await poll(last, r => assert.ok(r.y + r.h > time, 'the last out of sight'))
   await page.mouse.move(box.x + box.width / 2, box.y + 100)
   const top = (await tracksAt())[0].y
   await page.mouse.wheel(0, 120)
