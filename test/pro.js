@@ -783,8 +783,6 @@ test('every op: the same sound, to the sample, however its blocks are cut', { ti
   // the channels an op takes, where two fit none of its layouts
   const CHANNELS = { rotary: 1, 'ambisonic-panner': 1, 'ambisonic-decoder': 4, 'ambisonic-rotate': 4 }
   const APART = {
-    // drawn anew on each render, by decision ("dither — stream ≡ read statistically" in index.js)
-    dither: 'its noise is random',
     // a network, fetched or an optional package: held by their own tests where the model is
     deepfilter: 'a network', derustle: 'a network', dereverb: 'a network', restore: 'a network', vocals: 'a network', vocos: 'a network', rebalance: 'a network', scene: 'a network', rnnoise: 'a network',
     paste: 'reads the clipboard', plugin: 'a plugin by its path',

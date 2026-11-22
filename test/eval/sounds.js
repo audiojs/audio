@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs'
 import audio from '../../audio.js'
 import { highpass, lowpass, cascade, state } from '@audio/biquad'
+import { render, SCORES } from './score.js'
 
 const voices = new URL('./voices/', import.meta.url)
 
@@ -160,6 +161,9 @@ export const SOUNDS = {
   // the rate and frequency lpc 1.1.0 read worst shifted down), its onset at 0; read over its middle half, where a shift
   // of `shift` semitones puts it at f times `ratio`
   async tone({ shift }) { let fs = 48000, f = 3000; return { x: [sines(fs, 0.5, 0, 0.25, [[f, 0.5]])], fs, onset: 0, span: [0.0625, 0.1875], f, ratio: 2 ** (shift / 12) } },
+  // a score of score.js at 48 kHz, and `ref`: the same score at the tempo (`stretch`) or the pitch (`shift`, semitones)
+  // a case asks for, the true sound its take is read against
+  async score({ name, stretch, shift }) { let fs = 48000; return { x: [render(SCORES[name], fs)], fs, ref: render(SCORES[name], fs, { stretch, shift }) } },
   // two channels holding different sounds: a voice left (p257_087 from 0.55 to 2.5 s, at a peak of 0.9), plucked
   // strings right, 20 dB under it
   async pair() {

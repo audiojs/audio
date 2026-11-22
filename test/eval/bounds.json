@@ -417,6 +417,230 @@
     "audio": "2.16.1"
    }
   },
+  "melody 5 semitones up: pitch auto/twof": {
+   "value": 82.6303,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift": "1.4.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch delay/twof": {
+   "value": 50.7863,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-delay": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch formant/twof": {
+   "value": 34.3873,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-formant": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch granular/twof": {
+   "value": 34.1535,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-granular": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch hpss/twof": {
+   "value": 53.7916,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-hpss": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch hybrid/twof": {
+   "value": 86.0266,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-hybrid": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch lpc/twof": {
+   "value": 21.774,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-lpc": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch ola/twof": {
+   "value": 33.6479,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-ola": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch paulstretch/twof": {
+   "value": 26.179,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-paulstretch": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch phase-lock/twof": {
+   "value": 81.4628,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch psola/twof": {
+   "value": 69.7115,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-psola": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch sample/twof": {
+   "value": 12.1842,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-sample": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch sms/twof": {
+   "value": 44.9487,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-sms": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch transient/twof": {
+   "value": 82.6303,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-transient": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch vocoder/twof": {
+   "value": 57.4675,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-pvoc": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody 5 semitones up: pitch wsola/twof": {
+   "value": 68.3247,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-wsola": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody half as long again: stretch hybrid/twof": {
+   "value": 68.587,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-hybrid": "1.2.3",
+    "audio": "2.19.1"
+   }
+  },
+  "melody half as long again: stretch paulstretch/twof": {
+   "value": 26.7785,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-paul": null,
+    "audio": "2.19.1"
+   }
+  },
+  "melody half as long again: stretch pghi/twof": {
+   "value": 75.1916,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-pghi": "1.3.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody half as long again: stretch phase-lock/twof": {
+   "value": 71.8122,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-pvoc-lock": "1.5.0",
+    "audio": "2.19.1"
+   }
+  },
+  "melody half as long again: stretch psola/twof": {
+   "value": 72.4362,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-psola": "1.2.4",
+    "audio": "2.19.1"
+   }
+  },
+  "melody half as long again: stretch sms/twof": {
+   "value": 63.7038,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-sms": "1.2.2",
+    "audio": "2.19.1"
+   }
+  },
+  "melody half as long again: stretch transient/twof": {
+   "value": 72.5049,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-transient": "1.2.3",
+    "audio": "2.19.1"
+   }
+  },
+  "melody half as long again: stretch vocoder/twof": {
+   "value": 54.0127,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-pvoc": "1.2.3",
+    "audio": "2.19.1"
+   }
+  },
+  "melody half as long again: stretch wsola/twof": {
+   "value": 69.532,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-wsola": "2.0.0",
+    "audio": "2.19.1"
+   }
+  },
   "moving noise alone: neural-denoise/left": {
    "value": -17.1193,
    "scatter": 0.0000043,
@@ -446,6 +670,230 @@
     "audio": "2.17.0"
    },
    "accepted": "the default mix of neural-denoise 0.8.1, which audio 2.18 takes: in a take with no voice the residue of the model reads as voice and keeps the 18 dB limit, where 0.7.0 floored it: -16.99 dB against -28.65; everywhere: true reads -28.65 again"
+  },
+  "plucks 5 semitones up: pitch auto/twof": {
+   "value": 68.215,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift": "1.4.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch delay/twof": {
+   "value": 54.1789,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-delay": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch formant/twof": {
+   "value": 34.4361,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-formant": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch granular/twof": {
+   "value": 42.1019,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-granular": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch hpss/twof": {
+   "value": 60.8502,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-hpss": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch hybrid/twof": {
+   "value": 68.0711,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-hybrid": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch lpc/twof": {
+   "value": 2.959,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-lpc": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch ola/twof": {
+   "value": 42.5025,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-ola": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch paulstretch/twof": {
+   "value": 13.2677,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-paulstretch": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch phase-lock/twof": {
+   "value": 66.4094,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch psola/twof": {
+   "value": 59.2421,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-psola": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch sample/twof": {
+   "value": 5.7414,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-sample": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch sms/twof": {
+   "value": 48.3158,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-sms": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch transient/twof": {
+   "value": 68.215,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-transient": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch vocoder/twof": {
+   "value": 47.373,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-pvoc": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks 5 semitones up: pitch wsola/twof": {
+   "value": 54.2828,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/shift-wsola": "1.2.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks half as long again: stretch hybrid/twof": {
+   "value": 64.3043,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-hybrid": "1.2.3",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks half as long again: stretch paulstretch/twof": {
+   "value": 11.3634,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-paul": null,
+    "audio": "2.19.1"
+   }
+  },
+  "plucks half as long again: stretch pghi/twof": {
+   "value": 81.3481,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-pghi": "1.3.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks half as long again: stretch phase-lock/twof": {
+   "value": 73.871,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-pvoc-lock": "1.5.0",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks half as long again: stretch psola/twof": {
+   "value": 61.3021,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-psola": "1.2.4",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks half as long again: stretch sms/twof": {
+   "value": 47.7815,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-sms": "1.2.2",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks half as long again: stretch transient/twof": {
+   "value": 75.8068,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-transient": "1.2.3",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks half as long again: stretch vocoder/twof": {
+   "value": 43.919,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-pvoc": "1.2.3",
+    "audio": "2.19.1"
+   }
+  },
+  "plucks half as long again: stretch wsola/twof": {
+   "value": 56.2426,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/stretch-wsola": "2.0.0",
+    "audio": "2.19.1"
+   }
   },
   "pure tone: pitch auto/length": {
    "value": 0,

@@ -20,15 +20,19 @@
 // - ESTOI, 0.01 of 1 (a choice: its papers name no smallest step a listener takes; DeepFilterNet3 costs a clean
 //   voice 0.005 and gains a voice in noise 0.08 to 0.18)
 // - denoisers planned on a take that holds no noise: none
+// - a stretched or shifted take against the true sound: no margin of harm (the input is no such sound); each method is
+//   held where it stands
 // - a pitch shift's length: not a frame more or less than its input's
 const SHIFTERS = ['phase-lock', 'vocoder', 'formant', 'paulstretch', 'auto', 'ola', 'transient', 'psola', 'wsola', 'granular', 'sms', 'hpss', 'sample', 'hybrid', 'delay', 'lpc']
+const STRETCHERS = ['phase-lock', 'vocoder', 'pghi', 'wsola', 'psola', 'sms', 'transient', 'hybrid', 'paulstretch']
 const DFN = { call: '@audio/neural-denoise', opts: { model: 'deepfilternet3' } }
 const ND = ['@audio/neural-denoise']
 // the packages whose versions a reading is recorded with, by what the case does
 const SHIFT = { 'phase-lock': [], vocoder: ['@audio/shift-pvoc'], formant: ['@audio/shift-formant'], auto: ['@audio/shift'] }
+const STRETCH = { 'phase-lock': '@audio/stretch-pvoc-lock', vocoder: '@audio/stretch-pvoc', paulstretch: '@audio/stretch-paul' }
 const pkgs = d => d.call ? [d.call] : d.stat ? ['@audio/chain', '@audio/denoise-detect'] : {
   auto: ['@audio/chain', '@audio/denoise-detect', '@audio/neural-denoise'], deepfilter: ['@audio/neural-denoise'], declip: ['@audio/denoise-declip'],
-  pitch: SHIFT[d[2]?.method] ?? [`@audio/shift-${d[2]?.method}`] }[d[0]]
+  pitch: SHIFT[d[2]?.method] ?? [`@audio/shift-${d[2]?.method}`], stretch: [STRETCH[d[2]?.method] ?? `@audio/stretch-${d[2]?.method}`] }[d[0]]
 
 export default [
   // do no harm on a clean voice
@@ -74,5 +78,12 @@ export default [
     { id: `two phrases 12 dB apart: pitch ${method}`, sound: ['phrases', {}], do: ['pitch', 5, { method }], hold: { level: { harm: 3, back: true } } },
     { id: `pure tone: pitch ${method}`, sound: ['tone', { shift: -5 }], do: ['pitch', -5, { method }], hold: { onset: { harm: 6, back: true }, tone: { harm: 3, back: true }, length: { harm: 0, back: true } } },
     { id: `two channels: pitch ${method}`, sound: ['pair', {}], do: ['pitch', 5, { method }], hold: { balance: { harm: 1, back: true } } },
+  ]),
+
+  // each stretcher and shifter against the true sound: a tune of held notes and plucked notes (score.js), half as long
+  // again, and 5 semitones up
+  ...['melody', 'plucks'].flatMap(name => [
+    ...STRETCHERS.map(method => ({ id: `${name} half as long again: stretch ${method}`, sound: ['score', { name, stretch: 1.5 }], do: ['stretch', 1.5, { method }], hold: { twof: { back: true } } })),
+    ...SHIFTERS.map(method => ({ id: `${name} 5 semitones up: pitch ${method}`, sound: ['score', { name, shift: 5 }], do: ['pitch', 5, { method }], hold: { twof: { back: true } } })),
   ]),
 ].map(c => ({ ...c, pkgs: pkgs(c.do) }))

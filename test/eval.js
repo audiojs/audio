@@ -66,9 +66,9 @@ const installed = name => !!map[name] || !!versionAt(name, subjectDir, root)
 const version = name => map[name] ? pkg(map[name]).version : name === 'audio' ? pkg(subjectDir).version : versionAt(name, subjectDir, root)?.version ?? null
 
 const bounds = existsSync(boundsFile) ? JSON.parse(readFileSync(boundsFile)) : { figures: {} }
-// a reading's step, under which no two readings are told apart: dB to 0.01, shares to 0.1 %, a score of 1 to 0.001,
-// counts and frames whole
-const STEP = { dB: 0.01, '%': 0.1, 'of 1': 0.001, '': 0, frames: 0 }
+// a reading's step, under which no two readings are told apart: dB to 0.01, shares to 0.1 %, a score of 1 to 0.001 and
+// of 100 to 0.1, counts and frames whole
+const STEP = { dB: 0.01, '%': 0.1, 'of 1': 0.001, 'of 100': 0.1, '': 0, frames: 0 }
 const worse = (m, a, b) => MEASURES[m].better === 'up' ? b - a : a - b   // how much a is worse than b (positive: worse)
 const fmt = (m, v) => v == null ? 'none' : `${v.toFixed(STEP[MEASURES[m].unit] ? STEP[MEASURES[m].unit] < 0.01 ? 3 : 2 : 0)}${MEASURES[m].unit ? ' ' + MEASURES[m].unit : ''}`
 

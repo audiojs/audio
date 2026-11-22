@@ -1,6 +1,6 @@
 {
   "name": "audio",
-  "version": "2.19.1",
+  "version": "2.19.2",
   "description": "High-level audio manipulations: loading, playback, analysis and editing. 140+ plugins: denoise, dynamics, EQ, filters, effects, reverb, time and pitch, spatial, synthesis, music analysis.",
   "type": "module",
   "main": "audio.js",
@@ -129,7 +129,7 @@
     "@audio/neural-transcribe": "^0.1.1",
     "@audio/neural-vocode": "^0.1.0",
     "@audio/pitch-yin": "^1.0.6",
-    "@audio/quality": "^1.1.0",
+    "@audio/quality": "^1.2.0",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.11.1",
     "@codemirror/lang-javascript": "^6.2.5",

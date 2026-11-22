@@ -4280,26 +4280,38 @@ test('pitch — ranged read matches full-read slice (vocoder warm-up across seam
   t.ok(ranged.every(Number.isFinite), 'finite (no cold-state NaN)')
 })
 
-test('dither — stream ≡ read statistically (independent TPDF draws)', async t => {
-  // Dither is deliberately random per pass: two renders differ, but only within
-  // the dither amplitude. Bound the pass-to-pass divergence instead of bit-equality.
+// Dither's noise is each sample's own (a hash of its place and channel), so a sound read twice, streamed, or read from
+// its middle is one sound. What the noise must be: with TPDF dither of ±1 step the total error has zero mean and a
+// variance of a quarter step squared whatever the signal (Lipshitz, Wannamaker, Vanderkooy, "Quantization and Dither: A
+// Theoretical Survey", JAES 40(5), 1992: step²/12 of the quantizer and step²/6 of the dither), white, and each
+// channel's its own.
+test('dither — one sound however it is read; its error zero-mean, half a step RMS, white, each channel its own', async t => {
   let sr = 44100, n = sr, ch = new Float32Array(n)
   for (let i = 0; i < n; i++) ch[i] = 0.4 * Math.sin(2 * Math.PI * 440 * i / sr)
-  let a = audio.from([ch], { sampleRate: sr })
+  let a = audio.from([ch, ch.slice()], { sampleRate: sr })
   a.dither(16)
-  let read1 = (await a.read())[0]
+  let [read1, right] = await a.read()
   let flat = [], total = 0
   for await (let c of a.stream()) { flat.push(c[0].slice()); total += c[0].length }
   let read2 = new Float32Array(total), pos = 0
   for (let f of flat) { read2.set(f, pos); pos += f.length }
   t.is(read2.length, read1.length, 'lengths equal')
-  let lsb = 2 / 65535, maxD = 0, sum = 0
-  for (let i = 0; i < n; i++) { let d = read1[i] - read2[i]; maxD = Math.max(maxD, Math.abs(d)); sum += d }
-  t.ok(maxD <= 2.5 * lsb, `pass divergence ≤ 2.5 LSB (${(maxD / lsb).toFixed(2)})`)
-  t.ok(Math.abs(sum / n) < 0.25 * lsb, `no bias between passes (${(sum / n / lsb).toFixed(3)} LSB)`)
+  let same = (x, y, o = 0) => { for (let i = 0; i < y.length; i++) if (x[o + i] !== y[i]) return false; return true }
+  t.ok(same(read1, read2), 'stream ≡ read, to the sample')
+  t.ok(same(read1, (await a.read())[0]), 'read twice: the same samples')
+  let part = (await a.read({ at: 0.5, duration: 0.2 }))[0]
+  t.ok(same(read1, part, Math.round(0.5 * sr)), 'read from its middle: the same samples as the whole holds there')
+  let step = 1 / 32767, e = read1.map((v, i) => (v - ch[i]) / step), er = right.map((v, i) => (v - ch[i]) / step)
+  let mean = e.reduce((s, v) => s + v, 0) / n, rms = Math.sqrt(e.reduce((s, v) => s + v * v, 0) / n)
+  let corr = (x, y, lag = 0) => { let s = 0; for (let i = 0; i + lag < n; i++) s += x[i] * y[i + lag]; return s / (n - lag) / (rms * rms) }
+  t.ok(Math.abs(mean) < 0.01, `error mean ${mean.toFixed(4)} of a step`)
+  t.ok(Math.abs(rms - 0.5) < 0.01, `error ${rms.toFixed(4)} of a step RMS (0.5)`)
+  let lags = [1, 2, 3, 7, 100].map(l => corr(e, e, l))
+  t.ok(lags.every(c => Math.abs(c) < 0.02), `white: its correlation with itself 1, 2, 3, 7, 100 samples on ${lags.map(c => c.toFixed(3))}`)
+  t.ok(Math.abs(corr(e, er)) < 0.02, `the two channels' errors apart: correlation ${corr(e, er).toFixed(3)}`)
   let dev = 0
-  for (let i = 0; i < n; i++) dev = Math.max(dev, Math.abs(read1[i] - ch[i]))
-  t.ok(dev <= 2 * lsb + 1e-6, `pass within TPDF bound of source (${(dev / lsb).toFixed(2)} LSB)`)
+  for (let i = 0; i < n; i++) dev = Math.max(dev, Math.abs(e[i]))
+  t.ok(dev <= 1.5 + 1e-3, `no sample further than a step and a half from the source (${dev.toFixed(2)})`)
 })
 
 // A sound decoded or pushed holds its pages alone: the page its samples were gathered in (PAGE_SIZE a channel, 4 MB

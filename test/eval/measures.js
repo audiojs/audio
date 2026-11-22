@@ -1,11 +1,12 @@
 // The eval's measures: each reads a take (the input or what an edit made of it) against what its case knows (the clean
 // voice, where the voice is, the parts it was made of) and gives one number. `better`: which way a reading improves.
 // Every one is plain arithmetic on the samples here, but `silenced` and `under`, which are compare()'s voice figures
-// (fn/compare.js), so the eval reads a voice as the library's compare() tells it to a user, and `estoi`, a model of
-// a listener (@audio/quality, held there to its reference implementation).
+// (fn/compare.js), so the eval reads a voice as the library's compare() tells it to a user, and `estoi` and `twof`, models
+// of a listener (@audio/quality, each held there to its reference implementation).
 import audio from '../../audio.js'
-import { estoi } from '@audio/quality'
+import { estoi, twof } from '@audio/quality'
 import { power, active } from './sounds.js'
+import { aligned } from './score.js'
 
 const db = p => 10 * Math.log10(p)
 const dot = (a, b, i0 = 0, i1 = a.length) => { let s = 0; for (let i = i0; i < i1; i++) s += a[i] * b[i]; return s }
@@ -54,6 +55,13 @@ export const MEASURES = {
   // measures read what was taken or left, this reads what it costs or gains a listener: a denoiser that lifts SI-SDR by
   // smearing the consonants reads lower here
   estoi: { better: 'up', unit: 'of 1', of: (y, { s, fs }) => estoi(s, y, fs) },
+  // a stretched or shifted take against the true sound (the case's `ref`: its score rendered at the tempo or pitch
+  // asked, score.js): the 2f-model's estimate of the score listeners give in a MUSHRA test, 100 for a sound they
+  // cannot tell from the reference (Kastner and Herre, WASPAA 2019; @audio/quality's twof, equal to PQevalAudio's two
+  // measures within 1e-9). The take is first moved to where its levels over time meet the truth's and brought to its
+  // level: the score reads the sound, not a delay or a gain. The same truth with every partial started elsewhere reads
+  // 88 to 95 on these scores: the most a take can read
+  twof: { better: 'up', unit: 'of 100', whole: true, of: (y, { ref, fs }) => { let a = aligned(ref, y, fs); return twof(a.ref, a.out, fs) } },
   // noise alone: what is left of it, the take's power over the input's, dB
   left: { better: 'down', unit: 'dB', of: (y, { x }) => db(power(y)) - db(power(x)) },
   // compare()'s voice (fn/compare.js): of the input's voiced frames, the share whose level now stands 10 dB or more
