@@ -1,8 +1,10 @@
 // The eval's measures: each reads a take (the input or what an edit made of it) against what its case knows (the clean
 // voice, where the voice is, the parts it was made of) and gives one number. `better`: which way a reading improves.
 // Every one is plain arithmetic on the samples here, but `silenced` and `under`, which are compare()'s voice figures
-// (fn/compare.js), so the eval reads a voice as the library's compare() tells it to a user.
+// (fn/compare.js), so the eval reads a voice as the library's compare() tells it to a user, and `estoi`, a model of
+// a listener (@audio/quality, held there to its reference implementation).
 import audio from '../../audio.js'
+import { estoi } from '@audio/quality'
 import { power, active } from './sounds.js'
 
 const db = p => 10 * Math.log10(p)
@@ -46,6 +48,12 @@ export const MEASURES = {
   // noise (a denoiser that keeps the voice wherever it stands at or over the noise reads 0 here, whatever it takes
   // under it)
   shown: { better: 'down', unit: '%', of: (y, { s, x, fs }) => voiceLost(y, s, fs, (i, j) => dot(s, s, i, j) >= apart(x, s, i, j)) },
+  // how much of the voice a listener understands: ESTOI (Jensen and Taal, "An Algorithm for Predicting the
+  // Intelligibility of Speech Masked by Modulated Noise Maskers", IEEE/ACM TASLP 24(11), 2016) of the take against the
+  // clean voice, 1 for the voice itself; @audio/quality's estoi, equal to pystoi 0.4.1 within 1e-9. Where the physical
+  // measures read what was taken or left, this reads what it costs or gains a listener: a denoiser that lifts SI-SDR by
+  // smearing the consonants reads lower here
+  estoi: { better: 'up', unit: 'of 1', of: (y, { s, fs }) => estoi(s, y, fs) },
   // noise alone: what is left of it, the take's power over the input's, dB
   left: { better: 'down', unit: 'dB', of: (y, { x }) => db(power(y)) - db(power(x)) },
   // compare()'s voice (fn/compare.js): of the input's voiced frames, the share whose level now stands 10 dB or more

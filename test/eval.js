@@ -66,10 +66,11 @@ const installed = name => !!map[name] || !!versionAt(name, subjectDir, root)
 const version = name => map[name] ? pkg(map[name]).version : name === 'audio' ? pkg(subjectDir).version : versionAt(name, subjectDir, root)?.version ?? null
 
 const bounds = existsSync(boundsFile) ? JSON.parse(readFileSync(boundsFile)) : { figures: {} }
-// a reading's step, under which no two readings are told apart: dB to 0.01, shares to 0.1 %, counts and frames whole
-const STEP = { dB: 0.01, '%': 0.1, '': 0, frames: 0 }
+// a reading's step, under which no two readings are told apart: dB to 0.01, shares to 0.1 %, a score of 1 to 0.001,
+// counts and frames whole
+const STEP = { dB: 0.01, '%': 0.1, 'of 1': 0.001, '': 0, frames: 0 }
 const worse = (m, a, b) => MEASURES[m].better === 'up' ? b - a : a - b   // how much a is worse than b (positive: worse)
-const fmt = (m, v) => v == null ? 'none' : `${v.toFixed(STEP[MEASURES[m].unit] ? 2 : 0)}${MEASURES[m].unit ? ' ' + MEASURES[m].unit : ''}`
+const fmt = (m, v) => v == null ? 'none' : `${v.toFixed(STEP[MEASURES[m].unit] ? STEP[MEASURES[m].unit] < 0.01 ? 3 : 2 : 0)}${MEASURES[m].unit ? ' ' + MEASURES[m].unit : ''}`
 
 const only = flag('only'), cases = CASES.filter(c => !only || c.id.includes(only))
 const made = new Map(), readings = {}, out = { pass: 0, fail: 0, known: 0, skip: 0 }, lines = []
@@ -99,7 +100,7 @@ for (let c of cases) {
   let take = y
   let ctx = { ...snd, x: c.do.stat ? x : x.length === 1 ? x[0] : x, fs }, dt = process.cpuUsage(t0), took = +((dt.user + dt.system) / 1e6).toFixed(2)
   // where a measure reads the take sample by sample against what the case knows, at the lag compare() reads
-  if (!c.do.stat && Object.keys(c.hold).some(m => ['sisdr', 'lost', 'shown', 'bed'].includes(m))) {
+  if (!c.do.stat && Object.keys(c.hold).some(m => ['sisdr', 'lost', 'shown', 'bed', 'estoi'].includes(m))) {
     // under 2 s compare() reads no lag: read at 0 there (a lag the op left would read worse, never better)
     let cmp = await instrument.from(y, { sampleRate: fs }).compare(instrument.from(x, { sampleRate: fs })), d = cmp.lag == null ? cmp.why === 'short' ? 0 : null : Math.round(cmp.lag * fs)
     if (d == null) { out.fail++; say('not ok', `${c.id}: no lag between the take and the input (${cmp.why}): its measures are not read`); continue }

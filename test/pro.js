@@ -751,6 +751,83 @@ test('match: the same sound whatever follows it, however its blocks are cut', as
   t.is(d, 0, `with ${D} samples of latency after it: ${d.toExponential(2)} apart`)
 })
 
+// The same of every op: to the sample, the same sound whether or not an op with latency follows it. A new op is taken
+// in by its name, with its defaults; where those leave the sound as it is (a shift of 0, a stretch by 1) it is asked
+// again with its first number moved a quarter of the way to the far end of its range. An op that needs an argument gets
+// it in ARGS; one that cannot be held to this says why in APART; the ops still idle are named in the last line.
+test('every op: the same sound, to the sample, however its blocks are cut', { timeout: 600000 }, async t => {
+  const D = 316, sr = 44100, n = 4 * sr, STEP = 2 ** -23
+  // notes with vibrato and a second harmonic, a new one every quarter second, each decaying under a burst of noise:
+  // tonal, noisy and transient at once; the right channel the left's with its own noise. Digital silence at both ends
+  // and at 1.5 s (for what trims, shrinks and fills it), 30 ms clipped at 3 s (for what mends that)
+  seed = 3
+  let L = new Float32Array(n), R = new Float32Array(n), f = 220, ph = 0
+  for (let i = 0; i < n; i++) {
+    if (i % 11025 === 0) f = 110 * 2 ** (Math.floor(rnd() * 24) / 12)
+    ph += f * (1 + 0.01 * Math.sin(2 * Math.PI * 5 * i / sr)) / sr
+    let s = i / sr, env = Math.exp(-3 * (i % 11025) / 11025), v = env * (0.5 * Math.sin(2 * Math.PI * ph) + 0.2 * Math.sin(4 * Math.PI * ph)) + 0.06 * env * env * (rnd() * 2 - 1), w = 0.02 * (rnd() * 2 - 1)
+    if (s < 0.25 || s >= 3.75 || (s >= 1.5 && s < 2)) continue
+    if (s >= 3 && s < 3.03) v = Math.max(-0.3, Math.min(0.3, v))
+    L[i] = v; R[i] = 0.8 * v + w
+  }
+  const sound = (ch = 2, len = n, at = 0) => audio.from(Array.from({ length: ch }, (_, c) => (c % 2 ? R : L).slice(at, at + len)), { sampleRate: sr })
+  const other = () => sound(2, sr, sr)
+  const ARGS = {
+    align: () => [sound(2, n - 4410, 4410)], convolve: () => [sound(1, 2000, sr).fade(-0.04)], crossfade: () => [other()], insert: () => [other(), { at: 1 }], match: () => [other()],
+    mix: () => [other()], write: () => [[L.slice(sr, 2 * sr), R.slice(sr, 2 * sr)], { at: 2.5 }], transform: () => [(inp, out) => inp.forEach((x, c) => out[c].set(x.map(v => v / 2)))],
+    bandpass: () => [1000], highpass: () => [200], lowpass: () => [2000], notch: () => [1000], filter: () => ['lowpass', 2000], highshelf: () => [4000, 6], lowshelf: () => [200, 6],
+    denoise: () => [{ noise: { at: 0.3, duration: 0.05 } }], repair: () => [{ at: 1.2, duration: 0.05 }], cut: () => [{ at: 1, duration: 0.5 }], remove: () => [{ at: 1, duration: 0.5 }],
+    crop: () => [{ at: 1, duration: 2 }], resample: () => [32000], gain: () => [-6], pan: () => [0.3], fade: () => [0.5], pad: () => [0.2], speed: () => [1.1], pitch: () => [3], stretch: () => [1.25],
+    azimuth: () => [0.12], drift: () => [5], deconstruct: () => [0, -12], intonation: () => [1.5], modulation: () => [2], recover: () => [4000], warp: () => [[[2, 2.4]]],
+  }
+  // the channels an op takes, where two fit none of its layouts
+  const CHANNELS = { rotary: 1, 'ambisonic-panner': 1, 'ambisonic-decoder': 4, 'ambisonic-rotate': 4 }
+  const APART = {
+    // drawn anew on each render, by decision ("dither — stream ≡ read statistically" in index.js)
+    dither: 'its noise is random',
+    // a network, fetched or an optional package: held by their own tests where the model is
+    deepfilter: 'a network', derustle: 'a network', dereverb: 'a network', restore: 'a network', vocals: 'a network', vocos: 'a network', rebalance: 'a network', scene: 'a network', rnnoise: 'a network',
+    paste: 'reads the clipboard', plugin: 'a plugin by its path',
+  }
+  audio.op('_test_late', { hidden: true, latency: D, process: (inp, out, ctx) => {
+    let st = ctx._l ??= inp.map(() => ({ b: new Float32Array(D), i: 0 }))
+    inp.forEach((x, c) => { let d = st[c], y = out[c]; for (let i = 0; i < x.length; i++) { y[i] = d.b[d.i]; d.b[d.i] = x[i]; if (++d.i === D) d.i = 0 } })
+  } })
+  // an op's first number a quarter of the way from its default to the further end of its range, by its manifest
+  const woken = name => {
+    let ps = audio.op(name)?.atom?.params
+    for (let k in ps ?? {}) { let q = ps[k]; if (q.type === 'number' && q.max > q.min) return [{ [k]: q.default + 0.25 * ((q.max - q.default >= q.default - q.min ? q.max : q.min) - q.default) }] }
+  }
+  const idle = x => x.length === 2 && x[0].length === n && x[0].every((v, i) => v === L[i]) && x[1].every((v, i) => v === R[i])
+  let names = [...new Set([...Object.keys(audio.op()), ...Object.keys(audio.plugins)])].filter(k => !k.startsWith('_')).sort()
+  let held = 0, silent = 0, apart = [], ulp = [], empty = [], idles = []
+  let began = Date.now()
+  for (let name of names) {
+    if (APART[name]) continue
+    let args = ARGS[name]?.() ?? []
+    let make = async late => { let a = sound(CHANNELS[name]); a = typeof a[name] === 'function' ? await a[name](...(ARGS[name]?.() ?? args)) : null; return late && a?.run ? a.run(['_test_late', {}]) : a }
+    let a = await make()
+    // no sound comes back: a stat, or an op the library keeps to itself
+    if (typeof a?.read !== 'function') { silent++; continue }
+    let x = await a.read()
+    if (idle(x) && !ARGS[name] && (args = woken(name) ?? [], args.length)) x = await (await make()).read()
+    let y = await (await make(true)).read(), d = x.length === y.length ? 0 : Infinity
+    for (let c = 0; d < Infinity && c < x.length; c++) {
+      if (x[c].length !== y[c].length) d = Infinity
+      else for (let i = 0; i < x[c].length; i++) { let e = Math.abs(x[c][i] - y[c][i]); if (e > d) d = e }
+    }
+    if (!x[0]?.length) empty.push(name)
+    if (idle(x)) idles.push(name)
+    if (d > STEP) apart.push(`${name} ${d.toExponential(1)}`)
+    else if (d) ulp.push(name)
+    held++
+  }
+  t.is(apart.join(', '), '', `${held} ops, each with ${D} samples of latency after it: none more than a 24-bit step apart`)
+  t.is(ulp.join(', '), 'resample, speed', 'and all the same to the sample but resample and speed, which resamples (under 1e-7: float32 rounding, by where a block begins)')
+  t.is(empty.join(', '), '', 'each gave a sound')
+  t.ok(held > 180, `${held} ops held, ${Object.keys(APART).length} apart by their nature, ${silent} names with no sound of their own; left idle by this sound (${idles.length}): ${idles.join(' ')}; ${((Date.now() - began) / 1000).toFixed(0)} s`)
+})
+
 // The pitch curve a voice is edited on (the editor's, intonation()'s): a voice gliding as speech does, ±4 semitones about
 // 140 Hz twice a second, which YIN's own threshold (.15) found half of, the curve finds whole and close to its pitch;
 // silence before it has none, nor a room's mains hum after it, 40 dB down (pYIN alone hears its 60 Hz; Praat's silence

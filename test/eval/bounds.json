@@ -1,5 +1,16 @@
 {
  "figures": {
+  "clean voice: auto/estoi": {
+   "value": 0.998,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/chain": "0.7.1",
+    "@audio/denoise-detect": "0.8.1",
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
+   }
+  },
   "clean voice: auto/lost": {
    "value": 2.1327,
    "scatter": 0,
@@ -42,6 +53,15 @@
     "@audio/denoise-detect": "0.7.1",
     "@audio/neural-denoise": "0.7.0",
     "audio": "2.16.1"
+   }
+  },
+  "clean voice: deepfilter/estoi": {
+   "value": 0.9947,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
    }
   },
   "clean voice: deepfilter/lost": {
@@ -90,6 +110,15 @@
    },
    "known": "read 2026-11-19: no harm fails with these packages",
    "accepted": "declip 0.5.2 starts a white block's iteration at 0.3 of its lines: the harm is 0.5.1's and 0.5.0's (clipped uniform noise comes back about 4 dB further from its original than it went in), read 0.05 dB apart"
+  },
+  "clipped voice: declip/estoi": {
+   "value": 0.9877,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/denoise-declip": "0.5.2",
+    "audio": "2.19.1"
+   }
   },
   "clipped voice: declip/sisdr": {
    "value": 22.8374,
@@ -854,6 +883,17 @@
     "audio": "2.16.1"
    }
   },
+  "radio 5 dB: auto/estoi": {
+   "value": 0.6481,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/chain": "0.7.1",
+    "@audio/denoise-detect": "0.8.1",
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
+   }
+  },
   "radio 5 dB: auto/lost": {
    "value": 9.8551,
    "scatter": 0,
@@ -1250,6 +1290,15 @@
    },
    "accepted": "the default mix of neural-denoise 0.8.1, which audio 2.18 takes: what the model took comes back 18 dB down wherever its output reads as voice, as its residue in these pauses does, where 0.7.0 floored the pauses: 18.66 dB under the voice against 29.51; everywhere: true, the mix of 0.7.0, reads 29.51 again"
   },
+  "voice in moving noise 0 dB: neural-denoise/estoi": {
+   "value": 0.4664,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
+   }
+  },
   "voice in moving noise 0 dB: neural-denoise/lost": {
    "value": 18.0095,
    "scatter": 0,
@@ -1287,6 +1336,15 @@
     "audio": "2.17.0"
    },
    "accepted": "the default mix of neural-denoise 0.8.1, which audio 2.18 takes: what the model took comes back 18 dB down wherever its output reads as voice, as its residue in these pauses does, where 0.7.0 floored the pauses: 25.62 dB under the voice against 26.30; everywhere: true, the mix of 0.7.0, reads 26.30 again"
+  },
+  "voice in moving noise 15 dB: neural-denoise/estoi": {
+   "value": 0.7844,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
+   }
   },
   "voice in moving noise 15 dB: neural-denoise/lost": {
    "value": 3.3175,
@@ -1327,6 +1385,17 @@
     "audio": "2.17.0"
    },
    "accepted": "the neural stage of @audio/chain 0.7.1 with the default mix of neural-denoise 0.8.1, which audio 2.18 takes: what the model took comes back 18 dB down under the voice and wherever its output reads as voice, the floor of 60 dB x intensity in the pauses alone, where chain 0.6 took the bed 60 dB down everywhere: 22.16 dB under the voice against 33.05"
+  },
+  "voice in moving noise 5 dB: auto/estoi": {
+   "value": 0.6179,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/chain": "0.7.1",
+    "@audio/denoise-detect": "0.8.1",
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
+   }
   },
   "voice in moving noise 5 dB: auto/lost": {
    "value": 10.9005,
@@ -1372,6 +1441,15 @@
    },
    "accepted": "the default mix of neural-denoise 0.8.1, which audio 2.18 takes: what the model took comes back 18 dB down wherever its output reads as voice, as its residue in these pauses does, where 0.7.0 floored the pauses: 22.88 dB under the voice against 30.21; everywhere: true, the mix of 0.7.0, reads 30.21 again"
   },
+  "voice in moving noise 5 dB: neural-denoise/estoi": {
+   "value": 0.6209,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
+   }
+  },
   "voice in moving noise 5 dB: neural-denoise/lost": {
    "value": 9.4787,
    "scatter": 0,
@@ -1410,6 +1488,15 @@
    },
    "accepted": "the default mix of neural-denoise 0.8.1, which audio 2.18 takes: what the model took comes back 18 dB down wherever its output reads as voice, as its residue in these pauses does, where 0.7.0 floored the pauses: 19.36 dB under the voice against 32.87; everywhere: true, the mix of 0.7.0, reads 32.87 again"
   },
+  "voice in pink noise 0 dB: neural-denoise/estoi": {
+   "value": 0.4896,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
+   }
+  },
   "voice in pink noise 0 dB: neural-denoise/lost": {
    "value": 11.3744,
    "scatter": 0,
@@ -1447,6 +1534,15 @@
     "audio": "2.17.0"
    },
    "accepted": "the default mix of neural-denoise 0.8.1, which audio 2.18 takes: what the model took comes back 18 dB down wherever its output reads as voice, as its residue in these pauses does, where 0.7.0 floored the pauses: 31.69 dB under the voice against 33.51; everywhere: true, the mix of 0.7.0, reads 33.51 again"
+  },
+  "voice in pink noise 15 dB: neural-denoise/estoi": {
+   "value": 0.7909,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
+   }
   },
   "voice in pink noise 15 dB: neural-denoise/lost": {
    "value": 2.1327,
@@ -1487,6 +1583,17 @@
     "audio": "2.17.0"
    },
    "accepted": "the neural stage of @audio/chain 0.7.1 with the default mix of neural-denoise 0.8.1, which audio 2.18 takes: what the model took comes back 18 dB down under the voice and wherever its output reads as voice, the floor of 60 dB x intensity in the pauses alone, where chain 0.6 took the bed 60 dB down everywhere: 35.81 dB under the voice against 35.94"
+  },
+  "voice in pink noise 5 dB: auto/estoi": {
+   "value": 0.6331,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/chain": "0.7.1",
+    "@audio/denoise-detect": "0.8.1",
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
+   }
   },
   "voice in pink noise 5 dB: auto/lost": {
    "value": 12.3223,
@@ -1532,6 +1639,15 @@
    },
    "accepted": "the default mix of neural-denoise 0.8.1, which audio 2.18 takes: what the model took comes back 18 dB down wherever its output reads as voice, as its residue in these pauses does, where 0.7.0 floored the pauses: 23.75 dB under the voice against 31.37; everywhere: true, the mix of 0.7.0, reads 31.37 again"
   },
+  "voice in pink noise 5 dB: deepfilter/estoi": {
+   "value": 0.6232,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
+   }
+  },
   "voice in pink noise 5 dB: deepfilter/lost": {
    "value": 7.8199,
    "scatter": 0,
@@ -1569,6 +1685,15 @@
     "audio": "2.17.0"
    },
    "accepted": "the default mix of neural-denoise 0.8.1, which audio 2.18 takes: what the model took comes back 18 dB down wherever its output reads as voice, as its residue in these pauses does, where 0.7.0 floored the pauses: 23.75 dB under the voice against 31.37; everywhere: true, the mix of 0.7.0, reads 31.37 again"
+  },
+  "voice in pink noise 5 dB: neural-denoise/estoi": {
+   "value": 0.6232,
+   "scatter": 0,
+   "read": "2026-11-22",
+   "with": {
+    "@audio/neural-denoise": "0.8.2",
+    "audio": "2.19.1"
+   }
   },
   "voice in pink noise 5 dB: neural-denoise/lost": {
    "value": 7.8199,
