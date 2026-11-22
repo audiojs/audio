@@ -112,10 +112,17 @@ function match(input, output, ctx) {
       dl: Array.from({ length: nch }, () => ({ b: new Float32Array(L), i: 0 })),
     }
   }
+  // a refit falls on its own sample, however the blocks are cut: a block that passes it is taken in two (fitted where a
+  // block happened to end, the same sound rendered apart by the block grid, which a latency after it moves: a limiter's
+  // peaks, read on one grid, were up to 0.11 dB off those of the next render)
+  let cut = st.next - st.n
+  if (cut > 0 && cut < len) {
+    match(input.map(x => x.subarray(0, cut)), output.map(y => y.subarray(0, cut)), ctx)
+    return match(input.map(x => x.subarray(cut)), output.map(y => y.subarray(cut)), ctx)
+  }
   // analysis runs L ahead of the output; refit whenever the analyzed length doubles
-  st.parts.forEach((f, p) => st.p[p].sw.push(st.ms ? f(input) : downmix(input, len)))
-  let end = st.n + len, X = Math.round(XFADE * sr)
-  if (end >= st.next) {
+  let X = Math.round(XFADE * sr)
+  if (st.n >= st.next) {
     let fitted = st.p.map(q => cascade(fitEq(ctx, q.sw.power(), q.dst, st.kp), st.ms ? 1 : nch))
     // width: each fit holds its part's loudness; the side then takes the reference's side-to-mid ratio (K-weighted)
     if (st.ms && fitted[1]) {
@@ -125,8 +132,9 @@ function match(input, output, ctx) {
       if (rm > 0 && rs > 0 && sm > 0 && ss > 0) fitted[1].gain *= Math.min(4, Math.max(0.25, Math.sqrt((rs / rm) / (ss / sm)) ** (ctx.amount ?? 1)))
     }
     if (fitted.some(Boolean)) { st.p.forEach((q, i) => { q.prev = q.cur; q.cur = fitted[i] ?? q.cur }); st.xf = st.p.some(q => q.prev) ? X : 0 }
-    while (st.next <= end) st.next *= 2
+    while (st.next <= st.n) st.next *= 2
   }
+  st.parts.forEach((f, p) => st.p[p].sw.push(st.ms ? f(input) : downmix(input, len)))
   // the delayed input, per channel
   let x = st.dl.map((d, c) => { let y = new Float32Array(len), inp = input[c]; for (let i = 0; i < len; i++) { y[i] = d.b[d.i]; d.b[d.i] = inp[i]; if (++d.i === st.L) d.i = 0 } return y })
   // each part through its EQ, the previous fit crossfading out
@@ -140,7 +148,7 @@ function match(input, output, ctx) {
     for (let i = 0; i < len; i++) { output[0][i] = m[i] + s[i]; output[1][i] = m[i] - s[i] }
   } else for (let c = 0; c < nch; c++) output[c].set(eq(st.p[0], x[c], c))
   if (st.xf > 0 && !(st.xf = Math.max(0, st.xf - len))) st.p.forEach(q => q.prev = null)
-  st.n = end
+  st.n += len
 }
 
 audio.op('match', {

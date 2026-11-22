@@ -41,6 +41,7 @@
  */
 import { FULL } from '../core.js'
 import { welch } from './match.js'
+import { printed } from './loudness.js'
 import { downmix, pow2 } from './dsp.js'
 import { sincInterp } from './resample.js'
 import { fft, ifft } from 'fourier-transform'
@@ -85,7 +86,7 @@ const BAND = [300, 3400]
 // - lra: 1 LU, a choice: no document names an LRA change worth telling (EBU Tech 3343-2023 §3.3 reads a lower LRA after
 //   a chain as the sign of "a reduction process", without a number); the step loudness itself is held to
 // - truepeak: 1 dB, a choice: over three times the ±0.3 dB R 128 (m) allows meters to read apart; and any move past -1
-//   dBTP, the ceiling of R 128 (m), Apple's recommendation and normalize()'s
+//   dBTP as printed (to 0.01), the ceiling of R 128 (m), Apple's recommendation and normalize()'s
 // - noisefloor, width, an octave against the median change of the octaves: 3 dB, a choice: the power doubled or halved.
 //   The octaves weighed: those within 60 dB of the loudest, before or after (a choice; a voice's 16 kHz octave, 66 dB
 //   under its loudest, is left out)
@@ -386,7 +387,8 @@ function lines(rows, p, sr, t) {
   let moved = (label, x, tail = '') => `${label} ${f2(x.before)} → ${f2(x.after)} ${x.unit}${tail}`
   if (past(r.loudness, T.loudness)) out.push(moved('loudness', r.loudness))
   if (past(r.lra, T.lra)) out.push(moved('loudness range', r.lra))
-  let tp = r.truepeak, over = tp.after > -1 && !(tp.before > -1)
+  // the ceiling judged as printed, to 0.01 dB, as check() judges it: a limiter lands on it at -0.9999, and that is not over
+  let tp = r.truepeak, over = printed(tp.after) > -1 && !(printed(tp.before) > -1)
   if (past(tp, T.truepeak) || over) out.push(moved('true peak', tp, over ? ', over the -1 dBTP ceiling' : ''))
   if (past(r.noisefloor, T.noisefloor)) out.push(moved('noise floor', r.noisefloor))
   // each octave against the median change of the octaves that hold sound (within 60 dB of the loudest) on both sides

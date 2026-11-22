@@ -728,6 +728,29 @@ test('match: equalizes toward a reference tonal balance', async t => {
   t.almost(await m.stat('loudness'), await src.stat('loudness'), 0.01, 'tone only: integrated loudness held')
 })
 
+// A fit falls on its own sample (the lookahead's end, then 2×, 4×… of it), not where a block happens to end: an op with
+// latency after match moves the block grid match renders on, and the two renders were 3.8e-3 of full scale apart on
+// these notes. normalize() reads its input's true peaks on one render and limits the next by them: master() left a
+// chiptune at -0.965 dBTP under its -1 ceiling.
+test('match: the same sound whatever follows it, however its blocks are cut', async t => {
+  const D = 316
+  audio.op('_test_late', { hidden: true, latency: D, process: (inp, out, ctx) => {
+    let st = ctx._l ??= inp.map(() => ({ b: new Float32Array(D), i: 0 }))
+    inp.forEach((x, c) => { let d = st[c], y = out[c]; for (let i = 0; i < x.length; i++) { y[i] = d.b[d.i]; d.b[d.i] = x[i]; if (++d.i === D) d.i = 0 } })
+  } })
+  // square-wave notes, a new one every 0.2 s, each decaying: 25 s, so the fit is made at 10 s and again at 20 s
+  seed = 7
+  let sr = 44100, n = 25 * sr, x = new Float32Array(n), ph = 0, f = 220
+  for (let i = 0; i < n; i++) { if (i % 8820 === 0) f = 110 * 2 ** (Math.floor(rnd() * 36) / 12); ph += f / sr; x[i] = 0.3 * (ph % 1 < 0.5 ? 1 : -1) * Math.exp(-3 * (i % 8820) / 8820) }
+  let r = new Float32Array(8 * sr), z = 0
+  for (let i = 0; i < r.length; i++) { z = 0.95 * z + 0.05 * (rnd() * 2 - 1); r[i] = 2 * z + 0.02 * (rnd() * 2 - 1) }
+  let from = y => audio.from([y.slice()], { sampleRate: sr }), ref = from(r)
+  let [[p], [q]] = [await from(x).match(ref).read(), await from(x).match(ref).run(['_test_late', {}]).read()], d = 0
+  for (let i = 0; i < p.length; i++) d = Math.max(d, Math.abs(p[i] - q[i]))
+  t.is(p.length, q.length)
+  t.is(d, 0, `with ${D} samples of latency after it: ${d.toExponential(2)} apart`)
+})
+
 // The pitch curve a voice is edited on (the editor's, intonation()'s): a voice gliding as speech does, ±4 semitones about
 // 140 Hz twice a second, which YIN's own threshold (.15) found half of, the curve finds whole and close to its pitch;
 // silence before it has none, nor a room's mains hum after it, 40 dB down (pYIN alone hears its 60 Hz; Praat's silence

@@ -799,6 +799,12 @@ test('compare: a true peak passing -1 dBTP is said under 1 dB; DC past 0.001; co
   // -1.3 dBTP lifted 0.5 dB: under 1 dB, said for the ceiling it passes (R 128 (m), normalize()'s)
   let c = await mono(scale(x, gainOf(0.5))).compare(mono(x))
   lines(t, c, [at0(8), `${moved(c, 'truepeak', 'true peak')}, over the -1 dBTP ceiling`])
+  // on the ceiling as printed is not over it: -0.9995 dBTP prints -1.00 and check() passes it (where a limiter lands);
+  // -0.99 is over
+  for (let [lift, said] of [[0.3005, false], [0.31, true]]) {
+    let q = await mono(scale(x, gainOf(lift))).compare(mono(x)), line = q.changes.find(l => l.startsWith('true peak'))
+    t.is(!!line?.endsWith('over the -1 dBTP ceiling'), said, `${(-1.3 + lift).toFixed(4)} dBTP: ${line ?? 'unsaid'}`)
+  }
   // DC: the channel's mean, past 0.001; of two channels the one furthest from 0
   let mean = y => y.reduce((p, v) => p + v, 0) / y.length
   for (let [dc, shown] of [[0.0015, true], [0.0009, false]]) {
