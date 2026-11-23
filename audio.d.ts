@@ -42,6 +42,10 @@ type AudioSource = AudioInstance | AudioBuffer | Float32Array[] | number
 type FilterType = 'highpass' | 'lowpass' | 'bandpass' | 'notch' | 'eq' | 'lowshelf' | 'highshelf' | 'allpass'
 /** A delivery spec with a loudness target (fn/specs.js): Apple's is podcast, EBU's broadcast; 'streaming', Spotify's former name, still read */
 type Delivery = 'podcast' | 'spotify' | 'broadcast' | 'apple' | 'ebu'
+/** deslop()'s plan, slop(): what was measured (each band's level over the 0.5 to 2 kHz band's, dB; the flatness of 5 to
+ *  10 kHz at its 10th percentile and its median; the 0.5 to 2 kHz band over the whole sound; runs of samples at full
+ *  scale and their share) and the stages it asks for, each an edit with its arguments, its call as written and why */
+type SlopPlan = { evidence: { body: number, pres: number, high: number, air: number, flat: number, flatMid: number, runs: number, railed: number }, stages: { op: string, args: unknown[], call: string, why: string }[], code: string }
 type RepairOpts = { at: Time, duration: Time, method?: 'auto' | 'ar' | 'sinusoidal' | 'similarity' | 'spectral', window?: number }
 /** Where the noise plays alone (a range of the op's input, or several), or its print (dB per band, one or per channel) */
 /** `band` [low, high] Hz: only those frequencies gained, the rest as they were */
@@ -176,6 +180,7 @@ export interface AudioInstance {
    *  changes: the lag line (the stretches read, at 0 too, and those that shared no waveform) or why there is none, then
    *  a line for each measure past its resolution */
   compare(before: AudioInstance): Promise<{ lag: number | null, why: 'short' | 'unrelated' | 'varies' | 'repeats' | null, period: number | null, readings: { at: number, duration: number, channel: number | null, lag: number | null }[], gain: number | null, polarity: number[] | null, swapped: boolean | null, difference: number | null, voice: { frames: number, change: { p10: number, p50: number, p90: number }, under: number, over: number, silenced: number } | null, measures: { name: string, unit: string, before: number | null, after: number | null, delta: number | null }[], changes: string[] }>
+  stat(name: 'slop', opts?: { intensity?: number, target?: Delivery, at?: Time, duration?: Time }): Promise<SlopPlan>
   stat(name: 'clipping', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
   stat(name: 'clipping', opts: { bins: number, at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
   stat(name: 'dc', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<number>
@@ -211,6 +216,9 @@ export interface AudioInstance {
   spectrum<C extends number | number[] = number>(opts?: { bins?: number, at?: Time, duration?: Time, d?: Time, fMin?: number, fMax?: number, weight?: boolean, channel?: C }): Promise<PerChannel<C, Float32Array>>
   cepstrum<C extends number | number[] = number>(opts?: { bins?: number, at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
   silence(opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time, d?: Time }): Promise<{ at: number, duration: number }[]>
+  /** stat('slop'): what a generated track carries and the stages deslop() plans from it, nothing changed; `code`, the
+   *  chain as calls to paste in deslop()'s place and change */
+  slop(opts?: { intensity?: number, target?: Delivery, at?: Time, duration?: Time }): Promise<SlopPlan>
   /** stat('hits'): where the level jumps, each at the sample to cut at */
   hits(opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float64Array>
   /** stat('similar'): the other places that sound like a range (iZotope RX Find Similar) */
@@ -329,6 +337,12 @@ export interface AudioInstance {
   match(reference: AudioSource, amount?: number, opts?: { bands?: number, lookahead?: number, midside?: boolean }): this
   /** Master to a reference track: match in mid and side, then its integrated loudness under a true-peak ceiling (-1 dBTP) */
   master(reference: AudioSource, opts?: { ceiling?: number, amount?: number, bands?: number, lookahead?: number }): this
+  /** A generated track (Suno, Udio and their kind) remastered by what it carries, a first hand: each stage one of these
+   *  edits, planned from a measurement of the sound reaching it (declip, the top's noise part lowered, a band standing over
+   *  what finished music keeps cut), then `target`'s loudness ('spotify') under -1 dBTP. `intensity` 0..2 scales the stages
+   *  that shape the sound. Rendered ahead of playing. The plan with its evidence, nothing changed: slop() */
+  deslop(intensity?: number, opts?: { target?: Delivery }): this
+  deslop(opts: { intensity?: number, target?: Delivery }): this
   /** Moved in time onto a reference it plays with (a part remade or recorded apart): its head cut where it is late, silence
    *  before it where early. The lag by the waveforms' GCC-PHAT where they share one, else by their onsets; within ±`within` s
    *  (10), read from the first `span` s (60). Found before rendering, its input and the reference read whole */
@@ -341,15 +355,16 @@ export interface AudioInstance {
   /** The second channel (each after the first) moved onto the first: `delay` ms by hand, or measured over time with its
    *  polarity (GCC, Knapp & Carter 1976); a pair already in line is left sample for sample (iZotope RX Azimuth) */
   azimuth(delay?: number | 'auto' | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
-  /** The tonal, noisy and transient parts at their own levels, dB (−Infinity removes one): median-filter HPSS with
-   *  Driedger's residual; the parts add back to the input (iZotope RX Deconstruct) */
   /** Clicks found and rebuilt from the sound around them: a click stands out `threshold` (8) times its local level, none longer than `longest` ms */
   declick(threshold?: number, longest?: number, order?: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
   /** A song's vocals, bass, drums and the rest, each at its own level in dB (−Infinity mutes), by a separation model (optional @audio/neural-separate) */
   rebalance(vocals?: number, bass?: number, drums?: number, other?: number, opts?: { residual?: number, model?: string, step?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   /** A soundtrack's dialogue, music and effects, each at its own level in dB (−Infinity mutes), by a separation model (optional @audio/neural-separate) */
   scene(dialogue?: number, music?: number, effects?: number, opts?: { residual?: number, model?: string, step?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
-  deconstruct(tonal?: number, noise?: number, transient?: number, opts?: { separation?: number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  /** The tonal, noisy and transient parts at their own levels, dB (−Infinity removes one): median-filter HPSS with
+   *  Driedger's residual; the parts add back to the input (iZotope RX Deconstruct). `band` [lo, hi] Hz: the levels
+   *  apply between the two, a raised cosine a third of an octave either side of each edge, the rest as it came */
+  deconstruct(tonal?: number, noise?: number, transient?: number, opts?: { separation?: number, band?: [lo: number, hi: number], at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
   /** Encoded and decoded in place, lined up with the input: hear what the codec does (iZotope RX Streaming Preview).
    *  `quality`: MP3 VBR, LAME's -V (0 best, under 10); 'gsm': GSM 06.10 full rate, 13 kbps at 8 kHz */
   codec(format?: 'mp3' | 'aac' | 'opus' | 'vorbis' | 'gsm', bitrate?: number, opts?: { quality?: number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
