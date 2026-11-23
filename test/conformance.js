@@ -1,5 +1,5 @@
 // What a host owes a processor (contract 1.0, "What a host owes"), as checks one host function can be run against.
-// It imports nothing: the adapters in @audio/compile run an unchanged copy of it, as they ship CONTRACT.d.ts.
+// It imports nothing: the adapters in @audio/plugin run an unchanged copy of it, as they ship CONTRACT.d.ts.
 //
 //   import { duties } from './conformance.js'
 //   for (let { name, cite, run } of duties) await run(host)

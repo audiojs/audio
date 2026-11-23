@@ -714,7 +714,7 @@ JSON.stringify(a); audio(json)            // serialize / restore
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `audio.use(...plugins)` | register an [@audio contract](https://github.com/audiojs/compile/blob/main/CONTRACT.md) factory, a stat `{ stat, compute }`, a codec `{ codec, test?, decode?, encode? }`, a function receiving `audio`, or a [registry](docs/plugins.md#registry) name. Registry plugins need no `use`: `a.compressor()` and `a.stat('truepeak')` load them on first use, with their family (`@audio/dynamics/audio`). |
+| `audio.use(...plugins)` | register an [@audio contract](https://github.com/audiojs/plugin/blob/main/CONTRACT.md) factory, a stat `{ stat, compute }`, a codec `{ codec, test?, decode?, encode? }`, a function receiving `audio`, or a [registry](docs/plugins.md#registry) name. Registry plugins need no `use`: `a.compressor()` and `a.stat('truepeak')` load them on first use, with their family (`@audio/dynamics/audio`). |
 | `audio.op(name, descriptor)` | register an op: a `process` function or `{ params, process, plan, resolve }`. |
 | `audio.op(name?)` | one descriptor, or all ops. |
 | `audio.stat(name, descriptor)` | register a stat: `(chs, ctx) => [...]` or `{ block, reduce, query }`. |

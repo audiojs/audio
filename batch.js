@@ -1,4 +1,4 @@
-// toBatch / toStream: engine-free hosts for the processor contract (audiojs/compile CONTRACT.md, 1.0).
+// toBatch / toStream: engine-free hosts for the processor contract (audiojs/plugin CONTRACT.md, 1.0).
 // toBatch drives a whole signal through process calls (one call for a `streaming: false` processor);
 // toStream keeps one live instance across write() chunks. Both keep a host's duties as audio's own host does
 // (core.js useOp), through the helpers below that it shares: values held to their spec and changed between calls only,

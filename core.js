@@ -497,7 +497,7 @@ const isCodec = p => p != null && typeof p === 'object' && typeof p.codec === 's
 const held = id => !!(audio.op?.(id) || audio.stat?.(id) || audio.codecs?.[id] || typeof audio.fn[id] === 'function' && audio.fn[id].op == null)
 
 /** Register plugins. Each receives audio. A contract plugin (a factory function
- *  with an own `params` object — see audiojs/compile CONTRACT.md) is hosted natively as
+ *  with an own `params` object — see audiojs/plugin CONTRACT.md) is hosted natively as
  *  an op; its declared `tail` composes a trailing pad so decays are not truncated.
  *  A stat plugin ({ stat: name, compute(channels, opts) }) registers as a.stat(name).
  *  A codec plugin ({ codec: fmt, test?, decode?, encode? }) extends what audio() can
